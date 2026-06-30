@@ -3610,10 +3610,17 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
         titleTabBorderView.needsDisplay = true
         for tab in tabs {
+            updateScrollRegion(for: tab)
             resizePtyToViewport(for: tab)
         }
         updateCompletionAnchorForActiveTab()
         updateWindowResizeTooltip()
+    }
+
+    private func updateScrollRegion(for tab: TerminalTab) {
+        tab.rootView.layoutSubtreeIfNeeded()
+        tab.scrollView.layoutSubtreeIfNeeded()
+        tab.scrollView.documentView?.layoutSubtreeIfNeeded()
     }
 
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

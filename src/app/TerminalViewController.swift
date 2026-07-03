@@ -62,24 +62,9 @@ private enum TahoeGlassPalette {
     static let titleTabRunningIndicatorSize: CGFloat = 5
     static let commandStatusShieldSize: CGFloat = 13
     static let titleHairlineEndpointGap: CGFloat = 1
-    static let windowTintStart = NSColor(
-        calibratedRed: 0.05,
-        green: 0.08,
-        blue: 0.18,
-        alpha: 0.30
-    )
-    static let windowTintMid = NSColor(
-        calibratedRed: 0.24,
-        green: 0.08,
-        blue: 0.27,
-        alpha: 0.26
-    )
-    static let windowTintEnd = NSColor(
-        calibratedRed: 0.46,
-        green: 0.16,
-        blue: 0.09,
-        alpha: 0.24
-    )
+    static let windowTintStart = NSColor.black.withAlphaComponent(0.30)
+    static let windowTintMid = NSColor.black.withAlphaComponent(0.26)
+    static let windowTintEnd = NSColor.black.withAlphaComponent(0.24)
     static let topBarTint = NSColor.black.withAlphaComponent(0.26)
     static let surfaceTint = NSColor.black.withAlphaComponent(0.18)
     static let failureSurfaceTint = NSColor.systemRed.withAlphaComponent(0.22)

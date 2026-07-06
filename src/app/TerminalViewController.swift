@@ -4142,6 +4142,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         guard let tab = activeTab, !tab.blocks.isEmpty else { return }
 
         clearFindHighlight(in: tab)
+        tab.session.clearHistory()
         let blocksToKeep = tab.blocks.filter { block in
             if block.id == tab.activeBlockID || block.id == tab.pendingBlockID {
                 return true

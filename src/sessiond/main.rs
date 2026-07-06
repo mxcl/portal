@@ -190,6 +190,10 @@ impl Session {
             .running_command = None;
     }
 
+    fn clear_history(&self) {
+        self.history.lock().expect("history lock poisoned").clear();
+    }
+
     fn reconcile_idle_command_state(&self) {
         if !shell_is_foreground(self) {
             return;
@@ -487,6 +491,8 @@ fn handle_client(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<
             }
         } else if command == "INTERRUPT" {
             session.interrupt();
+        } else if command == "CLEAR_HISTORY" {
+            session.clear_history();
         } else if let Some(encoded) = command.strip_prefix("STATE ") {
             let update = decode_state_update(encoded)?;
             session.update_metadata(update);
@@ -792,6 +798,48 @@ mod tests {
         assert_eq!(metadata.title, "project");
         assert_eq!(metadata.cwd, "/tmp/project");
         assert_eq!(metadata.command_count, 0);
+    }
+
+    #[test]
+    fn session_clear_history_keeps_command_metadata() {
+        let request = AttachRequest {
+            session_id: "session-1".to_owned(),
+            cwd: PathBuf::from("/tmp/project"),
+            shell: "/bin/sh".to_owned(),
+            environment: Vec::new(),
+        };
+        let session = Session {
+            session_id: request.session_id.clone(),
+            master_fd: -1,
+            child_pid: 0,
+            exited: AtomicBool::new(false),
+            attached_client_count: AtomicUsize::new(0),
+            history: Mutex::new(b"old block output".to_vec()),
+            metadata: Mutex::new(SessionMetadata {
+                command_history: vec!["cargo test".to_owned()],
+                ..SessionMetadata::new(&request)
+            }),
+            clients: Mutex::new(Vec::new()),
+            state: Weak::new(),
+        };
+
+        session.clear_history();
+
+        assert!(
+            session
+                .history
+                .lock()
+                .expect("history lock poisoned")
+                .is_empty()
+        );
+        assert_eq!(
+            session
+                .metadata
+                .lock()
+                .expect("metadata lock poisoned")
+                .command_history,
+            vec!["cargo test".to_owned()]
+        );
     }
 
     #[test]

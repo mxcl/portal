@@ -2480,6 +2480,7 @@ private final class TerminalOutputProcessor {
     private var activeBlockID: UUID?
     private var activeBlockCwd: String?
     private var isReplayingCommand = false
+    private var isReplayingHistoryOutput = false
     private var usesPagerKeyBindings = false
     private var isAlternateScreenActive = false
     private var isApplicationCursorModeActive = false
@@ -2516,11 +2517,9 @@ private final class TerminalOutputProcessor {
     func replayShellOutput(_ text: String, completion: (() -> Void)? = nil) {
         queue.async { [weak self] in
             guard let self else { return }
+            self.isReplayingHistoryOutput = true
             self.resetForReplayOnQueue()
-            self.consumeShellOutput(text)
-            DispatchQueue.main.async {
-                completion?()
-            }
+            self.replayShellOutputChunk(text, startingAt: text.startIndex, completion: completion)
         }
     }
 
@@ -2562,12 +2561,35 @@ private final class TerminalOutputProcessor {
     }
 
     private func enqueueShellOutputOnQueue(_ text: String) {
+        if isReplayingHistoryOutput {
+            pendingShellOutput += text
+            return
+        }
+
         pendingShellOutput += text
         guard !isShellOutputFlushScheduled else { return }
 
         isShellOutputFlushScheduled = true
         queue.asyncAfter(deadline: .now() + flushDelay) { [weak self] in
             self?.flushPendingShellOutputOnQueue()
+        }
+    }
+
+    private func replayShellOutputChunk(_ text: String, startingAt index: String.Index, completion: (() -> Void)?) {
+        guard index < text.endIndex else {
+            isReplayingHistoryOutput = false
+            flushPendingShellOutputOnQueue()
+            DispatchQueue.main.async {
+                completion?()
+            }
+            return
+        }
+
+        let chunkSize = 64 * 1024
+        let end = text.index(index, offsetBy: chunkSize, limitedBy: text.endIndex) ?? text.endIndex
+        consumeShellOutput(String(text[index..<end]))
+        queue.asyncAfter(deadline: .now() + .milliseconds(8)) { [weak self] in
+            self?.replayShellOutputChunk(text, startingAt: end, completion: completion)
         }
     }
 
@@ -4214,24 +4236,49 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             return
         }
 
-        for tab in tabsToRestore {
-            createTab(
-                workingDirectory: URL(fileURLWithPath: tab.cwd),
-                sessionRef: sessionRef(from: tab),
-                title: tab.title,
-                createdAt: tab.createdAt ?? Date(),
-                commandCount: tab.commandCount ?? 0,
-                commandHistory: tab.commandHistory ?? [],
-                showsSessionPicker: false
-            )
+        let activeSessionID = stored.activeSessionIDs?[windowID] ?? stored.activeSessionID
+        let newestFirst = tabsToRestore.sorted { lhs, rhs in
+            (lhs.createdAt ?? .distantPast) > (rhs.createdAt ?? .distantPast)
+        }
+        let firstTab = activeSessionID
+            .flatMap { sessionID in newestFirst.first { $0.sessionID == sessionID } }
+            ?? newestFirst[0]
+        createTab(from: firstTab, activates: true, persists: false)
+
+        let firstRef = sessionRef(from: firstTab)
+        let remainingTabs = newestFirst.filter { sessionRef(from: $0) != firstRef }
+        restoreSessionTabs(remainingTabs, startingAt: 0)
+    }
+
+    private func restoreSessionTabs(_ storedTabs: [StoredTab], startingAt index: Int) {
+        let batchSize = 2
+        guard index < storedTabs.count else {
+            persistSessionState()
+            return
         }
 
-        let activeSessionID = stored.activeSessionIDs?[windowID] ?? stored.activeSessionID
-        if let activeSessionID,
-           let tab = tabs.first(where: { $0.sessionID == activeSessionID }) {
-            activateTab(tab.id)
+        let end = min(index + batchSize, storedTabs.count)
+        for storedTab in storedTabs[index..<end] {
+            createTab(from: storedTab, activates: false, persists: false)
         }
-        persistSessionState()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.restoreSessionTabs(storedTabs, startingAt: end)
+        }
+    }
+
+    private func createTab(from storedTab: StoredTab, activates: Bool, persists: Bool) {
+        createTab(
+            workingDirectory: URL(fileURLWithPath: storedTab.cwd),
+            sessionRef: sessionRef(from: storedTab),
+            title: storedTab.title,
+            createdAt: storedTab.createdAt ?? Date(),
+            commandCount: storedTab.commandCount ?? 0,
+            commandHistory: storedTab.commandHistory ?? [],
+            showsSessionPicker: false,
+            activates: activates,
+            persists: persists
+        )
     }
 
     private func loadSessionState() -> StoredSessions {
@@ -4353,7 +4400,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         createdAt: Date = Date(),
         commandCount: Int = 0,
         commandHistory: [String] = [],
-        showsSessionPicker: Bool = true
+        showsSessionPicker: Bool = true,
+        activates: Bool = true,
+        persists: Bool = true
     ) {
         let directoryURL = workingDirectory.standardizedFileURL.resolvingSymlinksInPath()
         let directoryPath = directoryURL.path
@@ -4369,17 +4418,24 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.findCloseButton.target = self
         tab.findCloseButton.action = #selector(closeFindMode(_:))
         setCommandBarStatusText("Starting shell...", in: tab)
+        tab.rootView.isHidden = !activates
         tabs.append(tab)
         configureSession(for: tab)
         configureInterruptHandling(for: tab)
         installTabView(tab)
         installTabButton(tab)
-        activateTab(tab.id, tabStripLayoutChanged: true)
+        if activates {
+            activateTab(tab.id, tabStripLayoutChanged: true, persists: persists)
+        } else {
+            layoutTabStripBeforeMeasuringSelection()
+        }
         startShell(for: tab, workingDirectory: directoryURL)
         if showsSessionPicker {
             configureSessionPicker(for: tab)
         }
-        persistSessionState()
+        if persists {
+            persistSessionState()
+        }
     }
 
     private func configureSessionPicker(for tab: TerminalTab) {
@@ -4984,7 +5040,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return nil
     }
 
-    private func activateTab(_ id: UUID, tabStripLayoutChanged: Bool = false) {
+    private func activateTab(_ id: UUID, tabStripLayoutChanged: Bool = false, persists: Bool = true) {
         activeTabID = id
         for tab in tabs {
             tab.rootView.isHidden = tab.id != id
@@ -4998,7 +5054,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             focusInput(for: tab)
             refreshVisibleCommandBarGitStatus(for: tab)
         }
-        persistSessionState()
+        if persists {
+            persistSessionState()
+        }
     }
 
     private func activateAdjacentTab(offset: Int) {
@@ -5200,10 +5258,15 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             tab.session.write(initScript, suppressEcho: true)
         }
 
-        do {
-            try tab.session.start(shellPath: shell, environment: env, workingDirectory: workingDirectory)
-        } catch {
-            setCommandBarStatusText("Failed to start shell: \(error.localizedDescription)", in: tab)
+        let startedSessionRef = tab.sessionRef
+        tab.session.start(shellPath: shell, environment: env, workingDirectory: workingDirectory) { [weak self, weak tab] result in
+            guard let self, let tab, tab.sessionRef == startedSessionRef else { return }
+            switch result {
+            case .success:
+                self.resizePtyToViewport(for: tab)
+            case .failure(let error):
+                self.setCommandBarStatusText("Failed to start shell: \(error.localizedDescription)", in: tab)
+            }
         }
     }
 

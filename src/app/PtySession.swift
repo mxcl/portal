@@ -154,20 +154,42 @@ final class PtySession {
         stop()
     }
 
-    func start(shellPath: String, environment: [String: String], workingDirectory: URL) throws {
-        try connect()
-
+    func start(
+        shellPath: String,
+        environment: [String: String],
+        workingDirectory: URL,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
         let envBlob = environment
             .map { "\($0.key)=\($0.value)" }
             .sorted()
             .joined(separator: "\0")
-        sendLine([
+        let attachLine = [
             "ATTACH",
             Self.base64(sessionRef.sessionID),
             Self.base64(workingDirectory.path),
             Self.base64(shellPath),
             Self.base64(envBlob)
-        ].joined(separator: " "))
+        ].joined(separator: " ")
+
+        queue.async { [weak self] in
+            guard let self, !self.hasStopped() else { return }
+            do {
+                try self.connect()
+                guard !self.hasStopped() else {
+                    self.closeTransport(terminateBridge: true)
+                    return
+                }
+                self.sendLine(attachLine)
+                DispatchQueue.main.async {
+                    completion(.success(()))
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
+            }
+        }
     }
 
     func resize(rows: UInt16, cols: UInt16) {
@@ -219,6 +241,12 @@ final class PtySession {
         isStopped = true
         didReportExit = true
         lifecycleLock.unlock()
+    }
+
+    private func hasStopped() -> Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return isStopped
     }
 
     private func markExitReported() -> Bool {

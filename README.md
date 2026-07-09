@@ -88,7 +88,7 @@ VS Code's `code` command and Remote SSH extension must be installed locally.
 ## Build
 
 ```sh
-scripts/build-app.sh --release
+scripts/build.sh --release
 ```
 
 The build script signs the app with the Developer ID identity associated with
@@ -96,20 +96,20 @@ The build script signs the app with the Developer ID identity associated with
 
 ## Versioning
 
-`Cargo.toml` is the source of truth. By default, `scripts/publish.sh` asks Codex
+`Cargo.toml` is the source of truth. By default, `scripts/build.sh --publish` asks Codex
 for release notes and the next semantic version based on changes since the last
 release, updates `Cargo.toml` and `Cargo.lock`, commits `vX.Y.Z`, pushes the
 branch, then publishes GitHub release tag `vX.Y.Z` from the built app bundle.
 With `--clobber`, it rebuilds and replaces the existing GitHub release for the
 current Cargo version without asking Codex for notes or a new version.
-`scripts/build-app.sh` stamps the Cargo version into `CFBundleShortVersionString`
+`scripts/build.sh` stamps the Cargo version into `CFBundleShortVersionString`
 and sets `CFBundleVersion` from the git commit count.
 
 ## Ghostty Integration
 
 ```sh
 scripts/build-libghostty-vt.sh
-scripts/build-app.sh --release --with-ghostty-vt
+scripts/build.sh --release --with-ghostty-vt
 ```
 
 `libghostty-vt` is pinned to Ghostty `v1.3.1`, whose `build.zig.zon` requires

@@ -2507,6 +2507,7 @@ private final class TerminalOutputProcessor {
     private var isReplayingCommand = false
     private var isReplayingHistoryOutput = false
     private var usesPagerKeyBindings = false
+    private var didSeeAlternateScreenSwitch = false
     private var isAlternateScreenActive = false
     private var isApplicationCursorModeActive = false
 
@@ -2525,6 +2526,7 @@ private final class TerminalOutputProcessor {
             self.activeBlockCwd = cwd
             self.isReplayingCommand = false
             self.usesPagerKeyBindings = usesPagerKeyBindings
+            self.didSeeAlternateScreenSwitch = false
             self.isAlternateScreenActive = false
             self.isApplicationCursorModeActive = false
             self.terminalScreen.resetForCommand()
@@ -2627,6 +2629,7 @@ private final class TerminalOutputProcessor {
         activeBlockCwd = nil
         isReplayingCommand = false
         usesPagerKeyBindings = false
+        didSeeAlternateScreenSwitch = false
         isAlternateScreenActive = false
         isApplicationCursorModeActive = false
         terminalScreen.resetForCommand()
@@ -2725,33 +2728,109 @@ private final class TerminalOutputProcessor {
 
     private func flushVisible(_ text: String) {
         guard !text.isEmpty, let activeBlockID else { return }
+        consumeVisible(text, blockID: activeBlockID) { [weak self] snapshot in
+            self?.emit(.snapshot(snapshot))
+        }
+    }
 
-        let shouldRenderScreen = isAlternateScreenActive
-            || usesPagerKeyBindings
-            || Ansi.containsAlternateScreenSwitch(in: text)
-
-        let plainText: String
-        let attributedText: NSAttributedString
-
-        if shouldRenderScreen {
-            let state = terminalScreen.process(text)
-            isAlternateScreenActive = state.isAlternateScreenActive
-            isApplicationCursorModeActive = state.isApplicationCursorModeActive
-            plainText = state.text
-            attributedText = state.attributedText
-        } else {
-            let rendered = styledRenderer.process(text, linkBaseDirectory: activeBlockCwd)
-            plainText = rendered.plainText
-            attributedText = rendered.attributedText
+    private func consumeVisible(
+        _ text: String,
+        blockID: UUID,
+        onSnapshot: (Snapshot) -> Void
+    ) {
+        let switches = Ansi.alternateScreenSwitchRanges(in: text)
+        guard !switches.isEmpty else {
+            consumeVisibleSegment(text, blockID: blockID, onSnapshot: onSnapshot)
+            return
         }
 
-        emit(.snapshot(Snapshot(
-            blockID: activeBlockID,
+        var cursor = text.startIndex
+        for screenSwitch in switches {
+            consumeVisibleSegment(
+                String(text[cursor..<screenSwitch.range.lowerBound]),
+                blockID: blockID,
+                onSnapshot: onSnapshot
+            )
+            didSeeAlternateScreenSwitch = true
+            consumeScreen(
+                String(text[screenSwitch.range]),
+                blockID: blockID,
+                onSnapshot: onSnapshot
+            )
+            cursor = screenSwitch.range.upperBound
+        }
+        consumeVisibleSegment(String(text[cursor...]), blockID: blockID, onSnapshot: onSnapshot)
+    }
+
+    private func consumeVisibleSegment(
+        _ text: String,
+        blockID: UUID,
+        onSnapshot: (Snapshot) -> Void
+    ) {
+        guard !text.isEmpty else { return }
+        if isAlternateScreenActive || (usesPagerKeyBindings && !didSeeAlternateScreenSwitch) {
+            consumeScreen(text, blockID: blockID, onSnapshot: onSnapshot)
+        } else {
+            let rendered = styledRenderer.process(text, linkBaseDirectory: activeBlockCwd)
+            onSnapshot(snapshot(
+                blockID: blockID,
+                plainText: rendered.plainText,
+                attributedText: rendered.attributedText
+            ))
+        }
+    }
+
+    private func consumeScreen(
+        _ text: String,
+        blockID: UUID,
+        onSnapshot: (Snapshot) -> Void
+    ) {
+        let state = terminalScreen.process(text)
+        isAlternateScreenActive = state.isAlternateScreenActive
+        isApplicationCursorModeActive = state.isApplicationCursorModeActive
+        if state.isAlternateScreenActive || (usesPagerKeyBindings && !didSeeAlternateScreenSwitch) {
+            onSnapshot(snapshot(
+                blockID: blockID,
+                plainText: state.text,
+                attributedText: state.attributedText
+            ))
+        } else {
+            let rendered = styledRenderer.process("", linkBaseDirectory: activeBlockCwd)
+            onSnapshot(snapshot(
+                blockID: blockID,
+                plainText: rendered.plainText,
+                attributedText: rendered.attributedText
+            ))
+        }
+    }
+
+    private func snapshot(
+        blockID: UUID,
+        plainText: String,
+        attributedText: NSAttributedString
+    ) -> Snapshot {
+        Snapshot(
+            blockID: blockID,
             plainText: plainText,
             attributedText: attributedText,
             isAlternateScreenActive: isAlternateScreenActive,
             isApplicationCursorModeActive: isApplicationCursorModeActive
-        )))
+        )
+    }
+
+    static func alternateScreenTranscriptSelfTest() -> Bool {
+        func finalOutput(for text: String) -> String? {
+            let processor = TerminalOutputProcessor()
+            let blockID = UUID()
+            var last: Snapshot?
+            processor.consumeVisible(text, blockID: blockID) { snapshot in
+                last = snapshot
+            }
+            return last?.plainText
+        }
+
+        return finalOutput(for: "before\n\u{1B}[?1049heditor text\u{1B}[?1049lafter\n") == "before\nafter\n"
+            && finalOutput(for: "\u{1B}[?1049heditor text\u{1B}[?1049l") == ""
     }
 
     private func emit(_ event: Event) {
@@ -3410,6 +3489,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let fallbackDisplayRefreshRate = 60
     private static let didRunPassthroughRoutingSelfTest: Void = {
         assert(PtyPassthroughView.passthroughRoutingSelfTest())
+        assert(TerminalOutputProcessor.alternateScreenTranscriptSelfTest())
     }()
 
     private enum TabClickTarget {

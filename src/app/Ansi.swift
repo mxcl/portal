@@ -24,6 +24,11 @@ enum Ansi {
         let attributedText: NSAttributedString
     }
 
+    struct AlternateScreenSwitch {
+        let range: Range<String.Index>
+        let isActive: Bool
+    }
+
     static func emptyAttributedOutput() -> NSAttributedString {
         NSAttributedString(string: " ", attributes: TextStyle().attributes())
     }
@@ -916,8 +921,17 @@ enum Ansi {
 
     static func alternateScreenSwitches(in text: String) -> [Bool] {
         var switches: [Bool] = []
-        scanAlternateScreenSwitches(in: text) { isActive in
+        scanAlternateScreenSwitches(in: text) { _, isActive in
             switches.append(isActive)
+            return true
+        }
+        return switches
+    }
+
+    static func alternateScreenSwitchRanges(in text: String) -> [AlternateScreenSwitch] {
+        var switches: [AlternateScreenSwitch] = []
+        scanAlternateScreenSwitches(in: text) { range, isActive in
+            switches.append(AlternateScreenSwitch(range: range, isActive: isActive))
             return true
         }
         return switches
@@ -925,7 +939,7 @@ enum Ansi {
 
     static func containsAlternateScreenSwitch(in text: String) -> Bool {
         var didFindSwitch = false
-        scanAlternateScreenSwitches(in: text) { _ in
+        scanAlternateScreenSwitches(in: text) { _, _ in
             didFindSwitch = true
             return false
         }
@@ -934,7 +948,7 @@ enum Ansi {
 
     private static func scanAlternateScreenSwitches(
         in text: String,
-        onSwitch: (Bool) -> Bool
+        onSwitch: (Range<String.Index>, Bool) -> Bool
     ) {
         let bytes = text.utf8
         var index = bytes.startIndex
@@ -957,10 +971,16 @@ enum Ansi {
                 let byte = bytes[cursor]
                 if byte >= 0x40 && byte <= 0x7E {
                     if byte == 0x68 || byte == 0x6C,
-                       isAlternateScreenMode(parameters) {
-                        if !onSwitch(byte == 0x68) {
+                       isAlternateScreenMode(parameters),
+                       let start = String.Index(index, within: text) {
+                        bytes.formIndex(after: &cursor)
+                        if let end = String.Index(cursor, within: text),
+                           !onSwitch(start..<end, byte == 0x68) {
                             return
                         }
+                        index = cursor
+                        didFindFinal = true
+                        break
                     }
                     bytes.formIndex(after: &cursor)
                     index = cursor

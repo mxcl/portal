@@ -2360,6 +2360,7 @@ private final class PtyPassthroughView: NSView {
     var onInterrupt: (() -> Void)?
     var usesApplicationCursorKeys: (() -> Bool)?
     var forwardsOrdinaryInput = false
+    var allowedPromptInput = Set<Character>()
     var usesPagerKeyBindings = false
 
     override var acceptsFirstResponder: Bool { true }
@@ -2377,7 +2378,7 @@ private final class PtyPassthroughView: NSView {
             onInterrupt?()
             return
         }
-        guard forwardsOrdinaryInput else { return }
+        guard forwardsOrdinaryInput || isAllowedPromptInput(sequence) else { return }
         onInput?(sequence)
     }
 
@@ -2392,12 +2393,17 @@ private final class PtyPassthroughView: NSView {
         view.handleTerminalSequence("x")
         guard inputs.isEmpty, interruptCount == 0 else { return false }
 
+        view.allowedPromptInput = ["y", "n"]
+        view.handleTerminalSequence("y")
+        view.handleTerminalSequence("x")
+        guard inputs == ["y"], interruptCount == 0 else { return false }
+
         view.handleTerminalSequence("\u{3}")
-        guard inputs.isEmpty, interruptCount == 1 else { return false }
+        guard inputs == ["y"], interruptCount == 1 else { return false }
 
         view.forwardsOrdinaryInput = true
         view.handleTerminalSequence("x")
-        return inputs == ["x"] && interruptCount == 1
+        return inputs == ["y", "x"] && interruptCount == 1
     }
 
     override func cancelOperation(_ sender: Any?) {
@@ -2471,6 +2477,14 @@ private final class PtyPassthroughView: NSView {
 
     private func cursorKey(normal: String, application: String) -> String {
         usesApplicationCursorKeys?() == true ? application : normal
+    }
+
+    private func isAllowedPromptInput(_ sequence: String) -> Bool {
+        if sequence == "\r" || sequence == "\n" {
+            return allowedPromptInput.contains("\n")
+        }
+        guard sequence.count == 1, let character = sequence.first else { return false }
+        return allowedPromptInput.contains(character)
     }
 }
 
@@ -6056,6 +6070,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         if tab.isFindMode {
             updateFindResults(in: tab, bounce: false)
         }
+        updatePassthroughVisibility(for: tab)
         if didChangeTerminalMode {
             refreshTerminalControl(in: tab)
         }
@@ -6604,11 +6619,36 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func updatePassthroughVisibility(for tab: TerminalTab) {
         tab.ptyPassthroughView.forwardsOrdinaryInput = tab.isTerminalControlActive
+        tab.ptyPassthroughView.allowedPromptInput = allowedPromptInput(in: tab)
         tab.ptyPassthroughView.isHidden = !shouldSendInputToPty(in: tab)
     }
 
     private func shouldSendInputToPty(in tab: TerminalTab) -> Bool {
         !tab.isFindMode && (tab.isTerminalControlActive || isCommandRunning(in: tab))
+    }
+
+    private func allowedPromptInput(in tab: TerminalTab) -> Set<Character> {
+        guard tab.isShellReady == false,
+              let runningBlock = latestRunningBlock(in: tab),
+              let block = tab.blocks.first(where: { $0.id == runningBlock.id }),
+              isYesNoPrompt(block.output)
+        else {
+            return []
+        }
+        return ["y", "Y", "n", "N", "\n"]
+    }
+
+    private func isYesNoPrompt(_ output: String) -> Bool {
+        guard let line = output.split(separator: "\n", omittingEmptySubsequences: false).last else {
+            return false
+        }
+        let prompt = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return prompt.contains("?") && (
+            prompt.hasSuffix("(y/n)") ||
+            prompt.hasSuffix("[y/n]") ||
+            prompt.hasSuffix("(yes/no)") ||
+            prompt.hasSuffix("[yes/no]")
+        )
     }
 
     private func resizePtyToViewport(for tab: TerminalTab) {

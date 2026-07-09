@@ -833,12 +833,23 @@ enum Ansi {
             plain.reserveCapacity(cellCount + max(0, rows.count - 1))
 
             for (index, row) in rows.enumerated() {
-                Ansi.appendStyledCells(
-                    cells[row.row][0..<row.columnCount],
-                    to: &plain,
-                    attributed: output,
-                    cache: &attributeCache
-                )
+                if row.row == cursorRow {
+                    var renderedCells = Array(cells[row.row][0..<row.columnCount])
+                    renderedCells[cursorCol].style.isInverse.toggle()
+                    Ansi.appendStyledCells(
+                        renderedCells,
+                        to: &plain,
+                        attributed: output,
+                        cache: &attributeCache
+                    )
+                } else {
+                    Ansi.appendStyledCells(
+                        cells[row.row][0..<row.columnCount],
+                        to: &plain,
+                        attributed: output,
+                        cache: &attributeCache
+                    )
+                }
                 if index < rows.count - 1 {
                     plain.append("\n")
                     Ansi.appendAttributed(
@@ -864,7 +875,7 @@ enum Ansi {
             rows.reserveCapacity(self.rows)
 
             for row in 0..<self.rows {
-                rows.append(RenderedRow(row: row, columnCount: renderedColumnCount(in: cells[row])))
+                rows.append(RenderedRow(row: row, columnCount: renderedColumnCount(in: cells[row], row: row)))
             }
 
             while rows.first?.columnCount == 0 {
@@ -876,12 +887,12 @@ enum Ansi {
             return rows
         }
 
-        private func renderedColumnCount(in row: [Cell]) -> Int {
+        private func renderedColumnCount(in row: [Cell], row rowIndex: Int) -> Int {
             var count = row.count
             while count > 0, row[count - 1].scalar == " " {
                 count -= 1
             }
-            return count
+            return rowIndex == cursorRow ? max(count, cursorCol + 1) : count
         }
 
         private func blankLine(style: TextStyle = TextStyle()) -> [Cell] {
@@ -993,6 +1004,15 @@ enum Ansi {
         assert(fileLinkLine(in: pathOutput, text: pathText, needle: file.path) == 42)
         assert(fileLinkLine(in: pathOutput, text: pathText, needle: "./Example.swift") == 7)
         assert(fileLinkLine(in: pathOutput, text: pathText, needle: "Missing.swift") == nil)
+
+        let screen = TerminalScreen(rows: 2, cols: 4)
+        let cursorOutput = screen.process("\u{1B}[?1049habc\u{1B}[D")
+        assert(cursorOutput.text == "abc")
+        assert(cursorOutput.attributedText.attribute(.backgroundColor, at: 2, effectiveRange: nil) != nil)
+
+        let blankCursorOutput = TerminalScreen(rows: 2, cols: 4).process("\u{1B}[?1049h")
+        assert(blankCursorOutput.text == " ")
+        assert(blankCursorOutput.attributedText.attribute(.backgroundColor, at: 0, effectiveRange: nil) != nil)
     }
 
     private static let linkDetector = try! NSDataDetector(

@@ -2359,6 +2359,7 @@ private final class PtyPassthroughView: NSView {
     var onInput: ((String) -> Void)?
     var onInterrupt: (() -> Void)?
     var usesApplicationCursorKeys: (() -> Bool)?
+    var forwardsOrdinaryInput = false
     var usesPagerKeyBindings = false
 
     override var acceptsFirstResponder: Bool { true }
@@ -2368,11 +2369,35 @@ private final class PtyPassthroughView: NSView {
             super.keyDown(with: event)
             return
         }
+        handleTerminalSequence(sequence)
+    }
+
+    private func handleTerminalSequence(_ sequence: String) {
         if sequence == "\u{3}" {
             onInterrupt?()
             return
         }
+        guard forwardsOrdinaryInput else { return }
         onInput?(sequence)
+    }
+
+    static func passthroughRoutingSelfTest() -> Bool {
+        let view = PtyPassthroughView(frame: .zero)
+        var inputs: [String] = []
+        var interruptCount = 0
+        view.onInput = { inputs.append($0) }
+        view.onInterrupt = { interruptCount += 1 }
+
+        view.forwardsOrdinaryInput = false
+        view.handleTerminalSequence("x")
+        guard inputs.isEmpty, interruptCount == 0 else { return false }
+
+        view.handleTerminalSequence("\u{3}")
+        guard inputs.isEmpty, interruptCount == 1 else { return false }
+
+        view.forwardsOrdinaryInput = true
+        view.handleTerminalSequence("x")
+        return inputs == ["x"] && interruptCount == 1
     }
 
     override func cancelOperation(_ sender: Any?) {
@@ -3383,6 +3408,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let blockViewRenderDelay: TimeInterval = 1.0 / 12.0
     private let interactiveBlockViewRenderDelay: TimeInterval = 1.0 / 30.0
     private let fallbackDisplayRefreshRate = 60
+    private static let didRunPassthroughRoutingSelfTest: Void = {
+        assert(PtyPassthroughView.passthroughRoutingSelfTest())
+    }()
 
     private enum TabClickTarget {
         case select(UUID)
@@ -3394,6 +3422,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         windowID: String = UUID().uuidString,
         restoresPersistedWindow: Bool = true
     ) {
+        _ = Self.didRunPassthroughRoutingSelfTest
         self.selfTestCommand = selfTestCommand
         self.windowID = windowID
         self.restoresPersistedWindow = restoresPersistedWindow
@@ -3401,6 +3430,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     required init?(coder: NSCoder) {
+        _ = Self.didRunPassthroughRoutingSelfTest
         self.selfTestCommand = nil
         self.windowID = UUID().uuidString
         self.restoresPersistedWindow = true
@@ -5150,7 +5180,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 self.stopTtyModePolling(for: tab)
                 tab.ptyPassthroughView.usesPagerKeyBindings = false
                 self.setTerminalControl(false, in: tab)
-                self.clearCommandInput(in: tab)
                 self.updateCommandBarVisibility(for: tab)
             }
         }
@@ -5717,6 +5746,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func submitCommand(in tab: TerminalTab) {
         guard tab.isShellReady, !tab.isReplayingHistory else { return }
+        dismissCompletion()
         hideSessionPicker(for: tab)
         let rawCommand = tab.inputView.string
         let command = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5735,6 +5765,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.isShellReady = false
         tab.isAlternateScreenActive = false
         tab.isApplicationCursorModeActive = false
+        tab.ptyPassthroughView.forwardsOrdinaryInput = false
         let usesPagerKeyBindings = usesPagerKeyBindings(for: command)
         tab.ptyPassthroughView.usesPagerKeyBindings = usesPagerKeyBindings
         updateTabTitle(titleForCommand(command), detail: command, in: tab)
@@ -5766,7 +5797,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         startRunningElapsedUpdates(for: tab)
 
         let encodedCommand = command.data(using: .utf8)?.base64EncodedString() ?? ""
-        let script = shellInputResetPrefixIfNeeded(in: tab) + "__vaultty_cmd=\(shellQuote(command)); __vaultty_command_b64=\(shellQuote(encodedCommand)); printf '\\033]133;C;%s\\a' \"$__vaultty_command_b64\"; eval \"$__vaultty_cmd\"; __vaultty_status=$?; printf '\\033]133;P;%s\\a' \"$(pwd | base64)\"; printf '\\033]133;D;%s\\a' \"$__vaultty_status\"\n"
+        let script = shellLineResetSequence + shellInputResetPrefixIfNeeded(in: tab) + "__vaultty_cmd=\(shellQuote(command)); __vaultty_command_b64=\(shellQuote(encodedCommand)); printf '\\033]133;C;%s\\a' \"$__vaultty_command_b64\"; eval \"$__vaultty_cmd\"; __vaultty_status=$?; printf '\\033]133;P;%s\\a' \"$(pwd | base64)\"; printf '\\033]133;D;%s\\a' \"$__vaultty_status\"\n"
         tab.session.write(script, suppressEcho: true)
         updatePassthroughVisibility(for: tab)
         focusInput(for: tab)
@@ -5793,7 +5824,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.blocks.append(block)
         addBlockView(block, to: tab)
         updateCommandBarVisibility(for: tab)
-        tab.session.write(shellInputResetPrefixIfNeeded(in: tab) + rawCommand + "\n", suppressEcho: true)
+        tab.session.write(shellLineResetSequence + shellInputResetPrefixIfNeeded(in: tab) + rawCommand + "\n", suppressEcho: true)
         updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
         focusInput(for: tab)
     }
@@ -6004,7 +6035,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             }
             stopTtyModePolling(for: tab)
             setTerminalControl(false, in: tab)
-            clearCommandInput(in: tab)
             updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
             updateCommandBarVisibility(for: tab)
             updateTabTitleForDirectory(tab)
@@ -6493,6 +6523,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func updatePassthroughVisibility(for tab: TerminalTab) {
+        tab.ptyPassthroughView.forwardsOrdinaryInput = tab.isTerminalControlActive
         tab.ptyPassthroughView.isHidden = !shouldSendInputToPty(in: tab)
     }
 

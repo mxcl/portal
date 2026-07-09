@@ -526,7 +526,7 @@ esac
 
 echo "Building Rust helpers"
 export MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS_VERSION"
-cargo build "${CARGO_FLAGS[@]}" --bin vaultty-env --bin vaultty-sessiond --bin vaultty-session-bridge
+cargo build ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} --bin vaultty-env --bin vaultty-sessiond --bin vaultty-session-bridge
 
 echo "Building Swift package dependencies"
 swift build \

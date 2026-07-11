@@ -5380,7 +5380,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             export LC_TERMINAL_VERSION=\(shellQuote(appVersion))
             export __CFBundleIdentifier=\(shellQuote(bundleIdentifier))
             export VAULTTY_ENV=\(shellQuote(env["VAULTTY_ENV"] ?? ""))
-            \(remoteCodeFunctionScript)
+            \(isRemoteSession ? remoteCodeFunctionScript : "")
             cd \(shellQuote(workingDirectory.path))
             __vaultty_dotenv_hook() {
               local __vaultty_dotenv __vaultty_status __vaultty_loaded
@@ -6185,8 +6185,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private var remoteCodeFunctionScript: String {
         """
-        rcode() {
-          local __vaultty_target="${1:-.}" __vaultty_kind __vaultty_dir __vaultty_name __vaultty_abs
+        code() {
+          if [ "$#" -eq 0 ]; then
+            printf 'usage: code PATH\\n' >&2
+            return 2
+          fi
+          local __vaultty_target="$1" __vaultty_kind __vaultty_dir __vaultty_name __vaultty_abs
           if [ -d "$__vaultty_target" ]; then
             __vaultty_kind=folder
             __vaultty_abs="$(cd "$__vaultty_target" 2>/dev/null && pwd -P)" || return 1

@@ -372,6 +372,7 @@ private struct ContentColumnBackground: View {
         Rectangle()
             .fill(.thinMaterial)
             .backgroundExtensionEffect()
+            .ignoresSafeArea()
     }
 }
 
@@ -599,7 +600,10 @@ private final class TahoeGlassRootView: NSView {
 
     private func topBarSeparatorPath(y: CGFloat, activeTabFrame: CGRect?) -> CGPath {
         let path = CGMutablePath()
-        guard let activeTabFrame else {
+        guard let activeTabFrame,
+              y >= activeTabFrame.minY,
+              y <= activeTabFrame.maxY
+        else {
             path.move(to: CGPoint(x: 0, y: y))
             path.addLine(to: CGPoint(x: bounds.width, y: y))
             return path
@@ -1891,8 +1895,7 @@ private final class TitleTabButton: NSButton {
 
     override func draw(_ dirtyRect: NSRect) {
         fillColor.setFill()
-        let fillHeight = isSelectedTab ? bounds.height : max(0, bounds.height - 1)
-        let fillRect = NSRect(x: 0, y: 0, width: bounds.width, height: fillHeight)
+        let fillRect = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - 1))
         titleSegmentFillPath(
             in: fillRect,
             isFlipped: isFlipped,
@@ -2025,7 +2028,7 @@ private final class TitleTabButton: NSButton {
     private func updateAppearance() {
         let titleColor: NSColor
         if isSelectedTab {
-            fillColor = TahoeGlassPalette.surfaceTint
+            fillColor = .clear
             titleColor = TahoeGlassPalette.titleTextActive
         } else if isHovering {
             fillColor = TahoeGlassPalette.titleSegmentHoverFill
@@ -3670,7 +3673,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             ),
             contentContainer.topAnchor.constraint(
                 equalTo: view.topAnchor,
-                constant: TahoeGlassPalette.titleContentTop - 1
+                constant: TahoeGlassPalette.titleContentTop
             ),
             contentContainer.bottomAnchor.constraint(
                 equalTo: view.bottomAnchor

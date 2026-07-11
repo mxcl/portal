@@ -35,8 +35,8 @@ enum BackgroundBlurEffect: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .original: "Original"
-        case .contentColumn: "Content Column"
+        case .original: "Dusk Theme"
+        case .contentColumn: "Dawn Theme"
         }
     }
 }

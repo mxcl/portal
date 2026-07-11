@@ -1872,7 +1872,8 @@ private final class TitleTabButton: NSButton {
 
     override func draw(_ dirtyRect: NSRect) {
         fillColor.setFill()
-        let fillRect = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - 1))
+        let fillHeight = isSelectedTab ? bounds.height : max(0, bounds.height - 1)
+        let fillRect = NSRect(x: 0, y: 0, width: bounds.width, height: fillHeight)
         titleSegmentFillPath(
             in: fillRect,
             isFlipped: isFlipped,

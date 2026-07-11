@@ -922,7 +922,7 @@ private final class BlockOutputTextView: NSTextView {
         }
     }
 
-    private func enumerateLinkRects(_ body: (NSRect) -> Void) {
+    private func enumerateLinkRects(_ body: @escaping (NSRect) -> Void) {
         guard let textStorage, let layoutManager, let textContainer else { return }
         let fullRange = NSRange(location: 0, length: textStorage.length)
         layoutManager.ensureLayout(for: textContainer)

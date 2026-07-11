@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VAULT_DIR="${VAULT_DIR:-$HOME/src/automic-vault}"
 CONFIGURATION="${CONFIGURATION:-release}"
 APP_NAME="Vaultty"
 APP_BUNDLE_ID="com.automicvault.vaultty"
@@ -30,7 +29,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/build.sh [--debug|--release] [--install] [--run] [--dmg] [--notarize] [--publish] [--clobber] [--with-ghostty-vt] [--output PATH] [-- APP_ARGS...]
 
-Build and codesign Vaultty.app using the Developer ID identity associated with ~/src/automic-vault.
+Build and codesign Vaultty.app using an installed Developer ID identity.
 
 Options:
   --install          Replace /Applications/Vaultty.app with the built app.
@@ -158,19 +157,6 @@ unquote_env_value() {
       ;;
   esac
   printf '%s' "$value"
-}
-
-env_file_value() {
-  local key="$1"
-  local file="$VAULT_DIR/.env"
-  [[ -f "$file" ]] || return 1
-  awk -F= -v wanted="$key" '
-    $1 == wanted {
-      sub(/^[^=]*=/, "")
-      print
-      exit
-    }
-  ' "$file"
 }
 
 die() {
@@ -406,20 +392,11 @@ codesign_identity() {
     return 0
   fi
 
-  local team_common_name
-  team_common_name="$(env_file_value TEAM_COMMON_NAME || true)"
-  team_common_name="$(unquote_env_value "$team_common_name")"
-  if [[ -z "$team_common_name" ]]; then
-    echo "Unable to read TEAM_COMMON_NAME from $VAULT_DIR/.env" >&2
-    return 1
-  fi
-
   local identity
   identity="$(security find-identity -v -p codesigning |
-    sed -n "s/.*\"\(Developer ID Application: ${team_common_name} ([^\"]*)\)\".*/\1/p" |
-    head -n 1)"
+    awk -F '"' '/Developer ID Application/ { print $2; exit }')"
   if [[ -z "$identity" ]]; then
-    echo "No Developer ID Application identity found for $team_common_name" >&2
+    echo "No Developer ID Application identity found" >&2
     return 1
   fi
   printf '%s' "$identity"

@@ -886,6 +886,8 @@ private final class SelectableBlockTextField: NSTextField {
 }
 
 private final class BlockOutputTextView: NSTextView {
+    private static let linkCapsuleColor = NSColor.white.withAlphaComponent(0.10)
+
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
@@ -897,8 +899,30 @@ private final class BlockOutputTextView: NSTextView {
         window?.invalidateCursorRects(for: self)
     }
 
+    override func draw(_ dirtyRect: NSRect) {
+        NSGraphicsContext.saveGraphicsState()
+        Self.linkCapsuleColor.setFill()
+        enumerateLinkRects { rect in
+            let capsuleRect = rect.insetBy(dx: -3, dy: -1)
+            guard capsuleRect.intersects(dirtyRect) else { return }
+            NSBezierPath(
+                roundedRect: capsuleRect,
+                xRadius: capsuleRect.height / 2,
+                yRadius: capsuleRect.height / 2
+            ).fill()
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        super.draw(dirtyRect)
+    }
+
     override func resetCursorRects() {
         super.resetCursorRects()
+        enumerateLinkRects { [weak self] rect in
+            self?.addCursorRect(rect, cursor: .pointingHand)
+        }
+    }
+
+    private func enumerateLinkRects(_ body: (NSRect) -> Void) {
         guard let textStorage, let layoutManager, let textContainer else { return }
         let fullRange = NSRange(location: 0, length: textStorage.length)
         layoutManager.ensureLayout(for: textContainer)
@@ -911,10 +935,7 @@ private final class BlockOutputTextView: NSTextView {
                 in: textContainer
             ) { [weak self] rect, _ in
                 guard let self else { return }
-                var cursorRect = rect
-                cursorRect.origin.x += textContainerOrigin.x
-                cursorRect.origin.y += textContainerOrigin.y
-                addCursorRect(cursorRect, cursor: .pointingHand)
+                body(rect.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y))
             }
         }
     }
@@ -1198,6 +1219,7 @@ private final class BlockView: NSView {
         outputView.isEditable = false
         outputView.isSelectable = true
         outputView.drawsBackground = false
+        outputView.linkTextAttributes = [:]
         outputView.textContainerInset = NSSize(width: 0, height: 0)
         outputView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         outputView.textColor = .labelColor

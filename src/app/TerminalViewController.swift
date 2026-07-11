@@ -382,6 +382,12 @@ private final class TahoeGlassRootView: NSView {
     private let originalTintLayer = CAGradientLayer()
     private let topBarLayer = CAShapeLayer()
     private let topBarSeparatorLayer = CAShapeLayer()
+    private lazy var contentColumnMaterialConstraints = [
+        contentColumnMaterialView.leadingAnchor.constraint(equalTo: leadingAnchor),
+        contentColumnMaterialView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        contentColumnMaterialView.topAnchor.constraint(equalTo: topAnchor),
+        contentColumnMaterialView.bottomAnchor.constraint(equalTo: bottomAnchor)
+    ]
 
     var backgroundBlurEffect = BackgroundBlurEffect.preferred {
         didSet {
@@ -422,11 +428,10 @@ private final class TahoeGlassRootView: NSView {
         addSubview(originalMaterialView, positioned: .below, relativeTo: nil)
 
         contentColumnMaterialView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(contentColumnMaterialView, positioned: .above, relativeTo: originalMaterialView)
 
         tintView.wantsLayer = true
         tintView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(tintView, positioned: .above, relativeTo: contentColumnMaterialView)
+        addSubview(tintView, positioned: .above, relativeTo: originalMaterialView)
 
         originalTintLayer.colors = [
             TahoeGlassPalette.windowTintStart.cgColor,
@@ -452,11 +457,6 @@ private final class TahoeGlassRootView: NSView {
             originalMaterialView.trailingAnchor.constraint(equalTo: trailingAnchor),
             originalMaterialView.topAnchor.constraint(equalTo: topAnchor),
             originalMaterialView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            contentColumnMaterialView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            contentColumnMaterialView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            contentColumnMaterialView.topAnchor.constraint(equalTo: topAnchor),
-            contentColumnMaterialView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             tintView.leadingAnchor.constraint(equalTo: leadingAnchor),
             tintView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -507,9 +507,16 @@ private final class TahoeGlassRootView: NSView {
     }
 
     private func updateBackgroundBlurEffect() {
-        originalMaterialView.isHidden = backgroundBlurEffect != .original
         originalTintLayer.isHidden = backgroundBlurEffect != .original
-        contentColumnMaterialView.isHidden = backgroundBlurEffect != .contentColumn
+        switch backgroundBlurEffect {
+        case .original:
+            NSLayoutConstraint.deactivate(contentColumnMaterialConstraints)
+            contentColumnMaterialView.removeFromSuperview()
+        case .contentColumn:
+            guard contentColumnMaterialView.superview == nil else { return }
+            addSubview(contentColumnMaterialView, positioned: .below, relativeTo: tintView)
+            NSLayoutConstraint.activate(contentColumnMaterialConstraints)
+        }
     }
 
     private func topBarPath(
@@ -1998,7 +2005,7 @@ private final class TitleTabButton: NSButton {
     private func updateAppearance() {
         let titleColor: NSColor
         if isSelectedTab {
-            fillColor = .clear
+            fillColor = TahoeGlassPalette.surfaceTint
             titleColor = TahoeGlassPalette.titleTextActive
         } else if isHovering {
             fillColor = TahoeGlassPalette.titleSegmentHoverFill

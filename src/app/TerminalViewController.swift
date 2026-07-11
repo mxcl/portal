@@ -946,6 +946,7 @@ private final class BlockOutputTextView: NSTextView {
             }
         }
         hoveredLinkRange = hoveredRange
+        (hoveredRange == nil ? NSCursor.iBeam : NSCursor.pointingHand).set()
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -968,13 +969,6 @@ private final class BlockOutputTextView: NSTextView {
         }
         NSGraphicsContext.restoreGraphicsState()
         super.draw(dirtyRect)
-    }
-
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        enumerateLinkRects { [weak self] _, rect in
-            self?.addCursorRect(rect, cursor: .pointingHand)
-        }
     }
 
     private func enumerateLinkRects(_ body: @escaping (NSRange, NSRect) -> Void) {

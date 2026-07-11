@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import QuartzCore
+import SwiftUI
 
 @_silgen_name("vaultty_ghostty_osc_command_type")
 private func vaulttyGhosttyOscCommandType(_ payload: UnsafePointer<CChar>) -> Int32
@@ -20,6 +21,24 @@ private struct TerminalBlock {
     var attributedOutput: NSAttributedString
     var outputRevision: Int
     var state: State
+}
+
+enum BackgroundBlurEffect: String, CaseIterable {
+    case original
+    case contentColumn
+
+    static let defaultsKey = "backgroundBlurEffect"
+
+    static var preferred: Self {
+        UserDefaults.standard.string(forKey: defaultsKey).flatMap(Self.init) ?? .contentColumn
+    }
+
+    var title: String {
+        switch self {
+        case .original: "Original"
+        case .contentColumn: "Content Column"
+        }
+    }
 }
 
 private enum FindResultTarget: Equatable {
@@ -348,12 +367,28 @@ private final class ResizeMetricsTooltipView: NSView {
     }
 }
 
+private struct ContentColumnBackground: View {
+    var body: some View {
+        Rectangle()
+            .fill(.thinMaterial)
+            .backgroundExtensionEffect()
+    }
+}
+
 private final class TahoeGlassRootView: NSView {
-    private let materialView = NonHitTestingVisualEffectView()
+    private let originalMaterialView = NonHitTestingVisualEffectView()
+    private let contentColumnMaterialView = NSHostingView(rootView: ContentColumnBackground())
     private let tintView = NonHitTestingView()
-    private let tintLayer = CAGradientLayer()
+    private let originalTintLayer = CAGradientLayer()
     private let topBarLayer = CAShapeLayer()
     private let topBarSeparatorLayer = CAShapeLayer()
+
+    var backgroundBlurEffect = BackgroundBlurEffect.preferred {
+        didSet {
+            guard backgroundBlurEffect != oldValue else { return }
+            updateBackgroundBlurEffect()
+        }
+    }
 
     var onLayout: (() -> Void)?
     var onUpdateButtonMouseDown: (() -> Void)?
@@ -379,26 +414,29 @@ private final class TahoeGlassRootView: NSView {
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
 
-        materialView.material = .underWindowBackground
-        materialView.blendingMode = .behindWindow
-        materialView.state = .active
-        materialView.appearance = NSAppearance(named: .darkAqua)
-        materialView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(materialView, positioned: .below, relativeTo: nil)
+        originalMaterialView.material = .underWindowBackground
+        originalMaterialView.blendingMode = .behindWindow
+        originalMaterialView.state = .active
+        originalMaterialView.appearance = NSAppearance(named: .darkAqua)
+        originalMaterialView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(originalMaterialView, positioned: .below, relativeTo: nil)
+
+        contentColumnMaterialView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(contentColumnMaterialView, positioned: .above, relativeTo: originalMaterialView)
 
         tintView.wantsLayer = true
         tintView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(tintView, positioned: .above, relativeTo: materialView)
+        addSubview(tintView, positioned: .above, relativeTo: contentColumnMaterialView)
 
-        tintLayer.colors = [
+        originalTintLayer.colors = [
             TahoeGlassPalette.windowTintStart.cgColor,
             TahoeGlassPalette.windowTintMid.cgColor,
             TahoeGlassPalette.windowTintEnd.cgColor
         ]
-        tintLayer.locations = [0, 0.48, 1]
-        tintLayer.startPoint = CGPoint(x: 0, y: 0)
-        tintLayer.endPoint = CGPoint(x: 1, y: 1)
-        tintView.layer?.addSublayer(tintLayer)
+        originalTintLayer.locations = [0, 0.48, 1]
+        originalTintLayer.startPoint = CGPoint(x: 0, y: 0)
+        originalTintLayer.endPoint = CGPoint(x: 1, y: 1)
+        tintView.layer?.addSublayer(originalTintLayer)
 
         topBarLayer.fillColor = TahoeGlassPalette.topBarTint.cgColor
         topBarLayer.fillRule = .evenOdd
@@ -410,16 +448,22 @@ private final class TahoeGlassRootView: NSView {
         tintView.layer?.addSublayer(topBarSeparatorLayer)
 
         NSLayoutConstraint.activate([
-            materialView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            materialView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            materialView.topAnchor.constraint(equalTo: topAnchor),
-            materialView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            originalMaterialView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            originalMaterialView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            originalMaterialView.topAnchor.constraint(equalTo: topAnchor),
+            originalMaterialView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            contentColumnMaterialView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentColumnMaterialView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentColumnMaterialView.topAnchor.constraint(equalTo: topAnchor),
+            contentColumnMaterialView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             tintView.leadingAnchor.constraint(equalTo: leadingAnchor),
             tintView.trailingAnchor.constraint(equalTo: trailingAnchor),
             tintView.topAnchor.constraint(equalTo: topAnchor),
             tintView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
+        updateBackgroundBlurEffect()
     }
 
     required init?(coder: NSCoder) {
@@ -447,7 +491,7 @@ private final class TahoeGlassRootView: NSView {
     override func layout() {
         super.layout()
         onLayout?()
-        tintLayer.frame = bounds
+        originalTintLayer.frame = bounds
         let contentTop = TahoeGlassPalette.titleContentTop
         topBarLayer.frame = bounds
         topBarLayer.path = topBarPath(
@@ -460,6 +504,12 @@ private final class TahoeGlassRootView: NSView {
             y: max(0, bounds.height - contentTop),
             activeTabFrame: activeTabFrame
         )
+    }
+
+    private func updateBackgroundBlurEffect() {
+        originalMaterialView.isHidden = backgroundBlurEffect != .original
+        originalTintLayer.isHidden = backgroundBlurEffect != .original
+        contentColumnMaterialView.isHidden = backgroundBlurEffect != .contentColumn
     }
 
     private func topBarPath(
@@ -3451,6 +3501,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var tabButtons: [UUID: TitleTabButton] = [:]
     private var sessionPickerCandidatesByTab: [UUID: [SessionRef: LocalSessionCandidate]] = [:]
     var onInstallStagedUpdate: (() -> Void)?
+    var backgroundBlurEffect = BackgroundBlurEffect.preferred {
+        didSet {
+            guard isViewLoaded else { return }
+            (view as? TahoeGlassRootView)?.backgroundBlurEffect = backgroundBlurEffect
+        }
+    }
 
     private let titleTabStack = TitleTabStackView()
     private let titleTabBorderView = TitleTabBorderView()
@@ -3512,6 +3568,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     override func loadView() {
         let rootView = TahoeGlassRootView()
+        rootView.backgroundBlurEffect = backgroundBlurEffect
         rootView.onLayout = { [weak self] in
             self?.handleRootLayout()
         }

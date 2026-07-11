@@ -602,6 +602,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             keyEquivalent: ""
         )
         appMenu.addItem(.separator())
+
+        let preferencesItem = NSMenuItem(title: "Preferences", action: nil, keyEquivalent: "")
+        let preferencesMenu = NSMenu(title: "Preferences")
+        for effect in BackgroundBlurEffect.allCases {
+            let item = preferencesMenu.addItem(
+                withTitle: effect.title,
+                action: #selector(selectBackgroundBlurEffect(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = effect.rawValue
+            item.state = effect == BackgroundBlurEffect.preferred ? .on : .off
+        }
+        preferencesItem.submenu = preferencesMenu
+        appMenu.addItem(preferencesItem)
+        appMenu.addItem(.separator())
+
         appMenu.addItem(
             withTitle: "Hide \(appName)",
             action: #selector(NSApplication.hide(_:)),
@@ -627,6 +644,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
         appItem.submenu = appMenu
         return appItem
+    }
+
+    @objc private func selectBackgroundBlurEffect(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let effect = BackgroundBlurEffect(rawValue: rawValue)
+        else { return }
+
+        UserDefaults.standard.set(effect.rawValue, forKey: BackgroundBlurEffect.defaultsKey)
+        controller?.backgroundBlurEffect = effect
+        sender.menu?.items.forEach { item in
+            item.state = item.representedObject as? String == effect.rawValue ? .on : .off
+        }
     }
 
     private func makeSessionsMenuItem() -> NSMenuItem {

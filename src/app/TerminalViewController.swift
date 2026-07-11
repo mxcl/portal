@@ -3670,7 +3670,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             ),
             contentContainer.topAnchor.constraint(
                 equalTo: view.topAnchor,
-                constant: TahoeGlassPalette.titleContentTop
+                constant: TahoeGlassPalette.titleContentTop - 1
             ),
             contentContainer.bottomAnchor.constraint(
                 equalTo: view.bottomAnchor

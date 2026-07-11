@@ -994,18 +994,26 @@ private final class BlockOutputTextView: NSTextView {
 
     override func clicked(onLink link: Any, at charIndex: Int) {
         if let fileLink = link as? Ansi.FileLink {
-            openInDefaultEditor(fileLink)
+            followFileLink(fileLink)
             return
         }
         if let url = link as? URL {
             if url.isFileURL {
-                openInDefaultEditor(Ansi.FileLink(url: url, line: nil))
+                followFileLink(Ansi.FileLink(url: url, line: nil))
                 return
             }
             NSWorkspace.shared.open(url)
             return
         }
         super.clicked(onLink: link, at: charIndex)
+    }
+
+    private func followFileLink(_ link: Ansi.FileLink) {
+        if link.isDirectory {
+            NSWorkspace.shared.activateFileViewerSelecting([link.url])
+        } else {
+            openInDefaultEditor(link)
+        }
     }
 
     private func openInDefaultEditor(_ link: Ansi.FileLink) {

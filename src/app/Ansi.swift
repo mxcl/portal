@@ -5,10 +5,16 @@ enum Ansi {
     final class FileLink: NSObject {
         let url: URL
         let line: Int?
+        let isDirectory: Bool
 
         init(url: URL, line: Int?) {
             self.url = url
-            self.line = line
+            var isDirectory: ObjCBool = false
+            self.isDirectory = FileManager.default.fileExists(
+                atPath: url.path,
+                isDirectory: &isDirectory
+            ) && isDirectory.boolValue
+            self.line = self.isDirectory ? nil : line
         }
     }
 
@@ -1017,12 +1023,15 @@ enum Ansi {
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let file = tempDirectory.appendingPathComponent("Example.swift")
         FileManager.default.createFile(atPath: file.path, contents: Data())
-        let pathText = "\(file.path):42 ./Example.swift:7 Missing.swift:1"
+        let directory = tempDirectory.appendingPathComponent("Sources", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let pathText = "\(file.path):42 ./Example.swift:7 ./Sources/ Missing.swift:1"
         let pathOutput = StyledTextRenderer()
             .process(pathText, linkBaseDirectory: tempDirectory.path)
             .attributedText
         assert(fileLinkLine(in: pathOutput, text: pathText, needle: file.path) == 42)
         assert(fileLinkLine(in: pathOutput, text: pathText, needle: "./Example.swift") == 7)
+        assert(fileLinkIsDirectory(in: pathOutput, text: pathText, needle: "./Sources/"))
         assert(fileLinkLine(in: pathOutput, text: pathText, needle: "Missing.swift") == nil)
 
         let screen = TerminalScreen(rows: 2, cols: 4)
@@ -1042,7 +1051,7 @@ enum Ansi {
     private static let clickableURLSchemes: Set<String> = ["file", "http", "https"]
 
     private static let pathDetector = try! NSRegularExpression(
-        pattern: #"(?<![A-Za-z0-9_./~-])((?:~|/|\./|\.\./)?(?:(?:[A-Za-z0-9_.$+@%-]+/)+[A-Za-z0-9_.$+@%-]+|(?:[A-Za-z0-9_.$+@%-]+\.)+[A-Za-z][A-Za-z0-9_+-]{0,11}))(?::([0-9]+))?(?::[0-9]+)?"#
+        pattern: #"(?<![A-Za-z0-9_./~-])((?:~|/|\./|\.\./)?(?:(?:[A-Za-z0-9_.$+@%-]+/)+[A-Za-z0-9_.$+@%-]+|(?:[A-Za-z0-9_.$+@%-]+\.)+[A-Za-z][A-Za-z0-9_+-]{0,11})/?)(?::([0-9]+))?(?::[0-9]+)?"#
     )
 
     private static func linkifyURLs(
@@ -1120,12 +1129,10 @@ enum Ansi {
 
         let path = (expandedPath as NSString).standardizingPath
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
-              !isDirectory.boolValue
-        else {
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
             return nil
         }
-        return URL(fileURLWithPath: path)
+        return URL(fileURLWithPath: path, isDirectory: isDirectory.boolValue)
     }
 
     private static func lineNumber(in text: NSString, from match: NSTextCheckingResult) -> Int? {
@@ -1165,6 +1172,20 @@ enum Ansi {
             return nil
         }
         return link.line
+    }
+
+    private static func fileLinkIsDirectory(
+        in output: NSAttributedString,
+        text: String,
+        needle: String
+    ) -> Bool {
+        let range = (text as NSString).range(of: needle)
+        guard range.location != NSNotFound,
+              let link = output.attribute(.link, at: range.location, effectiveRange: nil) as? FileLink
+        else {
+            return false
+        }
+        return link.isDirectory
     }
 
     private static func isAlternateScreenMode(_ parameters: [UInt8]) -> Bool {

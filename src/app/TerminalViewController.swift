@@ -599,10 +599,7 @@ private final class TahoeGlassRootView: NSView {
 
     private func topBarSeparatorPath(y: CGFloat, activeTabFrame: CGRect?) -> CGPath {
         let path = CGMutablePath()
-        guard let activeTabFrame,
-              y >= activeTabFrame.minY,
-              y <= activeTabFrame.maxY
-        else {
+        guard let activeTabFrame else {
             path.move(to: CGPoint(x: 0, y: y))
             path.addLine(to: CGPoint(x: bounds.width, y: y))
             return path

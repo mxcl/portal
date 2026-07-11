@@ -891,6 +891,23 @@ private final class SelectableBlockTextField: NSTextField {
 
 private final class BlockOutputTextView: NSTextView {
     private static let linkCapsuleColor = NSColor.white.withAlphaComponent(0.10)
+    private var linkTrackingArea: NSTrackingArea?
+    private var hoveredLinkRange: NSRange? {
+        didSet {
+            guard hoveredLinkRange != oldValue else { return }
+            if let oldValue, NSMaxRange(oldValue) <= (textStorage?.length ?? 0) {
+                layoutManager?.removeTemporaryAttribute(.underlineStyle, forCharacterRange: oldValue)
+            }
+            if let hoveredLinkRange {
+                layoutManager?.addTemporaryAttribute(
+                    .underlineStyle,
+                    value: NSUnderlineStyle.single.rawValue,
+                    forCharacterRange: hoveredLinkRange
+                )
+            }
+            needsDisplay = true
+        }
+    }
 
     override var mouseDownCanMoveWindow: Bool { false }
 
@@ -899,14 +916,48 @@ private final class BlockOutputTextView: NSTextView {
     }
 
     override func didChangeText() {
+        hoveredLinkRange = nil
         super.didChangeText()
         window?.invalidateCursorRects(for: self)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let linkTrackingArea {
+            removeTrackingArea(linkTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.activeInActiveApp, .inVisibleRect, .mouseMoved, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        linkTrackingArea = trackingArea
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        let point = convert(event.locationInWindow, from: nil)
+        var hoveredRange: NSRange?
+        enumerateLinkRects { range, rect in
+            if hoveredRange == nil, rect.contains(point) {
+                hoveredRange = range
+            }
+        }
+        hoveredLinkRange = hoveredRange
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoveredLinkRange = nil
+        super.mouseExited(with: event)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         NSGraphicsContext.saveGraphicsState()
         Self.linkCapsuleColor.setFill()
-        enumerateLinkRects { rect in
+        enumerateLinkRects { [hoveredLinkRange] range, rect in
+            guard range == hoveredLinkRange else { return }
             let capsuleRect = rect.insetBy(dx: -3, dy: -1)
             guard capsuleRect.intersects(dirtyRect) else { return }
             NSBezierPath(
@@ -921,12 +972,12 @@ private final class BlockOutputTextView: NSTextView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        enumerateLinkRects { [weak self] rect in
+        enumerateLinkRects { [weak self] _, rect in
             self?.addCursorRect(rect, cursor: .pointingHand)
         }
     }
 
-    private func enumerateLinkRects(_ body: @escaping (NSRect) -> Void) {
+    private func enumerateLinkRects(_ body: @escaping (NSRange, NSRect) -> Void) {
         guard let textStorage, let layoutManager, let textContainer else { return }
         let fullRange = NSRange(location: 0, length: textStorage.length)
         layoutManager.ensureLayout(for: textContainer)
@@ -939,7 +990,10 @@ private final class BlockOutputTextView: NSTextView {
                 in: textContainer
             ) { [weak self] rect, _ in
                 guard let self else { return }
-                body(rect.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y))
+                body(
+                    range,
+                    rect.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+                )
             }
         }
     }

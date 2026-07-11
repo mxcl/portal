@@ -937,7 +937,6 @@ private final class BlockOutputTextView: NSTextView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
         let point = convert(event.locationInWindow, from: nil)
         var hoveredRange: NSRange?
         enumerateLinkRects { range, rect in

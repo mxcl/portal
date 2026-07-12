@@ -3075,18 +3075,17 @@ private final class SessionCandidateButton: NSControl {
         setAccessibilityValue(metadata)
         let subtitleText = subtitle ?? ""
         let normalizedHostPrefix = hostPrefix?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hostSuffixTitle = subtitleText.isEmpty ? plainTextWithHostSuffix(title, hostPrefix: normalizedHostPrefix) : title
-        let hostSuffixSubtitle = plainTextWithHostSuffix(subtitleText, hostPrefix: normalizedHostPrefix)
+        let hostSuffixTitle = plainTextWithHostSuffix(title, hostPrefix: normalizedHostPrefix)
         setAccessibilityLabel(hostSuffixTitle)
-        toolTip = [hostSuffixTitle, subtitleText.isEmpty ? nil : hostSuffixSubtitle, metadata]
+        toolTip = [hostSuffixTitle, subtitleText.isEmpty ? nil : subtitleText, metadata]
             .compactMap { value in
                 guard let value, !value.isEmpty else { return nil }
                 return value
             }
             .joined(separator: "\n")
 
-        applyTitle(title, hostPrefix: subtitleText.isEmpty ? normalizedHostPrefix : nil)
-        applyDetail(subtitleText, hostPrefix: subtitleText.isEmpty ? nil : normalizedHostPrefix)
+        applyTitle(title, hostPrefix: normalizedHostPrefix)
+        applyDetail(subtitleText, hostPrefix: nil)
 
         updateAppearance()
     }

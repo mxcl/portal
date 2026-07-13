@@ -188,7 +188,6 @@ enum Ansi {
                 cursorRow = max(0, cursorRow - firstParameter(body, defaultValue: 1))
             case "B":
                 cursorRow += firstParameter(body, defaultValue: 1)
-                ensureCursorRow()
             case "C":
                 cursorCol += firstParameter(body, defaultValue: 1)
             case "D":
@@ -196,7 +195,6 @@ enum Ansi {
             case "E":
                 cursorRow += firstParameter(body, defaultValue: 1)
                 cursorCol = 0
-                ensureCursorRow()
             case "F":
                 cursorRow = max(0, cursorRow - firstParameter(body, defaultValue: 1))
                 cursorCol = 0
@@ -206,7 +204,6 @@ enum Ansi {
                 let parameters = parseParameters(body)
                 cursorRow = max(0, parameter(parameters, at: 0, defaultValue: 1) - 1)
                 cursorCol = max(0, parameter(parameters, at: 1, defaultValue: 1) - 1)
-                ensureCursorRow()
             case "J":
                 eraseDisplay(firstParameter(body, defaultValue: 0))
             case "K":
@@ -278,8 +275,8 @@ enum Ansi {
                 }
             case 1:
                 eraseLine(1)
-                if cursorRow > 0 {
-                    for row in 0..<cursorRow {
+                if cursorRow > 0, !lines.isEmpty {
+                    for row in 0..<min(cursorRow, lines.count) {
                         visibleCellCount -= lines[row].count
                         lines[row] = []
                     }
@@ -295,7 +292,7 @@ enum Ansi {
         }
 
         private func eraseLine(_ mode: Int) {
-            ensureCursorRow()
+            guard cursorRow < lines.count else { return }
             cursorCol = min(cursorCol, Self.maxLineCells - 1)
             switch mode {
             case 0:
@@ -320,8 +317,7 @@ enum Ansi {
         }
 
         private func eraseCharacters(_ count: Int) {
-            guard count > 0 else { return }
-            ensureCursorRow()
+            guard count > 0, cursorRow < lines.count else { return }
             cursorCol = min(cursorCol, Self.maxLineCells - 1)
             let end = min(lines[cursorRow].count, cursorCol + count)
             guard cursorCol < end else { return }
@@ -338,7 +334,6 @@ enum Ansi {
         private func restoreCursor() {
             cursorRow = max(0, savedCursorRow)
             cursorCol = max(0, savedCursorCol)
-            ensureCursorRow()
         }
 
         private func renderedOutput() -> StyledOutput {
@@ -1042,6 +1037,14 @@ enum Ansi {
         let blankCursorOutput = TerminalScreen(rows: 2, cols: 4).process("\u{1B}[?1049h")
         assert(blankCursorOutput.text == " ")
         assert(blankCursorOutput.attributedText.attribute(.backgroundColor, at: 0, effectiveRange: nil) != nil)
+
+        let prompt = StyledTextRenderer()
+        _ = prompt.process("\u{1B}7\u{1B}[?25l\u{1B}8\u{1B}[0G\u{1B}[2KQuestion?\r\n> One\r\n  Two\r\n\u{1B}7\u{1B}[1A\u{1B}[0G\u{1B}[1A\u{1B}[0G")
+        let redrawnPrompt = prompt.process("\u{1B}8\u{1B}[0G\u{1B}[2K\u{1B}[1A\u{1B}[0G\u{1B}[2K\u{1B}[1A\u{1B}[0G\u{1B}[2K\u{1B}[1A\u{1B}[0G\u{1B}[2KQuestion?\r\n  One\r\n> Two\r\n\u{1B}7\u{1B}[1A\u{1B}[0G")
+        assert(redrawnPrompt.plainText == "Question?\n  One\n> Two\n")
+
+        let sizeProbe = StyledTextRenderer().process("output\u{1B}7\u{1B}[999;999f\u{1B}[6n")
+        assert(sizeProbe.plainText == "output")
     }
 
     private static let linkDetector = try! NSDataDetector(

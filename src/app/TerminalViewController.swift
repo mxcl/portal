@@ -2638,6 +2638,8 @@ private final class TerminalOutputProcessor {
     private var didSeeAlternateScreenSwitch = false
     private var isAlternateScreenActive = false
     private var isApplicationCursorModeActive = false
+    private var rows = 30
+    private var cols = 100
 
     init(flushDelay: DispatchTimeInterval = .milliseconds(33)) {
         self.flushDelay = flushDelay
@@ -2711,6 +2713,8 @@ private final class TerminalOutputProcessor {
 
     func resize(rows: Int, cols: Int) {
         queue.async { [weak self] in
+            self?.rows = rows
+            self?.cols = cols
             self?.terminalScreen.resize(rows: rows, cols: cols)
         }
     }
@@ -2777,7 +2781,7 @@ private final class TerminalOutputProcessor {
     }
 
     private func consumeShellOutput(_ text: String) {
-        for response in Self.terminalResponses(in: text) {
+        for response in terminalResponses(in: text) {
             onTerminalResponse?(response)
         }
 
@@ -2961,6 +2965,11 @@ private final class TerminalOutputProcessor {
             && finalOutput(for: "\u{1B}[?1049heditor text\u{1B}[?1049l") == ""
     }
 
+    static func terminalSizeProbeSelfTest() -> Bool {
+        TerminalOutputProcessor().terminalResponses(in: "\u{1B}[999;999f\u{1B}[6n")
+            .contains("\u{1B}[30;100R")
+    }
+
     private func emit(_ event: Event) {
         DispatchQueue.main.async { [weak self] in
             self?.onEvent?(event)
@@ -2979,7 +2988,7 @@ private final class TerminalOutputProcessor {
         return command
     }
 
-    private static func terminalResponses(in text: String) -> [String] {
+    private func terminalResponses(in text: String) -> [String] {
         var responses: [String] = []
         if text.contains("\u{1B}]10;?\u{7}") || text.contains("\u{1B}]10;?\u{1B}\\") {
             responses.append("\u{1B}]10;rgb:ffff/ffff/ffff\u{1B}\\")
@@ -2988,7 +2997,10 @@ private final class TerminalOutputProcessor {
             responses.append("\u{1B}]11;rgb:0000/0000/0000\u{1B}\\")
         }
         if text.contains("\u{1B}[6n") {
-            responses.append("\u{1B}[1;1R")
+            let position = text.contains("\u{1B}[999;999f") || text.contains("\u{1B}[999;999H")
+                ? (rows, cols)
+                : (1, 1)
+            responses.append("\u{1B}[\(position.0);\(position.1)R")
         }
         return responses
     }
@@ -3623,6 +3635,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private static let didRunPassthroughRoutingSelfTest: Void = {
         assert(PtyPassthroughView.passthroughRoutingSelfTest())
         assert(TerminalOutputProcessor.alternateScreenTranscriptSelfTest())
+        assert(TerminalOutputProcessor.terminalSizeProbeSelfTest())
     }()
 
     private enum TabClickTarget {

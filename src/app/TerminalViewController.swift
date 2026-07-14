@@ -3567,6 +3567,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private struct LocalSessionCandidate {
+        enum Kind {
+            case existing
+            case newRemote(SSHHostRecord)
+        }
+
         var sessionRef: SessionRef
         var sessionID: String
         var hostPrefix: String?
@@ -3577,6 +3582,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         var commandCount: Int
         var runningCommand: String?
         var commandHistory: [String]
+        var kind: Kind
     }
 
     private struct TerminalGridSize {
@@ -3614,7 +3620,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let completionQueue = DispatchQueue(label: "com.automicvault.vaultty.completion", qos: .userInitiated)
     private let gitStateProvider = GitDirectoryStateProvider()
     private let gitStateQueue = DispatchQueue(label: "com.automicvault.vaultty.git-state", qos: .utility)
-    private let remoteSessionQueue = DispatchQueue(label: "com.automicvault.vaultty.remote-sessions", qos: .utility)
+    private let remoteSessionQueue = DispatchQueue(
+        label: "com.automicvault.vaultty.remote-sessions",
+        qos: .utility,
+        attributes: .concurrent
+    )
     private let sessionCleanupQueue = DispatchQueue(label: "com.automicvault.vaultty.session-cleanup", qos: .utility)
     private let completionPopup = CompletionPopupController()
     private var completionRequestSerial = 0
@@ -4698,8 +4708,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func configureSessionPicker(for tab: TerminalTab) {
         let (candidates, seen) = localSessionCandidates(excluding: tab)
-        renderSessionPicker(candidates, for: tab)
-        loadRemoteSessionCandidates(for: tab, excluding: seen, existing: candidates)
+        let initialCandidates = candidates + newRemoteSessionCandidates()
+        renderSessionPicker(initialCandidates, for: tab)
+        loadRemoteSessionCandidates(for: tab, excluding: seen, existing: initialCandidates)
     }
 
     private func renderSessionPicker(_ candidates: [LocalSessionCandidate], for tab: TerminalTab) {
@@ -4766,7 +4777,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             DispatchQueue.main.async { [weak self] in
                 guard let self,
                       let tab = self.tabs.first(where: { $0.id == tabID }),
-                      tab.commandCount == 0
+                      tab.commandCount == 0,
+                      tab.canReplaceFreshSession
                 else {
                     return
                 }
@@ -4809,7 +4821,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 createdAt: visible.createdAt,
                 commandCount: visible.commandCount ?? 0,
                 runningCommand: visible.runningCommand,
-                commandHistory: visible.commandHistory ?? []
+                commandHistory: visible.commandHistory ?? [],
+                kind: .existing
             ))
         }
 
@@ -4828,11 +4841,36 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 createdAt: closed.createdAt,
                 commandCount: closed.commandCount ?? 0,
                 runningCommand: closed.runningCommand,
-                commandHistory: closed.commandHistory ?? []
+                commandHistory: closed.commandHistory ?? [],
+                kind: .existing
             ))
         }
 
         return (candidates, seen)
+    }
+
+    private func newRemoteSessionCandidates() -> [LocalSessionCandidate] {
+        PtySession.loadSSHHosts().hosts
+            .filter(\.enrolled)
+            .map { host in
+                let sessionRef = SessionRef(
+                    location: .sshHost(host.id),
+                    sessionID: UUID().uuidString
+                )
+                return LocalSessionCandidate(
+                    sessionRef: sessionRef,
+                    sessionID: sessionRef.sessionID,
+                    hostPrefix: host.hostname.isEmpty ? host.alias : host.hostname,
+                    title: "New session",
+                    cwd: "",
+                    isClosedSession: false,
+                    createdAt: nil,
+                    commandCount: 0,
+                    runningCommand: nil,
+                    commandHistory: [],
+                    kind: .newRemote(host)
+                )
+            }
     }
 
     private func remoteSessionCandidates(excluding seen: Set<SessionRef>) -> [LocalSessionCandidate] {
@@ -4858,7 +4896,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                     createdAt: session.createdAt,
                     commandCount: session.commandCount,
                     runningCommand: session.runningCommand,
-                    commandHistory: session.commandHistory
+                    commandHistory: session.commandHistory,
+                    kind: .existing
                 ))
             }
         }
@@ -4875,6 +4914,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func sessionCandidateTitle(_ candidate: LocalSessionCandidate) -> String {
+        if case .newRemote = candidate.kind {
+            return "New session"
+        }
         if let runningCommand = candidate.runningCommand,
            !runningCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return titleForCommand(runningCommand)
@@ -4883,6 +4925,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func sessionCandidateSubtitle(_ candidate: LocalSessionCandidate) -> String? {
+        if case .newRemote = candidate.kind {
+            return "Remote home"
+        }
         if let runningCommand = candidate.runningCommand,
            !runningCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return displaySessionCwd(candidate.cwd)
@@ -4891,6 +4936,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func sessionCandidateMetadata(_ candidate: LocalSessionCandidate) -> String {
+        if case .newRemote = candidate.kind {
+            return "Login shell"
+        }
         let createdText = candidate.createdAt.map { relativeSessionTime(from: $0) } ?? "earlier"
         guard candidate.commandCount > 0 else {
             return createdText
@@ -4935,7 +4983,63 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             return
         }
 
-        replaceFreshSession(in: tab, with: candidate)
+        switch candidate.kind {
+        case .existing:
+            replaceFreshSession(in: tab, with: candidate)
+        case .newRemote(let host):
+            startNewRemoteSession(in: tab, with: candidate, on: host)
+        }
+    }
+
+    private func startNewRemoteSession(
+        in tab: TerminalTab,
+        with candidate: LocalSessionCandidate,
+        on host: SSHHostRecord
+    ) {
+        let tabID = tab.id
+        let localSessionRef = tab.sessionRef
+        hideSessionPicker(for: tab)
+        setCommandBarStatusText("Connecting to \(host.alias)...", in: tab)
+
+        remoteSessionQueue.async { [weak self] in
+            do {
+                let defaults = try PtySession.remoteSessionDefaults(host: host)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          let tab = self.tabs.first(where: { $0.id == tabID }),
+                          tab.sessionRef == localSessionRef,
+                          tab.blocks.isEmpty
+                    else {
+                        return
+                    }
+                    var remoteCandidate = candidate
+                    remoteCandidate.cwd = defaults.homeDirectory
+                    remoteCandidate.title = "~"
+                    self.replaceFreshSession(
+                        in: tab,
+                        with: remoteCandidate,
+                        shellPath: defaults.shellPath
+                    )
+                }
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          let tab = self.tabs.first(where: { $0.id == tabID }),
+                          tab.sessionRef == localSessionRef,
+                          tab.blocks.isEmpty
+                    else {
+                        return
+                    }
+                    self.updateCommandBarDirectoryStatus(for: tab)
+                    self.configureSessionPicker(for: tab)
+                    let alert = NSAlert()
+                    alert.alertStyle = .warning
+                    alert.messageText = "Could not start remote session"
+                    alert.informativeText = "\(host.alias): \(error.localizedDescription)"
+                    alert.runModal()
+                }
+            }
+        }
     }
 
     private func closedSessionCandidateMenu(for sessionRef: SessionRef) -> NSMenu {
@@ -5014,7 +5118,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         configureSessionPicker(for: tab)
     }
 
-    private func replaceFreshSession(in tab: TerminalTab, with candidate: LocalSessionCandidate) {
+    private func replaceFreshSession(
+        in tab: TerminalTab,
+        with candidate: LocalSessionCandidate,
+        shellPath: String? = nil
+    ) {
         let oldSessionRef = tab.sessionRef
         tab.session.stop()
         scheduleKillDetachedSession(oldSessionRef)
@@ -5044,7 +5152,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         configureInterruptHandling(for: tab)
         updateTabTitle(candidate.title, detail: candidate.cwd, in: tab)
         removeClosedSession(candidate.sessionRef)
-        startShell(for: tab, workingDirectory: URL(fileURLWithPath: candidate.cwd))
+        startShell(
+            for: tab,
+            workingDirectory: URL(fileURLWithPath: candidate.cwd),
+            shellPath: shellPath
+        )
         persistSessionState()
     }
 

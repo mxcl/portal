@@ -70,9 +70,11 @@ vaultty-sessiond
 ```
 
 Once enrolled, remote sessions appear in the new-tab session picker alongside
-local sessions. Attaching is a full terminal attach over `ssh -T`; the remote
-`vaultty-session-bridge` proxies the existing Vaultty line protocol to the
-remote user's private `vaultty-sessiond` Unix socket.
+local sessions. Each enrolled host also has a **New session** card that starts
+a fresh login shell in the remote account's home directory. Attaching is a full
+terminal attach over `ssh -T`; the remote `vaultty-session-bridge` proxies the
+existing Vaultty line protocol to the remote user's private
+`vaultty-sessiond` Unix socket.
 
 Remote Vaultty shells intercept the `code` command:
 

@@ -5433,7 +5433,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    private func startShell(for tab: TerminalTab, workingDirectory: URL) {
+    private func startShell(
+        for tab: TerminalTab,
+        workingDirectory: URL,
+        shellPath: String? = nil
+    ) {
         let isRemoteSession: Bool
         if case .sshHost = tab.sessionRef.location {
             isRemoteSession = true
@@ -5441,13 +5445,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             isRemoteSession = false
         }
 
-        let shell = isRemoteSession
+        let shell = shellPath ?? (isRemoteSession
             ? "/bin/bash"
-            : (ProcessInfo.processInfo.environment["SHELL"].flatMap {
+            : ProcessInfo.processInfo.environment["SHELL"].flatMap {
                 FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil
             } ?? "/bin/zsh")
 
-        var env = ProcessInfo.processInfo.environment
+        var env: [String: String] = isRemoteSession ? [:] : ProcessInfo.processInfo.environment
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.automicvault.vaultty"
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         env["TERM"] = "xterm-256color"

@@ -15,6 +15,11 @@ struct StoredSSHHosts: Codable {
     var hosts: [SSHHostRecord]
 }
 
+struct RemoteSessionDefaults: Equatable, Sendable {
+    var homeDirectory: String
+    var shellPath: String
+}
+
 enum SessionLocation: Codable, Hashable {
     case local
     case sshHost(String)
@@ -342,6 +347,28 @@ final class PtySession {
                     commandHistory: tab.commandHistory ?? []
                 )
             }
+    }
+
+    static func remoteSessionDefaults(host: SSHHostRecord) throws -> RemoteSessionDefaults {
+        let data = try runSSHCommand(
+            host: host,
+            command: "printf '%s\\000%s\\000' \"$HOME\" \"${SHELL:-/bin/sh}\"",
+            batchMode: true
+        )
+        let fields = data.split(separator: 0, omittingEmptySubsequences: false)
+        guard fields.count >= 2,
+              let homeDirectory = String(data: fields[0], encoding: .utf8),
+              let shellPath = String(data: fields[1], encoding: .utf8),
+              !homeDirectory.isEmpty,
+              !shellPath.isEmpty
+        else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(EPROTO),
+                userInfo: [NSLocalizedDescriptionKey: "SSH host returned invalid session defaults"]
+            )
+        }
+        return RemoteSessionDefaults(homeDirectory: homeDirectory, shellPath: shellPath)
     }
 
     private struct SessionStatePayload: Encodable {

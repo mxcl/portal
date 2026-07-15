@@ -195,6 +195,14 @@ private final class CommandInputTextView: NSTextView {
         normalizePlainTextStorage()
     }
 
+    override func mouseDown(with event: NSEvent) {
+        guard isEditable else {
+            NSSound.beep()
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         drawMutedCompletionPreview()
@@ -5509,6 +5517,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             guard !tab.hasExited else { return }
             tab.hasExited = true
             tab.isReplayingHistory = false
+            tab.inputView.isEditable = false
+            tab.inputView.isSelectable = false
             self.removeExitedSessionFromPersistentHistory(configuredSessionRef)
             tab.outputProcessor.flushAndFinish { [weak self, weak tab] in
                 guard let self, let tab else { return }
@@ -6725,6 +6735,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.inputView.clearMutedCompletionPreview()
         tab.inputView.string = ""
         tab.inputView.resetPlainTextAttributes()
+        tab.inputView.isSelectable = true
         tab.inputView.isEditable = true
     }
 

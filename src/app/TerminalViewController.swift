@@ -5632,10 +5632,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
             """
 
-        tab.session.onReady = { [weak tab] created in
-            guard let tab else { return }
+        tab.session.onReady = { [weak self, weak tab] created in
+            guard let self, let tab else { return }
             guard created else {
                 tab.needsShellInputResetBeforeNextSubmit = true
+                self.finishHistoryReplay(in: tab)
                 return
             }
             tab.session.write(initScript, suppressEcho: true)

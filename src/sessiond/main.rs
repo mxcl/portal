@@ -447,12 +447,8 @@ fn handle_client(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
     session.add_client(tx);
     session.increment_attached_client_count();
-    writeln!(stream, "READY {}", if created { 1 } else { 0 })?;
-
     let history = session.history();
-    if !history.is_empty() {
-        writeln!(stream, "HISTORY {}", BASE64.encode(history))?;
-    }
+    write_attach_header(&mut stream, created, &history)?;
 
     let writer = Arc::new(Mutex::new(stream.try_clone()?));
     let writer_for_output = writer.clone();
@@ -509,6 +505,14 @@ fn handle_client(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<
     }
 
     session.decrement_attached_client_count();
+    Ok(())
+}
+
+fn write_attach_header(stream: &mut impl Write, created: bool, history: &[u8]) -> io::Result<()> {
+    writeln!(stream, "READY {}", if created { 1 } else { 0 })?;
+    if !created || !history.is_empty() {
+        writeln!(stream, "HISTORY {}", BASE64.encode(history))?;
+    }
     Ok(())
 }
 
@@ -840,6 +844,24 @@ mod tests {
                 .command_history,
             vec!["cargo test".to_owned()]
         );
+    }
+
+    #[test]
+    fn attach_header_signals_empty_history_replay() {
+        let mut output = Vec::new();
+
+        write_attach_header(&mut output, false, b"").expect("header should encode");
+
+        assert_eq!(output, b"READY 0\nHISTORY \n");
+    }
+
+    #[test]
+    fn new_session_with_empty_history_only_reports_ready() {
+        let mut output = Vec::new();
+
+        write_attach_header(&mut output, true, b"").expect("header should encode");
+
+        assert_eq!(output, b"READY 1\n");
     }
 
     #[test]

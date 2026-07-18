@@ -1,4 +1,5 @@
 /target/
+/.build/
 /.zig-cache/
 /zig-cache/
 /.DS_Store

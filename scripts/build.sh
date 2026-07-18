@@ -1015,6 +1015,7 @@ SWIFTC_COMMAND=(
   "${SWIFT_DEPS_LINK_ARGS[@]}" \
   "$ROOT_DIR/src/app/main.swift" \
   "$ROOT_DIR/src/app/PtySession.swift" \
+  "$ROOT_DIR/src/core/CommandLifecycle.swift" \
   "$ROOT_DIR/src/app/Ansi.swift" \
   "$ROOT_DIR/src/app/GitDirectoryState.swift" \
   "$ROOT_DIR/src/app/Completion.swift" \

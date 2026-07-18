@@ -8,6 +8,7 @@ let package = Package(
     ],
     products: [
         .library(name: "VaulttySwiftDependencies", targets: ["VaulttySwiftDependencies"]),
+        .library(name: "VaulttyCore", targets: ["VaulttyCore"]),
     ],
     dependencies: [
         .package(url: "https://github.com/mxcl/AppUpdater.git", from: "2.1.1"),
@@ -18,6 +19,14 @@ let package = Package(
             dependencies: [
                 .product(name: "AppUpdater", package: "AppUpdater"),
             ]
+        ),
+        .target(
+            name: "VaulttyCore",
+            path: "src/core"
+        ),
+        .testTarget(
+            name: "VaulttyCoreTests",
+            dependencies: ["VaulttyCore"]
         ),
     ]
 )

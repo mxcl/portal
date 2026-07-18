@@ -6,22 +6,7 @@ import SwiftUI
 @_silgen_name("vaultty_ghostty_osc_command_type")
 private func vaulttyGhosttyOscCommandType(_ payload: UnsafePointer<CChar>) -> Int32
 
-private struct TerminalBlock {
-    enum State {
-        case running
-        case completed(Int32)
-    }
-
-    let id: UUID
-    let command: String
-    let cwd: String
-    let startedAt: Date
-    var finishedAt: Date?
-    var output: String
-    var attributedOutput: NSAttributedString
-    var outputRevision: Int
-    var state: State
-}
+private typealias TerminalBlock = CommandLifecycle.Block
 
 enum BackgroundBlurEffect: String, CaseIterable {
     case original
@@ -3277,6 +3262,7 @@ private final class TerminalTab {
         set { sessionRef.sessionID = newValue }
     }
     var session: PtySession
+    let commandLifecycle: CommandLifecycle
     let outputProcessor = TerminalOutputProcessor()
     let rootView = NSView()
     let scrollView = NSScrollView()
@@ -3298,27 +3284,24 @@ private final class TerminalTab {
     var scrollBottomToRootConstraint: NSLayoutConstraint?
     var sessionPickerHeightConstraint: NSLayoutConstraint?
 
-    var blocks: [TerminalBlock] = []
+    var blocks: [TerminalBlock] { commandLifecycle.state.blocks }
     var blockViews: [UUID: BlockView] = [:]
     var pendingBlockViewUpdates = Set<UUID>()
     var isBlockViewUpdateScheduled = false
-    var activeBlockID: UUID?
-    var pendingBlockID: UUID?
-    var currentCwd = FileManager.default.homeDirectoryForCurrentUser.path
+    var activeBlockID: UUID? { commandLifecycle.state.activeBlockID }
+    var pendingBlockID: UUID? { commandLifecycle.state.pendingBlockID }
+    var currentCwd: String { commandLifecycle.state.currentCwd }
     var hasInjectedDotenvSecrets = false
     var isScrollToBottomScheduled = false
-    var isShellReady = false
-    var isReplayingHistory = false
-    var needsShellInputResetBeforeNextSubmit = false
-    var hasExited = false
+    var isShellReady: Bool { commandLifecycle.state.isShellReady }
+    var isReplayingHistory: Bool { commandLifecycle.state.isReplayingHistory }
+    var hasExited: Bool { commandLifecycle.state.hasExited }
     var isTerminalControlActive = false
-    var isAlternateScreenActive = false
-    var isApplicationCursorModeActive = false
+    var isAlternateScreenActive: Bool { commandLifecycle.state.isAlternateScreenActive }
+    var isApplicationCursorModeActive: Bool { commandLifecycle.state.isApplicationCursorModeActive }
     var runningElapsedTimer: Timer?
     var ttyModeTimer: Timer?
-    var commandHistory: [String] = []
-    var commandHistoryIndex: Int?
-    var commandHistoryDraft = ""
+    var commandHistory: [String] { commandLifecycle.state.commandHistory }
     var isFindMode = false
     var findCommandDraft = ""
     var findQuery = ""
@@ -3326,7 +3309,7 @@ private final class TerminalTab {
     var findResultIndex: Int?
     var canReplaceFreshSession = false
     var createdAt: Date
-    var commandCount: Int
+    var commandCount: Int { commandLifecycle.state.commandCount }
 
     init(
         title: String,
@@ -3340,8 +3323,11 @@ private final class TerminalTab {
         self.session = PtySession(sessionRef: sessionRef)
         self.title = title
         self.createdAt = createdAt
-        self.commandCount = commandCount
-        self.commandHistory = commandHistory
+        self.commandLifecycle = CommandLifecycle(
+            cwd: FileManager.default.homeDirectoryForCurrentUser.path,
+            commandCount: commandCount,
+            commandHistory: commandHistory
+        )
         buildView(delegate: delegate)
     }
 
@@ -4255,7 +4241,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             setInput("", in: tab)
         }
 
-        tab.commandHistoryIndex = nil
+        tab.commandLifecycle.apply(.resetHistorySelection)
         tab.commandBarView.layer?.backgroundColor = NSColor.selectedControlColor.withAlphaComponent(0.32).cgColor
         tab.findCloseButton.isHidden = false
         tab.inputView.setAccessibilityLabel("Vaultty history find")
@@ -4418,20 +4404,18 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         clearFindHighlight(in: tab)
         tab.session.clearHistory()
-        let blocksToKeep = tab.blocks.filter { block in
+        let blockIDsToKeep = Set(tab.blocks.compactMap { block -> UUID? in
             if block.id == tab.activeBlockID || block.id == tab.pendingBlockID {
-                return true
+                return block.id
             }
             if case .running = block.state {
-                return true
+                return block.id
             }
-            return false
-        }
+            return nil
+        })
 
-        tab.blocks = blocksToKeep
+        tab.commandLifecycle.apply(.clearTranscript(keeping: blockIDsToKeep))
         tab.blockViews.removeAll()
-        tab.commandHistoryIndex = nil
-        tab.commandHistoryDraft = ""
         rebuildBlockViews(for: tab)
         updateFindResults(in: tab, bounce: false)
         scrollToBottom(tab)
@@ -4690,7 +4674,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             commandCount: commandCount,
             commandHistory: commandHistory
         )
-        tab.currentCwd = directoryPath
+        tab.commandLifecycle.apply(.cwdChanged(directoryPath))
         tab.findCloseButton.target = self
         tab.findCloseButton.action = #selector(closeFindMode(_:))
         setCommandBarStatusText("Starting shell...", in: tab)
@@ -5137,23 +5121,18 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         hideSessionPicker(for: tab)
         clearCommandInput(in: tab)
-        resetTranscript(for: tab)
         tab.sessionRef = candidate.sessionRef
         tab.session = PtySession(sessionRef: candidate.sessionRef)
-        tab.currentCwd = candidate.cwd
         tab.title = candidate.title
         tab.createdAt = candidate.createdAt ?? Date()
-        tab.commandCount = candidate.commandCount
-        tab.commandHistory = candidate.commandHistory
-        tab.commandHistoryIndex = nil
-        tab.commandHistoryDraft = ""
-        tab.hasExited = false
+        tab.commandLifecycle.apply(.replaceSession(
+            cwd: candidate.cwd,
+            commandCount: candidate.commandCount,
+            commandHistory: candidate.commandHistory
+        ))
+        resetTranscriptViews(for: tab)
         setCommandBarStatusText("Rejoining session...", in: tab)
-        tab.isShellReady = false
-        tab.isReplayingHistory = false
         tab.isTerminalControlActive = false
-        tab.isAlternateScreenActive = false
-        tab.isApplicationCursorModeActive = false
         tab.ptyPassthroughView.usesPagerKeyBindings = false
         tab.outputProcessor.resetForReplay()
         configureSession(for: tab)
@@ -5168,11 +5147,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         persistSessionState()
     }
 
-    private func resetTranscript(for tab: TerminalTab) {
-        tab.blocks.removeAll()
+    private func resetTranscriptViews(for tab: TerminalTab) {
         tab.blockViews.removeAll()
-        tab.activeBlockID = nil
-        tab.pendingBlockID = nil
         for view in tab.stackView.arrangedSubviews {
             tab.stackView.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -5502,8 +5478,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.session.onHistoryOutput = { [weak self, weak tab] text in
             DispatchQueue.main.async { [weak self, weak tab] in
                 guard let self, let tab else { return }
-                tab.isReplayingHistory = true
-                tab.isShellReady = false
+                tab.commandLifecycle.apply(.beginHistoryReplay)
                 self.updateCommandBarVisibility(for: tab)
             }
             tab?.outputProcessor.replayShellOutput(text) { [weak self, weak tab] in
@@ -5515,8 +5490,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             guard let self, let tab else { return }
             guard tab.sessionRef == configuredSessionRef else { return }
             guard !tab.hasExited else { return }
-            tab.hasExited = true
-            tab.isReplayingHistory = false
+            let exitChange = tab.commandLifecycle.apply(.shellExited(status: status, at: Date()))
             tab.inputView.isEditable = false
             tab.inputView.isSelectable = false
             self.removeExitedSessionFromPersistentHistory(configuredSessionRef)
@@ -5524,7 +5498,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 guard let self, let tab else { return }
                 guard tab.sessionRef == configuredSessionRef else { return }
                 self.setCommandBarStatusText("Shell exited with status \(status)", in: tab)
-                self.finishRunningBlocks(in: tab, status: status)
+                for blockID in exitChange.finishedBlockIDs {
+                    self.ensureBlockView(for: blockID, in: tab)
+                    self.updateBlockViewNow(for: blockID, in: tab)
+                }
+                self.stopRunningElapsedUpdates(for: tab)
                 self.updateTabTitleForDirectory(tab)
                 self.stopTtyModePolling(for: tab)
                 tab.ptyPassthroughView.usesPagerKeyBindings = false
@@ -5535,10 +5513,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func finishHistoryReplay(in tab: TerminalTab) {
-        tab.isReplayingHistory = false
+        tab.commandLifecycle.apply(.finishHistoryReplay)
         guard !tab.hasExited else { return }
         if !isCommandRunning(in: tab) {
-            tab.isShellReady = true
             updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
             updateCommandBarVisibility(for: tab)
             updateTabTitleForDirectory(tab)
@@ -5635,7 +5612,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.session.onReady = { [weak self, weak tab] created in
             guard let self, let tab else { return }
             guard created else {
-                tab.needsShellInputResetBeforeNextSubmit = true
+                tab.commandLifecycle.apply(.markNeedsShellInputReset)
                 self.finishHistoryReplay(in: tab)
                 return
             }
@@ -5856,9 +5833,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func shellInputResetPrefixIfNeeded(in tab: TerminalTab) -> String {
-        guard tab.needsShellInputResetBeforeNextSubmit else { return "" }
-        tab.needsShellInputResetBeforeNextSubmit = false
-        return shellLineResetSequence
+        tab.commandLifecycle.apply(.consumeShellInputReset).didConsumeShellInputReset
+            ? shellLineResetSequence
+            : ""
     }
 
     private func previewCompletionSelection(_ suggestion: CompletionSuggestion) {
@@ -6108,34 +6085,19 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             submitEmptyCommand(rawCommand, in: tab)
             return
         }
-        if let previousIndex = tab.commandHistory.firstIndex(of: command) {
-            tab.commandHistory.remove(at: previousIndex)
-        }
-        tab.commandCount += 1
-        tab.commandHistory.append(command)
-        tab.commandHistoryIndex = nil
-        tab.commandHistoryDraft = ""
+        let submission = tab.commandLifecycle.apply(.submit(
+            command: command,
+            cwd: tab.currentCwd,
+            at: Date()
+        ))
+        guard let blockID = submission.addedBlockIDs.first,
+              let block = tab.blocks.first(where: { $0.id == blockID })
+        else { return }
         clearCommandInput(in: tab)
-        tab.isShellReady = false
-        tab.isAlternateScreenActive = false
-        tab.isApplicationCursorModeActive = false
         let usesPagerKeyBindings = usesPagerKeyBindings(for: command)
         tab.ptyPassthroughView.usesPagerKeyBindings = usesPagerKeyBindings
         updateTabTitle(titleForCommand(command), detail: command, in: tab)
 
-        let block = TerminalBlock(
-            id: UUID(),
-            command: command,
-            cwd: tab.currentCwd,
-            startedAt: Date(),
-            finishedAt: nil,
-            output: "",
-            attributedOutput: NSMutableAttributedString(),
-            outputRevision: 0,
-            state: .running
-        )
-        tab.blocks.append(block)
-        tab.pendingBlockID = block.id
         persistSessionState()
         tab.outputProcessor.resetForCommand(
             blockID: block.id,
@@ -6157,24 +6119,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func submitEmptyCommand(_ rawCommand: String, in tab: TerminalTab) {
-        let timestamp = Date()
         hideSessionPicker(for: tab)
         clearCommandInput(in: tab)
-        tab.commandHistoryIndex = nil
-        tab.commandHistoryDraft = ""
-
-        let block = TerminalBlock(
-            id: UUID(),
-            command: "",
-            cwd: tab.currentCwd,
-            startedAt: timestamp,
-            finishedAt: timestamp,
-            output: "",
-            attributedOutput: NSMutableAttributedString(),
-            outputRevision: 0,
-            state: .completed(0)
-        )
-        tab.blocks.append(block)
+        let submission = tab.commandLifecycle.apply(.submitEmpty(cwd: tab.currentCwd, at: Date()))
+        guard let blockID = submission.addedBlockIDs.first,
+              let block = tab.blocks.first(where: { $0.id == blockID })
+        else { return }
         addBlockView(block, to: tab)
         updateCommandBarVisibility(for: tab)
         tab.session.write(shellLineResetSequence + shellInputResetPrefixIfNeeded(in: tab) + rawCommand + "\n", suppressEcho: true)
@@ -6187,12 +6137,14 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         renderInterruptEcho(in: tab)
         tab.session.sendInterrupt()
         tab.outputProcessor.finishCommand()
-        finishRunningBlocks(in: tab, status: 130)
-        tab.isAlternateScreenActive = false
-        tab.isApplicationCursorModeActive = false
+        let change = tab.commandLifecycle.apply(.interrupt(status: 130, at: Date()))
+        for blockID in change.finishedBlockIDs {
+            ensureBlockView(for: blockID, in: tab)
+            updateBlockViewNow(for: blockID, in: tab)
+        }
         tab.ptyPassthroughView.usesPagerKeyBindings = false
         stopTtyModePolling(for: tab)
-        tab.isShellReady = true
+        stopRunningElapsedUpdates(for: tab)
         setTerminalControl(false, in: tab)
         clearCommandInput(in: tab)
         updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
@@ -6211,33 +6163,16 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func showPreviousCommand(in tab: TerminalTab) -> Bool {
-        guard tab.isShellReady, !tab.isReplayingHistory, !tab.commandHistory.isEmpty else { return false }
-
-        let nextIndex: Int
-        if let index = tab.commandHistoryIndex {
-            nextIndex = max(0, index - 1)
-        } else {
-            tab.commandHistoryDraft = tab.inputView.string
-            nextIndex = tab.commandHistory.count - 1
-        }
-
-        tab.commandHistoryIndex = nextIndex
-        setInput(tab.commandHistory[nextIndex], in: tab)
+        let change = tab.commandLifecycle.apply(.previousHistory(draft: tab.inputView.string))
+        guard let input = change.selectedHistoryInput else { return false }
+        setInput(input, in: tab)
         return true
     }
 
     private func showNextCommand(in tab: TerminalTab) -> Bool {
-        guard tab.isShellReady, !tab.isReplayingHistory, let index = tab.commandHistoryIndex else { return false }
-
-        let nextIndex = index + 1
-        if nextIndex < tab.commandHistory.count {
-            tab.commandHistoryIndex = nextIndex
-            setInput(tab.commandHistory[nextIndex], in: tab)
-        } else {
-            tab.commandHistoryIndex = nil
-            setInput(tab.commandHistoryDraft, in: tab)
-            tab.commandHistoryDraft = ""
-        }
+        let change = tab.commandLifecycle.apply(.nextHistory)
+        guard let input = change.selectedHistoryInput else { return false }
+        setInput(input, in: tab)
         return true
     }
 
@@ -6262,74 +6197,42 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func beginReplayedCommandBlock(blockID: UUID, command: String, in tab: TerminalTab) {
-        guard !tab.blocks.contains(where: { $0.id == blockID }) else { return }
-        finishSupersededReplayBlocks(in: tab)
-        let block = TerminalBlock(
-            id: blockID,
+        let change = tab.commandLifecycle.apply(.replayCommandStarted(
+            blockID: blockID,
             command: command,
-            cwd: tab.currentCwd,
-            startedAt: Date(),
-            finishedAt: nil,
-            output: "",
-            attributedOutput: NSMutableAttributedString(),
-            outputRevision: 0,
-            state: .running
-        )
-        tab.blocks.append(block)
-        if !command.isEmpty {
-            tab.commandCount = max(tab.commandCount, tab.blocks.filter { !$0.command.isEmpty }.count)
+            at: Date()
+        ))
+        for finishedBlockID in change.finishedBlockIDs {
+            ensureBlockView(for: finishedBlockID, in: tab)
+            updateBlockViewNow(for: finishedBlockID, in: tab)
         }
-        tab.activeBlockID = blockID
-        tab.pendingBlockID = nil
+        guard change.addedBlockIDs.contains(blockID),
+              let block = tab.blocks.first(where: { $0.id == blockID })
+        else { return }
+        if !change.finishedBlockIDs.isEmpty {
+            stopRunningElapsedUpdates(for: tab)
+        }
         addBlockView(block, to: tab)
         updateTabTitle(command.isEmpty ? tab.title : titleForCommand(command), detail: command, in: tab)
         updateCommandBarVisibility(for: tab)
     }
 
-    private func finishSupersededReplayBlocks(in tab: TerminalTab) {
-        let runningBlockIDs = tab.blocks.compactMap { block -> UUID? in
-            if case .running = block.state {
-                return block.id
-            }
-            return nil
-        }
-        guard !runningBlockIDs.isEmpty else { return }
-
-        for blockID in runningBlockIDs {
-            guard let index = tab.blocks.firstIndex(where: { $0.id == blockID }) else { continue }
-            tab.blocks[index].state = .completed(0)
-            ensureBlockView(for: blockID, in: tab)
-            updateBlockViewNow(for: blockID, in: tab)
-        }
-
-        if tab.activeBlockID.map(runningBlockIDs.contains) == true {
-            tab.activeBlockID = nil
-        }
-        if tab.pendingBlockID.map(runningBlockIDs.contains) == true {
-            tab.pendingBlockID = nil
-        }
-        stopRunningElapsedUpdates(for: tab)
-    }
-
     private func applyOutputSnapshot(_ snapshot: TerminalOutputProcessor.Snapshot, in tab: TerminalTab) {
-        guard let index = tab.blocks.firstIndex(where: { $0.id == snapshot.blockID }) else {
-            return
-        }
-
-        let didChangeTerminalMode = tab.isAlternateScreenActive != snapshot.isAlternateScreenActive
-            || tab.isApplicationCursorModeActive != snapshot.isApplicationCursorModeActive
-        tab.isAlternateScreenActive = snapshot.isAlternateScreenActive
-        tab.isApplicationCursorModeActive = snapshot.isApplicationCursorModeActive
-        tab.blocks[index].output = snapshot.plainText
-        tab.blocks[index].attributedOutput = snapshot.attributedText
-        tab.blocks[index].outputRevision += 1
+        let change = tab.commandLifecycle.apply(.output(
+            blockID: snapshot.blockID,
+            plainText: snapshot.plainText,
+            attributedText: snapshot.attributedText,
+            isAlternateScreenActive: snapshot.isAlternateScreenActive,
+            isApplicationCursorModeActive: snapshot.isApplicationCursorModeActive
+        ))
+        guard change.updatedBlockIDs.contains(snapshot.blockID) else { return }
 
         ensureBlockView(for: snapshot.blockID, in: tab)
         scheduleBlockViewUpdate(for: snapshot.blockID, in: tab)
         if tab.isFindMode {
             updateFindResults(in: tab, bounce: false)
         }
-        if didChangeTerminalMode {
+        if change.didChangeTerminalMode {
             refreshTerminalControl(in: tab)
         }
     }
@@ -6346,22 +6249,18 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
         switch code {
         case "R":
-            tab.currentCwd = decodeBase64(payload) ?? tab.currentCwd
-            if !tab.isReplayingHistory {
-                tab.isShellReady = true
-            }
+            tab.commandLifecycle.apply(.shellReady(cwd: decodeBase64(payload)))
             updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
             updateCommandBarVisibility(for: tab)
             updateTabTitleForDirectory(tab)
             persistSessionState()
             runSelfTestIfNeeded(in: tab)
         case "C":
-            if let pendingBlockID = tab.pendingBlockID {
-                tab.activeBlockID = pendingBlockID
-                tab.pendingBlockID = nil
-            }
+            tab.commandLifecycle.apply(.commandStarted)
         case "P":
-            tab.currentCwd = decodeBase64(payload) ?? tab.currentCwd
+            if let cwd = decodeBase64(payload) {
+                tab.commandLifecycle.apply(.cwdChanged(cwd))
+            }
             persistSessionState()
         case "V":
             updateDotenvShield(payload.trimmingCharacters(in: .whitespacesAndNewlines) == "1", in: tab)
@@ -6371,21 +6270,17 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             }
         case "D":
             let status = Int32(payload.trimmingCharacters(in: .whitespacesAndNewlines)) ?? -1
-            if let activeBlockID = tab.activeBlockID,
-               let index = tab.blocks.firstIndex(where: { $0.id == activeBlockID }) {
-                tab.blocks[index].finishedAt = isReplay ? nil : Date()
-                tab.blocks[index].state = .completed(status)
-                ensureBlockView(for: activeBlockID, in: tab)
-                updateBlockViewNow(for: activeBlockID, in: tab)
+            let change = tab.commandLifecycle.apply(.commandFinished(
+                status: status,
+                isReplay: isReplay,
+                at: Date()
+            ))
+            for blockID in change.finishedBlockIDs {
+                ensureBlockView(for: blockID, in: tab)
+                updateBlockViewNow(for: blockID, in: tab)
             }
             stopRunningElapsedUpdates(for: tab)
-            tab.activeBlockID = nil
-            tab.isAlternateScreenActive = false
-            tab.isApplicationCursorModeActive = false
             tab.ptyPassthroughView.usesPagerKeyBindings = false
-            if !tab.isReplayingHistory {
-                tab.isShellReady = true
-            }
             stopTtyModePolling(for: tab)
             setTerminalControl(false, in: tab)
             updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
@@ -7005,18 +6900,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func isCommandRunning(in tab: TerminalTab) -> Bool {
-        latestRunningBlock(in: tab) != nil
+        tab.commandLifecycle.state.isCommandRunning
     }
 
     private func latestRunningBlock(in tab: TerminalTab) -> TerminalBlock? {
-        guard let latestBlock = tab.blocks.last else { return nil }
-        if tab.activeBlockID == latestBlock.id || tab.pendingBlockID == latestBlock.id {
-            return latestBlock
-        }
-        if case .running = latestBlock.state {
-            return latestBlock
-        }
-        return nil
+        tab.commandLifecycle.state.latestRunningBlock
     }
 
     private func scheduleBlockViewUpdate(for blockID: UUID, in tab: TerminalTab) {
@@ -7049,22 +6937,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         ensureBlockView(for: blockID, in: tab)
         tab.blockViews[blockID]?.update(with: block)
         scrollToBottom(tab)
-    }
-
-    private func finishRunningBlocks(in tab: TerminalTab, status: Int32) {
-        let finishedAt = Date()
-        for index in tab.blocks.indices {
-            if case .running = tab.blocks[index].state {
-                tab.blocks[index].finishedAt = finishedAt
-                tab.blocks[index].state = .completed(status)
-                ensureBlockView(for: tab.blocks[index].id, in: tab)
-                updateBlockViewNow(for: tab.blocks[index].id, in: tab)
-            }
-        }
-        tab.activeBlockID = nil
-        tab.pendingBlockID = nil
-        tab.isShellReady = false
-        stopRunningElapsedUpdates(for: tab)
     }
 
     private func copy(_ value: String) {

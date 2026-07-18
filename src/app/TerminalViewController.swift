@@ -3541,24 +3541,7 @@ private final class TerminalTab {
 }
 
 final class TerminalViewController: NSViewController, NSTextViewDelegate {
-    private struct StoredTab: Codable {
-        var sessionRef: SessionRef?
-        var sessionID: String
-        var title: String
-        var cwd: String
-        var windowID: String?
-        var createdAt: Date?
-        var commandCount: Int?
-        var runningCommand: String?
-        var commandHistory: [String]?
-    }
-
-    private struct StoredSessions: Codable {
-        var visibleTabs: [StoredTab]
-        var closedTabs: [StoredTab]
-        var activeSessionID: String?
-        var activeSessionIDs: [String: String]?
-    }
+    private typealias StoredTab = SessionCatalog.Record
 
     private struct LocalSessionCandidate {
         enum Kind {
@@ -3585,14 +3568,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private let selfTestCommand: String?
-    private var windowID: String
+    private let sessionCatalog: SessionCatalog
+    private var windowID: String { sessionCatalog.windowID }
     private let restoresPersistedWindow: Bool
     private var didRunSelfTest = false
     private var tabs: [TerminalTab] = []
-    private var closedTabs: [StoredTab] = []
+    private var closedTabs: [StoredTab] { sessionCatalog.closedTabs }
     private var isKillingClosedTabs = false
-    private var exitedSessionIDs = Set<String>()
-    private var exitedSessionRefs = Set<SessionRef>()
     private var activeTabID: UUID?
     private var tabButtons: [UUID: TitleTabButton] = [:]
     private var sessionPickerCandidatesByTab: [UUID: [SessionRef: LocalSessionCandidate]] = [:]
@@ -3654,7 +3636,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     ) {
         _ = Self.didRunPassthroughRoutingSelfTest
         self.selfTestCommand = selfTestCommand
-        self.windowID = windowID
+        self.sessionCatalog = SessionCatalog(url: Self.sessionStateURL(), windowID: windowID)
         self.restoresPersistedWindow = restoresPersistedWindow
         super.init(nibName: nil, bundle: nil)
     }
@@ -3662,7 +3644,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     required init?(coder: NSCoder) {
         _ = Self.didRunPassthroughRoutingSelfTest
         self.selfTestCommand = nil
-        self.windowID = UUID().uuidString
+        self.sessionCatalog = SessionCatalog(url: Self.sessionStateURL(), windowID: UUID().uuidString)
         self.restoresPersistedWindow = true
         super.init(coder: coder)
     }
@@ -4146,7 +4128,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     @objc func reopenClosedTab(_ sender: Any?) {
-        guard let stored = closedTabs.popLast() else {
+        guard let stored = sessionCatalog.popLastClosed() else {
             NSSound.beep()
             return
         }
@@ -4180,7 +4162,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        let visibleSessionRefs = Set(loadSessionState().visibleTabs.map(sessionRef(from:)))
+        let visibleSessionRefs = Set(sessionCatalog.visibleRecords().map(\.resolvedRef))
         let killTargets: [(stored: StoredTab, sessionRef: SessionRef)] = closedTabs.compactMap { stored in
             let storedRef = sessionRef(from: stored)
             guard !visibleSessionRefs.contains(storedRef) else { return nil }
@@ -4193,7 +4175,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         isKillingClosedTabs = true
         let targetRefs = Set(killTargets.map { $0.sessionRef })
-        closedTabs.removeAll { targetRefs.contains(sessionRef(from: $0)) }
+        sessionCatalog.removeClosed(targetRefs)
         persistSessionState()
 
         sessionCleanupQueue.async { [weak self] in
@@ -4211,11 +4193,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 self.isKillingClosedTabs = false
 
                 if !failedTargets.isEmpty {
-                    let existingRefs = Set(self.closedTabs.map { self.sessionRef(from: $0) })
-                    let restoredTabs = failedTargets
-                        .filter { !existingRefs.contains($0.sessionRef) }
-                        .map { $0.stored }
-                    self.closedTabs.append(contentsOf: restoredTabs)
+                    self.sessionCatalog.restoreClosed(failedTargets.map(\.stored))
                     self.persistSessionState()
 
                     let failureAlert = NSAlert()
@@ -4438,7 +4416,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let isVisibleOutsideTab = isSessionVisibleOutsideTab(tab)
         let shouldPersistTab = shouldPersistSession(tab)
         if shouldPersistTab && !isVisibleOutsideTab {
-            closedTabs.append(storedTab(from: tab))
+            sessionCatalog.appendClosed(storedTab(from: tab))
         }
         stopRunningElapsedUpdates(for: tab)
         stopTtyModePolling(for: tab)
@@ -4479,34 +4457,19 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func restoreSessionState() {
-        let stored = loadSessionState()
-        let persistedVisibleTabs = stored.visibleTabs.filter(shouldPersistStoredSession)
-        closedTabs = stored.closedTabs.filter(shouldPersistStoredSession)
-
-        if restoresPersistedWindow,
-           let restoredWindowID = persistedVisibleTabs.compactMap(\.windowID).first,
-           !persistedVisibleTabs.contains(where: { $0.windowID == windowID }) {
-            windowID = restoredWindowID
-        }
-
-        let tabsToRestore = persistedVisibleTabs.filter { storedTabBelongsToCurrentWindow($0) }
+        let restoration = sessionCatalog.restore(restoresPersistedWindow: restoresPersistedWindow)
+        let tabsToRestore = restoration.tabs
 
         if tabsToRestore.isEmpty {
             createTab()
             return
         }
 
-        let activeSessionID = stored.activeSessionIDs?[windowID] ?? stored.activeSessionID
-        let newestFirst = tabsToRestore.sorted { lhs, rhs in
-            (lhs.createdAt ?? .distantPast) > (rhs.createdAt ?? .distantPast)
-        }
-        let firstTab = activeSessionID
-            .flatMap { sessionID in newestFirst.first { $0.sessionID == sessionID } }
-            ?? newestFirst[0]
+        let firstTab = tabsToRestore[0]
         createTab(from: firstTab, activates: true, persists: false)
 
         let firstRef = sessionRef(from: firstTab)
-        let remainingTabs = newestFirst.filter { sessionRef(from: $0) != firstRef }
+        let remainingTabs = tabsToRestore.filter { sessionRef(from: $0) != firstRef }
         restoreSessionTabs(remainingTabs, startingAt: 0)
     }
 
@@ -4541,48 +4504,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         )
     }
 
-    private func loadSessionState() -> StoredSessions {
-        let url = sessionStateURL()
-        guard let data = try? Data(contentsOf: url),
-              let stored = try? JSONDecoder().decode(StoredSessions.self, from: data)
-        else {
-            return StoredSessions(visibleTabs: [], closedTabs: [], activeSessionID: nil, activeSessionIDs: nil)
-        }
-        return stored
-    }
-
     private func persistSessionState() {
-        let existing = loadSessionState()
-        let otherWindowTabs = existing.visibleTabs.filter { storedTab in
-            guard let storedWindowID = storedTab.windowID else { return false }
-            return storedWindowID != windowID && shouldPersistStoredSession(storedTab)
-        }
-        var activeSessionIDs = (existing.activeSessionIDs ?? [:]).filter { _, sessionID in
-            !exitedSessionIDs.contains(sessionID)
-        }
-        if let activeTab, shouldPersistSession(activeTab) {
-            activeSessionIDs[windowID] = activeTab.sessionID
-        } else {
-            activeSessionIDs.removeValue(forKey: windowID)
-        }
-        let visibleTabs = tabs
-            .filter(shouldPersistSession)
-            .map(storedTab(from:))
-        let persistedClosedTabs = closedTabs.filter(shouldPersistStoredSession)
-        let stored = StoredSessions(
-            visibleTabs: otherWindowTabs + visibleTabs,
-            closedTabs: persistedClosedTabs,
-            activeSessionID: activeTab.flatMap { shouldPersistSession($0) ? $0.sessionID : nil },
-            activeSessionIDs: activeSessionIDs
-        )
         do {
-            let url = sessionStateURL()
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true
+            try sessionCatalog.persist(
+                visibleTabs: tabs.filter(shouldPersistSession).map(storedTab(from:)),
+                activeSessionRef: activeTab.flatMap { shouldPersistSession($0) ? $0.sessionRef : nil }
             )
-            let data = try JSONEncoder().encode(stored)
-            try data.write(to: url, options: .atomic)
             publishVisibleSessionState()
         } catch {
             NSLog("Failed to persist Vaultty session state: \(error.localizedDescription)")
@@ -4590,11 +4517,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func shouldPersistSession(_ tab: TerminalTab) -> Bool {
-        tab.commandCount > 0 && !tab.hasExited && !exitedSessionRefs.contains(tab.sessionRef)
+        tab.commandCount > 0 && !tab.hasExited && !sessionCatalog.isExited(tab.sessionRef)
     }
 
     private func shouldPersistStoredSession(_ tab: StoredTab) -> Bool {
-        (tab.commandCount ?? 0) > 0 && !exitedSessionRefs.contains(sessionRef(from: tab))
+        sessionCatalog.shouldPersist(tab)
     }
 
     private func publishVisibleSessionState() {
@@ -4616,7 +4543,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             sessionID: tab.sessionID,
             title: standardTabTitle(tab.title, in: tab),
             cwd: tab.currentCwd,
-            windowID: windowID,
+            windowID: nil,
             createdAt: tab.createdAt,
             commandCount: tab.commandCount,
             runningCommand: runningCommand(in: tab),
@@ -4624,28 +4551,22 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         )
     }
 
-    private func storedTabBelongsToCurrentWindow(_ tab: StoredTab) -> Bool {
-        tab.windowID == nil || tab.windowID == windowID
-    }
-
     private func sessionRef(from tab: StoredTab) -> SessionRef {
-        tab.sessionRef ?? .local(tab.sessionID)
+        tab.resolvedRef
     }
 
     private func isSessionVisibleOutsideTab(_ tab: TerminalTab) -> Bool {
         if tabs.contains(where: { $0.id != tab.id && $0.sessionRef == tab.sessionRef }) {
             return true
         }
-        return loadSessionState().visibleTabs.contains { stored in
-            sessionRef(from: stored) == tab.sessionRef && stored.windowID != nil && stored.windowID != windowID
-        }
+        return sessionCatalog.isVisibleOutsideCurrentWindow(tab.sessionRef)
     }
 
     private func runningCommand(in tab: TerminalTab) -> String? {
         latestRunningBlock(in: tab)?.command
     }
 
-    private func sessionStateURL() -> URL {
+    private static func sessionStateURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
@@ -4795,8 +4716,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         var seen = Set(tabs.map(\.sessionRef))
         var candidates: [LocalSessionCandidate] = []
 
-        let stored = loadSessionState()
-        for visible in stored.visibleTabs {
+        for visible in sessionCatalog.visibleRecords() {
             let visibleRef = sessionRef(from: visible)
             guard shouldPersistStoredSession(visible),
                   visible.windowID != nil,
@@ -5087,7 +5007,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             } catch {
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
-                    self.closedTabs.append(stored)
+                    self.sessionCatalog.restoreClosed([stored])
                     self.persistSessionState()
                     self.configureSessionPickerIfPossible()
                     let alert = NSAlert()
@@ -5156,7 +5076,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func removeClosedSession(_ sessionRef: SessionRef) {
-        closedTabs.removeAll { self.sessionRef(from: $0) == sessionRef }
+        sessionCatalog.removeClosed(sessionRef)
     }
 
     private func scheduleKillDetachedSession(_ sessionRef: SessionRef) {
@@ -5166,13 +5086,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func removeExitedSessionFromPersistentHistory(_ sessionRef: SessionRef) {
-        let insertedSessionID = exitedSessionIDs.insert(sessionRef.sessionID).inserted
-        let insertedSessionRef = exitedSessionRefs.insert(sessionRef).inserted
-        let closedTabCount = closedTabs.count
-        closedTabs.removeAll { self.sessionRef(from: $0) == sessionRef }
-        guard insertedSessionID || insertedSessionRef || closedTabs.count != closedTabCount else {
-            return
-        }
+        guard sessionCatalog.markExited(sessionRef) else { return }
         persistSessionState()
     }
 

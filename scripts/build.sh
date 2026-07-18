@@ -1016,6 +1016,7 @@ SWIFTC_COMMAND=(
   "$ROOT_DIR/src/app/main.swift" \
   "$ROOT_DIR/src/core/SessionTypes.swift" \
   "$ROOT_DIR/src/core/SessionCatalog.swift" \
+  "$ROOT_DIR/src/core/SessionWireProtocol.swift" \
   "$ROOT_DIR/src/app/PtySession.swift" \
   "$ROOT_DIR/src/core/CommandLifecycle.swift" \
   "$ROOT_DIR/src/app/Ansi.swift" \

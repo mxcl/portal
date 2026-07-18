@@ -1,6 +1,160 @@
 import Foundation
 import Darwin
 
+private protocol SessionTransport: AnyObject {
+    var onText: ((String) -> Void)? { get set }
+    var onExit: ((Int32) -> Void)? { get set }
+    var onDiagnostic: ((String) -> Void)? { get set }
+
+    func start() throws
+    func send(_ line: String) throws
+    func close(terminate: Bool)
+}
+
+private final class LocalSessionTransport: SessionTransport {
+    var onText: ((String) -> Void)?
+    var onExit: ((Int32) -> Void)?
+    var onDiagnostic: ((String) -> Void)?
+
+    private let queue: DispatchQueue
+    private let connect: () throws -> Int32
+    private let write: (String, Int32) throws -> Void
+    private var fd: Int32 = -1
+    private var readSource: DispatchSourceRead?
+
+    init(
+        queue: DispatchQueue,
+        connect: @escaping () throws -> Int32,
+        write: @escaping (String, Int32) throws -> Void
+    ) {
+        self.queue = queue
+        self.connect = connect
+        self.write = write
+    }
+
+    func start() throws {
+        let fd = try connect()
+        self.fd = fd
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            var buffer = [UInt8](repeating: 0, count: 8192)
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            guard count > 0 else {
+                self.onExit?(0)
+                return
+            }
+            self.onText?(String(decoding: buffer[0..<count], as: UTF8.self))
+        }
+        source.resume()
+        readSource = source
+    }
+
+    func send(_ line: String) throws {
+        guard fd >= 0 else { return }
+        try write(line + "\n", fd)
+    }
+
+    func close(terminate: Bool) {
+        readSource?.cancel()
+        readSource = nil
+        if fd >= 0 {
+            Darwin.close(fd)
+            fd = -1
+        }
+    }
+}
+
+private final class SSHSessionTransport: SessionTransport {
+    var onText: ((String) -> Void)?
+    var onExit: ((Int32) -> Void)?
+    var onDiagnostic: ((String) -> Void)?
+
+    private let queue: DispatchQueue
+    private let process: Process
+    private let write: (String, Int32) throws -> Void
+    private var input: FileHandle?
+    private var output: FileHandle?
+    private var error: FileHandle?
+    private var errorOutput = Data()
+
+    init(
+        queue: DispatchQueue,
+        process: Process,
+        write: @escaping (String, Int32) throws -> Void
+    ) {
+        self.queue = queue
+        self.process = process
+        self.write = write
+    }
+
+    func start() throws {
+        let inputPipe = Pipe()
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardInput = inputPipe
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+        try process.run()
+        input = inputPipe.fileHandleForWriting
+        output = outputPipe.fileHandleForReading
+        error = errorPipe.fileHandleForReading
+
+        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            self?.queue.async {
+                self?.onText?(String(decoding: data, as: UTF8.self))
+            }
+        }
+        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            self?.queue.async {
+                self?.errorOutput.append(data)
+            }
+        }
+        process.terminationHandler = { [weak self] process in
+            self?.queue.async {
+                guard let self else { return }
+                let message = String(data: self.errorOutput, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if process.terminationStatus != 0, !message.isEmpty {
+                    self.onDiagnostic?("\nSSH bridge failed: \(message)\n")
+                }
+                self.onExit?(process.terminationStatus)
+            }
+        }
+    }
+
+    func send(_ line: String) throws {
+        guard let input else { return }
+        try write(line + "\n", input.fileDescriptor)
+    }
+
+    func close(terminate: Bool) {
+        output?.readabilityHandler = nil
+        error?.readabilityHandler = nil
+        try? input?.close()
+        try? output?.close()
+        try? error?.close()
+        input = nil
+        output = nil
+        error = nil
+        errorOutput.removeAll(keepingCapacity: false)
+        if terminate, process.isRunning {
+            process.terminate()
+        }
+        process.terminationHandler = nil
+    }
+}
+
 final class PtySession {
     var onOutput: ((String) -> Void)?
     var onHistoryOutput: ((String) -> Void)?
@@ -9,14 +163,8 @@ final class PtySession {
 
     private let sessionRef: SessionRef
     private let queue = DispatchQueue(label: "com.automicvault.vaultty.session-client")
-    private var socketFd: Int32 = -1
-    private var readSource: DispatchSourceRead?
-    private var bridgeProcess: Process?
-    private var bridgeInput: FileHandle?
-    private var bridgeOutput: FileHandle?
-    private var bridgeError: FileHandle?
-    private var bridgeErrorOutput = Data()
-    private var parserBuffer = ""
+    private var transport: (any SessionTransport)?
+    private var protocolDecoder = SessionWireProtocol.Decoder()
     private var treatsNextOutputAsLegacyHistory = false
     private let lifecycleLock = NSLock()
     private var isStopped = false
@@ -45,17 +193,12 @@ final class PtySession {
         workingDirectory: URL,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        let envBlob = environment
-            .map { "\($0.key)=\($0.value)" }
-            .sorted()
-            .joined(separator: "\0")
-        let attachLine = [
-            "ATTACH",
-            Self.base64(sessionRef.sessionID),
-            Self.base64(workingDirectory.path),
-            Self.base64(shellPath),
-            Self.base64(envBlob)
-        ].joined(separator: " ")
+        let attachCommand = SessionWireProtocol.ClientCommand.attach(
+            sessionID: sessionRef.sessionID,
+            workingDirectory: workingDirectory.path,
+            shellPath: shellPath,
+            environment: environment
+        )
 
         queue.async { [weak self] in
             guard let self, !self.hasStopped() else { return }
@@ -65,7 +208,7 @@ final class PtySession {
                     self.closeTransport(terminateBridge: true)
                     return
                 }
-                self.sendLine(attachLine)
+                self.send(attachCommand)
                 DispatchQueue.main.async {
                     completion(.success(()))
                 }
@@ -78,7 +221,7 @@ final class PtySession {
     }
 
     func resize(rows: UInt16, cols: UInt16) {
-        sendLine("RESIZE \(rows) \(cols)")
+        send(.resize(rows: rows, cols: cols))
     }
 
     func isCanonicalInputModeEnabled() -> Bool? {
@@ -86,16 +229,15 @@ final class PtySession {
     }
 
     func sendInterrupt() {
-        sendLine("INTERRUPT")
+        send(.interrupt)
     }
 
     func clearHistory() {
-        sendLine("CLEAR_HISTORY")
+        send(.clearHistory)
     }
 
     func write(_ string: String, suppressEcho: Bool = false) {
-        guard let data = string.data(using: .utf8) else { return }
-        sendLine("INPUT \(data.base64EncodedString())")
+        send(.input(Data(string.utf8)))
     }
 
     func updateState(
@@ -115,7 +257,7 @@ final class PtySession {
             commandHistory: commandHistory
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
-        sendLine("STATE \(data.base64EncodedString())")
+        send(.state(data))
     }
 
     func stop() {
@@ -155,26 +297,9 @@ final class PtySession {
     }
 
     private func closeTransport(terminateBridge: Bool) {
-        readSource?.cancel()
-        readSource = nil
-        if socketFd >= 0 {
-            close(socketFd)
-            socketFd = -1
-        }
-        bridgeOutput?.readabilityHandler = nil
-        bridgeError?.readabilityHandler = nil
-        try? bridgeInput?.close()
-        try? bridgeOutput?.close()
-        try? bridgeError?.close()
-        bridgeInput = nil
-        bridgeOutput = nil
-        bridgeError = nil
-        if terminateBridge {
-            bridgeProcess?.terminate()
-        }
-        bridgeProcess = nil
-        bridgeErrorOutput.removeAll(keepingCapacity: false)
-        parserBuffer.removeAll(keepingCapacity: false)
+        transport?.close(terminate: terminateBridge)
+        transport = nil
+        protocolDecoder.reset()
         treatsNextOutputAsLegacyHistory = false
     }
 
@@ -183,20 +308,18 @@ final class PtySession {
     }
 
     static func killDetachedSession(sessionRef: SessionRef) throws {
-        let command = "KILL \(base64(sessionRef.sessionID))"
+        let command = SessionWireProtocol.ClientCommand.kill(sessionID: sessionRef.sessionID)
         switch sessionRef.location {
         case .local:
-            try sendLocalCommandNoResponse(command, startsDaemon: false)
+            try sendLocalCommandNoResponse(SessionWireProtocol.encode(command), startsDaemon: false)
         case .sshHost:
             try sendCommandNoResponse(command, location: sessionRef.location)
         }
     }
 
     static func listSessions(location: SessionLocation = .local) throws -> [SessionMetadata] {
-        let line = try sendSingleResponseCommand("LIST", location: location)
-        guard let payload = line.removingPrefix("SESSIONS "),
-              let data = Data(base64Encoded: payload)
-        else {
+        let event = try sendSingleResponseCommand(.list, location: location)
+        guard case .sessions(let data) = event else {
             throw NSError(
                 domain: NSPOSIXErrorDomain,
                 code: Int(EPROTO),
@@ -276,173 +399,107 @@ final class PtySession {
     }
 
     private func connect() throws {
+        let transport: any SessionTransport
         switch sessionRef.location {
         case .local:
             try Self.ensureDaemonIsRunning()
-            let fd = try Self.connectToDaemon()
-            socketFd = fd
-            startReading(fd: fd)
+            transport = LocalSessionTransport(
+                queue: queue,
+                connect: Self.connectToDaemon,
+                write: Self.writeAll
+            )
         case .sshHost(let hostID):
             let host = try Self.sshHostRecord(id: hostID)
-            let process = Self.makeSSHBridgeProcess(host: host)
-            let inputPipe = Pipe()
-            let outputPipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardInput = inputPipe
-            process.standardOutput = outputPipe
-            process.standardError = errorPipe
-            try process.run()
-            bridgeProcess = process
-            bridgeInput = inputPipe.fileHandleForWriting
-            bridgeOutput = outputPipe.fileHandleForReading
-            bridgeError = errorPipe.fileHandleForReading
-            startReading(fileHandle: outputPipe.fileHandleForReading)
-            errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-                let data = handle.availableData
-                guard !data.isEmpty else {
-                    handle.readabilityHandler = nil
-                    return
-                }
-                self?.queue.async {
-                    self?.bridgeErrorOutput.append(data)
-                }
-            }
-            process.terminationHandler = { [weak self] process in
-                self?.queue.async {
-                    guard let self else { return }
-                    let errorText = String(data: self.bridgeErrorOutput, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    if process.terminationStatus != 0, !errorText.isEmpty {
-                        self.onOutput?("\nSSH bridge failed: \(errorText)\n")
-                    }
-                    self.reportExit(process.terminationStatus)
-                }
-            }
+            transport = SSHSessionTransport(
+                queue: queue,
+                process: Self.makeSSHBridgeProcess(host: host),
+                write: Self.writeAll
+            )
         }
-    }
-
-    private func startReading(fd: Int32) {
-        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            var buffer = [UInt8](repeating: 0, count: 8192)
-            let count = Darwin.read(fd, &buffer, buffer.count)
-            guard count > 0 else {
-                self.reportExit(0)
-                return
-            }
-
-            let text = String(decoding: buffer[0..<count], as: UTF8.self)
-            self.consumeProtocolText(text)
-        }
-        source.setCancelHandler {
-        }
-        source.resume()
-        readSource = source
-    }
-
-    private func startReading(fileHandle: FileHandle) {
-        fileHandle.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else {
-                handle.readabilityHandler = nil
-                if self?.bridgeProcess == nil {
-                    self?.reportExit(0)
-                }
-                return
-            }
-            let text = String(decoding: data, as: UTF8.self)
-            self?.queue.async {
-                self?.consumeProtocolText(text)
-            }
+        transport.onText = { [weak self] text in self?.consumeProtocolText(text) }
+        transport.onExit = { [weak self] status in self?.reportExit(status) }
+        transport.onDiagnostic = { [weak self] text in self?.onOutput?(text) }
+        self.transport = transport
+        do {
+            try transport.start()
+        } catch {
+            transport.close(terminate: true)
+            self.transport = nil
+            throw error
         }
     }
 
     private func consumeProtocolText(_ text: String) {
-        parserBuffer += text
-        guard text.contains("\n") else { return }
-        while let newline = parserBuffer.firstIndex(of: "\n") {
-            let line = String(parserBuffer[..<newline])
-            parserBuffer.removeSubrange(...newline)
-            handleProtocolLine(line.trimmingCharacters(in: .newlines))
+        for event in protocolDecoder.append(text) {
+            handleProtocolEvent(event)
         }
     }
 
-    private func handleProtocolLine(_ line: String) {
-        if let payload = line.removingPrefix("OUTPUT "),
-           let data = Data(base64Encoded: payload),
-           let text = String(data: data, encoding: .utf8) {
+    private func handleProtocolEvent(_ event: SessionWireProtocol.ServerEvent) {
+        switch event {
+        case .output(let text):
             if treatsNextOutputAsLegacyHistory {
                 treatsNextOutputAsLegacyHistory = false
                 onHistoryOutput?(text)
             } else {
                 onOutput?(text)
             }
-            return
-        }
-
-        if let payload = line.removingPrefix("HISTORY "),
-           let data = Data(base64Encoded: payload),
-           let text = String(data: data, encoding: .utf8) {
+        case .history(let text):
             treatsNextOutputAsLegacyHistory = false
             onHistoryOutput?(text)
-            return
-        }
-
-        if let payload = line.removingPrefix("READY ") {
-            let created = payload.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+        case .ready(let created):
             treatsNextOutputAsLegacyHistory = !created
             DispatchQueue.main.async { [weak self] in
                 self?.onReady?(created)
             }
-            return
-        }
-
-        if let payload = line.removingPrefix("EXIT ") {
-            let status = Int32(payload.trimmingCharacters(in: .whitespacesAndNewlines)) ?? -1
+        case .exit(let status):
             reportExit(status)
+        case .sessions, .unknown:
+            break
         }
     }
 
-    private func sendLine(_ line: String) {
-        if socketFd >= 0 {
-            try? Self.writeAll(line + "\n", to: socketFd)
-            return
-        }
-        guard let bridgeInput
-        else {
-            return
-        }
+    private func send(_ command: SessionWireProtocol.ClientCommand) {
+        let line = SessionWireProtocol.encode(command)
         do {
-            try Self.writeAll(line + "\n", to: bridgeInput.fileDescriptor)
+            try transport?.send(line)
         } catch {
             reportExit(-1)
         }
     }
 
     @discardableResult
-    private static func sendSingleResponseCommand(_ command: String, location: SessionLocation) throws -> String {
+    private static func sendSingleResponseCommand(
+        _ command: SessionWireProtocol.ClientCommand,
+        location: SessionLocation
+    ) throws -> SessionWireProtocol.ServerEvent {
+        let line = SessionWireProtocol.encode(command)
         switch location {
         case .local:
             try ensureDaemonIsRunning()
             let fd = try connectToDaemon()
             defer { close(fd) }
-            try writeAll(command + "\n", to: fd)
-            return try readLine(from: fd)
+            try writeAll(line + "\n", to: fd)
+            return SessionWireProtocol.Decoder.decode(try readLine(from: fd))
         case .sshHost(let hostID):
             let host = try sshHostRecord(id: hostID)
-            let output = try runSSHBridgeCommand(host: host, command: command)
-            return String(decoding: output, as: UTF8.self)
+            let output = try runSSHBridgeCommand(host: host, command: line)
+            let response = String(decoding: output, as: UTF8.self)
                 .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
                 .first
                 .map(String.init) ?? ""
+            return SessionWireProtocol.Decoder.decode(response)
         }
     }
 
-    private static func sendCommandNoResponse(_ command: String, location: SessionLocation) throws {
+    private static func sendCommandNoResponse(
+        _ command: SessionWireProtocol.ClientCommand,
+        location: SessionLocation
+    ) throws {
+        let line = SessionWireProtocol.encode(command)
         switch location {
         case .local:
-            try sendLocalCommandNoResponse(command, startsDaemon: true)
+            try sendLocalCommandNoResponse(line, startsDaemon: true)
         case .sshHost(let hostID):
             let host = try sshHostRecord(id: hostID)
             let process = makeSSHBridgeProcess(host: host, batchMode: true)
@@ -451,7 +508,7 @@ final class PtySession {
             process.standardOutput = Pipe()
             process.standardError = Pipe()
             try process.run()
-            try writeAll(command + "\n", to: inputPipe.fileHandleForWriting.fileDescriptor)
+            try writeAll(line + "\n", to: inputPipe.fileHandleForWriting.fileDescriptor)
             try inputPipe.fileHandleForWriting.close()
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) {
                 if process.isRunning {
@@ -852,10 +909,6 @@ final class PtySession {
             .appendingPathComponent("Application Support", isDirectory: true)
             .appendingPathComponent("Vaultty", isDirectory: true)
             .appendingPathComponent("hosts.json", isDirectory: false)
-    }
-
-    private static func base64(_ value: String) -> String {
-        Data(value.utf8).base64EncodedString()
     }
 
     private static func posixError(_ operation: String) -> NSError {

@@ -3572,6 +3572,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var windowID: String { sessionCatalog.windowID }
     private let restoresPersistedWindow: Bool
     private var didRunSelfTest = false
+    private var initialCommands: [UUID: String] = [:]
     private var tabs: [TerminalTab] = []
     private var closedTabs: [StoredTab] { sessionCatalog.closedTabs }
     private var isKillingClosedTabs = false
@@ -4068,6 +4069,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     func newTab(at directoryURL: URL) {
         createTab(workingDirectory: directoryURL)
+    }
+
+    func newTab(at directoryURL: URL, running command: String) {
+        createTab(workingDirectory: directoryURL, initialCommand: command)
     }
 
     @objc func findInHistory(_ sender: Any?) {
@@ -4581,6 +4586,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         createdAt: Date = Date(),
         commandCount: Int = 0,
         commandHistory: [String] = [],
+        initialCommand: String? = nil,
         showsSessionPicker: Bool = true,
         activates: Bool = true,
         persists: Bool = true
@@ -4601,6 +4607,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         setCommandBarStatusText("Starting shell...", in: tab)
         tab.rootView.isHidden = !activates
         tabs.append(tab)
+        if let initialCommand {
+            initialCommands[tab.id] = initialCommand
+        }
         configureSession(for: tab)
         configureInterruptHandling(for: tab)
         installTabView(tab)
@@ -5435,7 +5444,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             updateTabTitleForDirectory(tab)
             scrollToBottom(tab)
             focusInput(for: tab)
-            runSelfTestIfNeeded(in: tab)
+            runInitialCommandIfNeeded(in: tab)
         }
     }
 
@@ -6168,7 +6177,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             updateCommandBarVisibility(for: tab)
             updateTabTitleForDirectory(tab)
             persistSessionState()
-            runSelfTestIfNeeded(in: tab)
+            runInitialCommandIfNeeded(in: tab)
         case "C":
             tab.commandLifecycle.apply(.commandStarted)
         case "P":
@@ -6203,7 +6212,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             persistSessionState()
             scrollToBottom(tab)
             focusInput(for: tab)
-            runSelfTestIfNeeded(in: tab)
+            runInitialCommandIfNeeded(in: tab)
         default:
             break
         }
@@ -6791,8 +6800,15 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    private func runSelfTestIfNeeded(in tab: TerminalTab) {
-        guard !didRunSelfTest, let selfTestCommand, tab.blocks.isEmpty, tab.isShellReady else { return }
+    private func runInitialCommandIfNeeded(in tab: TerminalTab) {
+        guard tab.isShellReady else { return }
+        if tab.blocks.isEmpty,
+           let initialCommand = initialCommands.removeValue(forKey: tab.id) {
+            tab.inputView.string = initialCommand
+            submitCommand(in: tab)
+            return
+        }
+        guard !didRunSelfTest, let selfTestCommand, tab.blocks.isEmpty else { return }
         didRunSelfTest = true
         tab.inputView.string = selfTestCommand
         submitCommand(in: tab)

@@ -21,6 +21,26 @@
   <array>
     <dict>
       <key>CFBundleTypeName</key>
+      <string>Terminal Shell Script</string>
+      <key>CFBundleTypeRole</key>
+      <string>Shell</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>com.apple.terminal.shell-script</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Unix Executable</string>
+      <key>CFBundleTypeRole</key>
+      <string>Shell</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.unix-executable</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
       <string>Folder</string>
       <key>CFBundleTypeRole</key>
       <string>Viewer</string>

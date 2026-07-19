@@ -1,5 +1,6 @@
 import AppKit
 import AppUpdater
+import UniformTypeIdentifiers
 
 private enum AppWindowMetrics {
     static let defaultContentSize = NSSize(width: 1120, height: 760)
@@ -7,14 +8,20 @@ private enum AppWindowMetrics {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSToolbarDelegate, NSMenuDelegate {
+    private static let terminalContentTypes = [
+        UTType.unixExecutable,
+        UTType(importedAs: "com.apple.terminal.shell-script")
+    ]
+    private static let previousTerminalHandlersDefaultsKey = "previousTerminalHandlerURLs"
     private let updater = AppUpdater(owner: "automic-vault", repo: "vaultty")
     private var window: NSWindow?
     private var controller: TerminalViewController?
     private var titleToolbar: NSToolbar?
-    private var pendingDirectoryURLs: [URL] = []
+    private var pendingOpenURLs: [URL] = []
     private var stagedUpdate: Update?
     private var updateCheckTask: Task<Void, Never>?
+    private weak var defaultTerminalMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = makeMainMenu()
@@ -76,35 +83,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         self.window = window
         NSApp.activate(ignoringOtherApps: true)
         controller.windowDidAttach()
-        openPendingDirectoryURLs()
+        openPendingURLs()
         if selfTestCommand == nil {
             checkForUpdates()
         }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        _ = openDirectoryURLs(from: urls)
+        _ = openURLs(urls)
     }
 
     func application(_ sender: NSApplication, openFile filename: String) -> Bool {
-        openDirectoryURLs(from: [URL(fileURLWithPath: filename)])
+        openURLs([URL(fileURLWithPath: filename)])
     }
 
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
-        let didOpen = openDirectoryURLs(from: filenames.map { URL(fileURLWithPath: $0) })
+        let didOpen = openURLs(filenames.map { URL(fileURLWithPath: $0) })
         sender.reply(toOpenOrPrint: didOpen ? .success : .failure)
     }
 
-    private func openDirectoryURLs(from urls: [URL]) -> Bool {
-        let directoryURLs = urls.compactMap(Self.directoryURL)
-        guard !directoryURLs.isEmpty else { return false }
+    private func openURLs(_ urls: [URL]) -> Bool {
+        let openItems = urls.compactMap(Self.openItem)
+        guard !openItems.isEmpty else { return false }
 
         if controller == nil {
-            pendingDirectoryURLs.append(contentsOf: directoryURLs)
+            pendingOpenURLs.append(contentsOf: urls)
             return true
         }
 
-        openDirectoryURLs(directoryURLs)
+        openItems.forEach(open)
         return true
     }
 
@@ -543,35 +550,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         controller?.selectNextTab(sender)
     }
 
-    private func openPendingDirectoryURLs() {
-        guard !pendingDirectoryURLs.isEmpty else { return }
-        let directoryURLs = pendingDirectoryURLs
-        pendingDirectoryURLs.removeAll()
-        openDirectoryURLs(directoryURLs)
+    private func openPendingURLs() {
+        guard !pendingOpenURLs.isEmpty else { return }
+        let urls = pendingOpenURLs
+        pendingOpenURLs.removeAll()
+        _ = openURLs(urls)
     }
 
-    private func openDirectoryURLs(_ directoryURLs: [URL]) {
-        guard let controller else {
-            pendingDirectoryURLs.append(contentsOf: directoryURLs)
-            return
-        }
+    private enum OpenItem {
+        case directory(URL)
+        case executable(URL)
+    }
+
+    private func open(_ item: OpenItem) {
+        guard let controller else { return }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        for url in directoryURLs {
+
+        switch item {
+        case .directory(let url):
             controller.newTab(at: url)
+        case .executable(let url):
+            controller.newTab(
+                at: url.deletingLastPathComponent(),
+                running: shellQuote(url.path)
+            )
         }
     }
 
-    private static func directoryURL(from url: URL) -> URL? {
+    private static func openItem(from url: URL) -> OpenItem? {
         guard url.isFileURL else { return nil }
         let standardizedURL = url.standardizedFileURL.resolvingSymlinksInPath()
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: standardizedURL.path, isDirectory: &isDirectory),
-              isDirectory.boolValue
-        else {
+        guard FileManager.default.fileExists(atPath: standardizedURL.path, isDirectory: &isDirectory) else {
             return nil
         }
-        return standardizedURL
+        return isDirectory.boolValue ? .directory(standardizedURL) : .executable(standardizedURL)
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -617,6 +631,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         }
         preferencesItem.submenu = preferencesMenu
         appMenu.addItem(preferencesItem)
+        let defaultTerminalItem = appMenu.addItem(
+            withTitle: "Make Vaultty System Default Terminal",
+            action: #selector(toggleDefaultTerminal(_:)),
+            keyEquivalent: ""
+        )
+        defaultTerminalItem.target = self
+        defaultTerminalMenuItem = defaultTerminalItem
+        updateDefaultTerminalMenuItem()
         appMenu.addItem(.separator())
 
         appMenu.addItem(
@@ -643,7 +665,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         )
 
         appItem.submenu = appMenu
+        appMenu.delegate = self
         return appItem
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard menu === defaultTerminalMenuItem?.menu else { return }
+        updateDefaultTerminalMenuItem()
+    }
+
+    @objc private func toggleDefaultTerminal(_ sender: NSMenuItem) {
+        let makeDefault = !isDefaultTerminal
+        sender.isEnabled = false
+
+        if makeDefault {
+            rememberCurrentTerminalHandlers()
+        }
+
+        Task { @MainActor in
+            do {
+                let handlerURLs = makeDefault
+                    ? Array(repeating: Bundle.main.bundleURL, count: Self.terminalContentTypes.count)
+                    : previousTerminalHandlerURLs()
+                for (contentType, handlerURL) in zip(Self.terminalContentTypes, handlerURLs) {
+                    try await NSWorkspace.shared.setDefaultApplication(at: handlerURL, toOpen: contentType)
+                }
+                if !makeDefault {
+                    UserDefaults.standard.removeObject(forKey: Self.previousTerminalHandlersDefaultsKey)
+                }
+            } catch {
+                presentDefaultTerminalError(error)
+            }
+            sender.isEnabled = true
+            updateDefaultTerminalMenuItem()
+        }
+    }
+
+    private var isDefaultTerminal: Bool {
+        let bundleURL = Bundle.main.bundleURL.standardizedFileURL
+        return Self.terminalContentTypes.allSatisfy {
+            NSWorkspace.shared.urlForApplication(toOpen: $0)?.standardizedFileURL == bundleURL
+        }
+    }
+
+    private func updateDefaultTerminalMenuItem() {
+        defaultTerminalMenuItem?.state = isDefaultTerminal ? .on : .off
+    }
+
+    private func rememberCurrentTerminalHandlers() {
+        let urls = Self.terminalContentTypes.map {
+            NSWorkspace.shared.urlForApplication(toOpen: $0)?.absoluteString ?? ""
+        }
+        UserDefaults.standard.set(urls, forKey: Self.previousTerminalHandlersDefaultsKey)
+    }
+
+    private func previousTerminalHandlerURLs() -> [URL] {
+        let storedURLs = UserDefaults.standard.stringArray(
+            forKey: Self.previousTerminalHandlersDefaultsKey
+        ) ?? []
+        let terminalURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal")
+            ?? URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+        return Self.terminalContentTypes.indices.map { index in
+            storedURLs.indices.contains(index) ? URL(string: storedURLs[index]) ?? terminalURL : terminalURL
+        }
+    }
+
+    private func presentDefaultTerminalError(_ error: Error) {
+        let alert = NSAlert(error: error)
+        alert.messageText = "Could not change the default terminal"
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
     }
 
     @objc private func selectBackgroundBlurEffect(_ sender: NSMenuItem) {

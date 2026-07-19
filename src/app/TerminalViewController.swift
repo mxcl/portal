@@ -6647,7 +6647,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private func setTerminalControl(_ isActive: Bool, in tab: TerminalTab) {
         guard tab.isTerminalControlActive != isActive else {
             updateCommandBarVisibility(for: tab)
-            focusInput(for: tab)
             return
         }
 

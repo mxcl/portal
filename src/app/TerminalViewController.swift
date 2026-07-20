@@ -2499,6 +2499,18 @@ private final class PtyPassthroughView: NSView {
         handleTerminalSequence(sequence)
     }
 
+    @objc func paste(_ sender: Any?) {
+        paste(from: .general)
+    }
+
+    private func paste(from pasteboard: NSPasteboard) {
+        guard let text = pasteboard.string(forType: .string) else {
+            NSSound.beep()
+            return
+        }
+        onInput?(text)
+    }
+
     private func handleTerminalSequence(_ sequence: String) {
         if sequence == "\u{3}" {
             onInterrupt?()
@@ -2514,11 +2526,19 @@ private final class PtyPassthroughView: NSView {
         view.onInput = { inputs.append($0) }
         view.onInterrupt = { interruptCount += 1 }
 
+        guard view.responds(to: #selector(NSText.paste(_:))) else { return false }
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("VaulttyPassthroughRoutingSelfTest"))
+        pasteboard.clearContents()
+        pasteboard.setString("pasted\ntext", forType: .string)
+        view.paste(from: pasteboard)
+        guard inputs == ["pasted\ntext"], interruptCount == 0 else { return false }
+
         view.handleTerminalSequence("x")
-        guard inputs == ["x"], interruptCount == 0 else { return false }
+        guard inputs == ["pasted\ntext", "x"], interruptCount == 0 else { return false }
 
         view.handleTerminalSequence("\u{3}")
-        return inputs == ["x"] && interruptCount == 1
+        return inputs == ["pasted\ntext", "x"] && interruptCount == 1
     }
 
     override func cancelOperation(_ sender: Any?) {

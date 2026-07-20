@@ -123,6 +123,7 @@ sudo systemctl restart "$service_name.service"
 
 curl --fail --silent --show-error \
   --retry 10 \
+  --retry-connrefused \
   --retry-delay 1 \
   "http://127.0.0.1:$relay_port/health" \
   --output /dev/null

@@ -165,8 +165,8 @@ final class MacRemoteAccessController {
     }
 
     private func attach(_ message: RemoteMessage) {
-        guard bridges[message.requestID] == nil,
-              let sessionID = message.sessionID else { return }
+        guard let sessionID = message.sessionID else { return }
+        detach(requestID: message.requestID)
         let session = PtySession(sessionID: sessionID)
         bridges[message.requestID] = Bridge(
             session: session,

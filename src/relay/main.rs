@@ -243,6 +243,8 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio_tungstenite::connect_async;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
     #[test]
     fn identifiers_are_strictly_url_safe() {
@@ -314,6 +316,66 @@ mod tests {
             Err(StatusCode::UNAUTHORIZED)
         );
 
+        std::fs::remove_dir_all(directory).expect("remove isolated test directory");
+    }
+
+    #[tokio::test]
+    async fn websocket_fanout_is_byte_exact_and_does_not_echo() {
+        let directory = env::temp_dir().join(format!(
+            "vaultty-relay-ws-test-{}",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        let state = RelayState::new(directory.clone())
+            .await
+            .expect("test relay state");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test relay");
+        let address = listener.local_addr().expect("test relay address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router(state))
+                .await
+                .expect("serve test relay");
+        });
+        let room = "r".repeat(43);
+        let credential = "c".repeat(43);
+
+        let connect = |peer: &str| {
+            let mut request = format!("ws://{address}/v1/connect/{room}/{peer}")
+                .into_client_request()
+                .expect("websocket request");
+            request.headers_mut().insert(
+                axum::http::header::AUTHORIZATION,
+                format!("Bearer {credential}").parse().expect("auth header"),
+            );
+            connect_async(request)
+        };
+        let (mut first, _) = connect("first").await.expect("first websocket");
+        let (mut second, _) = connect("second").await.expect("second websocket");
+        let payload = Bytes::from_static(&[0, 1, 2, 3, 255]);
+        first
+            .send(tokio_tungstenite::tungstenite::Message::Binary(
+                payload.clone(),
+            ))
+            .await
+            .expect("send opaque frame");
+
+        let received = tokio::time::timeout(Duration::from_secs(1), second.next())
+            .await
+            .expect("fanout deadline")
+            .expect("second socket open")
+            .expect("valid websocket frame");
+        assert_eq!(received.into_data(), payload);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), first.next())
+                .await
+                .is_err()
+        );
+
+        server.abort();
         std::fs::remove_dir_all(directory).expect("remove isolated test directory");
     }
 }

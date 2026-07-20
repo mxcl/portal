@@ -82,6 +82,25 @@ public final class MobileStore {
             entitled = true
             break
         }
+        if !entitled {
+            for product in products {
+                guard let subscription = product.subscription,
+                      let statuses = try? await subscription.status else { continue }
+                if statuses.contains(where: {
+                    switch $0.state {
+                    case .subscribed, .inGracePeriod, .inBillingRetryPeriod:
+                        true
+                    case .expired, .revoked:
+                        false
+                    default:
+                        false
+                    }
+                }) {
+                    entitled = true
+                    break
+                }
+            }
+        }
         hasEntitlement = entitled
     }
 }

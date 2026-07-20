@@ -5,5 +5,9 @@
 <dict>
   <key>com.apple.security.app-sandbox</key>
   <false/>
+  <key>keychain-access-groups</key>
+  <array>
+    <string>ZU76A67LGU.com.automicvault.vaultty.remote</string>
+  </array>
 </dict>
 </plist>

@@ -8,6 +8,7 @@ APP_BUNDLE_ID="com.automicvault.vaultty"
 ENV_HELPER_ID="com.automicvault.vaultty.env"
 SESSIOND_HELPER_ID="com.automicvault.vaultty.sessiond"
 SESSION_BRIDGE_ID="com.automicvault.vaultty.session-bridge"
+REMOTE_AGENT_ID="com.automicvault.vaultty.remote-agent"
 ENV_HELPER_APP_NAME="VaulttyEnv"
 GHOSTTY_PROBE_ID="com.automicvault.vaultty.ghostty-probe"
 DOTENV_KEYCHAIN_ACCESS_GROUP="${VAULTTY_DOTENV_KEYCHAIN_ACCESS_GROUP:-${AV_DOTENV_KEYCHAIN_ACCESS_GROUP:-ZU76A67LGU.com.automicvault.dotenv}}"
@@ -1030,6 +1031,21 @@ SWIFTC_COMMAND=(
   "$ROOT_DIR/src/app/TerminalViewController.swift" \
   "$GHOSTTY_BRIDGE_OBJECT"
 )
+
+swiftc \
+  "${SWIFT_FLAGS[@]}" \
+  -parse-as-library \
+  -target "arm64-apple-macosx$MIN_MACOS_VERSION" \
+  "$ROOT_DIR/src/remote_agent/main.swift" \
+  "$ROOT_DIR/src/core/SessionTypes.swift" \
+  "$ROOT_DIR/src/core/SessionWireProtocol.swift" \
+  "$ROOT_DIR/src/core/RemoteProtocol.swift" \
+  "$ROOT_DIR/src/core/RelayCrypto.swift" \
+  "$ROOT_DIR/src/core/ICloudKeychainRootKey.swift" \
+  "$ROOT_DIR/src/core/RelayClient.swift" \
+  "$ROOT_DIR/src/app/PtySession.swift" \
+  "$ROOT_DIR/src/app/MacRemoteAccessController.swift" \
+  -o "$HELPERS_DIR/vaultty-remote-agent"
 if [[ "${#GHOSTTY_SWIFT_LINK_ARGS[@]}" -gt 0 ]]; then
   SWIFTC_COMMAND+=("${GHOSTTY_SWIFT_LINK_ARGS[@]}")
 fi
@@ -1058,6 +1074,11 @@ codesign_runtime \
   --identifier "$SESSION_BRIDGE_ID" \
   "$SESSION_BRIDGE_HELPER"
 verify_signature "$SESSION_BRIDGE_HELPER"
+codesign_runtime \
+  --entitlements "$ROOT_DIR/src/app/vaultty.entitlements" \
+  --identifier "$REMOTE_AGENT_ID" \
+  "$HELPERS_DIR/vaultty-remote-agent"
+verify_signature "$HELPERS_DIR/vaultty-remote-agent"
 if [[ -x "$GHOSTTY_PROBE" ]]; then
   codesign_runtime \
     --identifier "$GHOSTTY_PROBE_ID" \

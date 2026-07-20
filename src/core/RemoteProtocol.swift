@@ -1,32 +1,57 @@
 import Foundation
 
-struct RemoteCatalog: Codable, Equatable, Sendable {
-    static let currentVersion: UInt16 = 1
+public struct RemoteCatalog: Codable, Equatable, Sendable {
+    public static let currentVersion: UInt16 = 1
 
-    var version: UInt16 = currentVersion
-    var generatedAt: Date
-    var macs: [RemoteMac]
+    public var version: UInt16 = currentVersion
+    public var generatedAt: Date
+    public var macs: [RemoteMac]
+
+    public init(version: UInt16 = currentVersion, generatedAt: Date, macs: [RemoteMac]) {
+        self.version = version
+        self.generatedAt = generatedAt
+        self.macs = macs
+    }
 }
 
-struct RemoteMac: Codable, Equatable, Identifiable, Sendable {
-    var id: String
-    var name: String
-    var online: Bool
-    var sessions: [RemoteCatalogSession]
+public struct RemoteMac: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var name: String
+    public var online: Bool
+    public var lastSeen: Date
+    public var sessions: [RemoteCatalogSession]
+
+    public init(id: String, name: String, online: Bool, lastSeen: Date = Date(), sessions: [RemoteCatalogSession]) {
+        self.id = id
+        self.name = name
+        self.online = online
+        self.lastSeen = lastSeen
+        self.sessions = sessions
+    }
 }
 
-struct RemoteCatalogSession: Codable, Equatable, Identifiable, Sendable {
-    var id: String { sessionID }
-    var sessionID: String
-    var title: String
-    var cwd: String
-    var createdAt: Date
-    var commandCount: Int
-    var runningCommand: String?
-    var attachedClientCount: Int
+public struct RemoteCatalogSession: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { sessionID }
+    public var sessionID: String
+    public var title: String
+    public var cwd: String
+    public var createdAt: Date
+    public var commandCount: Int
+    public var runningCommand: String?
+    public var attachedClientCount: Int
+
+    public init(sessionID: String, title: String, cwd: String, createdAt: Date, commandCount: Int, runningCommand: String?, attachedClientCount: Int) {
+        self.sessionID = sessionID
+        self.title = title
+        self.cwd = cwd
+        self.createdAt = createdAt
+        self.commandCount = commandCount
+        self.runningCommand = runningCommand
+        self.attachedClientCount = attachedClientCount
+    }
 }
 
-enum RemoteMessageKind: String, Codable, Sendable {
+public enum RemoteMessageKind: String, Codable, Sendable {
     case catalog
     case attach
     case detach
@@ -37,28 +62,40 @@ enum RemoteMessageKind: String, Codable, Sendable {
     case error
 }
 
-struct RemoteMessage: Codable, Equatable, Sendable {
-    static let currentVersion: UInt16 = 1
+public struct RemoteMessage: Codable, Equatable, Sendable {
+    public static let currentVersion: UInt16 = 1
 
-    var version: UInt16 = currentVersion
-    var kind: RemoteMessageKind
-    var requestID: String
-    var macID: String?
-    var sessionID: String?
-    var sequence: UInt64?
-    var payload: Data?
+    public var version: UInt16 = currentVersion
+    public var kind: RemoteMessageKind
+    public var requestID: String
+    public var macID: String?
+    public var sessionID: String?
+    public var sequence: UInt64?
+    public var payload: Data?
+
+    public init(version: UInt16 = currentVersion, kind: RemoteMessageKind, requestID: String, macID: String? = nil, sessionID: String? = nil, sequence: UInt64? = nil, payload: Data? = nil) {
+        self.version = version
+        self.kind = kind
+        self.requestID = requestID
+        self.macID = macID
+        self.sessionID = sessionID
+        self.sequence = sequence
+        self.payload = payload
+    }
 }
 
-enum RemoteSequenceResult: Equatable, Sendable {
+public enum RemoteSequenceResult: Equatable, Sendable {
     case accepted
     case duplicate
     case gap(expected: UInt64)
 }
 
-struct RemoteSequenceTracker: Sendable {
-    private(set) var lastSequence: UInt64?
+public struct RemoteSequenceTracker: Sendable {
+    public private(set) var lastSequence: UInt64?
 
-    mutating func accept(_ sequence: UInt64) -> RemoteSequenceResult {
+    public init() {}
+
+    public mutating func accept(_ sequence: UInt64) -> RemoteSequenceResult {
         guard let lastSequence else {
             self.lastSequence = sequence
             return .accepted
@@ -74,7 +111,7 @@ struct RemoteSequenceTracker: Sendable {
         return .accepted
     }
 
-    mutating func reset(to sequence: UInt64?) {
+    public mutating func reset(to sequence: UInt64?) {
         lastSequence = sequence
     }
 }
@@ -85,4 +122,3 @@ private extension UInt64 {
         return overflow ? .max : sum
     }
 }
-

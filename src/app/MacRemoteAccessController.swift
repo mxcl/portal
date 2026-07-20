@@ -12,6 +12,7 @@ final class MacRemoteAccessController {
     }
 
     private let macID: String
+    private let configuredEndpoint: URL?
     private var relay: RelayClient?
     private var receiveTask: Task<Void, Never>?
     private var catalogTask: Task<Void, Never>?
@@ -25,6 +26,12 @@ final class MacRemoteAccessController {
             UserDefaults.standard.set(created, forKey: "remoteAccessMacID")
             macID = created
         }
+        configuredEndpoint = nil
+    }
+
+    init(agentMacID: String, endpoint: URL) {
+        macID = agentMacID
+        configuredEndpoint = endpoint
     }
 
     var isEnabled: Bool {
@@ -33,15 +40,15 @@ final class MacRemoteAccessController {
 
     func startIfEnabled() {
         guard isEnabled else { return }
-        start()
+        launchAgent()
     }
 
     func setEnabled(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: Self.enabledDefaultsKey)
-        enabled ? start() : stop()
+        enabled ? launchAgent() : terminateAgent()
     }
 
-    private func start() {
+    func startAgentConnection() {
         guard receiveTask == nil else { return }
         do {
             let key = try ICloudKeychainRootKey().loadOrCreate()
@@ -55,7 +62,8 @@ final class MacRemoteAccessController {
                 guard let self else { return }
                 let catalog = try? RelayCatalogClient(endpoint: endpoint, rootKeyData: key)
                 while !Task.isCancelled {
-                    if let data = self.catalogData() {
+                    let existingData = try? await catalog?.load()
+                    if let data = self.catalogData(merging: existingData ?? nil) {
                         try? await catalog?.store(data)
                     }
                     try? await Task.sleep(for: .seconds(2))
@@ -65,6 +73,39 @@ final class MacRemoteAccessController {
             stop()
             NSLog("Vaultty remote access could not start: \(error)")
         }
+    }
+
+    private func launchAgent() {
+        guard let helper = remoteAgentURL(),
+              let endpoint = try? relayEndpoint() else {
+            NSLog("Vaultty remote agent is missing")
+            return
+        }
+        let process = Process()
+        process.executableURL = helper
+        process.arguments = ["--mac-id", macID, "--endpoint", endpoint.absoluteString]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            NSLog("Vaultty remote agent could not launch: \(error)")
+        }
+    }
+
+    private func terminateAgent() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        process.arguments = ["-TERM", "-x", "vaultty-remote-agent"]
+        try? process.run()
+    }
+
+    private func remoteAgentURL() -> URL? {
+        let bundled = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Helpers/vaultty-remote-agent")
+        if FileManager.default.isExecutableFile(atPath: bundled.path) { return bundled }
+        let local = URL(fileURLWithPath: "target/debug/vaultty-remote-agent")
+        return FileManager.default.isExecutableFile(atPath: local.path) ? local : nil
     }
 
     private func stop() {
@@ -192,12 +233,14 @@ final class MacRemoteAccessController {
         }
     }
 
-    private func catalogData() -> Data? {
+    private func catalogData(merging existingData: Data?) -> Data? {
         let sessions = (try? PtySession.listSessions()) ?? []
+        let now = Date()
         let mac = RemoteMac(
             id: macID,
             name: Host.current().localizedName ?? "Mac",
             online: true,
+            lastSeen: now,
             sessions: sessions.map {
                 RemoteCatalogSession(
                     sessionID: $0.sessionID,
@@ -210,10 +253,16 @@ final class MacRemoteAccessController {
                 )
             }
         )
-        return try? JSONEncoder().encode(RemoteCatalog(generatedAt: Date(), macs: [mac]))
+        var existing = existingData.flatMap { try? JSONDecoder().decode(RemoteCatalog.self, from: $0) }
+            ?? RemoteCatalog(generatedAt: now, macs: [])
+        existing.generatedAt = now
+        existing.macs.removeAll { $0.id == macID || now.timeIntervalSince($0.lastSeen) > 30 * 24 * 60 * 60 }
+        existing.macs.append(mac)
+        return try? JSONEncoder().encode(existing)
     }
 
     private func relayEndpoint() throws -> URL {
+        if let configuredEndpoint { return configuredEndpoint }
         let value = ProcessInfo.processInfo.environment["VAULTTY_RELAY_ENDPOINT"]
             ?? UserDefaults.standard.string(forKey: Self.endpointDefaultsKey)
             ?? "https://relay.vaultty.app"
@@ -231,4 +280,3 @@ private extension UInt64 {
         return overflow ? .max : sum
     }
 }
-

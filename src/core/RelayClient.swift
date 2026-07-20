@@ -1,26 +1,26 @@
 import Foundation
 
-enum RelayClientError: Error, Equatable {
+public enum RelayClientError: Error, Equatable {
     case invalidEndpoint
     case unexpectedMessage
     case invalidResponse(Int)
 }
 
-actor RelayClient {
+public actor RelayClient {
     private let endpoint: URL
     private let address: RelayAddress
     private let crypto: RelayCrypto
     private let session: URLSession
     private var socket: URLSessionWebSocketTask?
 
-    init(endpoint: URL, rootKeyData: Data, session: URLSession = .shared) throws {
+    public init(endpoint: URL, rootKeyData: Data, session: URLSession = .shared) throws {
         self.endpoint = endpoint
         crypto = try RelayCrypto(rootKeyData: rootKeyData)
         address = crypto.address
         self.session = session
     }
 
-    func connect(peerID: String) throws {
+    public func connect(peerID: String) throws {
         guard socket == nil else { return }
         var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)
         components?.scheme = endpoint.scheme == "http" ? "ws" : "wss"
@@ -35,13 +35,13 @@ actor RelayClient {
         socket.resume()
     }
 
-    func send(_ plaintext: Data) async throws {
+    public func send(_ plaintext: Data) async throws {
         guard let socket else { throw RelayClientError.invalidEndpoint }
         let envelope = try crypto.seal(plaintext, purpose: "transport")
         try await socket.send(.data(JSONEncoder().encode(envelope)))
     }
 
-    func receive() async throws -> Data {
+    public func receive() async throws -> Data {
         guard let socket else { throw RelayClientError.invalidEndpoint }
         let message = try await socket.receive()
         guard case .data(let data) = message else {
@@ -51,26 +51,26 @@ actor RelayClient {
         return try crypto.open(envelope, purpose: "transport")
     }
 
-    func disconnect() {
+    public func disconnect() {
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
     }
 }
 
-struct RelayCatalogClient: Sendable {
+public struct RelayCatalogClient: Sendable {
     private let endpoint: URL
     private let address: RelayAddress
     private let crypto: RelayCrypto
     private let session: URLSession
 
-    init(endpoint: URL, rootKeyData: Data, session: URLSession = .shared) throws {
+    public init(endpoint: URL, rootKeyData: Data, session: URLSession = .shared) throws {
         self.endpoint = endpoint
         crypto = try RelayCrypto(rootKeyData: rootKeyData)
         address = crypto.address
         self.session = session
     }
 
-    func store(_ catalog: Data) async throws {
+    public func store(_ catalog: Data) async throws {
         var request = URLRequest(url: try catalogURL())
         request.httpMethod = "PUT"
         request.setValue("Bearer \(address.credential)", forHTTPHeaderField: "Authorization")
@@ -80,7 +80,7 @@ struct RelayCatalogClient: Sendable {
         try validate(response, accepted: 204)
     }
 
-    func load() async throws -> Data? {
+    public func load() async throws -> Data? {
         var request = URLRequest(url: try catalogURL())
         request.setValue("Bearer \(address.credential)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await session.data(for: request)

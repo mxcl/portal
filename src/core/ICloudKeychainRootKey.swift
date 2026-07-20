@@ -1,17 +1,20 @@
 import Foundation
 import Security
 
-enum ICloudKeychainError: Error, Equatable {
+public enum ICloudKeychainError: Error, Equatable {
     case unavailable(OSStatus)
     case invalidKey
     case randomGenerationFailed(OSStatus)
 }
 
-struct ICloudKeychainRootKey {
-    static let service = "com.automicvault.vaultty.remote"
-    static let account = "account-root-key-v1"
+public struct ICloudKeychainRootKey {
+    public static let service = "com.automicvault.vaultty.remote"
+    public static let account = "account-root-key-v1"
+    public static let accessGroup = "ZU76A67LGU.com.automicvault.vaultty.remote"
 
-    func loadOrCreate() throws -> Data {
+    public init() {}
+
+    public func loadOrCreate() throws -> Data {
         switch load() {
         case .success(let key):
             return key
@@ -59,6 +62,7 @@ struct ICloudKeychainRootKey {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: Self.account,
+            kSecAttrAccessGroup as String: Self.accessGroup,
         ]
 #if os(macOS)
         query[kSecUseDataProtectionKeychain as String] = true
@@ -77,4 +81,3 @@ struct ICloudKeychainRootKey {
         return data
     }
 }
-

@@ -1,0 +1,350 @@
+#if os(iOS)
+import SwiftUI
+import SwiftTerm
+import UIKit
+import VaulttyCore
+
+public struct VaulttyMobileRootView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var model = MobileRemoteModel()
+    @State private var store = MobileStore()
+
+    public init() {}
+
+    public var body: some View {
+        NavigationStack {
+            Group {
+                if let catalog = model.catalog, !catalog.macs.isEmpty {
+                    List(catalog.macs) { mac in
+                        Section {
+                            ForEach(mac.sessions) { session in
+                                NavigationLink {
+                                    MobileSessionView(model: model, session: session, mac: mac)
+                                        .onAppear { model.attach(to: session, on: mac, store: store) }
+                                } label: {
+                                    SessionRow(session: session)
+                                }
+                                .disabled(!isMacReachable(mac, catalog: catalog))
+                            }
+                        } header: {
+                            HStack {
+                                Text(mac.name)
+                                Spacer()
+                                Text(isMacReachable(mac, catalog: catalog) ? "Online" : "Unavailable")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .refreshable { await model.refreshCatalog() }
+                } else {
+                    ContentUnavailableView(
+                        "No sessions yet",
+                        systemImage: "terminal",
+                        description: Text("Enable Remote Access on a Mac with an open Vaultty session.")
+                    )
+                }
+            }
+            .navigationTitle("Vaultty")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Refresh", systemImage: "arrow.clockwise") {
+                        Task { await model.refreshCatalog() }
+                    }
+                }
+            }
+        }
+        .task {
+            async let catalog: Void = model.refreshCatalog()
+            async let products: Void = store.load()
+            _ = await (catalog, products)
+        }
+        .sheet(isPresented: $model.showsPaywall) {
+            MobilePaywall(store: store)
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { model.isLocked },
+            set: { _ in }
+        )) {
+            LockedView { model.unlock() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background:
+                model.sceneDidEnterBackground()
+            case .active:
+                model.sceneDidBecomeActive()
+            case .inactive:
+                break
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    private func isMacReachable(_ mac: RemoteMac, catalog: RemoteCatalog) -> Bool {
+        mac.online && Date().timeIntervalSince(mac.lastSeen) < 10
+    }
+}
+
+private struct SessionRow: View {
+    let session: RemoteCatalogSession
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(session.title).font(.headline)
+                if session.runningCommand != nil {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            Text(session.cwd)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+private struct MobileSessionView: View {
+    let model: MobileRemoteModel
+    let session: RemoteCatalogSession
+    let mac: RemoteMac
+    @State private var command = ""
+    @State private var rawInput = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            statusBar
+            VaulttyTerminalView(chunks: model.chunks) { model.sendInput($0) }
+                .background(.black)
+            inputBar
+            keyStrip
+        }
+        .background(.black)
+        .navigationTitle(session.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.black, for: .navigationBar)
+        .onDisappear { model.detach() }
+    }
+
+    private var statusBar: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(model.connectionState == .attached ? .green : .orange)
+                .frame(width: 7, height: 7)
+            Text(statusText)
+            Spacer()
+            Label("\(model.presenceCount)", systemImage: "keyboard")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .frame(height: 28)
+        .background(.bar)
+    }
+
+    private var inputBar: some View {
+        HStack(spacing: 8) {
+            Button(rawInput ? "Raw" : "Command") { rawInput.toggle() }
+                .buttonStyle(.bordered)
+            if rawInput {
+                Button("Show Keyboard", systemImage: "keyboard") {
+                    NotificationCenter.default.post(name: .vaulttyFocusTerminal, object: nil)
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                TextField("Command", text: $command)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.body.monospaced())
+                    .submitLabel(.send)
+                    .onSubmit {
+                        guard !command.isEmpty else { return }
+                        model.sendInput(Data("\(command)\r".utf8))
+                        command = ""
+                    }
+            }
+            Button("Interrupt", systemImage: "stop.fill") { model.interrupt() }
+                .labelStyle(.iconOnly)
+                .tint(.red)
+        }
+        .padding(8)
+        .background(.bar)
+    }
+
+    private var keyStrip: some View {
+        HStack(spacing: 4) {
+            TerminalKey("Esc", bytes: [0x1b], model: model)
+            TerminalKey("Ctrl-C", bytes: [0x03], model: model)
+            TerminalKey("Tab", bytes: [0x09], model: model)
+            TerminalKey("←", bytes: Array("\u{1b}[D".utf8), model: model)
+            TerminalKey("↑", bytes: Array("\u{1b}[A".utf8), model: model)
+            TerminalKey("↓", bytes: Array("\u{1b}[B".utf8), model: model)
+            TerminalKey("→", bytes: Array("\u{1b}[C".utf8), model: model)
+            Button("Dismiss", systemImage: "keyboard.chevron.compact.down") {
+                UIApplication.shared.sendAction(
+                    #selector(UIResponder.resignFirstResponder),
+                    to: nil,
+                    from: nil,
+                    for: nil
+                )
+            }
+            .labelStyle(.iconOnly)
+            .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.borderless)
+        .font(.caption.monospaced())
+        .padding(.horizontal, 4)
+        .background(.bar)
+    }
+
+    private var statusText: String {
+        switch model.connectionState {
+        case .idle: "Detached"
+        case .authenticating: "Authenticating"
+        case .connecting: "Connecting"
+        case .attached: mac.name
+        case .reconnecting: "Reconnecting"
+        case .failed(let message): message
+        }
+    }
+}
+
+private struct TerminalKey: View {
+    let title: String
+    let bytes: [UInt8]
+    let model: MobileRemoteModel
+
+    init(_ title: String, bytes: [UInt8], model: MobileRemoteModel) {
+        self.title = title
+        self.bytes = bytes
+        self.model = model
+    }
+
+    var body: some View {
+        Button(title) { model.sendInput(Data(bytes)) }
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(.rect)
+    }
+}
+
+private struct VaulttyTerminalView: UIViewRepresentable {
+    let chunks: [TerminalChunk]
+    let onInput: (Data) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onInput: onInput)
+    }
+
+    func makeUIView(context: Context) -> TerminalView {
+        let view = TerminalView(frame: .zero)
+        view.terminalDelegate = context.coordinator
+        view.backgroundColor = .black
+        context.coordinator.terminalView = view
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.focusTerminal),
+            name: .vaulttyFocusTerminal,
+            object: nil
+        )
+        return view
+    }
+
+    func updateUIView(_ view: TerminalView, context: Context) {
+        context.coordinator.onInput = onInput
+        for chunk in chunks where chunk.id > context.coordinator.lastChunkID {
+            view.feed(byteArray: Array(chunk.data)[...])
+            context.coordinator.lastChunkID = chunk.id
+        }
+    }
+
+    final class Coordinator: NSObject, TerminalViewDelegate {
+        var onInput: (Data) -> Void
+        var lastChunkID: UInt64 = 0
+        weak var terminalView: TerminalView?
+
+        init(onInput: @escaping (Data) -> Void) {
+            self.onInput = onInput
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        @MainActor @objc func focusTerminal() {
+            _ = terminalView?.becomeFirstResponder()
+        }
+
+        func send(source: TerminalView, data: ArraySlice<UInt8>) { onInput(Data(data)) }
+        func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {}
+        func setTerminalTitle(source: TerminalView, title: String) {}
+        func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
+        func scrolled(source: TerminalView, position: Double) {}
+        func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {}
+        func bell(source: TerminalView) {}
+        func clipboardCopy(source: TerminalView, content: Data) {}
+        func clipboardRead(source: TerminalView) -> Data? { nil }
+        func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
+        func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
+    }
+}
+
+private struct MobilePaywall: View {
+    let store: MobileStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Image(systemName: "iphone.and.arrow.forward")
+                    .font(.system(size: 54))
+                Text("One terminal everywhere")
+                    .font(.largeTitle.bold())
+                    .multilineTextAlignment(.center)
+                Text("Attach securely to every open Vaultty session on your Macs. Includes a 14-day free trial.")
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                ForEach(store.products, id: \.id) { product in
+                    Button {
+                        Task { await store.purchase(product) }
+                    } label: {
+                        HStack {
+                            Text(product.id == MobileStore.annualProductID ? "Annual" : "Monthly")
+                            Spacer()
+                            Text(product.displayPrice)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                }
+                Button("Restore Purchases") { Task { await store.restore() } }
+            }
+            .padding(24)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
+            .onChange(of: store.hasEntitlement) { _, entitled in
+                if entitled { dismiss() }
+            }
+        }
+    }
+}
+
+private struct LockedView: View {
+    let unlock: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "lock.fill").font(.system(size: 52))
+            Text("Vaultty is locked").font(.title.bold())
+            Button("Unlock", action: unlock).buttonStyle(.borderedProminent)
+        }
+    }
+}
+
+private extension Notification.Name {
+    static let vaulttyFocusTerminal = Notification.Name("VaulttyFocusTerminal")
+}
+#endif

@@ -1,49 +1,49 @@
 import CryptoKit
 import Foundation
 
-enum RelayCryptoError: Error, Equatable {
+public enum RelayCryptoError: Error, Equatable {
     case invalidRootKey
     case invalidEnvelope
     case unsupportedVersion
 }
 
-struct RelayAddress: Equatable, Sendable {
-    let room: String
-    let credential: String
+public struct RelayAddress: Equatable, Sendable {
+    public let room: String
+    public let credential: String
 }
 
-struct RelayCiphertext: Codable, Equatable, Sendable {
-    static let currentVersion: UInt16 = 1
+public struct RelayCiphertext: Codable, Equatable, Sendable {
+    public static let currentVersion: UInt16 = 1
 
-    let version: UInt16
-    let combined: Data
+    public let version: UInt16
+    public let combined: Data
 
-    init(version: UInt16 = currentVersion, combined: Data) {
+    public init(version: UInt16 = currentVersion, combined: Data) {
         self.version = version
         self.combined = combined
     }
 }
 
-struct RelayCrypto: Sendable {
-    static let rootKeyByteCount = 32
+public struct RelayCrypto: Sendable {
+    public static let rootKeyByteCount = 32
 
     private let rootKey: SymmetricKey
 
-    init(rootKeyData: Data) throws {
+    public init(rootKeyData: Data) throws {
         guard rootKeyData.count == Self.rootKeyByteCount else {
             throw RelayCryptoError.invalidRootKey
         }
         rootKey = SymmetricKey(data: rootKeyData)
     }
 
-    var address: RelayAddress {
+    public var address: RelayAddress {
         RelayAddress(
             room: identifier(label: "room"),
             credential: identifier(label: "credential")
         )
     }
 
-    func seal(_ plaintext: Data, purpose: String) throws -> RelayCiphertext {
+    public func seal(_ plaintext: Data, purpose: String) throws -> RelayCiphertext {
         let sealed = try AES.GCM.seal(
             plaintext,
             using: key(purpose: purpose),
@@ -55,7 +55,7 @@ struct RelayCrypto: Sendable {
         return RelayCiphertext(combined: combined)
     }
 
-    func open(_ envelope: RelayCiphertext, purpose: String) throws -> Data {
+    public func open(_ envelope: RelayCiphertext, purpose: String) throws -> Data {
         guard envelope.version == RelayCiphertext.currentVersion else {
             throw RelayCryptoError.unsupportedVersion
         }
@@ -92,4 +92,3 @@ struct RelayCrypto: Sendable {
             .replacingOccurrences(of: "=", with: "")
     }
 }
-

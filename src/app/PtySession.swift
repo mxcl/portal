@@ -160,6 +160,7 @@ final class PtySession {
     var onHistoryOutput: ((String) -> Void)?
     var onExit: ((Int32) -> Void)?
     var onReady: ((Bool) -> Void)?
+    var onPresence: ((Int) -> Void)?
 
     private let sessionRef: SessionRef
     private let clientID = UUID().uuidString
@@ -479,7 +480,9 @@ final class PtySession {
         case .snapshot:
             // macOS replays the retained byte history; phones render this canonical screen directly.
             break
-        case .protocolVersion, .presence, .geometry:
+        case .presence(let count):
+            onPresence?(count)
+        case .protocolVersion, .geometry:
             break
         case .notFound:
             reportExit(-1)

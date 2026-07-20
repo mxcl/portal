@@ -167,7 +167,7 @@ final class MacRemoteAccessController {
             bridges[message.requestID]?.session.sendInterrupt()
         case .historyPage:
             break
-        case .catalog, .terminalEvent, .error:
+        case .catalog, .terminalEvent, .presence, .error:
             break
         }
     }
@@ -195,6 +195,17 @@ final class MacRemoteAccessController {
             DispatchQueue.main.async {
                 self?.sendError("Session ended (\(status))", request: message)
                 self?.detach(requestID: message.requestID)
+            }
+        }
+        session.onPresence = { [weak self] count in
+            DispatchQueue.main.async {
+                self?.send(RemoteMessage(
+                    kind: .presence,
+                    requestID: message.requestID,
+                    macID: self?.macID,
+                    sessionID: sessionID,
+                    payload: Data(String(count).utf8)
+                ))
             }
         }
         session.joinExisting { [weak self] result in

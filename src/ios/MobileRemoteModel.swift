@@ -249,6 +249,12 @@ public final class MobileRemoteModel {
         case .error:
             let text = message.payload.flatMap { String(data: $0, encoding: .utf8) } ?? "Remote session failed"
             connectionState = .failed(text)
+        case .presence:
+            if let payload = message.payload,
+               let text = String(data: payload, encoding: .utf8),
+               let count = Int(text) {
+                presenceCount = count
+            }
         case .catalog, .attach, .detach, .input, .interrupt, .historyPage:
             break
         }

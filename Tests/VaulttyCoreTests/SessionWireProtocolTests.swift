@@ -31,6 +31,7 @@ struct SessionWireProtocolTests {
         #expect(SessionWireProtocol.encode(.list) == "LIST")
         #expect(SessionWireProtocol.encode(.kill(sessionID: "id")) == "KILL aWQ=")
         #expect(SessionWireProtocol.encode(.historyPage(beforeSequence: 42, maxLines: 1000)) == "HISTORY_PAGE 42 1000")
+        #expect(SessionWireProtocol.encode(.joinV2(version: 2, role: .phone, clientID: "p", sessionID: "s")) == "JOIN2 2 phone cA== cw==")
     }
 
     @Test("v2 attach identifies protocol, role, and client")

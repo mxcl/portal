@@ -224,6 +224,25 @@ final class PtySession {
         }
     }
 
+    func joinExisting(completion: @escaping (Result<Void, Error>) -> Void) {
+        let command = SessionWireProtocol.ClientCommand.joinV2(
+            version: SessionWireProtocol.currentVersion,
+            role: .phone,
+            clientID: clientID,
+            sessionID: sessionRef.sessionID
+        )
+        queue.async { [weak self] in
+            guard let self, !self.hasStopped() else { return }
+            do {
+                try self.connect()
+                self.send(command)
+                DispatchQueue.main.async { completion(.success(())) }
+            } catch {
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
+    }
+
     func resize(rows: UInt16, cols: UInt16) {
         send(.resize(rows: rows, cols: cols))
     }
@@ -462,6 +481,8 @@ final class PtySession {
             break
         case .protocolVersion, .presence, .geometry:
             break
+        case .notFound:
+            reportExit(-1)
         case .ready(let created):
             treatsNextOutputAsLegacyHistory = !created
             DispatchQueue.main.async { [weak self] in

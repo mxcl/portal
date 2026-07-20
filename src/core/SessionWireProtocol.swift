@@ -25,6 +25,7 @@ enum SessionWireProtocol {
             shellPath: String,
             environment: [String: String]
         )
+        case joinV2(version: UInt16, role: ClientRole, clientID: String, sessionID: String)
         case resize(rows: UInt16, cols: UInt16)
         case interrupt
         case clearHistory
@@ -44,6 +45,7 @@ enum SessionWireProtocol {
         case protocolVersion(UInt16)
         case presence(Int)
         case geometry(rows: UInt16, cols: UInt16)
+        case notFound
         case ready(created: Bool)
         case exit(Int32)
         case sessions(Data)
@@ -103,6 +105,9 @@ enum SessionWireProtocol {
                let rows = UInt16(values[0]),
                let cols = UInt16(values[1]) {
                 return .geometry(rows: rows, cols: cols)
+            }
+            if line == "NOT_FOUND" {
+                return .notFound
             }
             if let text = decodeText(prefix: "OUTPUT ", line: line) {
                 return .output(text)
@@ -175,6 +180,14 @@ enum SessionWireProtocol {
                 base64(workingDirectory),
                 base64(shellPath),
                 base64(environmentBlob)
+            ].joined(separator: " ")
+        case .joinV2(let version, let role, let clientID, let sessionID):
+            return [
+                "JOIN2",
+                String(version),
+                role.rawValue,
+                base64(clientID),
+                base64(sessionID)
             ].joined(separator: " ")
         case .resize(let rows, let cols):
             return "RESIZE \(rows) \(cols)"

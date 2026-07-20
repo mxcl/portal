@@ -36,6 +36,7 @@ struct AttachRequest {
     environment: Vec<(String, String)>,
     protocol_version: u16,
     client_role: ClientRole,
+    allows_creation: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -613,6 +614,9 @@ fn handle_client(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<
     };
     let (session, created) = if let Some(session) = existing_session {
         (session, false)
+    } else if !request.allows_creation {
+        writeln!(stream, "NOT_FOUND")?;
+        return Ok(());
     } else {
         let new_session = Session::new(&request, Arc::downgrade(&state))?;
         let replaced_session = {
@@ -800,8 +804,8 @@ fn write_session_list(stream: &mut UnixStream, state: &DaemonState) -> io::Resul
 
 fn parse_attach(line: &str) -> io::Result<AttachRequest> {
     let parts: Vec<&str> = line.split_whitespace().collect();
-    let (protocol_version, client_role, field_offset) = match parts.as_slice() {
-        ["ATTACH", ..] if parts.len() == 5 => (PREVIOUS_PROTOCOL_VERSION, ClientRole::Mac, 1),
+    let (protocol_version, client_role, field_offset, allows_creation) = match parts.as_slice() {
+        ["ATTACH", ..] if parts.len() == 5 => (PREVIOUS_PROTOCOL_VERSION, ClientRole::Mac, 1, true),
         ["ATTACH2", version, role, _client_id, ..] if parts.len() == 8 => {
             let version = version.parse::<u16>().map_err(|_| {
                 io::Error::new(io::ErrorKind::InvalidInput, "invalid protocol version")
@@ -822,7 +826,38 @@ fn parse_attach(line: &str) -> io::Result<AttachRequest> {
                     ));
                 }
             };
-            (version, role, 4)
+            (version, role, 4, true)
+        }
+        ["JOIN2", version, role, _client_id, ..] if parts.len() == 5 => {
+            let version = version.parse::<u16>().map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid protocol version")
+            })?;
+            if version != CURRENT_PROTOCOL_VERSION {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "unsupported protocol version",
+                ));
+            }
+            let role = match *role {
+                "mac" => ClientRole::Mac,
+                "phone" => ClientRole::Phone,
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "invalid client role",
+                    ));
+                }
+            };
+            let session_id = decode_string(parts[4])?;
+            return Ok(AttachRequest {
+                session_id,
+                cwd: PathBuf::new(),
+                shell: String::new(),
+                environment: Vec::new(),
+                protocol_version: version,
+                client_role: role,
+                allows_creation: false,
+            });
         }
         _ => {
             return Err(io::Error::new(
@@ -863,6 +898,7 @@ fn parse_attach(line: &str) -> io::Result<AttachRequest> {
         environment,
         protocol_version,
         client_role,
+        allows_creation,
     })
 }
 
@@ -1155,6 +1191,7 @@ mod tests {
             environment: Vec::new(),
             protocol_version: PREVIOUS_PROTOCOL_VERSION,
             client_role: ClientRole::Mac,
+            allows_creation: true,
         };
         let metadata = SessionMetadata::new(&request);
 
@@ -1173,6 +1210,7 @@ mod tests {
             environment: Vec::new(),
             protocol_version: PREVIOUS_PROTOCOL_VERSION,
             client_role: ClientRole::Mac,
+            allows_creation: true,
         };
         let session = Session {
             session_id: request.session_id.clone(),

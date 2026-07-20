@@ -22,6 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var stagedUpdate: Update?
     private var updateCheckTask: Task<Void, Never>?
     private weak var defaultTerminalMenuItem: NSMenuItem?
+    private weak var remoteAccessMenuItem: NSMenuItem?
+    private let remoteAccessController = MacRemoteAccessController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = makeMainMenu()
@@ -86,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         openPendingURLs()
         if selfTestCommand == nil {
             checkForUpdates()
+            remoteAccessController.startIfEnabled()
         }
     }
 
@@ -631,6 +634,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         }
         preferencesItem.submenu = preferencesMenu
         appMenu.addItem(preferencesItem)
+        let remoteAccessItem = appMenu.addItem(
+            withTitle: "Enable Remote Access",
+            action: #selector(toggleRemoteAccess(_:)),
+            keyEquivalent: ""
+        )
+        remoteAccessItem.target = self
+        remoteAccessItem.state = remoteAccessController.isEnabled ? .on : .off
+        remoteAccessMenuItem = remoteAccessItem
         let defaultTerminalItem = appMenu.addItem(
             withTitle: "Make Vaultty System Default Terminal",
             action: #selector(toggleDefaultTerminal(_:)),
@@ -667,6 +678,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         appItem.submenu = appMenu
         appMenu.delegate = self
         return appItem
+    }
+
+    @objc private func toggleRemoteAccess(_ sender: NSMenuItem) {
+        let enabled = !remoteAccessController.isEnabled
+        remoteAccessController.setEnabled(enabled)
+        sender.state = enabled ? .on : .off
     }
 
     func menuWillOpen(_ menu: NSMenu) {

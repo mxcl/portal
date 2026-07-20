@@ -1,0 +1,234 @@
+import Foundation
+
+@MainActor
+final class MacRemoteAccessController {
+    static let enabledDefaultsKey = "remoteAccessEnabled"
+    static let endpointDefaultsKey = "remoteAccessRelayEndpoint"
+
+    private struct Bridge {
+        var session: PtySession
+        var nextSequence: UInt64
+        var sessionID: String
+    }
+
+    private let macID: String
+    private var relay: RelayClient?
+    private var receiveTask: Task<Void, Never>?
+    private var catalogTask: Task<Void, Never>?
+    private var bridges: [String: Bridge] = [:]
+
+    init() {
+        if let existing = UserDefaults.standard.string(forKey: "remoteAccessMacID") {
+            macID = existing
+        } else {
+            let created = UUID().uuidString
+            UserDefaults.standard.set(created, forKey: "remoteAccessMacID")
+            macID = created
+        }
+    }
+
+    var isEnabled: Bool {
+        UserDefaults.standard.bool(forKey: Self.enabledDefaultsKey)
+    }
+
+    func startIfEnabled() {
+        guard isEnabled else { return }
+        start()
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: Self.enabledDefaultsKey)
+        enabled ? start() : stop()
+    }
+
+    private func start() {
+        guard receiveTask == nil else { return }
+        do {
+            let key = try ICloudKeychainRootKey().loadOrCreate()
+            let endpoint = try relayEndpoint()
+            let relay = try RelayClient(endpoint: endpoint, rootKeyData: key)
+            self.relay = relay
+            receiveTask = Task { [weak self] in
+                await self?.receiveLoop(relay: relay)
+            }
+            catalogTask = Task { [weak self] in
+                guard let self else { return }
+                let catalog = try? RelayCatalogClient(endpoint: endpoint, rootKeyData: key)
+                while !Task.isCancelled {
+                    if let data = self.catalogData() {
+                        try? await catalog?.store(data)
+                    }
+                    try? await Task.sleep(for: .seconds(2))
+                }
+            }
+        } catch {
+            stop()
+            NSLog("Vaultty remote access could not start: \(error)")
+        }
+    }
+
+    private func stop() {
+        receiveTask?.cancel()
+        catalogTask?.cancel()
+        receiveTask = nil
+        catalogTask = nil
+        bridges.values.forEach { $0.session.stop() }
+        bridges.removeAll()
+        if let relay {
+            Task { await relay.disconnect() }
+        }
+        relay = nil
+    }
+
+    private func receiveLoop(relay: RelayClient) async {
+        var retryDelay = Duration.seconds(1)
+        while !Task.isCancelled {
+            do {
+                try await relay.connect(peerID: macID)
+                retryDelay = .seconds(1)
+                while !Task.isCancelled {
+                    let data = try await relay.receive()
+                    let message = try JSONDecoder().decode(RemoteMessage.self, from: data)
+                    handle(message)
+                }
+            } catch is CancellationError {
+                break
+            } catch {
+                await relay.disconnect()
+                try? await Task.sleep(for: retryDelay)
+                retryDelay = min(retryDelay * 2, .seconds(30))
+            }
+        }
+    }
+
+    private func handle(_ message: RemoteMessage) {
+        guard message.version == RemoteMessage.currentVersion,
+              message.macID == nil || message.macID == macID else { return }
+        switch message.kind {
+        case .attach:
+            attach(message)
+        case .detach:
+            detach(requestID: message.requestID)
+        case .input:
+            if let payload = message.payload,
+               let text = String(data: payload, encoding: .utf8) {
+                bridges[message.requestID]?.session.write(text)
+            }
+        case .interrupt:
+            bridges[message.requestID]?.session.sendInterrupt()
+        case .historyPage:
+            break
+        case .catalog, .terminalEvent, .error:
+            break
+        }
+    }
+
+    private func attach(_ message: RemoteMessage) {
+        guard bridges[message.requestID] == nil,
+              let sessionID = message.sessionID else { return }
+        let session = PtySession(sessionID: sessionID)
+        bridges[message.requestID] = Bridge(
+            session: session,
+            nextSequence: 1,
+            sessionID: sessionID
+        )
+        session.onHistoryOutput = { [weak self] text in
+            DispatchQueue.main.async {
+                self?.sendTerminal(text, requestID: message.requestID)
+            }
+        }
+        session.onOutput = { [weak self] text in
+            DispatchQueue.main.async {
+                self?.sendTerminal(text, requestID: message.requestID)
+            }
+        }
+        session.onExit = { [weak self] status in
+            DispatchQueue.main.async {
+                self?.sendError("Session ended (\(status))", request: message)
+                self?.detach(requestID: message.requestID)
+            }
+        }
+        session.joinExisting { [weak self] result in
+            if case .failure(let error) = result {
+                self?.sendError(error.localizedDescription, request: message)
+                self?.detach(requestID: message.requestID)
+            }
+        }
+    }
+
+    private func detach(requestID: String) {
+        bridges.removeValue(forKey: requestID)?.session.stop()
+    }
+
+    private func sendTerminal(_ text: String, requestID: String) {
+        guard var bridge = bridges[requestID] else { return }
+        let sequence = bridge.nextSequence
+        bridge.nextSequence = bridge.nextSequence.saturatingAdding(1)
+        bridges[requestID] = bridge
+        send(RemoteMessage(
+            kind: .terminalEvent,
+            requestID: requestID,
+            macID: macID,
+            sessionID: bridge.sessionID,
+            sequence: sequence,
+            payload: Data(text.utf8)
+        ))
+    }
+
+    private func sendError(_ text: String, request: RemoteMessage) {
+        send(RemoteMessage(
+            kind: .error,
+            requestID: request.requestID,
+            macID: macID,
+            sessionID: request.sessionID,
+            payload: Data(text.utf8)
+        ))
+    }
+
+    private func send(_ message: RemoteMessage) {
+        guard let relay, let data = try? JSONEncoder().encode(message) else { return }
+        Task {
+            try? await relay.send(data)
+        }
+    }
+
+    private func catalogData() -> Data? {
+        let sessions = (try? PtySession.listSessions()) ?? []
+        let mac = RemoteMac(
+            id: macID,
+            name: Host.current().localizedName ?? "Mac",
+            online: true,
+            sessions: sessions.map {
+                RemoteCatalogSession(
+                    sessionID: $0.sessionID,
+                    title: $0.title,
+                    cwd: $0.cwd,
+                    createdAt: $0.createdAt,
+                    commandCount: $0.commandCount,
+                    runningCommand: $0.runningCommand,
+                    attachedClientCount: $0.attachedClientCount
+                )
+            }
+        )
+        return try? JSONEncoder().encode(RemoteCatalog(generatedAt: Date(), macs: [mac]))
+    }
+
+    private func relayEndpoint() throws -> URL {
+        let value = ProcessInfo.processInfo.environment["VAULTTY_RELAY_ENDPOINT"]
+            ?? UserDefaults.standard.string(forKey: Self.endpointDefaultsKey)
+            ?? "https://relay.vaultty.app"
+        guard let endpoint = URL(string: value),
+              endpoint.scheme == "https" || endpoint.scheme == "http" else {
+            throw RelayClientError.invalidEndpoint
+        }
+        return endpoint
+    }
+}
+
+private extension UInt64 {
+    func saturatingAdding(_ value: UInt64) -> UInt64 {
+        let (sum, overflow) = addingReportingOverflow(value)
+        return overflow ? .max : sum
+    }
+}
+

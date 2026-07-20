@@ -10,7 +10,6 @@ public enum ICloudKeychainError: Error, Equatable {
 public struct ICloudKeychainRootKey {
     public static let service = "com.automicvault.vaultty.remote"
     public static let account = "account-root-key-v1"
-    public static let accessGroup = "ZU76A67LGU.com.automicvault.vaultty.remote"
 
     public init() {}
 
@@ -62,7 +61,6 @@ public struct ICloudKeychainRootKey {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: Self.account,
-            kSecAttrAccessGroup as String: Self.accessGroup,
         ]
 #if os(macOS)
         query[kSecUseDataProtectionKeychain as String] = true

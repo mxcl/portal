@@ -13,6 +13,7 @@ final class MacRemoteAccessController {
 
     private let macID: String
     private let configuredEndpoint: URL?
+    private let suppliedRootKey: Data?
     private var relay: RelayClient?
     private var receiveTask: Task<Void, Never>?
     private var catalogTask: Task<Void, Never>?
@@ -27,11 +28,13 @@ final class MacRemoteAccessController {
             macID = created
         }
         configuredEndpoint = nil
+        suppliedRootKey = nil
     }
 
-    init(agentMacID: String, endpoint: URL) {
+    init(agentMacID: String, endpoint: URL, rootKey: Data) {
         macID = agentMacID
         configuredEndpoint = endpoint
+        suppliedRootKey = rootKey
     }
 
     var isEnabled: Bool {
@@ -51,7 +54,7 @@ final class MacRemoteAccessController {
     func startAgentConnection() {
         guard receiveTask == nil else { return }
         do {
-            let key = try ICloudKeychainRootKey().loadOrCreate()
+            let key = try suppliedRootKey ?? ICloudKeychainRootKey().loadOrCreate()
             let endpoint = try relayEndpoint()
             let relay = try RelayClient(endpoint: endpoint, rootKeyData: key)
             self.relay = relay
@@ -77,17 +80,22 @@ final class MacRemoteAccessController {
 
     private func launchAgent() {
         guard let helper = remoteAgentURL(),
-              let endpoint = try? relayEndpoint() else {
+              let endpoint = try? relayEndpoint(),
+              let key = try? ICloudKeychainRootKey().loadOrCreate() else {
             NSLog("Vaultty remote agent is missing")
             return
         }
         let process = Process()
         process.executableURL = helper
         process.arguments = ["--mac-id", macID, "--endpoint", endpoint.absoluteString]
+        let keyPipe = Pipe()
+        process.standardInput = keyPipe
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
+            keyPipe.fileHandleForWriting.write(key)
+            try? keyPipe.fileHandleForWriting.close()
         } catch {
             NSLog("Vaultty remote agent could not launch: \(error)")
         }

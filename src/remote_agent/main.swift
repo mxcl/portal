@@ -13,7 +13,9 @@ struct VaulttyRemoteAgent {
         guard let macID = value(after: "--mac-id", in: arguments),
               let endpointValue = value(after: "--endpoint", in: arguments),
               let endpoint = URL(string: endpointValue) else { return }
-        controller = MacRemoteAccessController(agentMacID: macID, endpoint: endpoint)
+        let rootKey = FileHandle.standardInput.readDataToEndOfFile()
+        guard rootKey.count == RelayCrypto.rootKeyByteCount else { return }
+        controller = MacRemoteAccessController(agentMacID: macID, endpoint: endpoint, rootKey: rootKey)
         controller?.startAgentConnection()
         dispatchMain()
     }

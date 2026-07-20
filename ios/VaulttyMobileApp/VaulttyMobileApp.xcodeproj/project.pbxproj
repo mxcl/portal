@@ -113,7 +113,7 @@
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.vaultty.mobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.automicvault.vaultty;
 				PRODUCT_NAME = Vaultty;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -136,7 +136,7 @@
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.vaultty.mobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.automicvault.vaultty;
 				PRODUCT_NAME = Vaultty;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -166,4 +166,3 @@
 	};
 	rootObject = A90000000000000000000001 /* Project object */;
 }
-

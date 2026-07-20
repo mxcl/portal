@@ -48,4 +48,16 @@ struct RelayCryptoTests {
             try RelayCrypto(rootKeyData: Data(repeating: 0, count: 31))
         }
     }
+
+    @Test("published AES-GCM vector remains stable")
+    func publishedVector() throws {
+        let crypto = try RelayCrypto(rootKeyData: rootKey)
+        let envelope = try crypto.seal(
+            Data("Vaultty test vector".utf8),
+            purpose: "session",
+            nonceData: Data((0..<12).map(UInt8.init))
+        )
+
+        #expect(envelope.combined.base64EncodedString() == "AAECAwQFBgcICQoLag4ThItv2wpRtP7eU5+pr2vH+/eTnIXjivJB8N34tnk3iy4=")
+    }
 }

@@ -44,11 +44,23 @@ public struct RelayCrypto: Sendable {
     }
 
     public func seal(_ plaintext: Data, purpose: String) throws -> RelayCiphertext {
-        let sealed = try AES.GCM.seal(
+        try makeEnvelope(AES.GCM.seal(
             plaintext,
             using: key(purpose: purpose),
             authenticating: authenticatedData(purpose: purpose)
-        )
+        ))
+    }
+
+    func seal(_ plaintext: Data, purpose: String, nonceData: Data) throws -> RelayCiphertext {
+        try makeEnvelope(AES.GCM.seal(
+            plaintext,
+            using: key(purpose: purpose),
+            nonce: AES.GCM.Nonce(data: nonceData),
+            authenticating: authenticatedData(purpose: purpose)
+        ))
+    }
+
+    private func makeEnvelope(_ sealed: AES.GCM.SealedBox) throws -> RelayCiphertext {
         guard let combined = sealed.combined else {
             throw RelayCryptoError.invalidEnvelope
         }

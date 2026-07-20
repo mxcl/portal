@@ -162,6 +162,7 @@ final class PtySession {
     var onReady: ((Bool) -> Void)?
 
     private let sessionRef: SessionRef
+    private let clientID = UUID().uuidString
     private let queue = DispatchQueue(label: "com.automicvault.vaultty.session-client")
     private var transport: (any SessionTransport)?
     private var protocolDecoder = SessionWireProtocol.Decoder()
@@ -193,7 +194,10 @@ final class PtySession {
         workingDirectory: URL,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        let attachCommand = SessionWireProtocol.ClientCommand.attach(
+        let attachCommand = SessionWireProtocol.ClientCommand.attachV2(
+            version: SessionWireProtocol.currentVersion,
+            role: .mac,
+            clientID: clientID,
             sessionID: sessionRef.sessionID,
             workingDirectory: workingDirectory.path,
             shellPath: shellPath,
@@ -444,9 +448,20 @@ final class PtySession {
             } else {
                 onOutput?(text)
             }
+        case .sequencedOutput(_, let text):
+            treatsNextOutputAsLegacyHistory = false
+            onOutput?(text)
         case .history(let text):
             treatsNextOutputAsLegacyHistory = false
             onHistoryOutput?(text)
+        case .historyPage(_, _, _, let text):
+            treatsNextOutputAsLegacyHistory = false
+            onHistoryOutput?(text)
+        case .snapshot:
+            // macOS replays the retained byte history; phones render this canonical screen directly.
+            break
+        case .protocolVersion, .presence, .geometry:
+            break
         case .ready(let created):
             treatsNextOutputAsLegacyHistory = !created
             DispatchQueue.main.async { [weak self] in

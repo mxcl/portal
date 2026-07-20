@@ -2,7 +2,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use libc::{TIOCGPGRP, TIOCSWINSZ, c_int, c_void, pid_t, winsize};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::ffi::CString;
 use std::fs;
@@ -22,6 +22,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const COMMAND_STARTED_MARKER: &[u8] = b"\x1b]133;C;";
 const COMMAND_FINISHED_MARKER: &[u8] = b"\x1b]133;D;";
 const SYNTHETIC_COMMAND_FINISHED_MARKER: &[u8] = b"\x1b]133;D;0\x07";
+const CURRENT_PROTOCOL_VERSION: u16 = 2;
+const PREVIOUS_PROTOCOL_VERSION: u16 = 1;
+const MAX_SCROLLBACK_LINES: usize = 10_000;
+const MAX_SCROLLBACK_BYTES: usize = 16 * 1024 * 1024;
+const INITIAL_HISTORY_LINES: usize = 1_000;
 
 #[derive(Clone, Debug)]
 struct AttachRequest {
@@ -29,6 +34,170 @@ struct AttachRequest {
     cwd: PathBuf,
     shell: String,
     environment: Vec<(String, String)>,
+    protocol_version: u16,
+    client_role: ClientRole,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ClientRole {
+    Mac,
+    Phone,
+}
+
+#[derive(Clone, Debug)]
+enum SessionEvent {
+    Output { sequence: u64, bytes: Vec<u8> },
+    Presence(usize),
+    Geometry { rows: u16, cols: u16 },
+    Exit(i32),
+}
+
+#[derive(Clone, Debug)]
+struct OutputChunk {
+    sequence: u64,
+    bytes: Vec<u8>,
+    line_count: usize,
+}
+
+struct TerminalState {
+    parser: vt100::Parser,
+    chunks: VecDeque<OutputChunk>,
+    retained_bytes: usize,
+    retained_lines: usize,
+    next_sequence: u64,
+    rows: u16,
+    cols: u16,
+}
+
+struct TerminalSnapshot {
+    sequence: u64,
+    rows: u16,
+    cols: u16,
+    screen: Vec<u8>,
+    history: Vec<u8>,
+    history_start_sequence: u64,
+    has_older_history: bool,
+}
+
+impl TerminalState {
+    fn new(rows: u16, cols: u16) -> Self {
+        Self {
+            parser: vt100::Parser::new(rows, cols, MAX_SCROLLBACK_LINES),
+            chunks: VecDeque::new(),
+            retained_bytes: 0,
+            retained_lines: 0,
+            next_sequence: 1,
+            rows,
+            cols,
+        }
+    }
+
+    fn record(&mut self, bytes: Vec<u8>) -> u64 {
+        self.parser.process(&bytes);
+        let sequence = self.next_sequence;
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        let line_count = bytes.iter().filter(|byte| **byte == b'\n').count();
+        self.retained_bytes += bytes.len();
+        self.retained_lines += line_count;
+        self.chunks.push_back(OutputChunk {
+            sequence,
+            bytes,
+            line_count,
+        });
+        while self.retained_bytes > MAX_SCROLLBACK_BYTES
+            || self.retained_lines > MAX_SCROLLBACK_LINES
+        {
+            let Some(removed) = self.chunks.pop_front() else {
+                break;
+            };
+            self.retained_bytes -= removed.bytes.len();
+            self.retained_lines -= removed.line_count;
+        }
+        sequence
+    }
+
+    fn snapshot(&self, history_lines: usize) -> TerminalSnapshot {
+        let mut selected = Vec::new();
+        let mut selected_lines = 0;
+        for chunk in self.chunks.iter().rev() {
+            selected.push(chunk);
+            selected_lines += chunk.line_count;
+            if selected_lines >= history_lines {
+                break;
+            }
+        }
+        selected.reverse();
+        let history_start_sequence = selected
+            .first()
+            .map_or(self.next_sequence, |chunk| chunk.sequence);
+        let has_older_history = self
+            .chunks
+            .front()
+            .is_some_and(|chunk| chunk.sequence < history_start_sequence);
+        let history = selected
+            .into_iter()
+            .flat_map(|chunk| chunk.bytes.iter().copied())
+            .collect();
+        TerminalSnapshot {
+            sequence: self.next_sequence.saturating_sub(1),
+            rows: self.rows,
+            cols: self.cols,
+            screen: self.parser.screen().contents_formatted(),
+            history,
+            history_start_sequence,
+            has_older_history,
+        }
+    }
+
+    fn history_before(&self, before_sequence: u64, max_lines: usize) -> TerminalSnapshot {
+        let mut selected = Vec::new();
+        let mut selected_lines = 0;
+        for chunk in self
+            .chunks
+            .iter()
+            .rev()
+            .filter(|chunk| chunk.sequence < before_sequence)
+        {
+            selected.push(chunk);
+            selected_lines += chunk.line_count;
+            if selected_lines >= max_lines {
+                break;
+            }
+        }
+        selected.reverse();
+        let history_start_sequence = selected
+            .first()
+            .map_or(before_sequence, |chunk| chunk.sequence);
+        let has_older_history = self
+            .chunks
+            .front()
+            .is_some_and(|chunk| chunk.sequence < history_start_sequence);
+        let history = selected
+            .into_iter()
+            .flat_map(|chunk| chunk.bytes.iter().copied())
+            .collect();
+        TerminalSnapshot {
+            sequence: before_sequence.saturating_sub(1),
+            rows: self.rows,
+            cols: self.cols,
+            screen: Vec::new(),
+            history,
+            history_start_sequence,
+            has_older_history,
+        }
+    }
+
+    fn resize(&mut self, rows: u16, cols: u16) {
+        self.rows = rows;
+        self.cols = cols;
+        self.parser.screen_mut().set_size(rows, cols);
+    }
+
+    fn clear_history(&mut self) {
+        self.chunks.clear();
+        self.retained_bytes = 0;
+        self.retained_lines = 0;
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -61,9 +230,9 @@ struct Session {
     child_pid: pid_t,
     exited: AtomicBool,
     attached_client_count: AtomicUsize,
-    history: Mutex<Vec<u8>>,
+    terminal: Mutex<TerminalState>,
     metadata: Mutex<SessionMetadata>,
-    clients: Mutex<Vec<Sender<Vec<u8>>>>,
+    clients: Mutex<Vec<Sender<SessionEvent>>>,
     state: Weak<DaemonState>,
 }
 
@@ -119,7 +288,7 @@ impl Session {
             child_pid: pid,
             exited: AtomicBool::new(false),
             attached_client_count: AtomicUsize::new(0),
-            history: Mutex::new(Vec::new()),
+            terminal: Mutex::new(TerminalState::new(size.ws_row, size.ws_col)),
             metadata: Mutex::new(SessionMetadata::new(request)),
             clients: Mutex::new(Vec::new()),
             state,
@@ -128,28 +297,29 @@ impl Session {
         Ok(session)
     }
 
-    fn add_client(&self, sender: Sender<Vec<u8>>) {
+    fn attach_client(&self, sender: Sender<SessionEvent>) -> TerminalSnapshot {
+        let terminal = self.terminal.lock().expect("terminal lock poisoned");
         self.clients
             .lock()
             .expect("clients lock poisoned")
             .push(sender);
-    }
-
-    fn history(&self) -> Vec<u8> {
-        self.reconcile_idle_command_state();
-        self.history.lock().expect("history lock poisoned").clone()
+        terminal.snapshot(INITIAL_HISTORY_LINES)
     }
 
     fn increment_attached_client_count(&self) {
-        self.attached_client_count.fetch_add(1, Ordering::SeqCst);
+        let count = self.attached_client_count.fetch_add(1, Ordering::SeqCst) + 1;
+        self.broadcast(SessionEvent::Presence(count));
     }
 
     fn decrement_attached_client_count(&self) {
-        self.attached_client_count
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
-                count.checked_sub(1)
-            })
-            .ok();
+        if let Ok(previous) =
+            self.attached_client_count
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
+                    count.checked_sub(1)
+                })
+        {
+            self.broadcast(SessionEvent::Presence(previous.saturating_sub(1)));
+        }
     }
 
     fn metadata_snapshot(&self) -> SessionMetadata {
@@ -191,7 +361,10 @@ impl Session {
     }
 
     fn clear_history(&self) {
-        self.history.lock().expect("history lock poisoned").clear();
+        self.terminal
+            .lock()
+            .expect("terminal lock poisoned")
+            .clear_history();
     }
 
     fn reconcile_idle_command_state(&self) {
@@ -199,12 +372,13 @@ impl Session {
             return;
         }
 
-        let mut history = self.history.lock().expect("history lock poisoned");
+        let mut terminal = self.terminal.lock().expect("terminal lock poisoned");
+        let history = terminal.snapshot(MAX_SCROLLBACK_LINES).history;
         if history_has_unfinished_command(&history) {
             // ponytail: exit status is unknown for old incomplete replays; 0 restores input.
-            history.extend_from_slice(SYNTHETIC_COMMAND_FINISHED_MARKER);
+            terminal.record(SYNTHETIC_COMMAND_FINISHED_MARKER.to_vec());
         }
-        drop(history);
+        drop(terminal);
         self.clear_running_command();
     }
 
@@ -240,6 +414,18 @@ impl Session {
         unsafe {
             libc::ioctl(self.master_fd, TIOCSWINSZ, &mut size);
         }
+        self.terminal
+            .lock()
+            .expect("terminal lock poisoned")
+            .resize(rows, cols);
+        self.broadcast(SessionEvent::Geometry { rows, cols });
+    }
+
+    fn broadcast(&self, event: SessionEvent) {
+        self.clients
+            .lock()
+            .expect("clients lock poisoned")
+            .retain(|client| client.send(event.clone()).is_ok());
     }
 
     fn interrupt(&self) {
@@ -278,11 +464,11 @@ impl Session {
                 }
 
                 let bytes = buffer[..count as usize].to_vec();
-                session
-                    .history
+                let sequence = session
+                    .terminal
                     .lock()
-                    .expect("history lock poisoned")
-                    .extend_from_slice(&bytes);
+                    .expect("terminal lock poisoned")
+                    .record(bytes.clone());
                 if bytes
                     .windows(COMMAND_FINISHED_MARKER.len())
                     .any(|window| window == COMMAND_FINISHED_MARKER)
@@ -291,14 +477,20 @@ impl Session {
                 }
 
                 let mut clients = session.clients.lock().expect("clients lock poisoned");
-                clients.retain(|client| client.send(bytes.clone()).is_ok());
+                clients.retain(|client| {
+                    client
+                        .send(SessionEvent::Output {
+                            sequence,
+                            bytes: bytes.clone(),
+                        })
+                        .is_ok()
+                });
             }
 
             let status = reap_child(session.child_pid);
             session.exited.store(true, Ordering::SeqCst);
-            let exit_line = format!("EXIT {status}\n").into_bytes();
             let mut clients = session.clients.lock().expect("clients lock poisoned");
-            clients.retain(|client| client.send(exit_line.clone()).is_ok());
+            clients.retain(|client| client.send(SessionEvent::Exit(status)).is_ok());
             drop(clients);
 
             if let Some(state) = session.state.upgrade() {
@@ -444,27 +636,52 @@ fn handle_client(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<
         }
     };
 
-    let (tx, rx) = mpsc::channel::<Vec<u8>>();
-    session.add_client(tx);
+    let (tx, rx) = mpsc::channel::<SessionEvent>();
+    let snapshot = session.attach_client(tx);
     session.increment_attached_client_count();
-    let history = session.history();
-    write_attach_header(&mut stream, created, &history)?;
+    if request.protocol_version >= CURRENT_PROTOCOL_VERSION {
+        write_attach_header_v2(&mut stream, created, &snapshot)?;
+    } else {
+        write_attach_header(&mut stream, created, &snapshot.history)?;
+    }
 
     let writer = Arc::new(Mutex::new(stream.try_clone()?));
     let writer_for_output = writer.clone();
     thread::spawn(move || {
-        while let Ok(bytes) = rx.recv() {
+        while let Ok(event) = rx.recv() {
             let mut writer = writer_for_output.lock().expect("writer lock poisoned");
-            if bytes.starts_with(b"EXIT ") {
-                if writer.write_all(&bytes).is_err() || writer.flush().is_err() {
-                    break;
+            match event {
+                SessionEvent::Output { sequence, bytes } => {
+                    let result = if request.protocol_version >= CURRENT_PROTOCOL_VERSION {
+                        writeln!(writer, "OUTPUT2 {sequence} {}", BASE64.encode(bytes))
+                    } else {
+                        writeln!(writer, "OUTPUT {}", BASE64.encode(bytes))
+                    };
+                    if result.is_err() || writer.flush().is_err() {
+                        break;
+                    }
                 }
-                continue;
-            }
-            if writeln!(writer, "OUTPUT {}", BASE64.encode(bytes)).is_err()
-                || writer.flush().is_err()
-            {
-                break;
+                SessionEvent::Exit(status) => {
+                    if writeln!(writer, "EXIT {status}").is_err() || writer.flush().is_err() {
+                        break;
+                    }
+                }
+                SessionEvent::Presence(count) => {
+                    if request.protocol_version >= CURRENT_PROTOCOL_VERSION
+                        && (writeln!(writer, "PRESENCE {count}").is_err()
+                            || writer.flush().is_err())
+                    {
+                        break;
+                    }
+                }
+                SessionEvent::Geometry { rows, cols } => {
+                    if request.protocol_version >= CURRENT_PROTOCOL_VERSION
+                        && (writeln!(writer, "GEOMETRY {rows} {cols}").is_err()
+                            || writer.flush().is_err())
+                    {
+                        break;
+                    }
+                }
             }
         }
     });
@@ -480,9 +697,28 @@ fn handle_client(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<
             }
         } else if let Some(rest) = command.strip_prefix("RESIZE ") {
             let parts: Vec<&str> = rest.split_whitespace().collect();
-            if parts.len() == 2 {
+            if parts.len() == 2 && request.client_role == ClientRole::Mac {
                 if let (Ok(rows), Ok(cols)) = (parts[0].parse::<u16>(), parts[1].parse::<u16>()) {
                     session.resize(rows, cols);
+                }
+            }
+        } else if let Some(rest) = command.strip_prefix("HISTORY_PAGE ") {
+            if request.protocol_version >= CURRENT_PROTOCOL_VERSION {
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                if parts.len() == 2 {
+                    if let (Ok(before), Ok(lines)) =
+                        (parts[0].parse::<u64>(), parts[1].parse::<usize>())
+                    {
+                        let page = session
+                            .terminal
+                            .lock()
+                            .expect("terminal lock poisoned")
+                            .history_before(before, lines.min(INITIAL_HISTORY_LINES));
+                        write_history_page(
+                            &mut *writer.lock().expect("writer lock poisoned"),
+                            &page,
+                        )?;
+                    }
                 }
             }
         } else if command == "INTERRUPT" {
@@ -516,6 +752,35 @@ fn write_attach_header(stream: &mut impl Write, created: bool, history: &[u8]) -
     Ok(())
 }
 
+fn write_attach_header_v2(
+    stream: &mut impl Write,
+    created: bool,
+    snapshot: &TerminalSnapshot,
+) -> io::Result<()> {
+    writeln!(stream, "PROTOCOL {CURRENT_PROTOCOL_VERSION}")?;
+    writeln!(stream, "READY {}", if created { 1 } else { 0 })?;
+    writeln!(
+        stream,
+        "SNAPSHOT {} {} {} {}",
+        snapshot.sequence,
+        snapshot.rows,
+        snapshot.cols,
+        BASE64.encode(&snapshot.screen)
+    )?;
+    write_history_page(stream, snapshot)
+}
+
+fn write_history_page(stream: &mut impl Write, page: &TerminalSnapshot) -> io::Result<()> {
+    writeln!(
+        stream,
+        "HISTORY_PAGE {} {} {} {}",
+        page.history_start_sequence,
+        page.sequence,
+        if page.has_older_history { 1 } else { 0 },
+        BASE64.encode(&page.history)
+    )
+}
+
 fn write_session_list(stream: &mut UnixStream, state: &DaemonState) -> io::Result<()> {
     let sessions = state
         .sessions
@@ -535,19 +800,54 @@ fn write_session_list(stream: &mut UnixStream, state: &DaemonState) -> io::Resul
 
 fn parse_attach(line: &str) -> io::Result<AttachRequest> {
     let parts: Vec<&str> = line.split_whitespace().collect();
-    if parts.len() != 5 || parts[0] != "ATTACH" {
+    let (protocol_version, client_role, field_offset) = match parts.as_slice() {
+        ["ATTACH", ..] if parts.len() == 5 => (PREVIOUS_PROTOCOL_VERSION, ClientRole::Mac, 1),
+        ["ATTACH2", version, role, _client_id, ..] if parts.len() == 8 => {
+            let version = version.parse::<u16>().map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid protocol version")
+            })?;
+            if !(PREVIOUS_PROTOCOL_VERSION..=CURRENT_PROTOCOL_VERSION).contains(&version) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "unsupported protocol version",
+                ));
+            }
+            let role = match *role {
+                "mac" => ClientRole::Mac,
+                "phone" => ClientRole::Phone,
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "invalid client role",
+                    ));
+                }
+            };
+            (version, role, 4)
+        }
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "expected ATTACH or ATTACH2",
+            ));
+        }
+    };
+    if parts.len() != field_offset + 4 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "expected ATTACH session cwd shell env",
+            "invalid attach fields",
         ));
     }
 
-    let session_id = decode_string(parts[1])?;
-    let cwd = PathBuf::from(decode_string(parts[2])?);
-    let shell = decode_string(parts[3])?;
-    let env_blob = BASE64
-        .decode(parts[4])
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid environment"))?;
+    let session_id = decode_string(parts[field_offset])?;
+    let cwd = PathBuf::from(decode_string(parts[field_offset + 1])?);
+    let shell = decode_string(parts[field_offset + 2])?;
+    let env_blob = if parts[field_offset + 3] == "-" {
+        Vec::new()
+    } else {
+        BASE64
+            .decode(parts[field_offset + 3])
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid environment"))?
+    };
     let environment = String::from_utf8_lossy(&env_blob)
         .split('\0')
         .filter_map(|entry| {
@@ -561,6 +861,8 @@ fn parse_attach(line: &str) -> io::Result<AttachRequest> {
         cwd,
         shell,
         environment,
+        protocol_version,
+        client_role,
     })
 }
 
@@ -777,6 +1079,62 @@ mod tests {
     }
 
     #[test]
+    fn parse_attach_v2_tracks_client_role_and_version() {
+        let line = format!(
+            "ATTACH2 2 phone {} {} {} {} -",
+            encoded("phone-1"),
+            encoded("session-1"),
+            encoded("/tmp"),
+            encoded("/bin/sh")
+        );
+
+        let request = parse_attach(&line).expect("v2 attach should parse");
+
+        assert_eq!(request.protocol_version, CURRENT_PROTOCOL_VERSION);
+        assert_eq!(request.client_role, ClientRole::Phone);
+        assert!(request.environment.is_empty());
+    }
+
+    #[test]
+    fn terminal_state_produces_ordered_snapshot_and_history_pages() {
+        let mut terminal = TerminalState::new(24, 80);
+        assert_eq!(terminal.record(b"first\n".to_vec()), 1);
+        assert_eq!(terminal.record(b"second\n".to_vec()), 2);
+        assert_eq!(terminal.record(b"third".to_vec()), 3);
+
+        let snapshot = terminal.snapshot(1);
+        assert_eq!(snapshot.sequence, 3);
+        assert_eq!(snapshot.history, b"second\nthird");
+        assert_eq!(snapshot.history_start_sequence, 2);
+        assert!(snapshot.has_older_history);
+        assert!(snapshot.screen.windows(5).any(|bytes| bytes == b"third"));
+
+        let page = terminal.history_before(snapshot.history_start_sequence, 1);
+        assert_eq!(page.history, b"first\n");
+        assert!(!page.has_older_history);
+    }
+
+    #[test]
+    fn terminal_state_enforces_rendered_line_limit() {
+        let mut terminal = TerminalState::new(24, 80);
+        for _ in 0..=MAX_SCROLLBACK_LINES {
+            terminal.record(b"line\n".to_vec());
+        }
+
+        let snapshot = terminal.snapshot(MAX_SCROLLBACK_LINES + 1);
+
+        assert_eq!(
+            snapshot
+                .history
+                .iter()
+                .filter(|byte| **byte == b'\n')
+                .count(),
+            MAX_SCROLLBACK_LINES
+        );
+        assert_eq!(snapshot.history_start_sequence, 2);
+    }
+
+    #[test]
     fn state_update_accepts_json_or_base64_json() {
         let json = r#"{"title":"build","cwd":"/repo","commandCount":3,"runningCommand":"cargo test","commandHistory":["cargo test"]}"#;
         let direct = decode_state_update(json).expect("direct JSON should parse");
@@ -795,6 +1153,8 @@ mod tests {
             cwd: PathBuf::from("/tmp/project"),
             shell: "/bin/sh".to_owned(),
             environment: Vec::new(),
+            protocol_version: PREVIOUS_PROTOCOL_VERSION,
+            client_role: ClientRole::Mac,
         };
         let metadata = SessionMetadata::new(&request);
 
@@ -811,6 +1171,8 @@ mod tests {
             cwd: PathBuf::from("/tmp/project"),
             shell: "/bin/sh".to_owned(),
             environment: Vec::new(),
+            protocol_version: PREVIOUS_PROTOCOL_VERSION,
+            client_role: ClientRole::Mac,
         };
         let session = Session {
             session_id: request.session_id.clone(),
@@ -818,7 +1180,11 @@ mod tests {
             child_pid: 0,
             exited: AtomicBool::new(false),
             attached_client_count: AtomicUsize::new(0),
-            history: Mutex::new(b"old block output".to_vec()),
+            terminal: Mutex::new({
+                let mut terminal = TerminalState::new(24, 80);
+                terminal.record(b"old block output".to_vec());
+                terminal
+            }),
             metadata: Mutex::new(SessionMetadata {
                 command_history: vec!["cargo test".to_owned()],
                 ..SessionMetadata::new(&request)
@@ -831,9 +1197,11 @@ mod tests {
 
         assert!(
             session
-                .history
+                .terminal
                 .lock()
-                .expect("history lock poisoned")
+                .expect("terminal lock poisoned")
+                .snapshot(MAX_SCROLLBACK_LINES)
+                .history
                 .is_empty()
         );
         assert_eq!(

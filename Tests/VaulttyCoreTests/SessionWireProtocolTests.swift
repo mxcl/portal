@@ -30,6 +30,23 @@ struct SessionWireProtocolTests {
         #expect(SessionWireProtocol.encode(.state(Data("{}".utf8))) == "STATE e30=")
         #expect(SessionWireProtocol.encode(.list) == "LIST")
         #expect(SessionWireProtocol.encode(.kill(sessionID: "id")) == "KILL aWQ=")
+        #expect(SessionWireProtocol.encode(.historyPage(beforeSequence: 42, maxLines: 1000)) == "HISTORY_PAGE 42 1000")
+    }
+
+    @Test("v2 attach identifies protocol, role, and client")
+    func attachV2Encoding() {
+        let line = SessionWireProtocol.encode(.attachV2(
+            version: 2,
+            role: .phone,
+            clientID: "phone-1",
+            sessionID: "session",
+            workingDirectory: "/tmp",
+            shellPath: "/bin/zsh",
+            environment: [:]
+        ))
+        let fields = line.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        #expect(fields[0...2] == ["ATTACH2", "2", "phone"])
+        #expect(fields.count == 8)
     }
 
     @Test("decoder buffers partial lines and preserves event order")
@@ -65,6 +82,33 @@ struct SessionWireProtocolTests {
             return
         }
         #expect(decoded == payload)
+    }
+
+    @Test("v2 decoder exposes canonical snapshots and ordered deltas")
+    func v2Events() {
+        let snapshot = SessionWireProtocol.Decoder.decode("SNAPSHOT 9 24 80 \(Data("screen".utf8).base64EncodedString())")
+        guard case .snapshot(sequence: 9, rows: 24, cols: 80, contents: "screen") = snapshot else {
+            Issue.record("Expected canonical snapshot")
+            return
+        }
+        let output = SessionWireProtocol.Decoder.decode("OUTPUT2 10 \(Data("delta".utf8).base64EncodedString())")
+        guard case .sequencedOutput(sequence: 10, text: "delta") = output else {
+            Issue.record("Expected sequenced output")
+            return
+        }
+        let page = SessionWireProtocol.Decoder.decode("HISTORY_PAGE 2 9 1 \(Data("older".utf8).base64EncodedString())")
+        guard case .historyPage(startSequence: 2, endSequence: 9, hasOlder: true, text: "older") = page else {
+            Issue.record("Expected history page")
+            return
+        }
+        guard case .presence(2) = SessionWireProtocol.Decoder.decode("PRESENCE 2") else {
+            Issue.record("Expected presence")
+            return
+        }
+        guard case .geometry(rows: 30, cols: 100) = SessionWireProtocol.Decoder.decode("GEOMETRY 30 100") else {
+            Issue.record("Expected geometry")
+            return
+        }
     }
 
     @Test("unknown and malformed lines remain observable")

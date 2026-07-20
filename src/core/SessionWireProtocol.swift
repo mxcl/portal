@@ -1,8 +1,25 @@
 import Foundation
 
 enum SessionWireProtocol {
+    static let currentVersion: UInt16 = 2
+    static let previousVersion: UInt16 = 1
+
+    enum ClientRole: String {
+        case mac
+        case phone
+    }
+
     enum ClientCommand {
         case attach(
+            sessionID: String,
+            workingDirectory: String,
+            shellPath: String,
+            environment: [String: String]
+        )
+        case attachV2(
+            version: UInt16,
+            role: ClientRole,
+            clientID: String,
             sessionID: String,
             workingDirectory: String,
             shellPath: String,
@@ -15,11 +32,18 @@ enum SessionWireProtocol {
         case state(Data)
         case list
         case kill(sessionID: String)
+        case historyPage(beforeSequence: UInt64, maxLines: UInt16)
     }
 
     enum ServerEvent {
         case output(String)
+        case sequencedOutput(sequence: UInt64, text: String)
         case history(String)
+        case historyPage(startSequence: UInt64, endSequence: UInt64, hasOlder: Bool, text: String)
+        case snapshot(sequence: UInt64, rows: UInt16, cols: UInt16, contents: String)
+        case protocolVersion(UInt16)
+        case presence(Int)
+        case geometry(rows: UInt16, cols: UInt16)
         case ready(created: Bool)
         case exit(Int32)
         case sessions(Data)
@@ -46,6 +70,40 @@ enum SessionWireProtocol {
         }
 
         static func decode(_ line: String) -> ServerEvent {
+            if let fields = fields(prefix: "OUTPUT2 ", line: line, count: 2),
+               let sequence = UInt64(fields[0]),
+               let text = decodeBase64Text(fields[1]) {
+                return .sequencedOutput(sequence: sequence, text: text)
+            }
+            if let fields = fields(prefix: "SNAPSHOT ", line: line, count: 4),
+               let sequence = UInt64(fields[0]),
+               let rows = UInt16(fields[1]),
+               let cols = UInt16(fields[2]),
+               let contents = decodeBase64Text(fields[3]) {
+                return .snapshot(sequence: sequence, rows: rows, cols: cols, contents: contents)
+            }
+            if let fields = fields(prefix: "HISTORY_PAGE ", line: line, count: 4),
+               let start = UInt64(fields[0]),
+               let end = UInt64(fields[1]),
+               let text = decodeBase64Text(fields[3]) {
+                return .historyPage(
+                    startSequence: start,
+                    endSequence: end,
+                    hasOlder: fields[2] == "1",
+                    text: text
+                )
+            }
+            if let value = line.removingPrefix("PROTOCOL "), let version = UInt16(value) {
+                return .protocolVersion(version)
+            }
+            if let value = line.removingPrefix("PRESENCE "), let count = Int(value) {
+                return .presence(count)
+            }
+            if let values = fields(prefix: "GEOMETRY ", line: line, count: 2),
+               let rows = UInt16(values[0]),
+               let cols = UInt16(values[1]) {
+                return .geometry(rows: rows, cols: cols)
+            }
             if let text = decodeText(prefix: "OUTPUT ", line: line) {
                 return .output(text)
             }
@@ -65,11 +123,19 @@ enum SessionWireProtocol {
         }
 
         private static func decodeText(prefix: String, line: String) -> String? {
-            guard let payload = line.removingPrefix(prefix),
-                  let data = Data(base64Encoded: payload),
-                  let text = String(data: data, encoding: .utf8)
-            else { return nil }
-            return text
+            guard let payload = line.removingPrefix(prefix) else { return nil }
+            return decodeBase64Text(payload)
+        }
+
+        private static func decodeBase64Text(_ payload: String) -> String? {
+            guard let data = Data(base64Encoded: payload) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+
+        private static func fields(prefix: String, line: String, count: Int) -> [String]? {
+            guard let payload = line.removingPrefix(prefix) else { return nil }
+            let fields = payload.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+            return fields.count == count ? fields : nil
         }
     }
 
@@ -82,6 +148,29 @@ enum SessionWireProtocol {
                 .joined(separator: "\0")
             return [
                 "ATTACH",
+                base64(sessionID),
+                base64(workingDirectory),
+                base64(shellPath),
+                environmentBlob.isEmpty ? "-" : base64(environmentBlob)
+            ].joined(separator: " ")
+        case .attachV2(
+            let version,
+            let role,
+            let clientID,
+            let sessionID,
+            let workingDirectory,
+            let shellPath,
+            let environment
+        ):
+            let environmentBlob = environment
+                .map { "\($0.key)=\($0.value)" }
+                .sorted()
+                .joined(separator: "\0")
+            return [
+                "ATTACH2",
+                String(version),
+                role.rawValue,
+                base64(clientID),
                 base64(sessionID),
                 base64(workingDirectory),
                 base64(shellPath),
@@ -101,6 +190,8 @@ enum SessionWireProtocol {
             return "LIST"
         case .kill(let sessionID):
             return "KILL \(base64(sessionID))"
+        case .historyPage(let beforeSequence, let maxLines):
+            return "HISTORY_PAGE \(beforeSequence) \(maxLines)"
         }
     }
 

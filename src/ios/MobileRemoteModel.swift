@@ -39,6 +39,9 @@ public final class MobileRemoteModel {
     private var nextChunkID: UInt64 = 1
     private var backgroundedAt: Date?
     private var lastAuthenticatedAt: Date?
+    private var backgroundGraceTask: Task<Void, Never>?
+    private var targetSession: RemoteCatalogSession?
+    private var targetMac: RemoteMac?
 
     public init(endpoint: URL = URL(string: "https://relay.vaultty.app")!) {
         self.endpoint = endpoint
@@ -70,6 +73,8 @@ public final class MobileRemoteModel {
             showsPaywall = true
             return
         }
+        targetSession = session
+        targetMac = mac
         receiveTask?.cancel()
         receiveTask = Task { [weak self] in
             guard let self else { return }
@@ -86,6 +91,10 @@ public final class MobileRemoteModel {
     }
 
     public func detach() {
+        closeConnection(clearTarget: true)
+    }
+
+    private func closeConnection(clearTarget: Bool) {
         if let requestID, let attachedMacID, let attachedSessionID {
             send(RemoteMessage(
                 kind: .detach,
@@ -100,6 +109,10 @@ public final class MobileRemoteModel {
         relay = nil
         requestID = nil
         connectionState = .idle
+        if clearTarget {
+            targetSession = nil
+            targetMac = nil
+        }
     }
 
     public func sendInput(_ data: Data) {
@@ -125,23 +138,49 @@ public final class MobileRemoteModel {
 
     public func sceneDidEnterBackground() {
         backgroundedAt = Date()
+        backgroundGraceTask?.cancel()
+        backgroundGraceTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled, self?.backgroundedAt != nil else { return }
+            self?.closeConnection(clearTarget: false)
+        }
     }
 
     public func sceneDidBecomeActive() {
+        backgroundGraceTask?.cancel()
+        backgroundGraceTask = nil
         if backgroundedAt.map({ Date().timeIntervalSince($0) >= 300 }) == true {
             isLocked = true
-            detach()
+            closeConnection(clearTarget: false)
+        } else if connectionState == .idle,
+                  let targetSession,
+                  let targetMac {
+            receiveTask = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await authenticateIfNeeded()
+                    try await connect(session: targetSession, mac: targetMac)
+                } catch is CancellationError {
+                    connectionState = .idle
+                } catch {
+                    connectionState = .failed(error.localizedDescription)
+                }
+            }
         }
         backgroundedAt = nil
     }
 
     public func unlock() {
-        Task { [weak self] in
+        receiveTask = Task { [weak self] in
+            guard let self else { return }
             do {
-                try await self?.authenticateIfNeeded(force: true)
-                self?.isLocked = false
+                try await authenticateIfNeeded(force: true)
+                isLocked = false
+                if let targetSession, let targetMac {
+                    try await connect(session: targetSession, mac: targetMac)
+                }
             } catch {
-                self?.connectionState = .failed(error.localizedDescription)
+                connectionState = .failed(error.localizedDescription)
             }
         }
     }

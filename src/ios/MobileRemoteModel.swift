@@ -27,6 +27,8 @@ public final class MobileRemoteModel {
     public private(set) var transcript = VaulttyBlockTranscript()
     public private(set) var presenceCount = 1
     public private(set) var isLocked = false
+    public private(set) var creatingMacID: String?
+    public private(set) var sessionCreationError: String?
     public var showsPaywall = false
 
     private let endpoint: URL
@@ -89,6 +91,44 @@ public final class MobileRemoteModel {
                 connectionState = .failed(error.localizedDescription)
             }
         }
+    }
+
+    public func createSession(on mac: RemoteMac, store: MobileStore) async -> RemoteCatalogSession? {
+        guard store.hasEntitlement else {
+            showsPaywall = true
+            return nil
+        }
+        guard creatingMacID == nil else { return nil }
+        guard mac.supportsSessionCreation else {
+            sessionCreationError = "Update Vaultty on this Mac to start sessions remotely."
+            return nil
+        }
+
+        creatingMacID = mac.id
+        sessionCreationError = nil
+        defer { creatingMacID = nil }
+        do {
+            try await authenticateIfNeeded()
+            let key = try ICloudKeychainRootKey().loadOrCreate()
+            let endpoint = self.endpoint
+            let client = RemoteSessionCreationClient {
+                try RelayClient(endpoint: endpoint, rootKeyData: key)
+            }
+            return try await client.createSession(
+                on: mac.id,
+                sessionID: UUID().uuidString,
+                peerID: peerID
+            )
+        } catch is CancellationError {
+            return nil
+        } catch {
+            sessionCreationError = error.localizedDescription
+            return nil
+        }
+    }
+
+    public func dismissSessionCreationError() {
+        sessionCreationError = nil
     }
 
     public func detach() {
@@ -271,7 +311,8 @@ public final class MobileRemoteModel {
                let count = Int(text) {
                 presenceCount = count
             }
-        case .catalog, .attach, .detach, .input, .submit, .interrupt, .historyPage:
+        case .catalog, .attach, .detach, .createSession, .sessionCreated,
+             .input, .submit, .interrupt, .historyPage:
             break
         }
     }

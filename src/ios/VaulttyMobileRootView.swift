@@ -8,6 +8,7 @@ public struct VaulttyMobileRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model = MobileRemoteModel()
     @State private var store = MobileStore()
+    @State private var createdDestination: CreatedSessionDestination?
 
     public init() {}
 
@@ -16,24 +17,13 @@ public struct VaulttyMobileRootView: View {
             Group {
                 if let catalog = model.catalog, !catalog.macs.isEmpty {
                     List(catalog.macs) { mac in
-                        Section {
-                            ForEach(mac.sessions) { session in
-                                NavigationLink {
-                                    MobileSessionView(model: model, session: session, mac: mac)
-                                        .onAppear { model.attach(to: session, on: mac, store: store) }
-                                } label: {
-                                    SessionRow(session: session)
-                                }
-                                .disabled(!isMacReachable(mac, catalog: catalog))
-                            }
-                        } header: {
-                            HStack {
-                                Text(mac.name)
-                                Spacer()
-                                Text(isMacReachable(mac, catalog: catalog) ? "Online" : "Unavailable")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                        MobileHostSection(
+                            model: model,
+                            store: store,
+                            mac: mac,
+                            isReachable: isMacReachable(mac, catalog: catalog),
+                            onCreate: { startNewSession(on: mac) }
+                        )
                     }
                     .refreshable { await model.refreshCatalog() }
                 } else {
@@ -52,6 +42,20 @@ public struct VaulttyMobileRootView: View {
                     }
                 }
             }
+            .navigationDestination(item: $createdDestination) { destination in
+                MobileSessionView(
+                    model: model,
+                    session: destination.session,
+                    mac: destination.mac
+                )
+                .onAppear {
+                    model.attach(
+                        to: destination.session,
+                        on: destination.mac,
+                        store: store
+                    )
+                }
+            }
         }
         .task {
             async let catalog: Void = model.refreshCatalog()
@@ -60,6 +64,14 @@ public struct VaulttyMobileRootView: View {
         }
         .sheet(isPresented: $model.showsPaywall) {
             MobilePaywall(store: store)
+        }
+        .alert("Couldn’t Start Session", isPresented: Binding(
+            get: { model.sessionCreationError != nil },
+            set: { if !$0 { model.dismissSessionCreationError() } }
+        )) {
+            Button("OK") { model.dismissSessionCreationError() }
+        } message: {
+            Text(model.sessionCreationError ?? "The Mac could not start a session.")
         }
         .fullScreenCover(isPresented: Binding(
             get: { model.isLocked },
@@ -84,6 +96,80 @@ public struct VaulttyMobileRootView: View {
     private func isMacReachable(_ mac: RemoteMac, catalog: RemoteCatalog) -> Bool {
         mac.online && Date().timeIntervalSince(mac.lastSeen) < 10
     }
+
+    private func startNewSession(on mac: RemoteMac) {
+        Task {
+            guard let session = await model.createSession(on: mac, store: store) else {
+                return
+            }
+            createdDestination = CreatedSessionDestination(mac: mac, session: session)
+            await model.refreshCatalog()
+        }
+    }
+}
+
+private struct MobileHostSection: View {
+    let model: MobileRemoteModel
+    let store: MobileStore
+    let mac: RemoteMac
+    let isReachable: Bool
+    let onCreate: () -> Void
+
+    var body: some View {
+        Section {
+            ForEach(mac.sessions) { session in
+                NavigationLink {
+                    MobileSessionView(model: model, session: session, mac: mac)
+                        .onAppear { model.attach(to: session, on: mac, store: store) }
+                } label: {
+                    SessionRow(session: session)
+                }
+                .disabled(!isReachable)
+            }
+            creationRow
+        } header: {
+            HStack {
+                Text(mac.name)
+                Spacer()
+                Text(isReachable ? "Online" : "Unavailable")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var creationRow: some View {
+        if mac.supportsSessionCreation {
+            Button(action: onCreate) {
+                HStack {
+                    Label("New Session", systemImage: "plus")
+                    Spacer()
+                    if model.creatingMacID == mac.id {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .contentShape(.rect)
+            }
+            .disabled(!isReachable || model.creatingMacID != nil)
+        } else {
+            Label(
+                "Update Vaultty to start sessions",
+                systemImage: "arrow.down.circle"
+            )
+            .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct CreatedSessionDestination: Identifiable, Hashable {
+    let mac: RemoteMac
+    let session: RemoteCatalogSession
+
+    var id: String { "\(mac.id):\(session.sessionID)" }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
 private struct SessionRow: View {

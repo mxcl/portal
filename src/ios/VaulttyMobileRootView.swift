@@ -267,6 +267,9 @@ private struct MobileSessionView: View {
                 TextField("Command", text: $command)
                     .textFieldStyle(.roundedBorder)
                     .font(.body.monospaced())
+                    .keyboardType(.asciiCapable)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
                     .submitLabel(.send)
                     .onSubmit {
                         guard !command.isEmpty else { return }

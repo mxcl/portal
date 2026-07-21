@@ -1,12 +1,34 @@
 {
-  "identifier" : "523D28BB-18E0-437C-9771-F1DF376F3CA2",
-  "nonRenewingSubscriptions" : [],
-  "products" : [],
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "523D28BB",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
   "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingGracePeriodEnabled" : false,
+    "_billingIssuesEnabled" : false,
+    "_disableDialogs" : false,
     "_failTransactionsEnabled" : false,
     "_locale" : "en_US",
+    "_renewalBillingIssuesEnabled" : false,
     "_storefront" : "USA",
-    "_storeKitErrors" : []
+    "_storeKitErrors" : [
+
+    ],
+    "_timeRate" : 0
   },
   "subscriptionGroups" : [
     {
@@ -21,18 +43,41 @@
       "name" : "Vaultty Remote",
       "subscriptions" : [
         {
-          "adHocOffers" : [],
-          "codeOffers" : [],
+          "adHocOffers" : [
+
+          ],
+          "billingPlans" : [
+            {
+              "billingPlanType" : "BILLED_UPFRONT",
+              "commitmentDisplayPrice" : "4.99",
+              "displayPrice" : "4.99",
+              "internalID" : "78000101",
+              "isEnabled" : true
+            }
+          ],
+          "codeOffers" : [
+
+          ],
           "displayPrice" : "4.99",
           "familyShareable" : false,
           "groupNumber" : 1,
-          "internalID" : "780001001",
+          "internalID" : "78000100",
           "introductoryOffer" : {
-            "internalID" : "780001101",
+            "billingPlanType" : "BILLED_UPFRONT",
+            "internalID" : "78000111",
             "numberOfPeriods" : 1,
             "paymentMode" : "free",
             "subscriptionPeriod" : "P2W"
           },
+          "introductoryOffers" : [
+            {
+              "billingPlanType" : "BILLED_UPFRONT",
+              "internalID" : "78000111",
+              "numberOfPeriods" : 1,
+              "paymentMode" : "free",
+              "subscriptionPeriod" : "P2W"
+            }
+          ],
           "localizations" : [
             {
               "description" : "Secure access to open Vaultty sessions.",
@@ -43,21 +88,48 @@
           "productID" : "app.vaultty.remote.monthly",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Monthly",
-          "type" : "RecurringSubscription"
+          "subscriptionGroupID" : "21429751",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
         },
         {
-          "adHocOffers" : [],
-          "codeOffers" : [],
+          "adHocOffers" : [
+
+          ],
+          "billingPlans" : [
+            {
+              "billingPlanType" : "BILLED_UPFRONT",
+              "commitmentDisplayPrice" : "39.99",
+              "displayPrice" : "39.99",
+              "internalID" : "78000201",
+              "isEnabled" : true
+            }
+          ],
+          "codeOffers" : [
+
+          ],
           "displayPrice" : "39.99",
           "familyShareable" : false,
           "groupNumber" : 2,
-          "internalID" : "780001002",
+          "internalID" : "78000200",
           "introductoryOffer" : {
-            "internalID" : "780001102",
+            "billingPlanType" : "BILLED_UPFRONT",
+            "internalID" : "78000211",
             "numberOfPeriods" : 1,
             "paymentMode" : "free",
             "subscriptionPeriod" : "P2W"
           },
+          "introductoryOffers" : [
+            {
+              "billingPlanType" : "BILLED_UPFRONT",
+              "internalID" : "78000211",
+              "numberOfPeriods" : 1,
+              "paymentMode" : "free",
+              "subscriptionPeriod" : "P2W"
+            }
+          ],
           "localizations" : [
             {
               "description" : "Secure access to open Vaultty sessions.",
@@ -68,14 +140,17 @@
           "productID" : "app.vaultty.remote.annual",
           "recurringSubscriptionPeriod" : "P1Y",
           "referenceName" : "Annual",
-          "type" : "RecurringSubscription"
+          "subscriptionGroupID" : "21429751",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
         }
       ]
     }
   ],
   "version" : {
-    "major" : 4,
+    "major" : 5,
     "minor" : 0
   }
 }
-

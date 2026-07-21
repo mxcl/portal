@@ -12,7 +12,7 @@
       <BuildableProductRunnable runnableDebuggingMode="0">
          <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A50000000000000000000001" BuildableName="Vaultty.app" BlueprintName="VaulttyMobileApp" ReferencedContainer="container:VaulttyMobileApp.xcodeproj"/>
       </BuildableProductRunnable>
-      <StoreKitConfigurationFileReference identifier="../../../Products.storekit"/>
+      <StoreKitConfigurationFileReference identifier="../../Products.storekit"/>
    </LaunchAction>
    <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES">
       <BuildableProductRunnable runnableDebuggingMode="0">

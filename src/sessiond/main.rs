@@ -445,7 +445,6 @@ impl Session {
         unsafe {
             libc::kill(-self.child_pid, libc::SIGTERM);
             libc::kill(self.child_pid, libc::SIGTERM);
-            libc::close(self.master_fd);
         }
     }
 
@@ -489,6 +488,9 @@ impl Session {
             }
 
             let status = reap_child(session.child_pid);
+            unsafe {
+                libc::close(session.master_fd);
+            }
             session.exited.store(true, Ordering::SeqCst);
             let mut clients = session.clients.lock().expect("clients lock poisoned");
             clients.retain(|client| client.send(SessionEvent::Exit(status)).is_ok());
@@ -733,12 +735,12 @@ fn handle_client(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<
             let update = decode_state_update(encoded)?;
             session.update_metadata(update);
         } else if command == "KILL" {
-            session.kill();
             state
                 .sessions
                 .lock()
                 .expect("sessions lock poisoned")
                 .remove(&request.session_id);
+            session.kill();
             break;
         }
         line.clear();
@@ -1080,6 +1082,7 @@ fn last_marker_offset(history: &[u8], marker: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     fn encoded(value: &str) -> String {
         BASE64.encode(value)
@@ -1200,6 +1203,35 @@ mod tests {
         assert_eq!(metadata.title, "project");
         assert_eq!(metadata.cwd, "/tmp/project");
         assert_eq!(metadata.command_count, 0);
+    }
+
+    #[test]
+    fn killing_session_returns_without_waiting_for_pty_reader() {
+        let request = AttachRequest {
+            session_id: "kill-test".to_owned(),
+            cwd: env::temp_dir(),
+            shell: "/bin/sh".to_owned(),
+            environment: Vec::new(),
+            protocol_version: CURRENT_PROTOCOL_VERSION,
+            client_role: ClientRole::Mac,
+            allows_creation: true,
+        };
+        let state = Arc::new(DaemonState {
+            sessions: Mutex::new(HashMap::new()),
+        });
+        let session = Session::new(&request, Arc::downgrade(&state))
+            .expect("test session should start");
+        let (finished_tx, finished_rx) = mpsc::channel();
+
+        thread::spawn(move || {
+            session.kill();
+            let _ = finished_tx.send(());
+        });
+
+        assert!(
+            finished_rx.recv_timeout(Duration::from_secs(1)).is_ok(),
+            "kill must not block on a PTY read owned by another thread"
+        );
     }
 
     #[test]

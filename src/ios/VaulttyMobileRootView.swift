@@ -111,7 +111,6 @@ private struct MobileSessionView: View {
     let session: RemoteCatalogSession
     let mac: RemoteMac
     @State private var command = ""
-    @State private var rawInput = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -133,7 +132,7 @@ private struct MobileSessionView: View {
     }
 
     private var showsTerminal: Bool {
-        rawInput || model.transcript.isAlternateScreenActive
+        model.transcript.isAlternateScreenActive
     }
 
     private var blockTranscript: some View {
@@ -181,8 +180,6 @@ private struct MobileSessionView: View {
 
     private var inputBar: some View {
         HStack(spacing: 8) {
-            Button(rawInput ? "Raw" : "Command") { rawInput.toggle() }
-                .buttonStyle(.bordered)
             if showsTerminal {
                 Button("Show Keyboard", systemImage: "keyboard") {
                     NotificationCenter.default.post(name: .vaulttyFocusTerminal, object: nil)

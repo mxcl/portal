@@ -265,6 +265,7 @@ private struct MobileSessionView: View {
                 }
                 .padding(12)
             }
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
             .background(.black)
             .onChange(of: model.transcript.revision) { _, _ in
                 guard let id = model.transcript.blocks.last?.id else { return }

@@ -17,7 +17,7 @@ public struct VaulttyMobileRootView: View {
         NavigationStack {
             List {
                 if let catalog = model.catalog {
-                    ForEach(catalog.macs) { mac in
+                    ForEach(catalog.macs.sortedAlphabetically) { mac in
                         MobileHostSection(
                             model: model,
                             store: store,
@@ -128,6 +128,15 @@ public struct VaulttyMobileRootView: View {
             }
             createdDestination = CreatedSessionDestination(mac: mac, session: session)
             await model.refreshCatalog()
+        }
+    }
+}
+
+private extension Array where Element == RemoteMac {
+    var sortedAlphabetically: [RemoteMac] {
+        sorted { lhs, rhs in
+            let order = lhs.name.localizedStandardCompare(rhs.name)
+            return order == .orderedSame ? lhs.id < rhs.id : order == .orderedAscending
         }
     }
 }

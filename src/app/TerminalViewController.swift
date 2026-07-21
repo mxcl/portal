@@ -4760,6 +4760,27 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             ))
         }
 
+        for session in (try? PtySession.listSessions()) ?? [] {
+            let sessionRef = SessionRef(
+                location: .local,
+                sessionID: session.sessionID
+            )
+            guard seen.insert(sessionRef).inserted else { continue }
+            candidates.append(LocalSessionCandidate(
+                sessionRef: sessionRef,
+                sessionID: session.sessionID,
+                hostPrefix: nil,
+                title: session.title,
+                cwd: session.cwd,
+                isClosedSession: false,
+                createdAt: session.createdAt,
+                commandCount: session.commandCount,
+                runningCommand: session.runningCommand,
+                commandHistory: session.commandHistory,
+                kind: .existing
+            ))
+        }
+
         return (candidates, seen)
     }
 

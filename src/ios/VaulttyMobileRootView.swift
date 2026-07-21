@@ -196,9 +196,26 @@ private struct MobileSessionView: View {
                         command = ""
                     }
             }
-            Button("Interrupt", systemImage: "stop.fill") { model.interrupt() }
-                .labelStyle(.iconOnly)
-                .tint(.red)
+            Menu {
+                Button("Interrupt", systemImage: "stop.fill") {
+                    model.interrupt()
+                }
+                Button("End Input", systemImage: "eject.fill") {
+                    model.sendInput(Data([0x04]))
+                }
+                Divider()
+                Button("Escape", systemImage: "escape") {
+                    model.sendInput(Data([0x1b]))
+                }
+                Button("Clear Screen", systemImage: "rectangle.on.rectangle.slash") {
+                    model.sendInput(Data([0x0c]))
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(.rect)
+            }
+            .accessibilityLabel("Terminal Actions")
         }
         .padding(8)
         .background(.bar)

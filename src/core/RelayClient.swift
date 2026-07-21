@@ -1,5 +1,18 @@
 import Foundation
 
+final class OneShotGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isClaimed = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isClaimed else { return false }
+        isClaimed = true
+        return true
+    }
+}
+
 public enum RelayClientError: Error, Equatable {
     case invalidEndpoint
     case unexpectedMessage
@@ -76,9 +89,11 @@ public actor RelayClient {
 
     private func sendPing() async throws {
         guard let socket else { throw RelayClientError.invalidEndpoint }
+        let gate = OneShotGate()
         let _: Void = try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<Void, Error>) in
             socket.sendPing { error in
+                guard gate.claim() else { return }
                 if let error {
                     continuation.resume(throwing: error)
                 } else {

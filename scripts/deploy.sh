@@ -46,7 +46,6 @@ rsync -a \
 
 rsync -a \
   "$ROOT_DIR/src/relay" \
-  "$ROOT_DIR/src/env" \
   "$ROOT_DIR/src/sessiond" \
   "$ROOT_DIR/src/session_bridge" \
   "$DEPLOY_HOST:$RELEASE_DIR/source/src/"

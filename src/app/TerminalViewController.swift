@@ -64,7 +64,6 @@ private enum TahoeGlassPalette {
     static let titleTabCloseButtonTrailingInset: CGFloat = 8
     static let titleTabCloseButtonVerticalOffset: CGFloat = 1
     static let titleTabRunningIndicatorSize: CGFloat = 5
-    static let commandStatusShieldSize: CGFloat = 13
     static let titleHairlineEndpointGap: CGFloat = 1
     static let windowTintStart = NSColor.black.withAlphaComponent(0.30)
     static let windowTintMid = NSColor.black.withAlphaComponent(0.26)
@@ -3292,7 +3291,6 @@ private final class TerminalTab {
     let inputView = CommandInputTextView(frame: .zero)
     let statusLineStack = NSStackView()
     let statusLabel = NSTextField(labelWithString: "Starting shell...")
-    let dotenvStatusShieldImageView = NSImageView()
     let commandSeparator = SeparatorView()
     let commandBarView = NSView()
     let findCloseButton = FindCloseButton(frame: .zero)
@@ -3311,7 +3309,6 @@ private final class TerminalTab {
     var activeBlockID: UUID? { commandLifecycle.state.activeBlockID }
     var pendingBlockID: UUID? { commandLifecycle.state.pendingBlockID }
     var currentCwd: String { commandLifecycle.state.currentCwd }
-    var hasInjectedDotenvSecrets = false
     var isScrollToBottomScheduled = false
     var isShellReady: Bool { commandLifecycle.state.isShellReady }
     var isReplayingHistory: Bool { commandLifecycle.state.isReplayingHistory }
@@ -3414,28 +3411,12 @@ private final class TerminalTab {
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        dotenvStatusShieldImageView.image = NSImage(
-            systemSymbolName: "checkmark.shield.fill",
-            accessibilityDescription: "Dotenv secrets loaded"
-        )
-        dotenvStatusShieldImageView.symbolConfiguration = NSImage.SymbolConfiguration(
-            pointSize: 12,
-            weight: .semibold
-        )
-        dotenvStatusShieldImageView.contentTintColor = mutedGitStatusColor(.systemGreen)
-        dotenvStatusShieldImageView.imageScaling = .scaleProportionallyDown
-        dotenvStatusShieldImageView.isHidden = true
-        dotenvStatusShieldImageView.toolTip = "Dotenv secrets loaded"
-        dotenvStatusShieldImageView.translatesAutoresizingMaskIntoConstraints = false
-        dotenvStatusShieldImageView.setContentCompressionResistancePriority(.required, for: .horizontal)
-
         statusLineStack.orientation = .horizontal
         statusLineStack.spacing = 6
         statusLineStack.alignment = .centerY
         statusLineStack.distribution = .fill
         statusLineStack.translatesAutoresizingMaskIntoConstraints = false
         statusLineStack.addArrangedSubview(statusLabel)
-        statusLineStack.addArrangedSubview(dotenvStatusShieldImageView)
 
         commandBarView.wantsLayer = true
         commandBarView.layer?.backgroundColor = TahoeGlassPalette.commandTint.cgColor
@@ -3517,12 +3498,6 @@ private final class TerminalTab {
                 constant: -8
             ),
             statusLineStack.topAnchor.constraint(equalTo: commandBarView.topAnchor, constant: 8),
-            dotenvStatusShieldImageView.widthAnchor.constraint(
-                equalToConstant: TahoeGlassPalette.commandStatusShieldSize
-            ),
-            dotenvStatusShieldImageView.heightAnchor.constraint(
-                equalToConstant: TahoeGlassPalette.commandStatusShieldSize
-            ),
             findCloseButton.topAnchor.constraint(equalTo: commandBarView.topAnchor, constant: 4),
             findCloseButton.trailingAnchor.constraint(equalTo: commandBarView.trailingAnchor, constant: -8),
             findCloseButton.widthAnchor.constraint(equalToConstant: 28),
@@ -4248,7 +4223,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.commandBarView.layer?.backgroundColor = NSColor.selectedControlColor.withAlphaComponent(0.32).cgColor
         tab.findCloseButton.isHidden = false
         tab.inputView.setAccessibilityLabel("Vaultty history find")
-        updateDotenvShield(tab.hasInjectedDotenvSecrets, in: tab)
         updatePassthroughVisibility(for: tab)
         updateCommandBarVisibility(for: tab)
         updateFindResults(in: tab, bounce: false)
@@ -4268,7 +4242,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.inputView.setAccessibilityLabel("Vaultty command input")
         setInput(tab.findCommandDraft, in: tab)
         tab.findCommandDraft = ""
-        updateDotenvShield(tab.hasInjectedDotenvSecrets, in: tab)
         if tab.isShellReady {
             updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
         }
@@ -5503,7 +5476,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         env["LC_TERMINAL_VERSION"] = appVersion
         env["__CFBundleIdentifier"] = bundleIdentifier
         env["VAULTTY"] = "1"
-        env["VAULTTY_ENV"] = isRemoteSession ? "" : bundledExecutablePath(named: "vaultty-env")
         env["PROMPT"] = ""
         env["RPROMPT"] = ""
 
@@ -5515,35 +5487,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             export LC_TERMINAL=Vaultty
             export LC_TERMINAL_VERSION=\(shellQuote(appVersion))
             export __CFBundleIdentifier=\(shellQuote(bundleIdentifier))
-            export VAULTTY_ENV=\(shellQuote(env["VAULTTY_ENV"] ?? ""))
             \(isRemoteSession ? remoteCodeFunctionScript : "")
             cd \(shellQuote(workingDirectory.path))
-            __vaultty_dotenv_hook() {
-              local __vaultty_dotenv __vaultty_status __vaultty_loaded
-              if [ ! -x "$VAULTTY_ENV" ]; then
-                return 0
-              fi
-              __vaultty_dotenv="$("$VAULTTY_ENV" export --cwd "$PWD" --format zsh)"
-              __vaultty_status=$?
-              if [ "$__vaultty_status" -eq 0 ]; then
-                eval "$__vaultty_dotenv"
-                __vaultty_status=$?
-              fi
-              if [ "$__vaultty_status" -eq 0 ] && [ -n "${VAULTTY_DOTENV_FILE:-}" ] && [ -n "${VAULTTY_DOTENV_KEYS:-}" ]; then
-                __vaultty_loaded=1
-              else
-                __vaultty_loaded=0
-              fi
-              printf '\\033]133;V;%s\\a' "$__vaultty_loaded"
-              return "$__vaultty_status"
-            }
-            if [ -n "${ZSH_VERSION:-}" ]; then
-              autoload -Uz add-zsh-hook
-              add-zsh-hook -d chpwd __av_dotenv_hook 2>/dev/null || true
-              add-zsh-hook -d chpwd __vaultty_dotenv_hook 2>/dev/null || true
-              add-zsh-hook chpwd __vaultty_dotenv_hook 2>/dev/null || true
-            fi
-            __vaultty_dotenv_hook
             stty -echo
             PROMPT=''
             RPROMPT=''
@@ -5575,19 +5520,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func bundledExecutablePath(named name: String) -> String? {
-        if name == "vaultty-env" {
-            let nestedHelperURL = Bundle.main.bundleURL
-                .appendingPathComponent("Contents", isDirectory: true)
-                .appendingPathComponent("Helpers", isDirectory: true)
-                .appendingPathComponent("VaulttyEnv.app", isDirectory: true)
-                .appendingPathComponent("Contents", isDirectory: true)
-                .appendingPathComponent("MacOS", isDirectory: true)
-                .appendingPathComponent(name, isDirectory: false)
-            if FileManager.default.isExecutableFile(atPath: nestedHelperURL.path) {
-                return nestedHelperURL.path
-            }
-        }
-
         let helpersURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Helpers", isDirectory: true)
@@ -6205,8 +6137,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 tab.commandLifecycle.apply(.cwdChanged(cwd))
             }
             persistSessionState()
-        case "V":
-            updateDotenvShield(payload.trimmingCharacters(in: .whitespacesAndNewlines) == "1", in: tab)
         case "O":
             if !isReplay {
                 openRemoteCode(payload: payload, in: tab)
@@ -6357,11 +6287,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             return title
         }
         return String(title.dropFirst(prefix.count))
-    }
-
-    private func updateDotenvShield(_ isVisible: Bool, in tab: TerminalTab) {
-        tab.hasInjectedDotenvSecrets = isVisible
-        tab.dotenvStatusShieldImageView.isHidden = tab.isFindMode || !isVisible
     }
 
     private func updateTabTitleForDirectory(_ tab: TerminalTab) {

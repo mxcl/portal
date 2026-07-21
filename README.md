@@ -3,8 +3,7 @@
 `Vaultty` is a macOS block terminal for Automic Vault workflows.
 
 The app owns command input and renders command output as blocks. It uses a
-persistent shell process, private OSC lifecycle markers, and a bundled
-`vaultty-env` helper that reads Automic Vault dotenv keys directly from Keychain.
+persistent shell process and private OSC lifecycle markers.
 
 ![Vaultty screenshot](assets/screenshot1.webp)
 
@@ -16,7 +15,6 @@ persistent shell process, private OSC lifecycle markers, and a bundled
   Proper (occluding) blur, vibrancy, and translucency.
 - [Warp](https://warp.dev) style blocks
 - [Fig](https://fig.io) autocompletions †
-- Automically loads Automic Vault encrypted `.env` secrets without approval ‡
 - [libghostty](https://github.com/mitchellh/ghostty) as the tty layer
 - Persistent shell sessions that survive closed tabs and app quits
 
@@ -28,13 +26,6 @@ persistent shell process, private OSC lifecycle markers, and a bundled
 > therefore execute shell code. This is a known security hole; the intended fix
 > is to sandbox or otherwise constrain completion execution without breaking Fig
 > compatibility.
-
-> [!IMPORTANT]
->
-> ‡ This means an agent with Computer Use could use Vaultty to exfiltrate
-> secrets. But Computer Use also means that the agent could approve in Automic
-> Vault too. If you are not using the AV iPhone app, or transferring approvals
-> to another machine then Vaultty is convenient and as-secure.
 
 ## Sessions Survive Tabs
 
@@ -93,8 +84,8 @@ VS Code's `code` command and Remote SSH extension must be installed locally.
 scripts/build.sh --release
 ```
 
-The build script signs the app with the Developer ID identity associated with
-`TEAM_COMMON_NAME` in `~/src/automic-vault/.env`.
+The build script signs the app with the first installed Developer ID Application
+identity, or the identity specified by `CODESIGN_IDENTITY`.
 
 ## Versioning
 

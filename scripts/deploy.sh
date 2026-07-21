@@ -41,7 +41,6 @@ REMOTE_PREPARE
 rsync -a \
   "$ROOT_DIR/Cargo.toml" \
   "$ROOT_DIR/Cargo.lock" \
-  "$ROOT_DIR/build.rs" \
   "$DEPLOY_HOST:$RELEASE_DIR/source/"
 
 rsync -a \

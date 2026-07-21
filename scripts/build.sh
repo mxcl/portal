@@ -901,6 +901,7 @@ SWIFTC_COMMAND=(
   "$ROOT_DIR/src/core/SessionCatalog.swift" \
   "$ROOT_DIR/src/core/SessionWireProtocol.swift" \
   "$ROOT_DIR/src/core/RemoteProtocol.swift" \
+  "$ROOT_DIR/src/core/VaulttyCommandEnvelope.swift" \
   "$ROOT_DIR/src/core/RelayCrypto.swift" \
   "$ROOT_DIR/src/core/ICloudKeychainRootKey.swift" \
   "$ROOT_DIR/src/core/RelayClient.swift" \
@@ -922,6 +923,7 @@ swiftc \
   "$ROOT_DIR/src/core/SessionTypes.swift" \
   "$ROOT_DIR/src/core/SessionWireProtocol.swift" \
   "$ROOT_DIR/src/core/RemoteProtocol.swift" \
+  "$ROOT_DIR/src/core/VaulttyCommandEnvelope.swift" \
   "$ROOT_DIR/src/core/RelayCrypto.swift" \
   "$ROOT_DIR/src/core/ICloudKeychainRootKey.swift" \
   "$ROOT_DIR/src/core/RelayClient.swift" \

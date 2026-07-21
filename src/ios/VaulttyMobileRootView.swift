@@ -116,16 +116,51 @@ private struct MobileSessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             statusBar
-            VaulttyTerminalView(chunks: model.chunks) { model.sendInput($0) }
-                .background(.black)
+            if showsTerminal {
+                VaulttyTerminalView(chunks: model.chunks) { model.sendInput($0) }
+                    .background(.black)
+            } else {
+                blockTranscript
+            }
             inputBar
-            keyStrip
+            if showsTerminal { keyStrip }
         }
         .background(.black)
         .navigationTitle(session.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.black, for: .navigationBar)
         .onDisappear { model.detach() }
+    }
+
+    private var showsTerminal: Bool {
+        rawInput || model.transcript.isAlternateScreenActive
+    }
+
+    private var blockTranscript: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    if model.transcript.blocks.isEmpty {
+                        ContentUnavailableView(
+                            "No commands yet",
+                            systemImage: "terminal",
+                            description: Text("Run a command here or on a connected Mac.")
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 320)
+                    }
+                    ForEach(model.transcript.blocks) { block in
+                        MobileBlockView(block: block)
+                            .id(block.id)
+                    }
+                }
+                .padding(12)
+            }
+            .background(.black)
+            .onChange(of: model.transcript.revision) { _, _ in
+                guard let id = model.transcript.blocks.last?.id else { return }
+                withAnimation { proxy.scrollTo(id, anchor: .bottom) }
+            }
+        }
     }
 
     private var statusBar: some View {
@@ -148,7 +183,7 @@ private struct MobileSessionView: View {
         HStack(spacing: 8) {
             Button(rawInput ? "Raw" : "Command") { rawInput.toggle() }
                 .buttonStyle(.bordered)
-            if rawInput {
+            if showsTerminal {
                 Button("Show Keyboard", systemImage: "keyboard") {
                     NotificationCenter.default.post(name: .vaulttyFocusTerminal, object: nil)
                 }
@@ -160,7 +195,7 @@ private struct MobileSessionView: View {
                     .submitLabel(.send)
                     .onSubmit {
                         guard !command.isEmpty else { return }
-                        model.sendInput(Data("\(command)\r".utf8))
+                        model.submit(command)
                         command = ""
                     }
             }
@@ -206,6 +241,56 @@ private struct MobileSessionView: View {
         case .attached: mac.name
         case .reconnecting: "Reconnecting"
         case .failed(let message): message
+        }
+    }
+}
+
+private struct MobileBlockView: View {
+    let block: VaulttyBlock
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("❯")
+                    .foregroundStyle(.green)
+                Text(block.command)
+                    .fontWeight(.semibold)
+                    .textSelection(.enabled)
+                Spacer(minLength: 8)
+                state
+            }
+            .font(.body.monospaced())
+
+            if !block.output.isEmpty {
+                Text(block.output)
+                    .font(.callout.monospaced())
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if let cwd = block.cwd {
+                Text(cwd)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(12)
+        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    private var state: some View {
+        switch block.state {
+        case .running:
+            ProgressView().controlSize(.small)
+        case .completed(0):
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .completed(let status):
+            Text("exit \(status)")
+                .font(.caption.monospaced())
+                .foregroundStyle(.red)
         }
     }
 }

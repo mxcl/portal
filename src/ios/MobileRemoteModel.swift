@@ -24,6 +24,7 @@ public final class MobileRemoteModel {
     public private(set) var catalog: RemoteCatalog?
     public private(set) var connectionState: MobileConnectionState = .idle
     public private(set) var chunks: [TerminalChunk] = []
+    public private(set) var transcript = VaulttyBlockTranscript()
     public private(set) var presenceCount = 1
     public private(set) var isLocked = false
     public var showsPaywall = false
@@ -126,6 +127,17 @@ public final class MobileRemoteModel {
         ))
     }
 
+    public func submit(_ command: String) {
+        guard let requestID, let attachedMacID, let attachedSessionID else { return }
+        send(RemoteMessage(
+            kind: .submit,
+            requestID: requestID,
+            macID: attachedMacID,
+            sessionID: attachedSessionID,
+            payload: Data(command.utf8)
+        ))
+    }
+
     public func interrupt() {
         guard let requestID, let attachedMacID, let attachedSessionID else { return }
         send(RemoteMessage(
@@ -192,6 +204,7 @@ public final class MobileRemoteModel {
         try await relay.connect(peerID: peerID)
         connectionState = .connecting
         chunks.removeAll(keepingCapacity: true)
+        transcript.reset()
         sequenceTracker.reset(to: nil)
         let requestID = UUID().uuidString
         self.requestID = requestID
@@ -242,6 +255,9 @@ public final class MobileRemoteModel {
                   sequenceTracker.accept(sequence) == .accepted,
                   let payload = message.payload else { return }
             chunks.append(TerminalChunk(id: nextChunkID, data: payload))
+            if let text = String(data: payload, encoding: .utf8) {
+                transcript.consume(text)
+            }
             nextChunkID &+= 1
             if chunks.count > 2_000 {
                 chunks.removeFirst(chunks.count - 2_000)
@@ -255,7 +271,7 @@ public final class MobileRemoteModel {
                let count = Int(text) {
                 presenceCount = count
             }
-        case .catalog, .attach, .detach, .input, .interrupt, .historyPage:
+        case .catalog, .attach, .detach, .input, .submit, .interrupt, .historyPage:
             break
         }
     }

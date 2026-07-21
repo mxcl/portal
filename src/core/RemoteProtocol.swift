@@ -56,6 +56,7 @@ public enum RemoteMessageKind: String, Codable, Sendable {
     case attach
     case detach
     case input
+    case submit
     case interrupt
     case historyPage
     case terminalEvent

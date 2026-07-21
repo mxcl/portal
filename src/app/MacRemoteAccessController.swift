@@ -194,6 +194,13 @@ final class MacRemoteAccessController {
                let text = String(data: payload, encoding: .utf8) {
                 bridges[message.requestID]?.session.write(text)
             }
+        case .submit:
+            if let payload = message.payload,
+               let command = String(data: payload, encoding: .utf8) {
+                bridges[message.requestID]?.session.write(
+                    VaulttyCommandEnvelope.shellScript(for: command)
+                )
+            }
         case .interrupt:
             bridges[message.requestID]?.session.sendInterrupt()
         case .historyPage:

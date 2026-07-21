@@ -23,6 +23,24 @@ struct RemoteProtocolTests {
         #expect(decoded == message)
     }
 
+    @Test("semantic command submissions preserve their encrypted payload")
+    func submitRoundTrip() throws {
+        let message = RemoteMessage(
+            kind: .submit,
+            requestID: "request",
+            macID: "mac",
+            sessionID: "session",
+            payload: Data("git status".utf8)
+        )
+
+        let decoded = try JSONDecoder().decode(
+            RemoteMessage.self,
+            from: JSONEncoder().encode(message)
+        )
+
+        #expect(decoded == message)
+    }
+
     @Test("sequence tracker rejects replay and detects gaps")
     func sequenceValidation() {
         var tracker = RemoteSequenceTracker()

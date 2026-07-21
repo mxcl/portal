@@ -90,6 +90,41 @@ struct RemoteProtocolTests {
         #expect(!mac.supportsSessionCreation)
     }
 
+    @Test("empty detached sessions are not remotely discoverable")
+    func remoteSessionDiscoverability() {
+        let empty = RemoteCatalogSession(
+            sessionID: "empty",
+            title: "~",
+            cwd: "/Users/test",
+            createdAt: Date(),
+            commandCount: 0,
+            runningCommand: nil,
+            attachedClientCount: 0
+        )
+        let attached = RemoteCatalogSession(
+            sessionID: "attached",
+            title: "~",
+            cwd: "/Users/test",
+            createdAt: Date(),
+            commandCount: 0,
+            runningCommand: nil,
+            attachedClientCount: 1
+        )
+        let used = RemoteCatalogSession(
+            sessionID: "used",
+            title: "project",
+            cwd: "/Users/test/project",
+            createdAt: Date(),
+            commandCount: 1,
+            runningCommand: nil,
+            attachedClientCount: 0
+        )
+
+        #expect(!empty.isRemotelyDiscoverable)
+        #expect(attached.isRemotelyDiscoverable)
+        #expect(used.isRemotelyDiscoverable)
+    }
+
     @Test("sequence tracker rejects replay and detects gaps")
     func sequenceValidation() {
         var tracker = RemoteSequenceTracker()

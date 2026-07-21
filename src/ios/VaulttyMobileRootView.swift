@@ -9,14 +9,15 @@ public struct VaulttyMobileRootView: View {
     @State private var model = MobileRemoteModel()
     @State private var store = MobileStore()
     @State private var createdDestination: CreatedSessionDestination?
+    @State private var isAutomaticallyRefreshingCatalog = false
 
     public init() {}
 
     public var body: some View {
         NavigationStack {
-            Group {
-                if let catalog = model.catalog, !catalog.macs.isEmpty {
-                    List(catalog.macs) { mac in
+            List {
+                if let catalog = model.catalog {
+                    ForEach(catalog.macs) { mac in
                         MobileHostSection(
                             model: model,
                             store: store,
@@ -25,21 +26,35 @@ public struct VaulttyMobileRootView: View {
                             onCreate: { startNewSession(on: mac) }
                         )
                     }
-                    .refreshable { await model.refreshCatalog() }
-                } else {
+                }
+            }
+            .refreshable { await model.refreshCatalog() }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if isAutomaticallyRefreshingCatalog {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(.bar)
+                }
+            }
+            .overlay {
+                if !isAutomaticallyRefreshingCatalog,
+                   model.catalog?.macs.isEmpty != false {
                     ContentUnavailableView(
                         "No sessions yet",
                         systemImage: "terminal",
                         description: Text("Enable Remote Access on a Mac with an open Vaultty session.")
                     )
+                    .allowsHitTesting(false)
                 }
             }
             .navigationTitle("Vaultty")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Refresh", systemImage: "arrow.clockwise") {
-                        Task { await model.refreshCatalog() }
+                        Task { await automaticallyRefreshCatalog() }
                     }
+                    .disabled(model.isRefreshingCatalog)
                 }
             }
             .navigationDestination(item: $createdDestination) { destination in
@@ -58,7 +73,7 @@ public struct VaulttyMobileRootView: View {
             }
         }
         .task {
-            async let catalog: Void = model.refreshCatalog()
+            async let catalog: Void = automaticallyRefreshCatalog()
             async let products: Void = store.load()
             _ = await (catalog, products)
         }
@@ -85,12 +100,21 @@ public struct VaulttyMobileRootView: View {
                 model.sceneDidEnterBackground()
             case .active:
                 model.sceneDidBecomeActive()
+                Task { await automaticallyRefreshCatalog() }
             case .inactive:
                 break
             @unknown default:
                 break
             }
         }
+    }
+
+    @MainActor
+    private func automaticallyRefreshCatalog() async {
+        guard !model.isRefreshingCatalog else { return }
+        isAutomaticallyRefreshingCatalog = true
+        defer { isAutomaticallyRefreshingCatalog = false }
+        await model.refreshCatalog()
     }
 
     private func isMacReachable(_ mac: RemoteMac, catalog: RemoteCatalog) -> Bool {

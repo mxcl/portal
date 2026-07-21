@@ -29,6 +29,7 @@ public final class MobileRemoteModel {
     public private(set) var isLocked = false
     public private(set) var creatingMacID: String?
     public private(set) var sessionCreationError: String?
+    public private(set) var isRefreshingCatalog = false
     public var showsPaywall = false
 
     private let endpoint: URL
@@ -45,8 +46,6 @@ public final class MobileRemoteModel {
     private var backgroundGraceTask: Task<Void, Never>?
     private var targetSession: RemoteCatalogSession?
     private var targetMac: RemoteMac?
-    private var isRefreshingCatalog = false
-
     public init(endpoint: URL = URL(string: "https://vaultty-relay.mxcl.dev")!) {
         self.endpoint = endpoint
         if let existing = UserDefaults.standard.string(forKey: "vaulttyRemotePeerID") {

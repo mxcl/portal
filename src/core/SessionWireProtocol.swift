@@ -33,6 +33,7 @@ enum SessionWireProtocol {
         case state(Data)
         case list
         case kill(sessionID: String)
+        case killAttachedSession
         case historyPage(beforeSequence: UInt64, maxLines: UInt16)
     }
 
@@ -203,6 +204,8 @@ enum SessionWireProtocol {
             return "LIST"
         case .kill(let sessionID):
             return "KILL \(base64(sessionID))"
+        case .killAttachedSession:
+            return "KILL"
         case .historyPage(let beforeSequence, let maxLines):
             return "HISTORY_PAGE \(beforeSequence) \(maxLines)"
         }

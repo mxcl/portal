@@ -3781,9 +3781,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             let shouldKillUnpersistedSession = !shouldPersistSession(tab) && !isSessionVisibleOutsideTab(tab)
             stopRunningElapsedUpdates(for: tab)
             stopTtyModePolling(for: tab)
-            tab.session.stop()
             if shouldKillUnpersistedSession {
-                scheduleKillDetachedSession(tab.sessionRef)
+                tab.session.kill()
+            } else {
+                tab.session.stop()
             }
         }
     }
@@ -4418,9 +4419,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
         stopRunningElapsedUpdates(for: tab)
         stopTtyModePolling(for: tab)
-        tab.session.stop()
         if !shouldPersistTab && !isVisibleOutsideTab {
-            scheduleKillDetachedSession(tab.sessionRef)
+            tab.session.kill()
+        } else {
+            tab.session.stop()
         }
         let wasActive = activeTabID == tab.id
         tab.rootView.removeFromSuperview()
@@ -5058,9 +5060,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         with candidate: LocalSessionCandidate,
         shellPath: String? = nil
     ) {
-        let oldSessionRef = tab.sessionRef
-        tab.session.stop()
-        scheduleKillDetachedSession(oldSessionRef)
+        tab.session.kill()
 
         hideSessionPicker(for: tab)
         clearCommandInput(in: tab)
@@ -5100,12 +5100,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func removeClosedSession(_ sessionRef: SessionRef) {
         sessionCatalog.removeClosed(sessionRef)
-    }
-
-    private func scheduleKillDetachedSession(_ sessionRef: SessionRef) {
-        sessionCleanupQueue.async {
-            try? PtySession.killDetachedSession(sessionRef: sessionRef)
-        }
     }
 
     private func removeExitedSessionFromPersistentHistory(_ sessionRef: SessionRef) {

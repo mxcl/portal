@@ -292,6 +292,16 @@ final class PtySession {
         closeTransport(terminateBridge: true)
     }
 
+    func kill() {
+        markStopped()
+        // Keep teardown ordered behind a pending ATTACH. A separate KILL connection can
+        // otherwise reach sessiond before that ATTACH creates the session and leave an orphan.
+        queue.async { [self] in
+            try? transport?.send(SessionWireProtocol.encode(.killAttachedSession))
+            closeTransport(terminateBridge: true)
+        }
+    }
+
     private func markStopped() {
         lifecycleLock.lock()
         isStopped = true

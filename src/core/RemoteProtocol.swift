@@ -13,6 +13,16 @@ public struct RemoteCatalog: Codable, Equatable, Sendable {
         self.macs = macs
     }
 
+    public mutating func record(_ session: RemoteCatalogSession, onMac macID: String) {
+        guard let macIndex = macs.firstIndex(where: { $0.id == macID }) else { return }
+        if let sessionIndex = macs[macIndex].sessions.firstIndex(where: {
+            $0.sessionID == session.sessionID
+        }) {
+            macs[macIndex].sessions[sessionIndex] = session
+        } else {
+            macs[macIndex].sessions.append(session)
+        }
+    }
 }
 
 public struct RemoteMac: Codable, Equatable, Identifiable, Sendable {

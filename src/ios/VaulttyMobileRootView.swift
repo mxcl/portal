@@ -127,7 +127,6 @@ public struct VaulttyMobileRootView: View {
                 return
             }
             createdDestination = CreatedSessionDestination(mac: mac, session: session)
-            await model.refreshCatalog()
         }
     }
 }

@@ -72,6 +72,51 @@ struct RemoteProtocolTests {
         ) == session)
     }
 
+    @Test("a created session is immediately visible in its Mac catalog")
+    func createdSessionUpdatesCatalog() throws {
+        let existing = RemoteCatalogSession(
+            sessionID: "existing",
+            title: "src",
+            cwd: "/Users/test/src",
+            createdAt: Date(timeIntervalSince1970: 1),
+            commandCount: 1,
+            runningCommand: nil,
+            attachedClientCount: 0
+        )
+        let created = RemoteCatalogSession(
+            sessionID: "created",
+            title: "~",
+            cwd: "/Users/test",
+            createdAt: Date(timeIntervalSince1970: 2),
+            commandCount: 0,
+            runningCommand: nil,
+            attachedClientCount: 0
+        )
+        var catalog = RemoteCatalog(
+            generatedAt: Date(timeIntervalSince1970: 3),
+            macs: [
+                RemoteMac(
+                    id: "target",
+                    name: "Maliwan",
+                    online: true,
+                    sessions: [existing]
+                ),
+                RemoteMac(
+                    id: "other",
+                    name: "Pangolin",
+                    online: true,
+                    sessions: []
+                ),
+            ]
+        )
+
+        catalog.record(created, onMac: "target")
+
+        let target = try #require(catalog.macs.first { $0.id == "target" })
+        #expect(target.sessions.map(\.sessionID) == ["existing", "created"])
+        #expect(catalog.macs.first { $0.id == "other" }?.sessions.isEmpty == true)
+    }
+
     @Test("sequence tracker rejects replay and detects gaps")
     func sequenceValidation() {
         var tracker = RemoteSequenceTracker()

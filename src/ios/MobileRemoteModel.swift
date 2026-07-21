@@ -114,11 +114,13 @@ public final class MobileRemoteModel {
             let client = RemoteSessionCreationClient {
                 try RelayClient(endpoint: endpoint, rootKeyData: key)
             }
-            return try await client.createSession(
+            let session = try await client.createSession(
                 on: mac.id,
                 sessionID: UUID().uuidString,
                 peerID: peerID
             )
+            catalog?.record(session, onMac: mac.id)
+            return session
         } catch is CancellationError {
             return nil
         } catch {

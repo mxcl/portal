@@ -95,7 +95,7 @@ struct SessionMetadata: Decodable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case sessionID
+        case sessionID = "sessionId"
         case title
         case cwd
         case createdAt

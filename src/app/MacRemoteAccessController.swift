@@ -284,7 +284,15 @@ final class MacRemoteAccessController {
     }
 
     private func catalogData(merging existingData: Data?) -> Data? {
-        let sessions = (try? PtySession.listSessions()) ?? []
+        let sessions: [SessionMetadata]
+        do {
+            sessions = try PtySession.listSessions()
+        } catch {
+            remoteAccessLogger.error(
+                "Vaultty session listing failed: \(String(describing: error), privacy: .public)"
+            )
+            sessions = []
+        }
         let now = Date()
         let mac = RemoteMac(
             id: macID,

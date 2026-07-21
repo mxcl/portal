@@ -64,10 +64,6 @@ public struct RemoteCatalogSession: Codable, Equatable, Identifiable, Sendable {
         self.runningCommand = runningCommand
         self.attachedClientCount = attachedClientCount
     }
-
-    public var isRemotelyDiscoverable: Bool {
-        attachedClientCount > 0 || commandCount > 0 || runningCommand != nil
-    }
 }
 
 public enum RemoteMessageKind: String, Codable, Sendable {

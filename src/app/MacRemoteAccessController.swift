@@ -452,7 +452,7 @@ final class MacRemoteAccessController {
                     runningCommand: $0.runningCommand,
                     attachedClientCount: $0.attachedClientCount
                 )
-            },
+            }.filter(\.isRemotelyDiscoverable),
             capabilities: [RemoteMac.createSessionCapability]
         )
         var existing = existingData.flatMap { try? JSONDecoder().decode(RemoteCatalog.self, from: $0) }

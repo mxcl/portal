@@ -1,11 +1,13 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 enum Ansi {
     final class FileLink: NSObject {
         let url: URL
         let line: Int?
         let isDirectory: Bool
+        let isTextFile: Bool
 
         init(url: URL, line: Int?) {
             self.url = url
@@ -14,6 +16,8 @@ enum Ansi {
                 atPath: url.path,
                 isDirectory: &isDirectory
             ) && isDirectory.boolValue
+            let contentType = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
+            self.isTextFile = contentType?.conforms(to: .text) == true
             self.line = self.isDirectory ? nil : line
         }
     }
@@ -1018,6 +1022,8 @@ enum Ansi {
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let file = tempDirectory.appendingPathComponent("Example.swift")
         FileManager.default.createFile(atPath: file.path, contents: Data())
+        let image = tempDirectory.appendingPathComponent("Example.png")
+        FileManager.default.createFile(atPath: image.path, contents: Data())
         let directory = tempDirectory.appendingPathComponent("Sources", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         let pathText = "\(file.path):42 ./Example.swift:7 ./Sources/ Missing.swift:1"
@@ -1028,6 +1034,8 @@ enum Ansi {
         assert(fileLinkLine(in: pathOutput, text: pathText, needle: "./Example.swift") == 7)
         assert(fileLinkIsDirectory(in: pathOutput, text: pathText, needle: "./Sources/"))
         assert(fileLinkLine(in: pathOutput, text: pathText, needle: "Missing.swift") == nil)
+        assert(FileLink(url: file, line: nil).isTextFile)
+        assert(!FileLink(url: image, line: nil).isTextFile)
 
         let screen = TerminalScreen(rows: 2, cols: 4)
         let cursorOutput = screen.process("\u{1B}[?1049habc\u{1B}[D")

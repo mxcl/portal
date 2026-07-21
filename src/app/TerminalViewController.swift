@@ -1000,7 +1000,7 @@ private final class BlockOutputTextView: NSTextView {
     }
 
     private func followFileLink(_ link: Ansi.FileLink) {
-        if link.isDirectory {
+        if link.isDirectory || !link.isTextFile {
             NSWorkspace.shared.activateFileViewerSelecting([link.url])
         } else {
             openInDefaultEditor(link)

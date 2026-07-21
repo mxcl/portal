@@ -4,6 +4,7 @@ public enum RelayClientError: Error, Equatable {
     case invalidEndpoint
     case unexpectedMessage
     case invalidResponse(Int)
+    case catalogChanged
 }
 
 public actor RelayClient {
@@ -71,27 +72,62 @@ public struct RelayCatalogClient: Sendable {
     }
 
     public func store(_ catalog: Data) async throws {
+        try await store(catalog, replacing: nil)
+    }
+
+    public func update(_ transform: (Data?) throws -> Data?) async throws {
+        for _ in 0..<8 {
+            let snapshot = try await loadSnapshot()
+            guard let catalog = try transform(snapshot.catalog) else { return }
+            do {
+                try await store(catalog, replacing: snapshot)
+                return
+            } catch RelayClientError.catalogChanged {
+                continue
+            }
+        }
+        throw RelayClientError.catalogChanged
+    }
+
+    private func store(_ catalog: Data, replacing snapshot: CatalogSnapshot?) async throws {
         var request = URLRequest(url: try catalogURL())
         request.httpMethod = "PUT"
         request.setValue("Bearer \(address.credential)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let etag = snapshot?.etag {
+            request.setValue(etag, forHTTPHeaderField: "If-Match")
+        } else if snapshot?.catalog == nil, snapshot != nil {
+            request.setValue("*", forHTTPHeaderField: "If-None-Match")
+        }
         request.httpBody = try JSONEncoder().encode(crypto.seal(catalog, purpose: "catalog"))
         let (_, response) = try await session.data(for: request)
+        if (response as? HTTPURLResponse)?.statusCode == 412 {
+            throw RelayClientError.catalogChanged
+        }
         try validate(response, accepted: 204)
     }
 
     public func load() async throws -> Data? {
+        try await loadSnapshot().catalog
+    }
+
+    private func loadSnapshot() async throws -> CatalogSnapshot {
         var request = URLRequest(url: try catalogURL())
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("Bearer \(address.credential)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw RelayClientError.invalidResponse(-1)
         }
-        if http.statusCode == 404 { return nil }
+        if http.statusCode == 404 { return CatalogSnapshot(catalog: nil, etag: nil) }
         try validate(response, accepted: 200)
-        return try crypto.open(
+        let catalog = try crypto.open(
             JSONDecoder().decode(RelayCiphertext.self, from: data),
             purpose: "catalog"
+        )
+        return CatalogSnapshot(
+            catalog: catalog,
+            etag: http.value(forHTTPHeaderField: "ETag")
         )
     }
 
@@ -107,5 +143,10 @@ public struct RelayCatalogClient: Sendable {
               response.statusCode == accepted else {
             throw RelayClientError.invalidResponse((response as? HTTPURLResponse)?.statusCode ?? -1)
         }
+    }
+
+    private struct CatalogSnapshot {
+        var catalog: Data?
+        var etag: String?
     }
 }

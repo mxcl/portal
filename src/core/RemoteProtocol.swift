@@ -12,6 +12,17 @@ public struct RemoteCatalog: Codable, Equatable, Sendable {
         self.generatedAt = generatedAt
         self.macs = macs
     }
+
+    public func shouldRetrySessionCreationCapability(
+        referenceDate: Date = Date(),
+        freshness: TimeInterval = 10
+    ) -> Bool {
+        macs.contains { mac in
+            mac.online
+                && referenceDate.timeIntervalSince(mac.lastSeen) < freshness
+                && !mac.supportsSessionCreation
+        }
+    }
 }
 
 public struct RemoteMac: Codable, Equatable, Identifiable, Sendable {

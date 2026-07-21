@@ -2,17 +2,18 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get};
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::env;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path as FilePath, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
-use tokio::sync::broadcast;
+use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
 const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 const CATALOG_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -22,6 +23,7 @@ struct RelayState {
     rooms: Arc<Mutex<HashMap<String, Room>>>,
     catalog_directory: Arc<PathBuf>,
     temporary_file_counter: Arc<AtomicU64>,
+    catalog_write_lock: Arc<AsyncMutex<()>>,
 }
 
 struct Room {
@@ -67,6 +69,7 @@ impl RelayState {
             rooms: Arc::new(Mutex::new(HashMap::new())),
             catalog_directory: Arc::new(catalog_directory),
             temporary_file_counter: Arc::new(AtomicU64::new(0)),
+            catalog_write_lock: Arc::new(AsyncMutex::new(())),
         })
     }
 
@@ -163,7 +166,30 @@ async fn put_catalog(
     if body.is_empty() || body.len() > MAX_MESSAGE_BYTES {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
+    let _write_guard = state.catalog_write_lock.lock().await;
     let path = state.catalog_path(&room_id);
+    let current = match tokio::fs::read(&path).await {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+    if let Some(expected) = headers.get(axum::http::header::IF_MATCH) {
+        let matches = expected.to_str().ok().is_some_and(|expected| {
+            current
+                .as_deref()
+                .is_some_and(|bytes| catalog_etag(bytes) == expected)
+        });
+        if !matches {
+            return Err(StatusCode::PRECONDITION_FAILED);
+        }
+    }
+    if headers
+        .get(axum::http::header::IF_NONE_MATCH)
+        .is_some_and(|value| value == "*")
+        && current.is_some()
+    {
+        return Err(StatusCode::PRECONDITION_FAILED);
+    }
     let suffix = state.temporary_file_counter.fetch_add(1, Ordering::Relaxed);
     let temporary_path = path.with_extension(format!("catalog.{}.{}", std::process::id(), suffix));
     tokio::fs::write(&temporary_path, body)
@@ -179,23 +205,37 @@ async fn get_catalog(
     Path(room_id): Path<String>,
     State(state): State<RelayState>,
     headers: HeaderMap,
-) -> Result<Bytes, StatusCode> {
+) -> Result<(HeaderMap, Bytes), StatusCode> {
     state.authorize(&room_id, &headers)?;
     let path = state.catalog_path(&room_id);
     if catalog_expired(&path).await? {
         let _ = tokio::fs::remove_file(&path).await;
         return Err(StatusCode::NOT_FOUND);
     }
-    tokio::fs::read(path)
-        .await
-        .map(Bytes::from)
-        .map_err(|error| {
-            if error.kind() == std::io::ErrorKind::NotFound {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        })
+    let bytes = tokio::fs::read(path).await.map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    })?;
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(
+        axum::http::header::ETAG,
+        HeaderValue::from_str(&catalog_etag(&bytes))
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    );
+    response_headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store"),
+    );
+    Ok((response_headers, Bytes::from(bytes)))
+}
+
+fn catalog_etag(bytes: &[u8]) -> String {
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    format!("\"{:016x}\"", hasher.finish())
 }
 
 async fn catalog_expired(path: &FilePath) -> Result<bool, StatusCode> {
@@ -245,6 +285,10 @@ mod tests {
     use super::*;
     use tokio_tungstenite::connect_async;
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+    fn catalog_body(response: Result<(HeaderMap, Bytes), StatusCode>) -> Result<Bytes, StatusCode> {
+        response.map(|(_, body)| body)
+    }
 
     #[test]
     fn identifiers_are_strictly_url_safe() {
@@ -301,7 +345,9 @@ mod tests {
             Ok(StatusCode::NO_CONTENT)
         );
         assert_eq!(
-            get_catalog(Path(room.clone()), State(state.clone()), headers.clone()).await,
+            catalog_body(
+                get_catalog(Path(room.clone()), State(state.clone()), headers.clone()).await
+            ),
             Ok(Bytes::from_static(b"opaque ciphertext"))
         );
 
@@ -312,8 +358,88 @@ mod tests {
                 .expect("valid header"),
         );
         assert_eq!(
-            get_catalog(Path(room), State(state), headers).await,
+            catalog_body(get_catalog(Path(room), State(state), headers).await),
             Err(StatusCode::UNAUTHORIZED)
+        );
+
+        std::fs::remove_dir_all(directory).expect("remove isolated test directory");
+    }
+
+    #[tokio::test]
+    async fn catalog_rejects_stale_conditional_write() {
+        let directory = env::temp_dir().join(format!(
+            "vaultty-relay-catalog-race-test-{}",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        let state = RelayState::new(directory.clone())
+            .await
+            .expect("test relay state");
+        let room = "r".repeat(43);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", "c".repeat(43))
+                .parse()
+                .expect("valid header"),
+        );
+        assert_eq!(
+            put_catalog(
+                Path(room.clone()),
+                State(state.clone()),
+                headers.clone(),
+                Bytes::from_static(b"current ciphertext")
+            )
+            .await,
+            Ok(StatusCode::NO_CONTENT)
+        );
+        let read_headers = headers.clone();
+        let (catalog_headers, catalog) = get_catalog(
+            Path(room.clone()),
+            State(state.clone()),
+            read_headers.clone(),
+        )
+        .await
+        .expect("current catalog");
+        assert_eq!(catalog, Bytes::from_static(b"current ciphertext"));
+        let current_etag = catalog_headers
+            .get(axum::http::header::ETAG)
+            .expect("catalog ETag")
+            .clone();
+        assert_eq!(
+            catalog_headers.get(axum::http::header::CACHE_CONTROL),
+            Some(&HeaderValue::from_static("no-store"))
+        );
+
+        let mut first_writer_headers = headers.clone();
+        first_writer_headers.insert(axum::http::header::IF_MATCH, current_etag.clone());
+        assert_eq!(
+            put_catalog(
+                Path(room.clone()),
+                State(state.clone()),
+                first_writer_headers,
+                Bytes::from_static(b"fresh ciphertext")
+            )
+            .await,
+            Ok(StatusCode::NO_CONTENT)
+        );
+
+        headers.insert(axum::http::header::IF_MATCH, current_etag);
+        assert_eq!(
+            put_catalog(
+                Path(room.clone()),
+                State(state.clone()),
+                headers,
+                Bytes::from_static(b"stale ciphertext")
+            )
+            .await,
+            Err(StatusCode::PRECONDITION_FAILED)
+        );
+        assert_eq!(
+            catalog_body(get_catalog(Path(room), State(state), read_headers).await),
+            Ok(Bytes::from_static(b"fresh ciphertext"))
         );
 
         std::fs::remove_dir_all(directory).expect("remove isolated test directory");

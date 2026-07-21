@@ -73,10 +73,7 @@ final class MacRemoteAccessController {
                 guard let self else { return }
                 let catalog = try? RelayCatalogClient(endpoint: endpoint, rootKeyData: key)
                 while !Task.isCancelled {
-                    let existingData = try? await catalog?.load()
-                    if let data = self.catalogData(merging: existingData ?? nil) {
-                        try? await catalog?.store(data)
-                    }
+                    try? await catalog?.update { self.catalogData(merging: $0) }
                     try? await Task.sleep(for: .seconds(2))
                 }
             }

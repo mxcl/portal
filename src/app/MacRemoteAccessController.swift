@@ -1,4 +1,10 @@
 import Foundation
+import OSLog
+
+private let remoteAccessLogger = Logger(
+    subsystem: "com.automicvault.vaultty",
+    category: "RemoteAccess"
+)
 
 @MainActor
 final class MacRemoteAccessController {
@@ -80,10 +86,26 @@ final class MacRemoteAccessController {
     }
 
     private func launchAgent() {
-        guard let helper = remoteAgentURL(),
-              let endpoint = try? relayEndpoint(),
-              let key = try? ICloudKeychainRootKey().loadOrCreate() else {
-            NSLog("Vaultty remote agent is missing")
+        guard let helper = remoteAgentURL() else {
+            remoteAccessLogger.error("Vaultty remote agent is missing")
+            return
+        }
+        let endpoint: URL
+        do {
+            endpoint = try relayEndpoint()
+        } catch {
+            remoteAccessLogger.error(
+                "Vaultty remote relay endpoint is invalid: \(String(describing: error), privacy: .public)"
+            )
+            return
+        }
+        let key: Data
+        do {
+            key = try ICloudKeychainRootKey().loadOrCreate()
+        } catch {
+            remoteAccessLogger.error(
+                "Vaultty remote key is unavailable: \(String(describing: error), privacy: .public)"
+            )
             return
         }
         let process = Process()
@@ -94,7 +116,9 @@ final class MacRemoteAccessController {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         process.terminationHandler = { process in
-            NSLog("Vaultty remote agent exited with status \(process.terminationStatus)")
+            remoteAccessLogger.error(
+                "Vaultty remote agent exited with status \(process.terminationStatus)"
+            )
         }
         do {
             try process.run()
@@ -102,7 +126,9 @@ final class MacRemoteAccessController {
             keyPipe.fileHandleForWriting.write(key)
             try? keyPipe.fileHandleForWriting.close()
         } catch {
-            NSLog("Vaultty remote agent could not launch: \(error)")
+            remoteAccessLogger.error(
+                "Vaultty remote agent could not launch: \(String(describing: error), privacy: .public)"
+            )
         }
     }
 

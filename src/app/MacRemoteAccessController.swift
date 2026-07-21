@@ -449,8 +449,7 @@ final class MacRemoteAccessController {
                     runningCommand: $0.runningCommand,
                     attachedClientCount: $0.attachedClientCount
                 )
-            },
-            capabilities: [RemoteMac.createSessionCapability]
+            }
         )
         var existing = existingData.flatMap { try? JSONDecoder().decode(RemoteCatalog.self, from: $0) }
             ?? RemoteCatalog(generatedAt: now, macs: [])

@@ -139,25 +139,17 @@ private struct MobileHostSection: View {
 
     @ViewBuilder
     private var creationRow: some View {
-        if mac.supportsSessionCreation {
-            Button(action: onCreate) {
-                HStack {
-                    Label("New Session", systemImage: "plus")
-                    Spacer()
-                    if model.creatingMacID == mac.id {
-                        ProgressView().controlSize(.small)
-                    }
+        Button(action: onCreate) {
+            HStack {
+                Label("New Session", systemImage: "plus")
+                Spacer()
+                if model.creatingMacID == mac.id {
+                    ProgressView().controlSize(.small)
                 }
-                .contentShape(.rect)
             }
-            .disabled(!isReachable || model.creatingMacID != nil)
-        } else {
-            Label(
-                "Update Vaultty to start sessions",
-                systemImage: "arrow.down.circle"
-            )
-            .foregroundStyle(.secondary)
+            .contentShape(.rect)
         }
+        .disabled(!isReachable || model.creatingMacID != nil)
     }
 }
 

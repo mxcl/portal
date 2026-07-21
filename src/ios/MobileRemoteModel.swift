@@ -65,20 +65,11 @@ public final class MobileRemoteModel {
         do {
             let key = try ICloudKeychainRootKey().loadOrCreate()
             let client = try RelayCatalogClient(endpoint: endpoint, rootKeyData: key)
-            for attempt in 0..<4 {
-                guard let data = try await client.load() else {
-                    catalog = RemoteCatalog(generatedAt: Date(), macs: [])
-                    return
-                }
-                let refreshed = try JSONDecoder().decode(RemoteCatalog.self, from: data)
-                if attempt < 3,
-                   refreshed.shouldRetrySessionCreationCapability() {
-                    try await Task.sleep(for: .milliseconds(750))
-                    continue
-                }
-                catalog = refreshed
+            guard let data = try await client.load() else {
+                catalog = RemoteCatalog(generatedAt: Date(), macs: [])
                 return
             }
+            catalog = try JSONDecoder().decode(RemoteCatalog.self, from: data)
         } catch is CancellationError {
             return
         } catch {
@@ -114,11 +105,6 @@ public final class MobileRemoteModel {
             return nil
         }
         guard creatingMacID == nil else { return nil }
-        guard mac.supportsSessionCreation else {
-            sessionCreationError = "Update Vaultty on this Mac to start sessions remotely."
-            return nil
-        }
-
         creatingMacID = mac.id
         sessionCreationError = nil
         defer { creatingMacID = nil }

@@ -72,59 +72,6 @@ struct RemoteProtocolTests {
         ) == session)
     }
 
-    @Test("legacy Macs decode without capabilities")
-    func legacyMacCapabilities() throws {
-        let data = Data("""
-        {
-            "id":"mac",
-            "name":"Mac",
-            "online":true,
-            "lastSeen":0,
-            "sessions":[]
-        }
-        """.utf8)
-
-        let mac = try JSONDecoder().decode(RemoteMac.self, from: data)
-
-        #expect(mac.capabilities == nil)
-        #expect(!mac.supportsSessionCreation)
-    }
-
-    @Test("fresh online legacy records trigger capability discovery retry")
-    func capabilityDiscoveryRetry() {
-        let now = Date(timeIntervalSince1970: 100)
-        let legacy = RemoteMac(
-            id: "legacy",
-            name: "Legacy",
-            online: true,
-            lastSeen: now.addingTimeInterval(-1),
-            sessions: []
-        )
-        let current = RemoteMac(
-            id: "current",
-            name: "Current",
-            online: true,
-            lastSeen: now,
-            sessions: [],
-            capabilities: [RemoteMac.createSessionCapability]
-        )
-
-        #expect(RemoteCatalog(generatedAt: now, macs: [legacy])
-            .shouldRetrySessionCreationCapability(referenceDate: now))
-        #expect(!RemoteCatalog(generatedAt: now, macs: [current])
-            .shouldRetrySessionCreationCapability(referenceDate: now))
-        #expect(!RemoteCatalog(
-            generatedAt: now,
-            macs: [RemoteMac(
-                id: "stale",
-                name: "Stale",
-                online: true,
-                lastSeen: now.addingTimeInterval(-11),
-                sessions: []
-            )]
-        ).shouldRetrySessionCreationCapability(referenceDate: now))
-    }
-
     @Test("sequence tracker rejects replay and detects gaps")
     func sequenceValidation() {
         var tracker = RemoteSequenceTracker()

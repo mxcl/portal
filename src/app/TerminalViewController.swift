@@ -6099,6 +6099,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         guard change.addedBlockIDs.contains(blockID),
               let block = tab.blocks.first(where: { $0.id == blockID })
         else { return }
+        if !tab.isReplayingHistory {
+            hideSessionPicker(for: tab)
+        }
         if !change.finishedBlockIDs.isEmpty {
             stopRunningElapsedUpdates(for: tab)
         }

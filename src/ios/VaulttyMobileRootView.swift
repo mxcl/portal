@@ -275,17 +275,17 @@ private struct MobileSessionView: View {
                     }
             }
             Menu {
-                Button("Interrupt  CTRL-C", systemImage: "stop.fill") {
+                Button("Interrupt  ⌃C", systemImage: "stop.fill") {
                     model.interrupt()
                 }
-                Button("End Input  CTRL-D", systemImage: "eject.fill") {
+                Button("End Input  ⌃D", systemImage: "eject.fill") {
                     model.sendInput(Data([0x04]))
                 }
                 Divider()
-                Button("Escape  CTRL-[", systemImage: "escape") {
+                Button("Escape  ⌃[", systemImage: "escape") {
                     model.sendInput(Data([0x1b]))
                 }
-                Button("Clear Screen  CTRL-L", systemImage: "rectangle.on.rectangle.slash") {
+                Button("Clear Screen  ⌃L", systemImage: "rectangle.on.rectangle.slash") {
                     model.sendInput(Data([0x0c]))
                 }
             } label: {

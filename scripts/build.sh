@@ -9,6 +9,7 @@ ENV_HELPER_ID="com.automicvault.vaultty.env"
 SESSIOND_HELPER_ID="com.automicvault.vaultty.sessiond"
 SESSION_BRIDGE_ID="com.automicvault.vaultty.session-bridge"
 REMOTE_AGENT_ID="com.automicvault.vaultty.remote-agent"
+APP_KEYCHAIN_ACCESS_GROUP="ZU76A67LGU.$APP_BUNDLE_ID"
 ENV_HELPER_APP_NAME="VaulttyEnv"
 GHOSTTY_PROBE_ID="com.automicvault.vaultty.ghostty-probe"
 DOTENV_KEYCHAIN_ACCESS_GROUP="${VAULTTY_DOTENV_KEYCHAIN_ACCESS_GROUP:-${AV_DOTENV_KEYCHAIN_ACCESS_GROUP:-ZU76A67LGU.com.automicvault.dotenv}}"
@@ -225,6 +226,26 @@ profile_matches_env_helper() {
      "$keychain_groups" == *"${team_identifier}.*"* ]]
 }
 
+profile_matches_main_app() {
+  local profile_path="$1"
+  local decoded_path app_identifier team_identifier keychain_groups
+
+  decoded_path="$(mktemp "${TMPDIR:-/tmp}/vaultty-profile.XXXXXX")"
+  if ! decode_provisioning_profile "$profile_path" "$decoded_path"; then
+    rm -f "$decoded_path"
+    return 1
+  fi
+
+  app_identifier="$(profile_plist_value "$decoded_path" ":Entitlements:com.apple.application-identifier")"
+  team_identifier="$(profile_plist_value "$decoded_path" ":Entitlements:com.apple.developer.team-identifier")"
+  keychain_groups="$(profile_plist_value "$decoded_path" ":Entitlements:keychain-access-groups")"
+  rm -f "$decoded_path"
+
+  [[ "$app_identifier" == "$APP_KEYCHAIN_ACCESS_GROUP" ]] || return 1
+  [[ "$keychain_groups" == *"$APP_KEYCHAIN_ACCESS_GROUP"* ||
+     "$keychain_groups" == *"${team_identifier}.*"* ]]
+}
+
 describe_provisioning_profile() {
   local profile_path="$1"
   local decoded_path name app_identifier team_identifier keychain_groups
@@ -303,6 +324,36 @@ resolve_env_helper_provisioning_profile() {
   fi
 
   find_env_helper_provisioning_profile || return 1
+}
+
+find_main_app_provisioning_profile() {
+  local search_dir profile
+  for search_dir in \
+    "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" \
+    "$HOME/Library/MobileDevice/Provisioning Profiles"; do
+    [[ -d "$search_dir" ]] || continue
+    while IFS= read -r profile; do
+      if profile_matches_main_app "$profile"; then
+        printf '%s\n' "$profile"
+        return 0
+      fi
+    done < <(find "$search_dir" -type f \( -name '*.provisionprofile' -o -name '*.mobileprovision' \) 2>/dev/null | sort)
+  done
+  return 1
+}
+
+resolve_main_app_provisioning_profile() {
+  local profile="${VAULTTY_PROVISIONING_PROFILE:-}"
+  if [[ -n "$profile" ]]; then
+    profile="$(normalize_profile_path "$profile")"
+    [[ -f "$profile" ]] || die "Vaultty provisioning profile not found: $profile"
+    profile_matches_main_app "$profile" ||
+      die "Vaultty provisioning profile does not authorize $APP_BUNDLE_ID and $APP_KEYCHAIN_ACCESS_GROUP: $profile"
+    printf '%s\n' "$profile"
+    return 0
+  fi
+
+  find_main_app_provisioning_profile || return 1
 }
 
 write_env_helper_entitlements() {
@@ -423,6 +474,16 @@ verify_env_helper_entitlement() {
   if [[ "$output" != *"$DOTENV_KEYCHAIN_ACCESS_GROUP"* ]]; then
     echo "$output" >&2
     die "$ENV_HELPER_APP_DIR is missing keychain access group $DOTENV_KEYCHAIN_ACCESS_GROUP"
+  fi
+}
+
+verify_main_app_entitlement() {
+  local output
+  output="$(codesign -d --entitlements - "$APP_DIR" 2>/dev/null)" ||
+    die "Failed to read entitlements for $APP_DIR"
+  if [[ "$output" != *"$APP_KEYCHAIN_ACCESS_GROUP"* ]]; then
+    echo "$output" >&2
+    die "$APP_DIR is missing keychain access group $APP_KEYCHAIN_ACCESS_GROUP"
   fi
 }
 
@@ -885,10 +946,14 @@ fi
 
 IDENTITY="$(codesign_identity)"
 ENV_HELPER_PROVISIONING_PROFILE=""
+MAIN_APP_PROVISIONING_PROFILE=""
 if [[ "$IDENTITY" != "-" ]]; then
   if ! ENV_HELPER_PROVISIONING_PROFILE="$(resolve_env_helper_provisioning_profile)"; then
     print_env_helper_profile_diagnostics
     exit 1
+  fi
+  if ! MAIN_APP_PROVISIONING_PROFILE="$(resolve_main_app_provisioning_profile)"; then
+    die "No Developer ID provisioning profile found for $APP_BUNDLE_ID with keychain access group $APP_KEYCHAIN_ACCESS_GROUP. Set VAULTTY_PROVISIONING_PROFILE to its path."
   fi
 fi
 
@@ -952,6 +1017,9 @@ cp "$RUST_BIN_DIR/vaultty-sessiond" "$SESSIOND_HELPER"
 cp "$RUST_BIN_DIR/vaultty-session-bridge" "$SESSION_BRIDGE_HELPER"
 if [[ -n "$ENV_HELPER_PROVISIONING_PROFILE" ]]; then
   cp "$ENV_HELPER_PROVISIONING_PROFILE" "$ENV_HELPER_APP_CONTENTS_DIR/embedded.provisionprofile"
+fi
+if [[ -n "$MAIN_APP_PROVISIONING_PROFILE" ]]; then
+  cp "$MAIN_APP_PROVISIONING_PROFILE" "$CONTENTS_DIR/embedded.provisionprofile"
 fi
 bundle_icon
 bundle_completions
@@ -1075,7 +1143,6 @@ codesign_runtime \
   "$SESSION_BRIDGE_HELPER"
 verify_signature "$SESSION_BRIDGE_HELPER"
 codesign_runtime \
-  --entitlements "$ROOT_DIR/src/app/vaultty.entitlements" \
   --identifier "$REMOTE_AGENT_ID" \
   "$HELPERS_DIR/vaultty-remote-agent"
 verify_signature "$HELPERS_DIR/vaultty-remote-agent"
@@ -1090,6 +1157,7 @@ codesign_runtime \
   --identifier "$APP_BUNDLE_ID" \
   "$APP_DIR"
 verify_signature "$APP_DIR"
+verify_main_app_entitlement
 codesign --verify --deep --strict --verbose=2 "$APP_DIR"
 
 FINAL_APP="$APP_DIR"

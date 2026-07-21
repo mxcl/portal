@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_HOST="${DEPLOY_HOST:-atlas}"
 REMOTE_ROOT="${REMOTE_ROOT:-/apps/vaultty-relay}"
 RELAY_PORT="${RELAY_PORT:-3006}"
-PUBLIC_HOSTNAME="${PUBLIC_HOSTNAME:-relay.vaultty.app}"
+PUBLIC_HOSTNAME="${PUBLIC_HOSTNAME:-vaultty-relay.mxcl.dev}"
 ATLAS_PUBLIC_IPS="${ATLAS_PUBLIC_IPS:-16.58.147.215 13.59.178.38}"
 REVISION="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
 RELEASE_ID="${REVISION}-$(date -u +%Y%m%d%H%M%S)"
@@ -218,7 +218,12 @@ NGINX_HTTPS
   rm -f "$nginx_file"
   sudo nginx -t
   sudo systemctl reload nginx
-  curl --fail --silent --show-error "https://$public_hostname/health" --output /dev/null
+  curl --fail --silent --show-error \
+    --retry 10 \
+    --retry-all-errors \
+    --retry-delay 1 \
+    "https://$public_hostname/health" \
+    --output /dev/null
   echo "Public relay healthy at https://$public_hostname"
 else
   echo "Relay is healthy on 127.0.0.1:$relay_port." >&2

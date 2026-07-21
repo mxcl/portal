@@ -43,7 +43,7 @@ public final class MobileRemoteModel {
     private var targetSession: RemoteCatalogSession?
     private var targetMac: RemoteMac?
 
-    public init(endpoint: URL = URL(string: "https://relay.vaultty.app")!) {
+    public init(endpoint: URL = URL(string: "https://vaultty-relay.mxcl.dev")!) {
         self.endpoint = endpoint
         if let existing = UserDefaults.standard.string(forKey: "vaulttyRemotePeerID") {
             peerID = existing

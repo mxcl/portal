@@ -284,7 +284,7 @@ final class MacRemoteAccessController {
         if let configuredEndpoint { return configuredEndpoint }
         let value = ProcessInfo.processInfo.environment["VAULTTY_RELAY_ENDPOINT"]
             ?? UserDefaults.standard.string(forKey: Self.endpointDefaultsKey)
-            ?? "https://relay.vaultty.app"
+            ?? "https://vaultty-relay.mxcl.dev"
         guard let endpoint = URL(string: value),
               endpoint.scheme == "https" || endpoint.scheme == "http" else {
             throw RelayClientError.invalidEndpoint

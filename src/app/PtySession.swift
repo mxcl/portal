@@ -171,6 +171,7 @@ final class PtySession {
     private let lifecycleLock = NSLock()
     private var isStopped = false
     private var didReportExit = false
+    private static let daemonStartupLock = NSLock()
     private static let ignoreSIGPIPEOnce: Void = {
         _ = Darwin.signal(SIGPIPE, SIG_IGN)
     }()
@@ -745,6 +746,9 @@ final class PtySession {
     }
 
     private static func ensureDaemonIsRunning() throws {
+        daemonStartupLock.lock()
+        defer { daemonStartupLock.unlock() }
+
         if (try? connectToDaemon()).map({ fd in close(fd); return true }) == true {
             return
         }

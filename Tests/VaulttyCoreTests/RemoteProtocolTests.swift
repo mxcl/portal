@@ -41,6 +41,55 @@ struct RemoteProtocolTests {
         #expect(decoded == message)
     }
 
+    @Test("session creation messages preserve their session identity")
+    func sessionCreationRoundTrip() throws {
+        let session = RemoteCatalogSession(
+            sessionID: "new-session",
+            title: "~",
+            cwd: "/Users/test",
+            createdAt: Date(timeIntervalSince1970: 42),
+            commandCount: 0,
+            runningCommand: nil,
+            attachedClientCount: 0
+        )
+        let message = RemoteMessage(
+            kind: .sessionCreated,
+            requestID: "request",
+            macID: "mac",
+            sessionID: session.sessionID,
+            payload: try JSONEncoder().encode(session)
+        )
+
+        let decoded = try JSONDecoder().decode(
+            RemoteMessage.self,
+            from: JSONEncoder().encode(message)
+        )
+
+        #expect(decoded == message)
+        #expect(try JSONDecoder().decode(
+            RemoteCatalogSession.self,
+            from: #require(decoded.payload)
+        ) == session)
+    }
+
+    @Test("legacy Macs decode without capabilities")
+    func legacyMacCapabilities() throws {
+        let data = Data("""
+        {
+            "id":"mac",
+            "name":"Mac",
+            "online":true,
+            "lastSeen":0,
+            "sessions":[]
+        }
+        """.utf8)
+
+        let mac = try JSONDecoder().decode(RemoteMac.self, from: data)
+
+        #expect(mac.capabilities == nil)
+        #expect(!mac.supportsSessionCreation)
+    }
+
     @Test("sequence tracker rejects replay and detects gaps")
     func sequenceValidation() {
         var tracker = RemoteSequenceTracker()

@@ -87,6 +87,7 @@ final class MacRemoteAccessController {
     }
 
     private func launchAgent() {
+        guard agentProcess?.isRunning != true else { return }
         guard let helper = remoteAgentURL() else {
             remoteAccessLogger.error("Vaultty remote agent is missing")
             return
@@ -109,6 +110,9 @@ final class MacRemoteAccessController {
             )
             return
         }
+        // App updates replace the helper on disk but do not terminate its running
+        // process. Retire that old image before advertising with the bundled build.
+        terminateAgent()
         let process = Process()
         process.executableURL = helper
         process.arguments = ["--mac-id", macID, "--endpoint", endpoint.absoluteString]
@@ -134,10 +138,19 @@ final class MacRemoteAccessController {
     }
 
     private func terminateAgent() {
+        agentProcess?.terminationHandler = nil
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
         process.arguments = ["-TERM", "-x", "vaultty-remote-agent"]
-        try? process.run()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            remoteAccessLogger.error(
+                "Vaultty remote agent could not be terminated: \(String(describing: error), privacy: .public)"
+            )
+        }
+        agentProcess = nil
     }
 
     private func remoteAgentURL() -> URL? {

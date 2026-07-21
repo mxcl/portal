@@ -9,7 +9,7 @@ public struct VaulttyMobileRootView: View {
     @State private var model = MobileRemoteModel()
     @State private var store = MobileStore()
     @State private var createdDestination: CreatedSessionDestination?
-    @State private var isAutomaticallyRefreshingCatalog = false
+    @State private var catalogRefreshRequest = 0
 
     public init() {}
 
@@ -29,16 +29,9 @@ public struct VaulttyMobileRootView: View {
                 }
             }
             .refreshable { await model.refreshCatalog() }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if isAutomaticallyRefreshingCatalog {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(.bar)
-                }
-            }
+            .background(NativeRefreshControlTrigger(request: catalogRefreshRequest))
             .overlay {
-                if !isAutomaticallyRefreshingCatalog,
+                if !model.isRefreshingCatalog,
                    model.catalog?.macs.isEmpty != false {
                     ContentUnavailableView(
                         "No sessions yet",
@@ -52,7 +45,7 @@ public struct VaulttyMobileRootView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Refresh", systemImage: "arrow.clockwise") {
-                        Task { await automaticallyRefreshCatalog() }
+                        requestCatalogRefresh()
                     }
                     .disabled(model.isRefreshingCatalog)
                 }
@@ -73,9 +66,8 @@ public struct VaulttyMobileRootView: View {
             }
         }
         .task {
-            async let catalog: Void = automaticallyRefreshCatalog()
-            async let products: Void = store.load()
-            _ = await (catalog, products)
+            requestCatalogRefresh()
+            await store.load()
         }
         .sheet(isPresented: $model.showsPaywall) {
             MobilePaywall(store: store)
@@ -100,7 +92,7 @@ public struct VaulttyMobileRootView: View {
                 model.sceneDidEnterBackground()
             case .active:
                 model.sceneDidBecomeActive()
-                Task { await automaticallyRefreshCatalog() }
+                requestCatalogRefresh()
             case .inactive:
                 break
             @unknown default:
@@ -109,12 +101,9 @@ public struct VaulttyMobileRootView: View {
         }
     }
 
-    @MainActor
-    private func automaticallyRefreshCatalog() async {
+    private func requestCatalogRefresh() {
         guard !model.isRefreshingCatalog else { return }
-        isAutomaticallyRefreshingCatalog = true
-        defer { isAutomaticallyRefreshingCatalog = false }
-        await model.refreshCatalog()
+        catalogRefreshRequest &+= 1
     }
 
     private func isMacReachable(_ mac: RemoteMac, catalog: RemoteCatalog) -> Bool {
@@ -128,6 +117,69 @@ public struct VaulttyMobileRootView: View {
             }
             createdDestination = CreatedSessionDestination(mac: mac, session: session)
         }
+    }
+}
+
+private struct NativeRefreshControlTrigger: UIViewRepresentable {
+    let request: Int
+
+    func makeUIView(context: Context) -> TriggerView {
+        TriggerView()
+    }
+
+    func updateUIView(_ view: TriggerView, context: Context) {
+        view.request = request
+    }
+
+    final class TriggerView: UIView {
+        var request = 0 {
+            didSet { triggerIfNeeded() }
+        }
+
+        private var handledRequest = 0
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            triggerIfNeeded()
+        }
+
+        private func triggerIfNeeded() {
+            guard request != 0, request != handledRequest,
+                  let scrollView = enclosingRefreshableScrollView(),
+                  let refreshControl = scrollView.refreshControl else { return }
+            handledRequest = request
+            guard !refreshControl.isRefreshing else { return }
+            refreshControl.beginRefreshing()
+            scrollView.setContentOffset(
+                CGPoint(
+                    x: scrollView.contentOffset.x,
+                    y: -scrollView.adjustedContentInset.top - refreshControl.bounds.height
+                ),
+                animated: true
+            )
+            refreshControl.sendActions(for: .valueChanged)
+        }
+
+        private func enclosingRefreshableScrollView() -> UIScrollView? {
+            var ancestor = superview
+            while let view = ancestor {
+                if let scrollView = view.refreshableScrollView() { return scrollView }
+                ancestor = view.superview
+            }
+            return nil
+        }
+    }
+}
+
+private extension UIView {
+    func refreshableScrollView() -> UIScrollView? {
+        if let scrollView = self as? UIScrollView, scrollView.refreshControl != nil {
+            return scrollView
+        }
+        for view in subviews {
+            if let scrollView = view.refreshableScrollView() { return scrollView }
+        }
+        return nil
     }
 }
 

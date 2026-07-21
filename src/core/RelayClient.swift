@@ -11,14 +11,14 @@ public actor RelayClient {
     private let endpoint: URL
     private let address: RelayAddress
     private let crypto: RelayCrypto
-    private let session: URLSession
+    private var session: URLSession?
     private var socket: URLSessionWebSocketTask?
+    private var heartbeatTask: Task<Void, Never>?
 
-    public init(endpoint: URL, rootKeyData: Data, session: URLSession = .shared) throws {
+    public init(endpoint: URL, rootKeyData: Data) throws {
         self.endpoint = endpoint
         crypto = try RelayCrypto(rootKeyData: rootKeyData)
         address = crypto.address
-        self.session = session
     }
 
     public func connect(peerID: String) throws {
@@ -31,9 +31,22 @@ public actor RelayClient {
         }
         var request = URLRequest(url: url)
         request.setValue("Bearer \(address.credential)", forHTTPHeaderField: "Authorization")
+        let session = URLSession(configuration: .ephemeral)
         let socket = session.webSocketTask(with: request)
+        self.session = session
         self.socket = socket
         socket.resume()
+        heartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: 30_000_000_000)
+                    try Task.checkCancellation()
+                    try await self?.sendPing()
+                } catch {
+                    return
+                }
+            }
+        }
     }
 
     public func send(_ plaintext: Data) async throws {
@@ -53,8 +66,26 @@ public actor RelayClient {
     }
 
     public func disconnect() {
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
+        session?.invalidateAndCancel()
+        session = nil
+    }
+
+    private func sendPing() async throws {
+        guard let socket else { throw RelayClientError.invalidEndpoint }
+        let _: Void = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, Error>) in
+            socket.sendPing { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
     }
 }
 

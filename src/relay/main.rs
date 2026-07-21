@@ -121,39 +121,35 @@ async fn connect(
 async fn relay_socket(socket: WebSocket, sender: broadcast::Sender<RoomMessage>, peer_id: String) {
     let mut receiver = sender.subscribe();
     let (mut websocket_sender, mut websocket_receiver) = socket.split();
-    let outgoing_peer_id = peer_id.clone();
-    let outgoing = tokio::spawn(async move {
-        loop {
-            match receiver.recv().await {
-                Ok(message) if message.sender_id != outgoing_peer_id => {
-                    if websocket_sender
-                        .send(Message::Binary(message.bytes))
-                        .await
-                        .is_err()
-                    {
+    loop {
+        tokio::select! {
+            incoming = websocket_receiver.next() => match incoming {
+                Some(Ok(Message::Binary(bytes))) if bytes.len() <= MAX_MESSAGE_BYTES => {
+                    let _ = sender.send(RoomMessage {
+                        sender_id: peer_id.clone(),
+                        bytes,
+                    });
+                }
+                Some(Ok(Message::Ping(bytes))) => {
+                    if websocket_sender.send(Message::Pong(bytes)).await.is_err() {
                         break;
                     }
                 }
-                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Some(Ok(Message::Pong(_))) => {}
+                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                Some(Ok(Message::Text(_) | Message::Binary(_))) => break,
+            },
+            outgoing = receiver.recv() => match outgoing {
+                Ok(message) if message.sender_id != peer_id => {
+                    if websocket_sender.send(Message::Binary(message.bytes)).await.is_err() {
+                        break;
+                    }
+                }
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
                 Err(broadcast::error::RecvError::Closed) => break,
             }
         }
-    });
-
-    while let Some(Ok(message)) = websocket_receiver.next().await {
-        match message {
-            Message::Binary(bytes) if bytes.len() <= MAX_MESSAGE_BYTES => {
-                let _ = sender.send(RoomMessage {
-                    sender_id: peer_id.clone(),
-                    bytes,
-                });
-            }
-            Message::Close(_) => break,
-            Message::Ping(_) | Message::Pong(_) => {}
-            Message::Text(_) | Message::Binary(_) => break,
-        }
     }
-    outgoing.abort();
 }
 
 async fn put_catalog(
@@ -499,6 +495,57 @@ mod tests {
             tokio::time::timeout(Duration::from_millis(50), first.next())
                 .await
                 .is_err()
+        );
+
+        server.abort();
+        std::fs::remove_dir_all(directory).expect("remove isolated test directory");
+    }
+
+    #[tokio::test]
+    async fn websocket_answers_ping_without_broadcasting_it() {
+        let directory = env::temp_dir().join(format!(
+            "vaultty-relay-ping-test-{}",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        let state = RelayState::new(directory.clone())
+            .await
+            .expect("test relay state");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test relay");
+        let address = listener.local_addr().expect("test relay address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router(state))
+                .await
+                .expect("serve test relay");
+        });
+        let room = "r".repeat(43);
+        let credential = "c".repeat(43);
+        let mut request = format!("ws://{address}/v1/connect/{room}/peer")
+            .into_client_request()
+            .expect("websocket request");
+        request.headers_mut().insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {credential}").parse().expect("auth header"),
+        );
+        let (mut socket, _) = connect_async(request).await.expect("websocket");
+        let payload = Bytes::from_static(b"keepalive");
+        socket
+            .send(tokio_tungstenite::tungstenite::Message::Ping(payload.clone()))
+            .await
+            .expect("send ping");
+
+        let received = tokio::time::timeout(Duration::from_secs(1), socket.next())
+            .await
+            .expect("pong deadline")
+            .expect("socket open")
+            .expect("valid websocket frame");
+        assert_eq!(
+            received,
+            tokio_tungstenite::tungstenite::Message::Pong(payload)
         );
 
         server.abort();

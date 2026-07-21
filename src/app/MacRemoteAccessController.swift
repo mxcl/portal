@@ -17,6 +17,7 @@ final class MacRemoteAccessController {
     private var relay: RelayClient?
     private var receiveTask: Task<Void, Never>?
     private var catalogTask: Task<Void, Never>?
+    private var agentProcess: Process?
     private var bridges: [String: Bridge] = [:]
 
     init() {
@@ -92,8 +93,12 @@ final class MacRemoteAccessController {
         process.standardInput = keyPipe
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        process.terminationHandler = { process in
+            NSLog("Vaultty remote agent exited with status \(process.terminationStatus)")
+        }
         do {
             try process.run()
+            agentProcess = process
             keyPipe.fileHandleForWriting.write(key)
             try? keyPipe.fileHandleForWriting.close()
         } catch {

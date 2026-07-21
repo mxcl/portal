@@ -304,18 +304,36 @@ private struct MobilePaywall: View {
                 Text("Attach securely to every open Vaultty session on your Macs. Includes a 14-day free trial.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
-                ForEach(store.products, id: \.id) { product in
-                    Button {
-                        Task { await store.purchase(product) }
-                    } label: {
-                        HStack {
-                            Text(product.id == MobileStore.annualProductID ? "Annual" : "Monthly")
-                            Spacer()
-                            Text(product.displayPrice)
+                if store.isLoading {
+                    ProgressView("Loading subscriptions…")
+                } else if store.products.isEmpty {
+                    VStack(spacing: 8) {
+                        Text("Subscriptions are temporarily unavailable.")
+                            .foregroundStyle(.secondary)
+                        Button("Try Again") {
+                            Task { await store.load() }
                         }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                } else {
+                    ForEach(store.products, id: \.id) { product in
+                        Button {
+                            Task { await store.purchase(product) }
+                        } label: {
+                            HStack {
+                                Text(product.id == MobileStore.annualProductID ? "Annual" : "Monthly")
+                                Spacer()
+                                Text(product.displayPrice)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                    }
+                }
+                if let errorMessage = store.errorMessage {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
                 }
                 Button("Restore Purchases") { Task { await store.restore() } }
             }

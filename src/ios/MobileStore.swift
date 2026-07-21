@@ -34,12 +34,16 @@ public final class MobileStore {
 
     public func load() async {
         isLoading = true
+        errorMessage = nil
         defer { isLoading = false }
         do {
             products = try await Product.products(for: [
                 Self.monthlyProductID,
                 Self.annualProductID,
             ]).sorted { $0.price < $1.price }
+            if products.isEmpty {
+                errorMessage = "No subscriptions were returned by the App Store."
+            }
             await refreshEntitlement()
         } catch {
             errorMessage = error.localizedDescription

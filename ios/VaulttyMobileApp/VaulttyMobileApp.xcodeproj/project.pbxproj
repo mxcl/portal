@@ -106,7 +106,7 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		B10000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {IPHONEOS_DEPLOYMENT_TARGET = 26.1; SDKROOT = iphoneos; SWIFT_VERSION = 6.0; }; name = Debug; };
+		B10000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {IPHONEOS_DEPLOYMENT_TARGET = 26.1; ONLY_ACTIVE_ARCH = YES; SDKROOT = iphoneos; SWIFT_VERSION = 6.0; }; name = Debug; };
 		B10000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {IPHONEOS_DEPLOYMENT_TARGET = 26.1; SDKROOT = iphoneos; SWIFT_VERSION = 6.0; }; name = Release; };
 		B10000000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;

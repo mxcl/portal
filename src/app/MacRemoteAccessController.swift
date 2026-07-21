@@ -25,6 +25,7 @@ final class MacRemoteAccessController {
     private var catalogTask: Task<Void, Never>?
     private var agentProcess: Process?
     private var bridges: [String: Bridge] = [:]
+    private var pendingCreations: [String: PtySession] = [:]
 
     init() {
         if let existing = UserDefaults.standard.string(forKey: "remoteAccessMacID") {
@@ -154,6 +155,8 @@ final class MacRemoteAccessController {
         catalogTask = nil
         bridges.values.forEach { $0.session.stop() }
         bridges.removeAll()
+        pendingCreations.values.forEach { $0.stop() }
+        pendingCreations.removeAll()
         if let relay {
             Task { await relay.disconnect() }
         }
@@ -189,6 +192,8 @@ final class MacRemoteAccessController {
             attach(message)
         case .detach:
             detach(requestID: message.requestID)
+        case .createSession:
+            createSession(message)
         case .input:
             if let payload = message.payload,
                let text = String(data: payload, encoding: .utf8) {
@@ -205,9 +210,127 @@ final class MacRemoteAccessController {
             bridges[message.requestID]?.session.sendInterrupt()
         case .historyPage:
             break
-        case .catalog, .terminalEvent, .presence, .error:
+        case .catalog, .sessionCreated, .terminalEvent, .presence, .error:
             break
         }
+    }
+
+    private func createSession(_ message: RemoteMessage) {
+        guard let sessionID = message.sessionID,
+              !sessionID.isEmpty,
+              pendingCreations[message.requestID] == nil else { return }
+
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap {
+            FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil
+        } ?? "/bin/zsh"
+        var environment = ProcessInfo.processInfo.environment
+        environment["TERM"] = "xterm-256color"
+        environment["TERM_PROGRAM"] = "Vaultty"
+        environment["LC_TERMINAL"] = "Vaultty"
+        environment["VAULTTY"] = "1"
+        environment["PROMPT"] = ""
+        environment["RPROMPT"] = ""
+
+        let session = PtySession(sessionID: sessionID)
+        pendingCreations[message.requestID] = session
+        session.onReady = { [weak self, weak session] created in
+            guard let self, let session,
+                  self.pendingCreations[message.requestID] === session else { return }
+
+            let metadata: RemoteCatalogSession
+            if created {
+                session.write(self.shellBootstrap(home: home), suppressEcho: true)
+                let createdAt = Date()
+                session.updateState(
+                    title: "~",
+                    cwd: home.path,
+                    createdAt: createdAt,
+                    commandCount: 0,
+                    runningCommand: nil,
+                    commandHistory: []
+                )
+                metadata = RemoteCatalogSession(
+                    sessionID: sessionID,
+                    title: "~",
+                    cwd: home.path,
+                    createdAt: createdAt,
+                    commandCount: 0,
+                    runningCommand: nil,
+                    attachedClientCount: 0
+                )
+            } else if let existing = try? PtySession.listSessions().first(where: {
+                $0.sessionID == sessionID
+            }) {
+                metadata = RemoteCatalogSession(
+                    sessionID: existing.sessionID,
+                    title: existing.title,
+                    cwd: existing.cwd,
+                    createdAt: existing.createdAt,
+                    commandCount: existing.commandCount,
+                    runningCommand: existing.runningCommand,
+                    attachedClientCount: existing.attachedClientCount
+                )
+            } else {
+                self.failCreation("The new session could not be found.", request: message)
+                return
+            }
+
+            guard let payload = try? JSONEncoder().encode(metadata) else {
+                self.failCreation("The new session could not be encoded.", request: message)
+                return
+            }
+            self.send(RemoteMessage(
+                kind: .sessionCreated,
+                requestID: message.requestID,
+                macID: self.macID,
+                sessionID: sessionID,
+                payload: payload
+            ))
+            self.pendingCreations.removeValue(forKey: message.requestID)
+            session.stop()
+        }
+        session.onExit = { [weak self, weak session] _ in
+            guard let self, let session,
+                  self.pendingCreations[message.requestID] === session else { return }
+            self.failCreation("The Mac could not start its login shell.", request: message)
+        }
+        session.start(
+            shellPath: shell,
+            environment: environment,
+            workingDirectory: home
+        ) { [weak self, weak session] result in
+            guard case .failure(let error) = result,
+                  let self, let session,
+                  self.pendingCreations[message.requestID] === session else { return }
+            self.failCreation(error.localizedDescription, request: message)
+        }
+    }
+
+    private func failCreation(_ text: String, request: RemoteMessage) {
+        let session = pendingCreations.removeValue(forKey: request.requestID)
+        sendError(text, request: request)
+        session?.stop()
+    }
+
+    private func shellBootstrap(home: URL) -> String {
+        """
+        export VAULTTY=1
+        export TERM=xterm-256color
+        export TERM_PROGRAM=Vaultty
+        export LC_TERMINAL=Vaultty
+        cd \(shellQuote(home.path))
+        stty -echo
+        PROMPT=''
+        RPROMPT=''
+        setopt no_prompt_cr 2>/dev/null || true
+        printf '\\033]133;R;%s\\a' "$(pwd | base64)"
+
+        """
+    }
+
+    private func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func attach(_ message: RemoteMessage) {
@@ -316,7 +439,8 @@ final class MacRemoteAccessController {
                     runningCommand: $0.runningCommand,
                     attachedClientCount: $0.attachedClientCount
                 )
-            }
+            },
+            capabilities: [RemoteMac.createSessionCapability]
         )
         var existing = existingData.flatMap { try? JSONDecoder().decode(RemoteCatalog.self, from: $0) }
             ?? RemoteCatalog(generatedAt: now, macs: [])

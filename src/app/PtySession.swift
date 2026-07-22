@@ -196,19 +196,29 @@ final class PtySession {
         workingDirectory: URL,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        let attachCommand = SessionWireProtocol.ClientCommand.attachV2(
-            version: SessionWireProtocol.currentVersion,
-            role: .mac,
-            clientID: clientID,
-            sessionID: sessionRef.sessionID,
-            workingDirectory: workingDirectory.path,
-            shellPath: shellPath,
-            environment: environment
-        )
-
         queue.async { [weak self] in
             guard let self, !self.hasStopped() else { return }
             do {
+                let version = try Self.negotiatedProtocolVersion(for: self.sessionRef.location)
+                let attachCommand: SessionWireProtocol.ClientCommand
+                if version >= SessionWireProtocol.currentVersion {
+                    attachCommand = .attachV2(
+                        version: version,
+                        role: .mac,
+                        clientID: self.clientID,
+                        sessionID: self.sessionRef.sessionID,
+                        workingDirectory: workingDirectory.path,
+                        shellPath: shellPath,
+                        environment: environment
+                    )
+                } else {
+                    attachCommand = .attach(
+                        sessionID: self.sessionRef.sessionID,
+                        workingDirectory: workingDirectory.path,
+                        shellPath: shellPath,
+                        environment: environment
+                    )
+                }
                 try self.connect()
                 guard !self.hasStopped() else {
                     self.closeTransport(terminateBridge: true)
@@ -493,7 +503,7 @@ final class PtySession {
             break
         case .presence(let count):
             onPresence?(count)
-        case .protocolVersion, .geometry:
+        case .protocolVersion, .supportedProtocols, .geometry:
             break
         case .notFound:
             reportExit(-1)
@@ -540,6 +550,22 @@ final class PtySession {
                 .map(String.init) ?? ""
             return SessionWireProtocol.Decoder.decode(response)
         }
+    }
+
+    private static func negotiatedProtocolVersion(for location: SessionLocation) throws -> UInt16 {
+        let event = try sendSingleResponseCommand(.supportedProtocols, location: location)
+        guard case .supportedProtocols(let peerVersions) = event else {
+            // Protocol v1 predates discovery. A daemon that closes this probe is a v1 peer.
+            return SessionWireProtocol.previousVersion
+        }
+        guard let version = SessionWireProtocol.highestMutualVersion(peerVersions: peerVersions) else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(EPROTONOSUPPORT),
+                userInfo: [NSLocalizedDescriptionKey: "session daemon has no compatible protocol version"]
+            )
+        }
+        return version
     }
 
     private static func sendCommandNoResponse(

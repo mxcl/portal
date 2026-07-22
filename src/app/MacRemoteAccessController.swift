@@ -220,7 +220,7 @@ final class MacRemoteAccessController {
             bridges[message.requestID]?.session.sendInterrupt()
         case .historyPage:
             break
-        case .catalog, .sessionCreated, .terminalEvent, .presence, .error:
+        case .catalog, .sessionCreated, .terminalEvent, .presence, .error, .unknown:
             break
         }
     }

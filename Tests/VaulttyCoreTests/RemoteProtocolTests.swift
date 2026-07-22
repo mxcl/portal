@@ -41,6 +41,20 @@ struct RemoteProtocolTests {
         #expect(decoded == message)
     }
 
+    @Test("unknown message kinds remain decodable and round-trip")
+    func unknownMessageKindsDecode() throws {
+        let fixture = Data(#"{"version":1,"kind":"futureFeature","requestID":"request"}"#.utf8)
+
+        let decoded = try JSONDecoder().decode(RemoteMessage.self, from: fixture)
+
+        #expect(decoded.kind == .unknown("futureFeature"))
+        let roundTrip = try JSONDecoder().decode(
+            RemoteMessage.self,
+            from: JSONEncoder().encode(decoded)
+        )
+        #expect(roundTrip == decoded)
+    }
+
     @Test("session creation messages preserve their session identity")
     func sessionCreationRoundTrip() throws {
         let session = RemoteCatalogSession(

@@ -32,7 +32,22 @@ struct SessionWireProtocolTests {
         #expect(SessionWireProtocol.encode(.kill(sessionID: "id")) == "KILL aWQ=")
         #expect(SessionWireProtocol.encode(.killAttachedSession) == "KILL")
         #expect(SessionWireProtocol.encode(.historyPage(beforeSequence: 42, maxLines: 1000)) == "HISTORY_PAGE 42 1000")
+        #expect(SessionWireProtocol.encode(.supportedProtocols) == "PROTOCOLS")
         #expect(SessionWireProtocol.encode(.joinV2(version: 2, role: .phone, clientID: "p", sessionID: "s")) == "JOIN2 2 phone cA== cw==")
+    }
+
+    @Test("version negotiation prefers current and retains v1 fallback")
+    func adjacentVersionNegotiation() {
+        #expect(SessionWireProtocol.highestMutualVersion(peerVersions: [1]) == 1)
+        #expect(SessionWireProtocol.highestMutualVersion(peerVersions: [1, 2]) == 2)
+        #expect(SessionWireProtocol.highestMutualVersion(peerVersions: [3]) == nil)
+        #expect(SessionWireProtocol.versions(fromCapability: "session-wire=1,2") == [1, 2])
+        #expect(SessionWireProtocol.versions(fromCapability: "completion-v1") == nil)
+
+        guard case .supportedProtocols([1, 2]) = SessionWireProtocol.Decoder.decode("PROTOCOLS 1 2") else {
+            Issue.record("Expected supported protocol versions")
+            return
+        }
     }
 
     @Test("v2 attach identifies protocol, role, and client")

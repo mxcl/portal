@@ -29,6 +29,7 @@ fn main() -> io::Result<()> {
         Some("--capabilities") => {
             println!("completion-v1");
             println!("git-status-v1");
+            println!("{}", session_protocol_capability()?);
             Ok(())
         }
         Some("complete-path") => complete_path_stdio(),
@@ -727,6 +728,38 @@ fn daemon_supports_inventory() -> io::Result<()> {
     Err(daemon_inventory_error())
 }
 
+fn session_protocol_capability() -> io::Result<String> {
+    ensure_daemon_is_running()?;
+    let mut stream = connect_to_daemon()?;
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+    stream.write_all(b"PROTOCOLS\n")?;
+    stream.flush()?;
+
+    let mut line = String::new();
+    BufReader::new(stream).read_line(&mut line)?;
+    let versions = parse_supported_protocols(&line).unwrap_or_else(|| vec![1]);
+    Ok(format!(
+        "session-wire={}",
+        versions
+            .iter()
+            .map(u16::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    ))
+}
+
+fn parse_supported_protocols(line: &str) -> Option<Vec<u16>> {
+    let versions = line
+        .trim_end()
+        .strip_prefix("PROTOCOLS ")?
+        .split_whitespace()
+        .map(str::parse)
+        .collect::<Result<Vec<u16>, _>>()
+        .ok()?;
+    (!versions.is_empty()).then_some(versions)
+}
+
 fn daemon_inventory_error() -> io::Error {
     let base = "vaultty-sessiond accepted a connection but did not answer LIST";
     #[cfg(target_os = "macos")]
@@ -874,6 +907,13 @@ mod tests {
             .collect::<Vec<_>>();
         names.sort();
         names
+    }
+
+    #[test]
+    fn session_protocol_capability_parses_daemon_versions() {
+        assert_eq!(parse_supported_protocols("PROTOCOLS 1 2\n"), Some(vec![1, 2]));
+        assert_eq!(parse_supported_protocols(""), None);
+        assert_eq!(parse_supported_protocols("PROTOCOLS nope"), None);
     }
 
     fn git(temp: &TempDir, arguments: &[&str]) {

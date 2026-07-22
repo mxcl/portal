@@ -614,6 +614,9 @@ prepare_release() {
   fi
   ensure_clean_worktree
 
+  echo "Validating protocol compatibility" >&2
+  "$ROOT_DIR/scripts/validate-protocol-compatibility.sh"
+
   current_version="$(package_version)"
   if [[ "$CLOBBER_RELEASE" == true ]]; then
     RELEASE_VERSION="$current_version"

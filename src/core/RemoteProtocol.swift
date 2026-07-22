@@ -68,7 +68,7 @@ public struct RemoteCatalogSession: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-public enum RemoteMessageKind: String, Codable, Sendable {
+public enum RemoteMessageKind: Codable, Equatable, Sendable {
     case catalog
     case attach
     case detach
@@ -81,6 +81,46 @@ public enum RemoteMessageKind: String, Codable, Sendable {
     case terminalEvent
     case presence
     case error
+    case unknown(String)
+
+    public init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        self = switch value {
+        case "catalog": .catalog
+        case "attach": .attach
+        case "detach": .detach
+        case "createSession": .createSession
+        case "sessionCreated": .sessionCreated
+        case "input": .input
+        case "submit": .submit
+        case "interrupt": .interrupt
+        case "historyPage": .historyPage
+        case "terminalEvent": .terminalEvent
+        case "presence": .presence
+        case "error": .error
+        default: .unknown(value)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        let value = switch self {
+        case .catalog: "catalog"
+        case .attach: "attach"
+        case .detach: "detach"
+        case .createSession: "createSession"
+        case .sessionCreated: "sessionCreated"
+        case .input: "input"
+        case .submit: "submit"
+        case .interrupt: "interrupt"
+        case .historyPage: "historyPage"
+        case .terminalEvent: "terminalEvent"
+        case .presence: "presence"
+        case .error: "error"
+        case .unknown(let value): value
+        }
+        var container = encoder.singleValueContainer()
+        try container.encode(value)
+    }
 }
 
 public struct RemoteMessage: Codable, Equatable, Sendable {

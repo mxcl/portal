@@ -476,7 +476,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             try process.run()
             process.waitUntilExit()
             let output = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            return process.terminationStatus == 0 && output.contains("completion-v1")
+            let capabilities = output.split(separator: "\n").map(String.init)
+            let sessionVersions = capabilities
+                .compactMap(SessionWireProtocol.versions(fromCapability:))
+                .first
+            return process.terminationStatus == 0
+                && capabilities.contains("completion-v1")
+                && sessionVersions.flatMap(SessionWireProtocol.highestMutualVersion(peerVersions:)) != nil
         } catch {
             return false
         }

@@ -314,7 +314,7 @@ public final class MobileRemoteModel {
                 presenceCount = count
             }
         case .catalog, .attach, .detach, .createSession, .sessionCreated,
-             .input, .submit, .interrupt, .historyPage:
+             .input, .submit, .interrupt, .historyPage, .unknown:
             break
         }
     }

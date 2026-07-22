@@ -582,6 +582,11 @@ fn handle_client(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<
         return Ok(());
     }
 
+    if line.trim_end() == "PROTOCOLS" {
+        writeln!(stream, "PROTOCOLS {PREVIOUS_PROTOCOL_VERSION} {CURRENT_PROTOCOL_VERSION}")?;
+        return Ok(());
+    }
+
     if let Some(encoded_session_id) = line.trim_end().strip_prefix("KILL ") {
         let session_id = decode_string(encoded_session_id)?;
         let session = {

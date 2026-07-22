@@ -35,6 +35,7 @@ enum SessionWireProtocol {
         case kill(sessionID: String)
         case killAttachedSession
         case historyPage(beforeSequence: UInt64, maxLines: UInt16)
+        case supportedProtocols
     }
 
     enum ServerEvent {
@@ -44,6 +45,7 @@ enum SessionWireProtocol {
         case historyPage(startSequence: UInt64, endSequence: UInt64, hasOlder: Bool, text: String)
         case snapshot(sequence: UInt64, rows: UInt16, cols: UInt16, contents: String)
         case protocolVersion(UInt16)
+        case supportedProtocols([UInt16])
         case presence(Int)
         case geometry(rows: UInt16, cols: UInt16)
         case notFound
@@ -98,6 +100,12 @@ enum SessionWireProtocol {
             }
             if let value = line.removingPrefix("PROTOCOL "), let version = UInt16(value) {
                 return .protocolVersion(version)
+            }
+            if let value = line.removingPrefix("PROTOCOLS ") {
+                let versions = value.split(separator: " ").compactMap { UInt16($0) }
+                if !versions.isEmpty {
+                    return .supportedProtocols(versions)
+                }
             }
             if let value = line.removingPrefix("PRESENCE "), let count = Int(value) {
                 return .presence(count)
@@ -208,7 +216,21 @@ enum SessionWireProtocol {
             return "KILL"
         case .historyPage(let beforeSequence, let maxLines):
             return "HISTORY_PAGE \(beforeSequence) \(maxLines)"
+        case .supportedProtocols:
+            return "PROTOCOLS"
         }
+    }
+
+    static func highestMutualVersion(peerVersions: [UInt16]) -> UInt16? {
+        peerVersions
+            .filter { previousVersion...currentVersion ~= $0 }
+            .max()
+    }
+
+    static func versions(fromCapability line: String) -> [UInt16]? {
+        guard let value = line.removingPrefix("session-wire=") else { return nil }
+        let versions = value.split(separator: ",").compactMap { UInt16($0) }
+        return versions.isEmpty ? nil : versions
     }
 
     private static func base64(_ value: String) -> String {

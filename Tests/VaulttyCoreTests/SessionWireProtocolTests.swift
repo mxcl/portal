@@ -41,6 +41,8 @@ struct SessionWireProtocolTests {
         #expect(SessionWireProtocol.highestMutualVersion(peerVersions: [1]) == 1)
         #expect(SessionWireProtocol.highestMutualVersion(peerVersions: [1, 2]) == 2)
         #expect(SessionWireProtocol.highestMutualVersion(peerVersions: [3]) == nil)
+        #expect(SessionWireProtocol.macAttachVersion(peerVersions: [1]) == 1)
+        #expect(SessionWireProtocol.macAttachVersion(peerVersions: [1, 2]) == 1)
         #expect(SessionWireProtocol.versions(fromCapability: "session-wire=1,2") == [1, 2])
         #expect(SessionWireProtocol.versions(fromCapability: "completion-v1") == nil)
 

@@ -199,7 +199,10 @@ final class PtySession {
         queue.async { [weak self] in
             guard let self, !self.hasStopped() else { return }
             do {
-                let version = try Self.negotiatedProtocolVersion(for: self.sessionRef.location)
+                let peerVersions = try Self.supportedProtocolVersions(for: self.sessionRef.location)
+                guard let version = SessionWireProtocol.macAttachVersion(peerVersions: peerVersions) else {
+                    throw Self.unsupportedProtocolError()
+                }
                 let attachCommand: SessionWireProtocol.ClientCommand
                 if version >= SessionWireProtocol.currentVersion {
                     attachCommand = .attachV2(
@@ -237,15 +240,31 @@ final class PtySession {
     }
 
     func joinExisting(completion: @escaping (Result<Void, Error>) -> Void) {
-        let command = SessionWireProtocol.ClientCommand.joinV2(
-            version: SessionWireProtocol.currentVersion,
-            role: .phone,
-            clientID: clientID,
-            sessionID: sessionRef.sessionID
-        )
         queue.async { [weak self] in
             guard let self, !self.hasStopped() else { return }
             do {
+                let peerVersions = try Self.supportedProtocolVersions(for: self.sessionRef.location)
+                guard let version = SessionWireProtocol.highestMutualVersion(peerVersions: peerVersions) else {
+                    throw Self.unsupportedProtocolError()
+                }
+                let command: SessionWireProtocol.ClientCommand
+                if version >= SessionWireProtocol.currentVersion {
+                    command = .joinV2(
+                        version: version,
+                        role: .phone,
+                        clientID: self.clientID,
+                        sessionID: self.sessionRef.sessionID
+                    )
+                } else {
+                    // v1 has no join-only verb. /usr/bin/false prevents a missing-session
+                    // race from leaving behind a shell while preserving attach to an existing ID.
+                    command = .attach(
+                        sessionID: self.sessionRef.sessionID,
+                        workingDirectory: "/",
+                        shellPath: "/usr/bin/false",
+                        environment: [:]
+                    )
+                }
                 try self.connect()
                 self.send(command)
                 DispatchQueue.main.async { completion(.success(())) }
@@ -552,20 +571,21 @@ final class PtySession {
         }
     }
 
-    private static func negotiatedProtocolVersion(for location: SessionLocation) throws -> UInt16 {
+    private static func supportedProtocolVersions(for location: SessionLocation) throws -> [UInt16] {
         let event = try sendSingleResponseCommand(.supportedProtocols, location: location)
         guard case .supportedProtocols(let peerVersions) = event else {
             // Protocol v1 predates discovery. A daemon that closes this probe is a v1 peer.
-            return SessionWireProtocol.previousVersion
+            return [SessionWireProtocol.previousVersion]
         }
-        guard let version = SessionWireProtocol.highestMutualVersion(peerVersions: peerVersions) else {
-            throw NSError(
-                domain: NSPOSIXErrorDomain,
-                code: Int(EPROTONOSUPPORT),
-                userInfo: [NSLocalizedDescriptionKey: "session daemon has no compatible protocol version"]
-            )
-        }
-        return version
+        return peerVersions
+    }
+
+    private static func unsupportedProtocolError() -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(EPROTONOSUPPORT),
+            userInfo: [NSLocalizedDescriptionKey: "session daemon has no compatible protocol version"]
+        )
     }
 
     private static func sendCommandNoResponse(
@@ -785,8 +805,19 @@ final class PtySession {
         daemonStartupLock.lock()
         defer { daemonStartupLock.unlock() }
 
-        if (try? connectToDaemon()).map({ fd in close(fd); return true }) == true {
-            return
+        if let inventoryIsEmpty = try? daemonInventoryIsEmpty() {
+            let versions = (try? daemonProtocolVersions()) ?? [SessionWireProtocol.previousVersion]
+            if versions.contains(SessionWireProtocol.currentVersion) || !inventoryIsEmpty {
+                return
+            }
+            try replaceEmptyStaleDaemon()
+        } else if let fd = try? connectToDaemon() {
+            close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(EPROTO),
+                userInfo: [NSLocalizedDescriptionKey: "connected session daemon cannot report inventory"]
+            )
         }
 
         let helper = try sessiondHelperPath()
@@ -814,6 +845,75 @@ final class PtySession {
             }
         }
         throw lastError ?? posixError("connect")
+    }
+
+    private static func daemonInventoryIsEmpty() throws -> Bool {
+        let fd = try connectToDaemon()
+        defer { close(fd) }
+        try writeAll("LIST\n", to: fd)
+        guard case .sessions(let data) = SessionWireProtocol.Decoder.decode(try readLine(from: fd)) else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(EPROTO),
+                userInfo: [NSLocalizedDescriptionKey: "session daemon returned an invalid LIST response"]
+            )
+        }
+        return data == Data("[]".utf8)
+    }
+
+    private static func daemonProtocolVersions() throws -> [UInt16] {
+        let fd = try connectToDaemon()
+        defer { close(fd) }
+        try writeAll("PROTOCOLS\n", to: fd)
+        guard case .supportedProtocols(let versions) =
+            SessionWireProtocol.Decoder.decode(try readLine(from: fd))
+        else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(EPROTO))
+        }
+        return versions
+    }
+
+    private static func replaceEmptyStaleDaemon() throws {
+        let fd = try connectToDaemon()
+        var pid: pid_t = 0
+        var length = socklen_t(MemoryLayout<pid_t>.size)
+        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0 else {
+            let error = posixError("getsockopt")
+            close(fd)
+            throw error
+        }
+        close(fd)
+
+        // Darwin defines PROC_PIDPATHINFO_MAXSIZE as 4 * MAXPATHLEN, but does not import the macro.
+        var pathBuffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &pathBuffer, UInt32(pathBuffer.count)) > 0 else {
+            throw posixError("proc_pidpath")
+        }
+        let path = String(cString: pathBuffer)
+        guard URL(fileURLWithPath: path).lastPathComponent == "vaultty-sessiond" else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(EPERM),
+                userInfo: [NSLocalizedDescriptionKey: "refusing to stop unexpected socket owner \(path)"]
+            )
+        }
+        guard Darwin.kill(pid, SIGTERM) == 0 else {
+            throw posixError("kill")
+        }
+
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            guard let fd = try? connectToDaemon() else {
+                return
+            }
+            close(fd)
+            usleep(50_000)
+        }
+        throw NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(ETIMEDOUT),
+            userInfo: [NSLocalizedDescriptionKey: "stale session daemon did not exit"]
+        )
     }
 
     private static func sessiondHelperPath() throws -> String {

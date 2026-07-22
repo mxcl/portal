@@ -115,9 +115,14 @@ if [[ -n "$BASE_REF" ]]; then
     (( session_swift_current == baseline_session_version + 1 )) ||
       die "session wire version may advance by only one version per release"
     assert_equal "session previous version relative to $BASE_REF" "$session_swift_previous" "$baseline_session_version"
-    grep -q "negotiatedProtocolVersion" "$ROOT_DIR/src/app/PtySession.swift" ||
+    grep -q "supportedProtocolVersions" "$ROOT_DIR/src/app/PtySession.swift" ||
       die "a session version increase requires client negotiation and fallback"
+    assert_equal "Mac session write version during reader-first rollout" \
+      "$(swift_version "enum SessionWireProtocol" macWriteVersion "$ROOT_DIR/src/core/SessionWireProtocol.swift")" \
+      "$baseline_session_version"
   fi
+
+  "$ROOT_DIR/scripts/test-session-protocol-compatibility.sh" "$BASE_REF"
 
   if [[ -f "$baseline_dir/src/core/RemoteProtocol.swift" ]]; then
     baseline_catalog_version="$(swift_version "struct RemoteCatalog" currentVersion "$baseline_dir/src/core/RemoteProtocol.swift")"
@@ -159,7 +164,7 @@ if [[ -n "$BASE_REF" ]]; then
       --output-last-message "$audit_path" \
       "Audit Vaultty protocol compatibility for the release diff $BASE_REF..HEAD.
 
-Treat the Protocol compatibility section in AGENTS.md as mandatory. Inspect the diff and relevant tests. Check adjacent-release skew in both directions for the session wire protocol, additive and tolerant relay messages/catalogs, retained relay-envelope readers, daemon upgrade behavior, and SSH helper compatibility. Do not edit files.
+Treat the Protocol compatibility section in AGENTS.md as mandatory. Inspect the diff and relevant tests. Check adjacent-release skew in both directions for the session wire protocol, additive and tolerant relay messages/catalogs, retained relay-envelope readers, daemon upgrade behavior, and SSH helper compatibility. Do not edit files. Perform this focused audit directly; do not invoke skills or delegate to subagents.
 
 The deterministic compatibility fixtures and Rust/Swift test suites have passed. The first output line must be exactly PASS or FAIL. After it, give concise evidence. PASS only if this release preserves every currently applicable requirement and any deferred migration cannot affect peers in this release." \
       >&2 || die "Codex protocol compatibility audit failed to run"

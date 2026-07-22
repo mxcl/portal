@@ -583,7 +583,10 @@ fn handle_client(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<
     }
 
     if line.trim_end() == "PROTOCOLS" {
-        writeln!(stream, "PROTOCOLS {PREVIOUS_PROTOCOL_VERSION} {CURRENT_PROTOCOL_VERSION}")?;
+        writeln!(
+            stream,
+            "PROTOCOLS {PREVIOUS_PROTOCOL_VERSION} {CURRENT_PROTOCOL_VERSION}"
+        )?;
         return Ok(());
     }
 
@@ -1224,8 +1227,8 @@ mod tests {
         let state = Arc::new(DaemonState {
             sessions: Mutex::new(HashMap::new()),
         });
-        let session = Session::new(&request, Arc::downgrade(&state))
-            .expect("test session should start");
+        let session =
+            Session::new(&request, Arc::downgrade(&state)).expect("test session should start");
         let (finished_tx, finished_rx) = mpsc::channel();
 
         thread::spawn(move || {

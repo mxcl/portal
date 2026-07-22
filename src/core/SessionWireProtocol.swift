@@ -3,6 +3,8 @@ import Foundation
 enum SessionWireProtocol {
     static let currentVersion: UInt16 = 2
     static let previousVersion: UInt16 = 1
+    // v2 readers ship before Mac clients make v2 their default write format.
+    static let macWriteVersion: UInt16 = 1
 
     enum ClientRole: String {
         case mac
@@ -225,6 +227,10 @@ enum SessionWireProtocol {
         peerVersions
             .filter { previousVersion...currentVersion ~= $0 }
             .max()
+    }
+
+    static func macAttachVersion(peerVersions: [UInt16]) -> UInt16? {
+        highestMutualVersion(peerVersions: peerVersions).map { min($0, macWriteVersion) }
     }
 
     static func versions(fromCapability line: String) -> [UInt16]? {

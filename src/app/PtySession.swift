@@ -262,7 +262,7 @@ final class PtySession {
                         sessionID: self.sessionRef.sessionID,
                         workingDirectory: "/",
                         shellPath: "/usr/bin/false",
-                        environment: [:]
+                        environment: ["TERM": "xterm-256color"]
                     )
                 }
                 try self.connect()
@@ -805,12 +805,8 @@ final class PtySession {
         daemonStartupLock.lock()
         defer { daemonStartupLock.unlock() }
 
-        if let inventoryIsEmpty = try? daemonInventoryIsEmpty() {
-            let versions = (try? daemonProtocolVersions()) ?? [SessionWireProtocol.previousVersion]
-            if versions.contains(SessionWireProtocol.currentVersion) || !inventoryIsEmpty {
-                return
-            }
-            try replaceEmptyStaleDaemon()
+        if (try? daemonInventoryIsEmpty()) != nil {
+            return
         } else if let fd = try? connectToDaemon() {
             close(fd)
             throw NSError(
@@ -859,61 +855,6 @@ final class PtySession {
             )
         }
         return data == Data("[]".utf8)
-    }
-
-    private static func daemonProtocolVersions() throws -> [UInt16] {
-        let fd = try connectToDaemon()
-        defer { close(fd) }
-        try writeAll("PROTOCOLS\n", to: fd)
-        guard case .supportedProtocols(let versions) =
-            SessionWireProtocol.Decoder.decode(try readLine(from: fd))
-        else {
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(EPROTO))
-        }
-        return versions
-    }
-
-    private static func replaceEmptyStaleDaemon() throws {
-        let fd = try connectToDaemon()
-        var pid: pid_t = 0
-        var length = socklen_t(MemoryLayout<pid_t>.size)
-        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0 else {
-            let error = posixError("getsockopt")
-            close(fd)
-            throw error
-        }
-        close(fd)
-
-        // Darwin defines PROC_PIDPATHINFO_MAXSIZE as 4 * MAXPATHLEN, but does not import the macro.
-        var pathBuffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &pathBuffer, UInt32(pathBuffer.count)) > 0 else {
-            throw posixError("proc_pidpath")
-        }
-        let path = String(cString: pathBuffer)
-        guard URL(fileURLWithPath: path).lastPathComponent == "vaultty-sessiond" else {
-            throw NSError(
-                domain: NSPOSIXErrorDomain,
-                code: Int(EPERM),
-                userInfo: [NSLocalizedDescriptionKey: "refusing to stop unexpected socket owner \(path)"]
-            )
-        }
-        guard Darwin.kill(pid, SIGTERM) == 0 else {
-            throw posixError("kill")
-        }
-
-        let deadline = Date().addingTimeInterval(2)
-        while Date() < deadline {
-            guard let fd = try? connectToDaemon() else {
-                return
-            }
-            close(fd)
-            usleep(50_000)
-        }
-        throw NSError(
-            domain: NSPOSIXErrorDomain,
-            code: Int(ETIMEDOUT),
-            userInfo: [NSLocalizedDescriptionKey: "stale session daemon did not exit"]
-        )
     }
 
     private static func sessiondHelperPath() throws -> String {

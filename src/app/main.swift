@@ -480,6 +480,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             let sessionVersions = capabilities
                 .compactMap(SessionWireProtocol.versions(fromCapability:))
                 .first
+                ?? (capabilities.contains("git-status-v1")
+                    ? [SessionWireProtocol.previousVersion]
+                    : nil)
             return process.terminationStatus == 0
                 && capabilities.contains("completion-v1")
                 && sessionVersions.flatMap(SessionWireProtocol.highestMutualVersion(peerVersions:)) != nil

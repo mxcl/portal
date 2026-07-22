@@ -82,26 +82,4 @@ echo "Testing previous v1 client fixture against current daemon"
 assert_probe "$current_socket" "PROTOCOLS 1 2"
 assert_v1_attach "$current_socket" previous-client-current-daemon
 
-replacement_socket="$TEMP_DIR/replacement.sock"
-VAULTTY_SESSIOND_SOCKET="$replacement_socket" \
-VAULTTY_SESSIOND_DISABLE_PEER_VALIDATION=1 \
-  "$TEMP_DIR/previous-target/debug/vaultty-sessiond" serve \
-  >"$TEMP_DIR/replacement.log" 2>&1 &
-PIDS+=("$!")
-wait_for_socket "$replacement_socket"
-
-echo "Testing safe replacement of an empty previous daemon"
-capabilities="$({
-  VAULTTY_SESSIOND_SOCKET="$replacement_socket" \
-  VAULTTY_SESSIOND="$ROOT_DIR/target/debug/vaultty-sessiond" \
-  VAULTTY_SESSIOND_DISABLE_PEER_VALIDATION=1 \
-    "$ROOT_DIR/target/debug/vaultty-session-bridge" --capabilities
-})"
-grep -q '^session-wire=1,2$' <<<"$capabilities"
-replacement_pid="$(ruby -rsocket -e '
-  socket = UNIXSocket.new(ARGV.fetch(0))
-  print socket.getsockopt(0, 2).int
-' "$replacement_socket")"
-PIDS+=("$replacement_pid")
-
 echo "Session protocol compatibility matrix passed."

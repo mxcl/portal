@@ -4,10 +4,6 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::Shutdown;
-#[cfg(target_os = "macos")]
-use std::os::fd::AsRawFd;
-#[cfg(target_os = "macos")]
-use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -18,7 +14,6 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const CURRENT_SESSION_PROTOCOL_VERSION: u16 = 2;
 
 fn main() -> io::Result<()> {
     let mut args = env::args().skip(1);
@@ -681,13 +676,7 @@ fn tolerate_broken_pipe(result: io::Result<()>) -> io::Result<()> {
 fn ensure_daemon_is_running() -> io::Result<()> {
     let socket_path = socket_path()?;
     match daemon_inventory_is_empty() {
-        Ok(inventory_is_empty) => {
-            let versions = daemon_protocol_versions().unwrap_or_else(|_| vec![1]);
-            if versions.contains(&CURRENT_SESSION_PROTOCOL_VERSION) || !inventory_is_empty {
-                return Ok(());
-            }
-            replace_empty_stale_daemon()?;
-        }
+        Ok(_) => return Ok(()),
         Err(error) if connect_to_daemon().is_ok() => return Err(error),
         Err(_) => {}
     }
@@ -751,79 +740,6 @@ fn daemon_protocol_versions() -> io::Result<Vec<u16>> {
     let mut line = String::new();
     BufReader::new(stream).read_line(&mut line)?;
     parse_supported_protocols(&line).ok_or_else(|| io::Error::other("legacy session daemon"))
-}
-
-#[cfg(target_os = "macos")]
-fn replace_empty_stale_daemon() -> io::Result<()> {
-    let stream = connect_to_daemon()?;
-    let pid = daemon_peer_pid(&stream)?;
-    let path = process_path(pid)?;
-    if path.file_name().and_then(|name| name.to_str()) != Some("vaultty-sessiond") {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!(
-                "refusing to stop unexpected socket owner {}",
-                path.display()
-            ),
-        ));
-    }
-    if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < deadline {
-        if connect_to_daemon().is_err() {
-            return Ok(());
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
-    Err(io::Error::other("stale session daemon did not exit"))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn replace_empty_stale_daemon() -> io::Result<()> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "safe stale-daemon replacement is only supported on macOS",
-    ))
-}
-
-#[cfg(target_os = "macos")]
-fn daemon_peer_pid(stream: &UnixStream) -> io::Result<libc::pid_t> {
-    const LOCAL_PEERPID: libc::c_int = 2;
-    let mut pid: libc::pid_t = 0;
-    let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
-    let rc = unsafe {
-        libc::getsockopt(
-            stream.as_raw_fd(),
-            libc::SOL_LOCAL,
-            LOCAL_PEERPID,
-            &mut pid as *mut _ as *mut libc::c_void,
-            &mut len,
-        )
-    };
-    if rc == 0 {
-        Ok(pid)
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn process_path(pid: libc::pid_t) -> io::Result<PathBuf> {
-    let mut buffer = vec![0_u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
-    let count = unsafe {
-        libc::proc_pidpath(
-            pid,
-            buffer.as_mut_ptr() as *mut libc::c_void,
-            buffer.len() as u32,
-        )
-    };
-    if count <= 0 {
-        return Err(io::Error::last_os_error());
-    }
-    buffer.truncate(count as usize);
-    Ok(PathBuf::from(std::ffi::OsString::from_vec(buffer)))
 }
 
 fn session_protocol_capability() -> io::Result<String> {

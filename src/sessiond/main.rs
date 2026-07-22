@@ -1009,13 +1009,15 @@ fn validate_peer_signature(stream: &UnixStream) -> io::Result<()> {
 
     Err(io::Error::new(
         io::ErrorKind::PermissionDenied,
-        format!("peer process is not signed InfiniTerm: {}", path.display()),
+        format!("peer process is not signed InfiniTTY: {}", path.display()),
     ))
 }
 
 #[cfg(target_os = "macos")]
 fn is_supported_peer_path(path: &str) -> bool {
-    path.ends_with("/Contents/MacOS/InfiniTerm")
+    path.ends_with("/Contents/MacOS/InfiniTTY")
+        || path.ends_with("/InfiniTTY")
+        || path.ends_with("/Contents/MacOS/InfiniTerm")
         || path.ends_with("/InfiniTerm")
         || path.ends_with("/Contents/MacOS/Vaultty")
         || path.ends_with("/Vaultty")
@@ -1335,6 +1337,9 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn peer_path_accepts_current_and_previous_app_names() {
+        assert!(is_supported_peer_path(
+            "/Applications/InfiniTTY.app/Contents/MacOS/InfiniTTY"
+        ));
         assert!(is_supported_peer_path(
             "/Applications/InfiniTerm.app/Contents/MacOS/InfiniTerm"
         ));

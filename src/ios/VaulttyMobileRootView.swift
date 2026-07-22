@@ -36,12 +36,12 @@ public struct VaulttyMobileRootView: View {
                     ContentUnavailableView(
                         "No sessions yet",
                         systemImage: "terminal",
-                        description: Text("Enable Remote Access on a Mac with an open InfiniTerm session.")
+                        description: Text("Enable Remote Access on a Mac with an open InfiniTTY session.")
                     )
                     .allowsHitTesting(false)
                 }
             }
-            .navigationTitle("InfiniTerm")
+            .navigationTitle("InfiniTTY")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Refresh", systemImage: "arrow.clockwise") {
@@ -566,7 +566,7 @@ private struct MobilePaywall: View {
                 Text("One terminal everywhere")
                     .font(.largeTitle.bold())
                     .multilineTextAlignment(.center)
-                Text("Attach securely to every open InfiniTerm session on your Macs. Includes a 14-day free trial.")
+                Text("Attach securely to every open InfiniTTY session on your Macs. Includes a 14-day free trial.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                 if store.isLoading {
@@ -621,7 +621,7 @@ private struct LockedView: View {
     var body: some View {
         VStack(spacing: 18) {
             Image(systemName: "lock.fill").font(.system(size: 52))
-            Text("InfiniTerm is locked").font(.title.bold())
+            Text("InfiniTTY is locked").font(.title.bold())
             Button("Unlock", action: unlock).buttonStyle(.borderedProminent)
         }
     }

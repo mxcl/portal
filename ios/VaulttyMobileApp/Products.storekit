@@ -35,12 +35,12 @@
       "id" : "21429751",
       "localizations" : [
         {
-          "description" : "Attach to your InfiniTerm sessions from iPhone.",
-          "displayName" : "InfiniTerm Remote",
+          "description" : "Attach to your InfiniTTY sessions from iPhone.",
+          "displayName" : "InfiniTTY Remote",
           "locale" : "en_US"
         }
       ],
-      "name" : "InfiniTerm Remote",
+      "name" : "InfiniTTY Remote",
       "subscriptions" : [
         {
           "adHocOffers" : [
@@ -80,7 +80,7 @@
           ],
           "localizations" : [
             {
-              "description" : "Secure access to open InfiniTerm sessions.",
+              "description" : "Secure access to open InfiniTTY sessions.",
               "displayName" : "Monthly",
               "locale" : "en_US"
             }
@@ -132,7 +132,7 @@
           ],
           "localizations" : [
             {
-              "description" : "Secure access to open InfiniTerm sessions.",
+              "description" : "Secure access to open InfiniTTY sessions.",
               "displayName" : "Annual",
               "locale" : "en_US"
             }

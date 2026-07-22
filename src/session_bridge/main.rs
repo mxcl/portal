@@ -792,13 +792,13 @@ fn bridge_signature_diagnostic() -> Option<String> {
         || text.contains("TeamIdentifier=not set")
     {
         return Some(format!(
-            "The remote bridge at {} is not Developer ID signed, so the daemon rejected it. Reinstall or re-enroll the signed InfiniTerm helpers on this host, then verify with: codesign -dv --verbose=4 {}",
+            "The remote bridge at {} is not Developer ID signed, so the daemon rejected it. Reinstall or re-enroll the signed InfiniTTY helpers on this host, then verify with: codesign -dv --verbose=4 {}",
             path.display(),
             path.display()
         ));
     }
     Some(format!(
-        "This usually means the daemon rejected the bridge during peer validation. Verify the remote bridge and daemon are signed InfiniTerm helpers: codesign -dv --verbose=4 {}",
+        "This usually means the daemon rejected the bridge during peer validation. Verify the remote bridge and daemon are signed InfiniTTY helpers: codesign -dv --verbose=4 {}",
         path.display()
     ))
 }

@@ -4,7 +4,7 @@
       "layers": [
         {
           "image-name": "Vaultty.png",
-          "name": "InfiniTerm",
+          "name": "InfiniTTY",
           "position": {
             "scale": 1.12,
             "translation-in-points": [

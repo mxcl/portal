@@ -1,33 +1,49 @@
 {
-  "groups": [
+  "fill" : {
+    "linear-gradient" : [
+      "gray:0.15293,1.00000",
+      "extended-gray:0.00000,1.00000"
+    ],
+    "orientation" : {
+      "start" : {
+        "x" : 0.5,
+        "y" : 0
+      },
+      "stop" : {
+        "x" : 0.5,
+        "y" : 0.7
+      }
+    }
+  },
+  "groups" : [
     {
-      "layers": [
+      "layers" : [
         {
-          "image-name": "Vaultty.png",
-          "name": "InfiniTTY",
-          "position": {
-            "scale": 1.12,
-            "translation-in-points": [
+          "image-name" : "Vaultty.png",
+          "name" : "InfiniTTY",
+          "position" : {
+            "scale" : 0.95,
+            "translation-in-points" : [
               0,
               0
             ]
           }
         }
       ],
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.5
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
       },
-      "translucency": {
-        "enabled": true,
-        "value": 0.35
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.35
       }
     }
   ],
-  "supported-platforms": {
-    "circles": [
+  "supported-platforms" : {
+    "circles" : [
       "watchOS"
     ],
-    "squares": "shared"
+    "squares" : "shared"
   }
 }

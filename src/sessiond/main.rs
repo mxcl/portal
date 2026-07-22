@@ -999,10 +999,7 @@ fn validate_peer_signature(stream: &UnixStream) -> io::Result<()> {
         .output()?;
     let text = String::from_utf8_lossy(&output.stderr);
     let path_text = String::from_utf8_lossy(path.as_os_str().as_bytes());
-    let looks_like_vaultty = path_text.ends_with("/Contents/MacOS/Vaultty")
-        || path_text.ends_with("/Vaultty")
-        || path_text.ends_with("/vaultty-session-bridge")
-        || path_text.ends_with("/vaultty-remote-agent");
+    let looks_like_vaultty = is_supported_peer_path(&path_text);
     let signed_by_expected_team =
         text.contains("TeamIdentifier=") && !text.contains("TeamIdentifier=not set");
 
@@ -1012,8 +1009,18 @@ fn validate_peer_signature(stream: &UnixStream) -> io::Result<()> {
 
     Err(io::Error::new(
         io::ErrorKind::PermissionDenied,
-        format!("peer process is not signed Vaultty: {}", path.display()),
+        format!("peer process is not signed InfiniTerm: {}", path.display()),
     ))
+}
+
+#[cfg(target_os = "macos")]
+fn is_supported_peer_path(path: &str) -> bool {
+    path.ends_with("/Contents/MacOS/InfiniTerm")
+        || path.ends_with("/InfiniTerm")
+        || path.ends_with("/Contents/MacOS/Vaultty")
+        || path.ends_with("/Vaultty")
+        || path.ends_with("/vaultty-session-bridge")
+        || path.ends_with("/vaultty-remote-agent")
 }
 
 #[cfg(target_os = "macos")]
@@ -1322,6 +1329,21 @@ mod tests {
         ));
         assert!(history_has_unfinished_command(
             b"\x1b]133;C;MQ==\x07\x1b]133;D;0\x07\x1b]133;C;Mg==\x07"
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn peer_path_accepts_current_and_previous_app_names() {
+        assert!(is_supported_peer_path(
+            "/Applications/InfiniTerm.app/Contents/MacOS/InfiniTerm"
+        ));
+        assert!(is_supported_peer_path(
+            "/Applications/Vaultty.app/Contents/MacOS/Vaultty"
+        ));
+        assert!(is_supported_peer_path("/tmp/vaultty-session-bridge"));
+        assert!(!is_supported_peer_path(
+            "/Applications/Terminal.app/Contents/MacOS/Terminal"
         ));
     }
 }

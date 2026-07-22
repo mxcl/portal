@@ -1,13 +1,13 @@
-# Vaultty
+# InfiniTerm
 
-`Vaultty` is a macOS block terminal for Automic Vault workflows.
+`InfiniTerm` is a macOS block terminal for Automic Vault workflows.
 
 The app owns command input and renders command output as blocks. It uses a
 persistent shell process and private OSC lifecycle markers.
 
-![Vaultty screenshot](assets/screenshot1.webp)
+![InfiniTerm screenshot](assets/screenshot1.webp)
 
-![Vaultty screenshot](assets/screenshot2.webp)
+![InfiniTerm screenshot](assets/screenshot2.webp)
 
 ## Features
 
@@ -20,7 +20,7 @@ persistent shell process and private OSC lifecycle markers.
 
 > [!WARNING]
 >
-> † Vaultty currently executes bundled Fig completion generator commands through
+> † InfiniTerm currently executes bundled Fig completion generator commands through
 > `/bin/zsh -lc` for compatibility with specs that rely on shell quoting, pipes,
 > redirects, and command syntax. Completion specs and custom generators can
 > therefore execute shell code. This is a known security hole; the intended fix
@@ -32,8 +32,8 @@ persistent shell process and private OSC lifecycle markers.
 Closed tabs persist until you type `exit`. This means you can unclose tabs with
 ⌘⇧T. Even after restarting the app. Even across different machines.
 
-Tabs detach from a Vaultty-owned `vaultty-sessiond` helper. The helper keeps the
-PTY alive, and Vaultty can rejoin it later with terminal history and session
+Tabs detach from an InfiniTerm-owned `vaultty-sessiond` helper. The helper keeps the
+PTY alive, and InfiniTerm can rejoin it later with terminal history and session
 metadata.
 
 New tabs show existing sessions above the command bar. Pick one to join it; the
@@ -41,7 +41,7 @@ fresh shell created for that new tab is discarded.
 
 ## Remote Sessions
 
-Vaultty can also list and attach to sessions owned by your Unix account on
+InfiniTerm can also list and attach to sessions owned by your Unix account on
 configured SSH hosts. The app does not open a LAN terminal listener and does not
 store SSH passwords or private keys; SSH host keys, agent keys, and account
 authorization remain the trust boundary.
@@ -52,7 +52,7 @@ Use `Sessions > Manage SSH Hosts...` to add a host. Enrollment verifies:
 ssh -o BatchMode=yes -T user@host 'vaultty-session-bridge --version'
 ```
 
-If the bridge is missing, Vaultty saves the host as unenrolled and shows an
+If the bridge is missing, InfiniTerm saves the host as unenrolled and shows an
 install command. The remote side needs both helpers in the same directory:
 
 ```sh
@@ -64,17 +64,17 @@ Once enrolled, remote sessions appear in the new-tab session picker alongside
 local sessions. Each enrolled host also has a **New session** card that starts
 a fresh login shell in the remote account's home directory. Attaching is a full
 terminal attach over `ssh -T`; the remote `vaultty-session-bridge` proxies the
-existing Vaultty line protocol to the remote user's private
+existing InfiniTerm line protocol to the remote user's private
 `vaultty-sessiond` Unix socket.
 
-Remote Vaultty shells intercept the `code` command:
+Remote InfiniTerm shells intercept the `code` command:
 
 ```sh
 code .
 code src/app/TerminalViewController.swift
 ```
 
-When you run `code PATH` in a session attached from another Mac, Vaultty opens
+When you run `code PATH` in a session attached from another Mac, InfiniTerm opens
 VS Code on the Mac in front of you with the matching Remote SSH folder or file.
 VS Code's `code` command and Remote SSH extension must be installed locally.
 

@@ -337,7 +337,7 @@ public final class MobileRemoteModel {
         }
         try await context.evaluatePolicy(
             .deviceOwnerAuthentication,
-            localizedReason: "Attach to your Vaultty sessions"
+            localizedReason: "Attach to your InfiniTerm sessions"
         )
         lastAuthenticatedAt = Date()
     }

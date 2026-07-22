@@ -3395,7 +3395,7 @@ private final class TerminalTab {
         inputView.layer?.borderWidth = 0
         configureCommandInputTextSystem(inputView)
         inputView.resetPlainTextAttributes()
-        inputView.setAccessibilityLabel("Vaultty command input")
+        inputView.setAccessibilityLabel("InfiniTerm command input")
 
         let inputScroll = NSScrollView()
         inputScroll.documentView = inputView
@@ -4223,7 +4223,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.commandLifecycle.apply(.resetHistorySelection)
         tab.commandBarView.layer?.backgroundColor = NSColor.selectedControlColor.withAlphaComponent(0.32).cgColor
         tab.findCloseButton.isHidden = false
-        tab.inputView.setAccessibilityLabel("Vaultty history find")
+        tab.inputView.setAccessibilityLabel("InfiniTerm history find")
         updatePassthroughVisibility(for: tab)
         updateCommandBarVisibility(for: tab)
         updateFindResults(in: tab, bounce: false)
@@ -4240,7 +4240,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.findResultIndex = nil
         tab.commandBarView.layer?.backgroundColor = TahoeGlassPalette.commandTint.cgColor
         tab.findCloseButton.isHidden = true
-        tab.inputView.setAccessibilityLabel("Vaultty command input")
+        tab.inputView.setAccessibilityLabel("InfiniTerm command input")
         setInput(tab.findCommandDraft, in: tab)
         tab.findCommandDraft = ""
         if tab.isShellReady {
@@ -4512,7 +4512,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             )
             publishVisibleSessionState()
         } catch {
-            NSLog("Failed to persist Vaultty session state: \(error.localizedDescription)")
+            NSLog("Failed to persist InfiniTerm session state: \(error.localizedDescription)")
         }
     }
 
@@ -5485,9 +5485,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.automicvault.vaultty"
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         env["TERM"] = "xterm-256color"
-        env["TERM_PROGRAM"] = "Vaultty"
+        env["TERM_PROGRAM"] = "InfiniTerm"
         env["TERM_PROGRAM_VERSION"] = appVersion
-        env["LC_TERMINAL"] = "Vaultty"
+        env["LC_TERMINAL"] = "InfiniTerm"
         env["LC_TERMINAL_VERSION"] = appVersion
         env["__CFBundleIdentifier"] = bundleIdentifier
         env["VAULTTY"] = "1"
@@ -5497,9 +5497,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let initScript = """
             export VAULTTY=1
             export TERM=xterm-256color
-            export TERM_PROGRAM=Vaultty
+            export TERM_PROGRAM=InfiniTerm
             export TERM_PROGRAM_VERSION=\(shellQuote(appVersion))
-            export LC_TERMINAL=Vaultty
+            export LC_TERMINAL=InfiniTerm
             export LC_TERMINAL_VERSION=\(shellQuote(appVersion))
             export __CFBundleIdentifier=\(shellQuote(bundleIdentifier))
             \(isRemoteSession ? remoteCodeFunctionScript : "")

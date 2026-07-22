@@ -51,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             backing: .buffered,
             defer: false
         )
-        window.title = "Vaultty"
+        window.title = "InfiniTerm"
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = .clear
         window.isOpaque = false
@@ -163,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
                 stagedUpdate = update
                 controller?.setUpdateStaged(true)
             } catch {
-                NSLog("Vaultty update check failed: \(error.localizedDescription)")
+                NSLog("InfiniTerm update check failed: \(error.localizedDescription)")
             }
         }
     }
@@ -173,7 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
         let alert = NSAlert()
         alert.messageText = "Install update?"
-        alert.informativeText = "Vaultty will quit, install \(stagedUpdate.assetName), and relaunch."
+        alert.informativeText = "InfiniTerm will quit, install \(stagedUpdate.assetName), and relaunch."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Install and Relaunch")
         alert.addButton(withTitle: "Cancel")
@@ -347,7 +347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
 
-        let bridgeNote = NSTextField(labelWithString: "Enrollment uses SSH BatchMode and the configured bridge path. Vaultty stores no SSH passwords or private keys.")
+        let bridgeNote = NSTextField(labelWithString: "Enrollment uses SSH BatchMode and the configured bridge path. InfiniTerm stores no SSH passwords or private keys.")
         bridgeNote.font = .systemFont(ofSize: 12)
         bridgeNote.textColor = .tertiaryLabelColor
         bridgeNote.lineBreakMode = .byWordWrapping
@@ -619,7 +619,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
     private func makeAppMenuItem() -> NSMenuItem {
         let appItem = NSMenuItem()
-        let appMenu = NSMenu(title: "Vaultty")
+        let appMenu = NSMenu(title: "InfiniTerm")
         let appName = ProcessInfo.processInfo.processName
 
         appMenu.addItem(
@@ -652,7 +652,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         remoteAccessItem.state = remoteAccessController.isEnabled ? .on : .off
         remoteAccessMenuItem = remoteAccessItem
         let defaultTerminalItem = appMenu.addItem(
-            withTitle: "Make Vaultty System Default Terminal",
+            withTitle: "Make InfiniTerm System Default Terminal",
             action: #selector(toggleDefaultTerminal(_:)),
             keyEquivalent: ""
         )

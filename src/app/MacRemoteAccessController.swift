@@ -79,14 +79,14 @@ final class MacRemoteAccessController {
             }
         } catch {
             stop()
-            NSLog("Vaultty remote access could not start: \(error)")
+            NSLog("InfiniTerm remote access could not start: \(error)")
         }
     }
 
     private func launchAgent() {
         guard agentProcess?.isRunning != true else { return }
         guard let helper = remoteAgentURL() else {
-            remoteAccessLogger.error("Vaultty remote agent is missing")
+            remoteAccessLogger.error("InfiniTerm remote agent is missing")
             return
         }
         let endpoint: URL
@@ -94,7 +94,7 @@ final class MacRemoteAccessController {
             endpoint = try relayEndpoint()
         } catch {
             remoteAccessLogger.error(
-                "Vaultty remote relay endpoint is invalid: \(String(describing: error), privacy: .public)"
+                "InfiniTerm remote relay endpoint is invalid: \(String(describing: error), privacy: .public)"
             )
             return
         }
@@ -103,7 +103,7 @@ final class MacRemoteAccessController {
             key = try ICloudKeychainRootKey().loadOrCreate()
         } catch {
             remoteAccessLogger.error(
-                "Vaultty remote key is unavailable: \(String(describing: error), privacy: .public)"
+                "InfiniTerm remote key is unavailable: \(String(describing: error), privacy: .public)"
             )
             return
         }
@@ -119,7 +119,7 @@ final class MacRemoteAccessController {
         process.standardError = FileHandle.nullDevice
         process.terminationHandler = { process in
             remoteAccessLogger.error(
-                "Vaultty remote agent exited with status \(process.terminationStatus)"
+                "InfiniTerm remote agent exited with status \(process.terminationStatus)"
             )
         }
         do {
@@ -129,7 +129,7 @@ final class MacRemoteAccessController {
             try? keyPipe.fileHandleForWriting.close()
         } catch {
             remoteAccessLogger.error(
-                "Vaultty remote agent could not launch: \(String(describing: error), privacy: .public)"
+                "InfiniTerm remote agent could not launch: \(String(describing: error), privacy: .public)"
             )
         }
     }
@@ -144,7 +144,7 @@ final class MacRemoteAccessController {
             process.waitUntilExit()
         } catch {
             remoteAccessLogger.error(
-                "Vaultty remote agent could not be terminated: \(String(describing: error), privacy: .public)"
+                "InfiniTerm remote agent could not be terminated: \(String(describing: error), privacy: .public)"
             )
         }
         agentProcess = nil
@@ -236,8 +236,8 @@ final class MacRemoteAccessController {
         } ?? "/bin/zsh"
         var environment = ProcessInfo.processInfo.environment
         environment["TERM"] = "xterm-256color"
-        environment["TERM_PROGRAM"] = "Vaultty"
-        environment["LC_TERMINAL"] = "Vaultty"
+        environment["TERM_PROGRAM"] = "InfiniTerm"
+        environment["LC_TERMINAL"] = "InfiniTerm"
         environment["VAULTTY"] = "1"
         environment["PROMPT"] = ""
         environment["RPROMPT"] = ""
@@ -327,8 +327,8 @@ final class MacRemoteAccessController {
         """
         export VAULTTY=1
         export TERM=xterm-256color
-        export TERM_PROGRAM=Vaultty
-        export LC_TERMINAL=Vaultty
+        export TERM_PROGRAM=InfiniTerm
+        export LC_TERMINAL=InfiniTerm
         cd \(shellQuote(home.path))
         stty -echo
         PROMPT=''
@@ -429,7 +429,7 @@ final class MacRemoteAccessController {
             sessions = try PtySession.listSessions()
         } catch {
             remoteAccessLogger.error(
-                "Vaultty session listing failed: \(String(describing: error), privacy: .public)"
+                "InfiniTerm session listing failed: \(String(describing: error), privacy: .public)"
             )
             sessions = []
         }

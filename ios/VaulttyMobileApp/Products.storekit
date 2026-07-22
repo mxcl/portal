@@ -35,12 +35,12 @@
       "id" : "21429751",
       "localizations" : [
         {
-          "description" : "Attach to your Vaultty sessions from iPhone.",
-          "displayName" : "Vaultty Remote",
+          "description" : "Attach to your InfiniTerm sessions from iPhone.",
+          "displayName" : "InfiniTerm Remote",
           "locale" : "en_US"
         }
       ],
-      "name" : "Vaultty Remote",
+      "name" : "InfiniTerm Remote",
       "subscriptions" : [
         {
           "adHocOffers" : [
@@ -80,7 +80,7 @@
           ],
           "localizations" : [
             {
-              "description" : "Secure access to open Vaultty sessions.",
+              "description" : "Secure access to open InfiniTerm sessions.",
               "displayName" : "Monthly",
               "locale" : "en_US"
             }
@@ -132,7 +132,7 @@
           ],
           "localizations" : [
             {
-              "description" : "Secure access to open Vaultty sessions.",
+              "description" : "Secure access to open InfiniTerm sessions.",
               "displayName" : "Annual",
               "locale" : "en_US"
             }

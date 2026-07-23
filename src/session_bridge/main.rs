@@ -19,7 +19,7 @@ fn main() -> io::Result<()> {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
         Some("--version") | Some("version") => {
-            println!("vaultty-session-bridge {VERSION}");
+            println!("portal-session-bridge {VERSION}");
             Ok(())
         }
         Some("--socket-path") => {
@@ -38,7 +38,7 @@ fn main() -> io::Result<()> {
         Some("git-status") => git_status_stdio(),
         Some(arg) => {
             eprintln!(
-                "usage: vaultty-session-bridge [--version|--socket-path|--capabilities|complete-path|complete-commands|run-generator|git-status]"
+                "usage: portal-session-bridge [--version|--socket-path|--capabilities|complete-path|complete-commands|run-generator|git-status]"
             );
             eprintln!("unexpected argument: {arg}");
             std::process::exit(64);
@@ -323,7 +323,7 @@ fn run_generator(request: &GeneratorRequest) -> GeneratorOutput {
         if !stderr.is_empty() {
             stderr.push('\n');
         }
-        stderr.push_str("vaultty-session-bridge: generator timed out");
+        stderr.push_str("portal-session-bridge: generator timed out");
     }
 
     GeneratorOutput {
@@ -710,7 +710,7 @@ fn ensure_daemon_is_running() -> io::Result<()> {
         }
     }
 
-    Err(last_error.unwrap_or_else(|| io::Error::other("could not connect to vaultty-sessiond")))
+    Err(last_error.unwrap_or_else(|| io::Error::other("could not connect to portal-sessiond")))
 }
 
 fn daemon_inventory_is_empty() -> io::Result<bool> {
@@ -767,7 +767,7 @@ fn parse_supported_protocols(line: &str) -> Option<Vec<u16>> {
 }
 
 fn daemon_inventory_error() -> io::Error {
-    let base = "vaultty-sessiond accepted a connection but did not answer LIST";
+    let base = "portal-sessiond accepted a connection but did not answer LIST";
     #[cfg(target_os = "macos")]
     if let Some(diagnostic) = bridge_signature_diagnostic() {
         return io::Error::new(
@@ -818,19 +818,19 @@ fn sessiond_path() -> io::Result<PathBuf> {
     if let Ok(current_exe) = env::current_exe()
         && let Some(dir) = current_exe.parent()
     {
-        let sibling = dir.join("vaultty-sessiond");
+        let sibling = dir.join("portal-sessiond");
         if is_executable(&sibling) {
             return Ok(sibling);
         }
     }
 
-    if let Some(path) = find_on_path("vaultty-sessiond") {
+    if let Some(path) = find_on_path("portal-sessiond") {
         return Ok(path);
     }
 
     Err(io::Error::new(
         io::ErrorKind::NotFound,
-        "vaultty-sessiond was not found next to the bridge or on PATH",
+        "portal-sessiond was not found next to the bridge or on PATH",
     ))
 }
 
@@ -862,7 +862,7 @@ fn socket_path() -> io::Result<PathBuf> {
         return Ok(home
             .join("Library")
             .join("Application Support")
-            .join("Vaultty")
+            .join("Portal Terminal")
             .join("runtime")
             .join("sessiond.sock"));
     }
@@ -872,7 +872,7 @@ fn socket_path() -> io::Result<PathBuf> {
         let state_home = env::var_os("XDG_STATE_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".local").join("state"));
-        Ok(state_home.join("vaultty").join("sessiond.sock"))
+        Ok(state_home.join("portal-terminal").join("sessiond.sock"))
     }
 }
 
@@ -892,7 +892,7 @@ mod tests {
                 .expect("clock should be valid")
                 .as_nanos();
             let path = env::temp_dir().join(format!(
-                "vaultty-session-bridge-{name}-{}-{unique}",
+                "portal-session-bridge-{name}-{}-{unique}",
                 std::process::id()
             ));
             fs::create_dir_all(&path).expect("temp dir should be created");

@@ -4571,7 +4571,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("Vaultty", isDirectory: true)
+            .appendingPathComponent("Portal Terminal", isDirectory: true)
             .appendingPathComponent("sessions.json", isDirectory: false)
     }
 

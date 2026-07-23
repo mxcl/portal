@@ -28,7 +28,7 @@ struct VaulttyRemoteAgent {
     }
 
     private static func acquireSingletonLock() -> Bool {
-        let path = "/tmp/vaultty-remote-agent-\(getuid()).lock"
+        let path = "/tmp/portal-remote-agent-\(getuid()).lock"
         let descriptor = open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
         guard descriptor >= 0, flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return false }
         return true

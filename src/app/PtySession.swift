@@ -396,7 +396,7 @@ final class PtySession {
     static func remoteStoredSessionMetadata(host: SSHHostRecord) throws -> [SessionMetadata] {
         let data = try runSSHCommand(
             host: host,
-            command: "cat \"$HOME/Library/Application Support/Vaultty/sessions.json\" 2>/dev/null || true",
+            command: "cat \"$HOME/Library/Application Support/Portal Terminal/sessions.json\" 2>/dev/null || true",
             batchMode: true
         )
         guard !data.isEmpty else { return [] }
@@ -866,15 +866,15 @@ final class PtySession {
         let bundled = Bundle.main.bundleURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Helpers", isDirectory: true)
-            .appendingPathComponent("vaultty-sessiond", isDirectory: false)
+            .appendingPathComponent("portal-sessiond", isDirectory: false)
             .path
         if FileManager.default.isExecutableFile(atPath: bundled) {
             return bundled
         }
 
         for candidate in [
-            "target/debug/vaultty-sessiond",
-            "target/release/vaultty-sessiond"
+            "target/debug/portal-sessiond",
+            "target/release/portal-sessiond"
         ] {
             let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                 .appendingPathComponent(candidate)
@@ -887,7 +887,7 @@ final class PtySession {
         throw NSError(
             domain: NSPOSIXErrorDomain,
             code: Int(ENOENT),
-            userInfo: [NSLocalizedDescriptionKey: "vaultty-sessiond helper was not found"]
+            userInfo: [NSLocalizedDescriptionKey: "portal-sessiond helper was not found"]
         )
     }
 
@@ -1017,7 +1017,7 @@ final class PtySession {
         return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("Vaultty", isDirectory: true)
+            .appendingPathComponent("Portal Terminal", isDirectory: true)
             .appendingPathComponent("runtime", isDirectory: true)
             .appendingPathComponent("sessiond.sock", isDirectory: false)
             .path
@@ -1027,7 +1027,7 @@ final class PtySession {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("Vaultty", isDirectory: true)
+            .appendingPathComponent("Portal Terminal", isDirectory: true)
             .appendingPathComponent("hosts.json", isDirectory: false)
     }
 

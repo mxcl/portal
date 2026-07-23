@@ -21,11 +21,11 @@ codegen-units = 1
 panic = "abort"
 
 [[bin]]
-name = "vaultty-sessiond"
+name = "portal-sessiond"
 path = "src/sessiond/main.rs"
 
 [[bin]]
-name = "vaultty-session-bridge"
+name = "portal-session-bridge"
 path = "src/session_bridge/main.rs"
 
 [[bin]]

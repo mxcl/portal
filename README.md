@@ -32,7 +32,7 @@ persistent shell process and private OSC lifecycle markers.
 Closed tabs persist until you type `exit`. This means you can unclose tabs with
 ⌘⇧T. Even after restarting the app. Even across different machines.
 
-Tabs detach from a Portal-owned `vaultty-sessiond` helper. The helper keeps the
+Tabs detach from a Portal-owned `portal-sessiond` helper. The helper keeps the
 PTY alive, and Portal can rejoin it later with terminal history and session
 metadata.
 
@@ -49,23 +49,23 @@ authorization remain the trust boundary.
 Use `Sessions > Manage SSH Hosts...` to add a host. Enrollment verifies:
 
 ```sh
-ssh -o BatchMode=yes -T user@host 'vaultty-session-bridge --version'
+ssh -o BatchMode=yes -T user@host 'portal-session-bridge --version'
 ```
 
 If the bridge is missing, Portal saves the host as unenrolled and shows an
 install command. The remote side needs both helpers in the same directory:
 
 ```sh
-vaultty-session-bridge
-vaultty-sessiond
+portal-session-bridge
+portal-sessiond
 ```
 
 Once enrolled, remote sessions appear in the new-tab session picker alongside
 local sessions. Each enrolled host also has a **New session** card that starts
 a fresh login shell in the remote account's home directory. Attaching is a full
-terminal attach over `ssh -T`; the remote `vaultty-session-bridge` proxies the
+terminal attach over `ssh -T`; the remote `portal-session-bridge` proxies the
 existing Portal Terminal line protocol to the remote user's private
-`vaultty-sessiond` Unix socket.
+`portal-sessiond` Unix socket.
 
 Remote Portal shells intercept the `code` command:
 

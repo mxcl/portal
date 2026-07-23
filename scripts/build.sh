@@ -126,9 +126,9 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 HELPERS_DIR="$CONTENTS_DIR/Helpers"
 FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 EXECUTABLE="$MACOS_DIR/$APP_NAME"
-SESSIOND_HELPER="$HELPERS_DIR/vaultty-sessiond"
-SESSION_BRIDGE_HELPER="$HELPERS_DIR/vaultty-session-bridge"
-GHOSTTY_PROBE="$HELPERS_DIR/vaultty-ghostty-probe"
+SESSIOND_HELPER="$HELPERS_DIR/portal-sessiond"
+SESSION_BRIDGE_HELPER="$HELPERS_DIR/portal-session-bridge"
+GHOSTTY_PROBE="$HELPERS_DIR/portal-ghostty-probe"
 GHOSTTY_DYLIB="$FRAMEWORKS_DIR/libghostty-vt.dylib"
 GHOSTTY_BRIDGE_OBJECT="$BUILD_DIR/GhosttyOscBridge.o"
 ICON_BUNDLE="$ROOT_DIR/assets/AppIcon.icon"
@@ -800,7 +800,7 @@ esac
 
 echo "Building Rust helpers"
 export MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS_VERSION"
-cargo build ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} --bin vaultty-sessiond --bin vaultty-session-bridge
+cargo build ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} --bin portal-sessiond --bin portal-session-bridge
 
 echo "Building Swift package dependencies"
 swift build \
@@ -833,8 +833,8 @@ mkdir -p \
   "$HELPERS_DIR" \
   "$FRAMEWORKS_DIR"
 render_info_plist
-cp "$RUST_BIN_DIR/vaultty-sessiond" "$SESSIOND_HELPER"
-cp "$RUST_BIN_DIR/vaultty-session-bridge" "$SESSION_BRIDGE_HELPER"
+cp "$RUST_BIN_DIR/portal-sessiond" "$SESSIOND_HELPER"
+cp "$RUST_BIN_DIR/portal-session-bridge" "$SESSION_BRIDGE_HELPER"
 if [[ -n "$MAIN_APP_PROVISIONING_PROFILE" ]]; then
   cp "$MAIN_APP_PROVISIONING_PROFILE" "$CONTENTS_DIR/embedded.provisionprofile"
 fi
@@ -934,7 +934,7 @@ swiftc \
   "$ROOT_DIR/src/core/RelayClient.swift" \
   "$ROOT_DIR/src/app/PtySession.swift" \
   "$ROOT_DIR/src/app/MacRemoteAccessController.swift" \
-  -o "$HELPERS_DIR/vaultty-remote-agent"
+  -o "$HELPERS_DIR/portal-remote-agent"
 if [[ "${#GHOSTTY_SWIFT_LINK_ARGS[@]}" -gt 0 ]]; then
   SWIFTC_COMMAND+=("${GHOSTTY_SWIFT_LINK_ARGS[@]}")
 fi
@@ -958,8 +958,8 @@ codesign_runtime \
 verify_signature "$SESSION_BRIDGE_HELPER"
 codesign_runtime \
   --identifier "$REMOTE_AGENT_ID" \
-  "$HELPERS_DIR/vaultty-remote-agent"
-verify_signature "$HELPERS_DIR/vaultty-remote-agent"
+  "$HELPERS_DIR/portal-remote-agent"
+verify_signature "$HELPERS_DIR/portal-remote-agent"
 if [[ -x "$GHOSTTY_PROBE" ]]; then
   codesign_runtime \
     --identifier "$GHOSTTY_PROBE_ID" \

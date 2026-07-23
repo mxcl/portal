@@ -273,7 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             user: user.isEmpty ? NSUserName() : user,
             port: port,
             remoteHelperPath: helperPath.isEmpty
-                ? "~/Library/Application Support/Vaultty/vaultty-session-bridge"
+                ? "~/Library/Application Support/Portal Terminal/portal-session-bridge"
                 : helperPath,
             enrolled: false
         )
@@ -332,7 +332,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         let userField = textField(placeholder: NSUserName())
         let portField = textField(placeholder: "22")
         portField.stringValue = "22"
-        let helperField = textField(placeholder: "~/Library/Application Support/Vaultty/vaultty-session-bridge")
+        let helperField = textField(placeholder: "~/Library/Application Support/Portal Terminal/portal-session-bridge")
 
         let grid = NSGridView(views: [
             [formLabel("Alias"), aliasField],
@@ -446,7 +446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
     private func sshHostSummary(_ hosts: [SSHHostRecord]) -> String {
         guard !hosts.isEmpty else {
-            return "No SSH hosts are configured. Add a host that can run vaultty-session-bridge over SSH."
+            return "No SSH hosts are configured. Add a host that can run portal-session-bridge over SSH."
         }
         let lines = hosts.map { host in
             let status = host.enrolled ? "enrolled" : "not enrolled"
@@ -496,7 +496,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         alert.alertStyle = .warning
         alert.messageText = "SSH bridge was not verified"
         alert.informativeText = """
-        \(host.alias) was saved but is not enrolled. Install or update vaultty-session-bridge and vaultty-sessiond on the remote host, then add or edit the host again.
+        \(host.alias) was saved but is not enrolled. Install or update portal-session-bridge and portal-sessiond on the remote host, then add or edit the host again.
 
         \(sshInstallCommand(for: host))
         """
@@ -507,8 +507,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private func sshInstallCommand(for host: SSHHostRecord) -> String {
         let remoteTarget = "\(host.user)@\(host.hostname)"
         let remoteDirectory = (host.remoteHelperPath as NSString).deletingLastPathComponent
-        let bridge = bundledHelperPath(named: "vaultty-session-bridge") ?? "target/debug/vaultty-session-bridge"
-        let sessiond = bundledHelperPath(named: "vaultty-sessiond") ?? "target/debug/vaultty-sessiond"
+        let bridge = bundledHelperPath(named: "portal-session-bridge") ?? "target/debug/portal-session-bridge"
+        let sessiond = bundledHelperPath(named: "portal-sessiond") ?? "target/debug/portal-sessiond"
         let scpTarget = remoteTarget + ":" + remoteDirectory + "/"
         return "ssh \(shellQuote(remoteTarget)) 'mkdir -p \(PtySession.shellPathExpression(remoteDirectory))' && scp -P \(host.port) \(shellQuote(bridge)) \(shellQuote(sessiond)) \(shellQuote(scpTarget))"
     }

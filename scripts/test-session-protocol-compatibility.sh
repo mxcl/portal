@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE_REF="${1:?usage: test-session-protocol-compatibility.sh BASE_REF}"
-TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/vaultty-session-matrix.XXXXXX")"
+TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/portal-session-matrix.XXXXXX")"
 PIDS=()
 
 cleanup() {
@@ -56,7 +56,7 @@ CARGO_TARGET_DIR="$TEMP_DIR/previous-target" \
 
 echo "Building current daemon fixture"
 cargo build --quiet --manifest-path "$ROOT_DIR/Cargo.toml" \
-  --bin vaultty-sessiond --bin vaultty-session-bridge
+  --bin portal-sessiond --bin portal-session-bridge
 
 previous_socket="$TEMP_DIR/previous.sock"
 VAULTTY_SESSIOND_SOCKET="$previous_socket" \
@@ -73,7 +73,7 @@ assert_v1_attach "$previous_socket" current-client-previous-daemon
 current_socket="$TEMP_DIR/current.sock"
 VAULTTY_SESSIOND_SOCKET="$current_socket" \
 VAULTTY_SESSIOND_DISABLE_PEER_VALIDATION=1 \
-  "$ROOT_DIR/target/debug/vaultty-sessiond" serve \
+  "$ROOT_DIR/target/debug/portal-sessiond" serve \
   >"$TEMP_DIR/current.log" 2>&1 &
 PIDS+=("$!")
 wait_for_socket "$current_socket"

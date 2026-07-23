@@ -534,7 +534,7 @@ fn main() -> io::Result<()> {
     match args.next().as_deref() {
         Some("serve") => serve(),
         _ => {
-            eprintln!("usage: vaultty-sessiond serve");
+            eprintln!("usage: portal-sessiond serve");
             std::process::exit(64);
         }
     }
@@ -562,11 +562,11 @@ fn serve() -> io::Result<()> {
                 let state = state.clone();
                 thread::spawn(move || {
                     if let Err(error) = handle_client(stream, state) {
-                        eprintln!("vaultty-sessiond client error: {error}");
+                        eprintln!("portal-sessiond client error: {error}");
                     }
                 });
             }
-            Err(error) => eprintln!("vaultty-sessiond accept error: {error}"),
+            Err(error) => eprintln!("portal-sessiond accept error: {error}"),
         }
     }
     Ok(())
@@ -960,7 +960,7 @@ fn socket_path() -> io::Result<PathBuf> {
     Ok(PathBuf::from(home)
         .join("Library")
         .join("Application Support")
-        .join("Vaultty")
+        .join("Portal Terminal")
         .join("runtime")
         .join("sessiond.sock"))
 }
@@ -1005,7 +1005,10 @@ fn validate_peer_signature(stream: &UnixStream) -> io::Result<()> {
 
     Err(io::Error::new(
         io::ErrorKind::PermissionDenied,
-        format!("peer process is not signed Portal Terminal: {}", path.display()),
+        format!(
+            "peer process is not signed Portal Terminal: {}",
+            path.display()
+        ),
     ))
 }
 

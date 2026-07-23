@@ -138,7 +138,7 @@ final class MacRemoteAccessController {
         agentProcess?.terminationHandler = nil
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        process.arguments = ["-TERM", "-x", "vaultty-remote-agent"]
+        process.arguments = ["-TERM", "-x", "portal-remote-agent"]
         do {
             try process.run()
             process.waitUntilExit()
@@ -152,9 +152,9 @@ final class MacRemoteAccessController {
 
     private func remoteAgentURL() -> URL? {
         let bundled = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Helpers/vaultty-remote-agent")
+            .appendingPathComponent("Contents/Helpers/portal-remote-agent")
         if FileManager.default.isExecutableFile(atPath: bundled.path) { return bundled }
-        let local = URL(fileURLWithPath: "target/debug/vaultty-remote-agent")
+        let local = URL(fileURLWithPath: "target/debug/portal-remote-agent")
         return FileManager.default.isExecutableFile(atPath: local.path) ? local : nil
     }
 

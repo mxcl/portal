@@ -1,6 +1,43 @@
 import Foundation
 import Darwin
 
+@MainActor
+protocol TerminalSession: AnyObject {
+    var onOutput: ((String) -> Void)? { get set }
+    var onHistoryOutput: ((String) -> Void)? { get set }
+    var onExit: ((Int32) -> Void)? { get set }
+    var onReady: ((Bool) -> Void)? { get set }
+    var onPresence: ((Int) -> Void)? { get set }
+
+    func start(
+        shellPath: String,
+        environment: [String: String],
+        workingDirectory: URL,
+        completion: @escaping (Result<Void, Error>) -> Void
+    )
+    func resize(rows: UInt16, cols: UInt16)
+    func isCanonicalInputModeEnabled() -> Bool?
+    func sendInterrupt()
+    func clearHistory()
+    func write(_ string: String, suppressEcho: Bool)
+    func updateState(
+        title: String,
+        cwd: String,
+        createdAt: Date,
+        commandCount: Int,
+        runningCommand: String?,
+        commandHistory: [String]
+    )
+    func stop()
+    func kill()
+}
+
+extension TerminalSession {
+    func write(_ string: String) {
+        write(string, suppressEcho: false)
+    }
+}
+
 private protocol SessionTransport: AnyObject {
     var onText: ((String) -> Void)? { get set }
     var onExit: ((Int32) -> Void)? { get set }
@@ -239,7 +276,10 @@ final class PtySession {
         }
     }
 
-    func joinExisting(completion: @escaping (Result<Void, Error>) -> Void) {
+    func joinExisting(
+        role: SessionWireProtocol.ClientRole = .phone,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
         queue.async { [weak self] in
             guard let self, !self.hasStopped() else { return }
             do {
@@ -251,7 +291,7 @@ final class PtySession {
                 if version >= SessionWireProtocol.currentVersion {
                     command = .joinV2(
                         version: version,
-                        role: .phone,
+                        role: role,
                         clientID: self.clientID,
                         sessionID: self.sessionRef.sessionID
                     )
@@ -378,6 +418,8 @@ final class PtySession {
             try sendLocalCommandNoResponse(SessionWireProtocol.encode(command), startsDaemon: false)
         case .sshHost:
             try sendCommandNoResponse(command, location: sessionRef.location)
+        case .relayMac:
+            throw unsupportedProtocolError()
         }
     }
 
@@ -479,6 +521,8 @@ final class PtySession {
                 process: Self.makeSSHBridgeProcess(host: host),
                 write: Self.writeAll
             )
+        case .relayMac:
+            throw Self.unsupportedProtocolError()
         }
         transport.onText = { [weak self] text in self?.consumeProtocolText(text) }
         transport.onExit = { [weak self] status in self?.reportExit(status) }
@@ -568,6 +612,8 @@ final class PtySession {
                 .first
                 .map(String.init) ?? ""
             return SessionWireProtocol.Decoder.decode(response)
+        case .relayMac:
+            throw unsupportedProtocolError()
         }
     }
 
@@ -611,6 +657,8 @@ final class PtySession {
                     process.terminate()
                 }
             }
+        case .relayMac:
+            throw unsupportedProtocolError()
         }
     }
 
@@ -1039,6 +1087,8 @@ final class PtySession {
         )
     }
 }
+
+extension PtySession: TerminalSession {}
 
 private extension String {
     func removingPrefix(_ prefix: String) -> String? {

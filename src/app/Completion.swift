@@ -1045,6 +1045,8 @@ final class VaulttyCompletionEngine {
             return "local:\(request.environment["PATH"] ?? "")"
         case .sshHost(let hostID):
             return "ssh:\(hostID)"
+        case .relayMac(let macID):
+            return "relay:\(macID)"
         }
     }
 
@@ -1078,6 +1080,9 @@ final class VaulttyCompletionEngine {
                 sources[suggestion.displayText] = suggestion.source
             }
             return sources
+        case .relayMac:
+            // ponytail: relay command completion waits for a typed query message.
+            return [:]
         }
     }
 
@@ -1109,6 +1114,8 @@ final class VaulttyCompletionEngine {
             )
             .filter { $0.kind == "folder" || $0.isExecutable }
             .map(completionSuggestion)
+        case .relayMac:
+            return []
         }
     }
 
@@ -1124,6 +1131,8 @@ final class VaulttyCompletionEngine {
                 foldersOnly: foldersOnly
             )
             .map(completionSuggestion)
+        case .relayMac:
+            return []
         }
     }
 
@@ -1978,6 +1987,8 @@ private enum ShellCommandRunner {
                 timeout: timeout,
                 outputLimit: outputLimit
             )
+        case .relayMac:
+            return nil
         }
     }
 

@@ -59,6 +59,9 @@ final class GitDirectoryStateProvider {
             return summary(forDirectory: url, forceRefresh: forceRefresh)
         case .sshHost(let hostID):
             return remoteSummary(forDirectory: url, hostID: hostID, forceRefresh: forceRefresh)
+        case .relayMac:
+            // ponytail: relay Git status waits for a typed query message.
+            return nil
         }
     }
 

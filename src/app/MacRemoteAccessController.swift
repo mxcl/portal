@@ -10,6 +10,7 @@ private let remoteAccessLogger = Logger(
 final class MacRemoteAccessController {
     static let enabledDefaultsKey = "remoteAccessEnabled"
     static let endpointDefaultsKey = "remoteAccessRelayEndpoint"
+    static let macIDDefaultsKey = "remoteAccessMacID"
 
     private struct Bridge {
         var session: PtySession
@@ -28,13 +29,7 @@ final class MacRemoteAccessController {
     private var pendingCreations: [String: PtySession] = [:]
 
     init() {
-        if let existing = UserDefaults.standard.string(forKey: "remoteAccessMacID") {
-            macID = existing
-        } else {
-            let created = UUID().uuidString
-            UserDefaults.standard.set(created, forKey: "remoteAccessMacID")
-            macID = created
-        }
+        macID = Self.macID()
         configuredEndpoint = nil
         suppliedRootKey = nil
     }
@@ -136,16 +131,18 @@ final class MacRemoteAccessController {
 
     private func terminateAgent() {
         agentProcess?.terminationHandler = nil
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        process.arguments = ["-TERM", "-x", "portal-remote-agent"]
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            remoteAccessLogger.error(
-                "Portal remote agent could not be terminated: \(String(describing: error), privacy: .public)"
-            )
+        for name in ["portal-remote-agent", "vaultty-remote-agent"] {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+            process.arguments = ["-TERM", "-x", name]
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                remoteAccessLogger.error(
+                    "Portal remote agent could not be terminated: \(String(describing: error), privacy: .public)"
+                )
+            }
         }
         agentProcess = nil
     }
@@ -218,6 +215,27 @@ final class MacRemoteAccessController {
             }
         case .interrupt:
             bridges[message.requestID]?.session.sendInterrupt()
+        case .resize:
+            guard let payload = message.payload,
+                  let size = try? JSONDecoder().decode(RemoteTerminalSize.self, from: payload)
+            else { return }
+            bridges[message.requestID]?.session.resize(rows: size.rows, cols: size.cols)
+        case .clearHistory:
+            bridges[message.requestID]?.session.clearHistory()
+        case .updateState:
+            guard let payload = message.payload,
+                  let state = try? JSONDecoder().decode(RemoteSessionState.self, from: payload)
+            else { return }
+            bridges[message.requestID]?.session.updateState(
+                title: state.title,
+                cwd: state.cwd,
+                createdAt: state.createdAt,
+                commandCount: state.commandCount,
+                runningCommand: state.runningCommand,
+                commandHistory: state.commandHistory
+            )
+        case .kill:
+            bridges.removeValue(forKey: message.requestID)?.session.kill()
         case .historyPage:
             break
         case .catalog, .sessionCreated, .terminalEvent, .presence, .error, .unknown:
@@ -354,12 +372,12 @@ final class MacRemoteAccessController {
         )
         session.onHistoryOutput = { [weak self] text in
             DispatchQueue.main.async {
-                self?.sendTerminal(text, requestID: message.requestID)
+                self?.sendTerminal(text, requestID: message.requestID, isHistory: true)
             }
         }
         session.onOutput = { [weak self] text in
             DispatchQueue.main.async {
-                self?.sendTerminal(text, requestID: message.requestID)
+                self?.sendTerminal(text, requestID: message.requestID, isHistory: false)
             }
         }
         session.onExit = { [weak self] status in
@@ -379,7 +397,8 @@ final class MacRemoteAccessController {
                 ))
             }
         }
-        session.joinExisting { [weak self] result in
+        let role: SessionWireProtocol.ClientRole = message.clientRole == .mac ? .mac : .phone
+        session.joinExisting(role: role) { [weak self] result in
             if case .failure(let error) = result {
                 self?.sendError(error.localizedDescription, request: message)
                 self?.detach(requestID: message.requestID)
@@ -391,7 +410,7 @@ final class MacRemoteAccessController {
         bridges.removeValue(forKey: requestID)?.session.stop()
     }
 
-    private func sendTerminal(_ text: String, requestID: String) {
+    private func sendTerminal(_ text: String, requestID: String, isHistory: Bool) {
         guard var bridge = bridges[requestID] else { return }
         let sequence = bridge.nextSequence
         bridge.nextSequence = bridge.nextSequence.saturatingAdding(1)
@@ -402,7 +421,8 @@ final class MacRemoteAccessController {
             macID: macID,
             sessionID: bridge.sessionID,
             sequence: sequence,
-            payload: Data(text.utf8)
+            payload: Data(text.utf8),
+            isHistory: isHistory
         ))
     }
 
@@ -439,6 +459,7 @@ final class MacRemoteAccessController {
             name: Host.current().localizedName ?? "Mac",
             online: true,
             lastSeen: now,
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
             sessions: sessions.map {
                 RemoteCatalogSession(
                     sessionID: $0.sessionID,
@@ -459,16 +480,29 @@ final class MacRemoteAccessController {
         return try? JSONEncoder().encode(existing)
     }
 
-    private func relayEndpoint() throws -> URL {
+    static func macID() -> String {
+        if let existing = UserDefaults.standard.string(forKey: macIDDefaultsKey) {
+            return existing
+        }
+        let created = UUID().uuidString
+        UserDefaults.standard.set(created, forKey: macIDDefaultsKey)
+        return created
+    }
+
+    static func relayEndpoint(configuredEndpoint: URL? = nil) throws -> URL {
         if let configuredEndpoint { return configuredEndpoint }
         let value = ProcessInfo.processInfo.environment["VAULTTY_RELAY_ENDPOINT"]
-            ?? UserDefaults.standard.string(forKey: Self.endpointDefaultsKey)
+            ?? UserDefaults.standard.string(forKey: endpointDefaultsKey)
             ?? "https://vaultty-relay.mxcl.dev"
         guard let endpoint = URL(string: value),
               endpoint.scheme == "https" || endpoint.scheme == "http" else {
             throw RelayClientError.invalidEndpoint
         }
         return endpoint
+    }
+
+    private func relayEndpoint() throws -> URL {
+        try Self.relayEndpoint(configuredEndpoint: configuredEndpoint)
     }
 }
 

@@ -3274,6 +3274,7 @@ private final class SessionCandidateRowView: NSView {
     }
 }
 
+@MainActor
 private final class TerminalTab {
     let id = UUID()
     var sessionRef: SessionRef
@@ -3281,7 +3282,7 @@ private final class TerminalTab {
         get { sessionRef.sessionID }
         set { sessionRef.sessionID = newValue }
     }
-    var session: PtySession
+    var session: any TerminalSession
     let commandLifecycle: CommandLifecycle
     let outputProcessor = TerminalOutputProcessor()
     let rootView = NSView()
@@ -3338,7 +3339,12 @@ private final class TerminalTab {
         commandHistory: [String] = []
     ) {
         self.sessionRef = sessionRef
-        self.session = PtySession(sessionRef: sessionRef)
+        switch sessionRef.location {
+        case .relayMac:
+            self.session = RelayTerminalSession(sessionRef: sessionRef)
+        case .local, .sshHost:
+            self.session = PtySession(sessionRef: sessionRef)
+        }
         self.title = title
         self.createdAt = createdAt
         self.commandLifecycle = CommandLifecycle(
@@ -3543,6 +3549,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         enum Kind {
             case existing
             case newRemote(SSHHostRecord)
+            case newRelay(RemoteMac)
         }
 
         var sessionRef: SessionRef
@@ -4691,7 +4698,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         remoteSessionQueue.async { [weak self] in
             guard let self else { return }
             let remoteCandidates = self.remoteSessionCandidates(excluding: seen)
-            guard !remoteCandidates.isEmpty else { return }
             DispatchQueue.main.async { [weak self] in
                 guard let self,
                       let tab = self.tabs.first(where: { $0.id == tabID }),
@@ -4700,7 +4706,46 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 else {
                     return
                 }
-                self.renderSessionPicker(existing + remoteCandidates, for: tab)
+                let candidates = existing + remoteCandidates
+                self.renderSessionPicker(candidates, for: tab)
+                self.loadRelaySessionCandidates(
+                    for: tab,
+                    excluding: Set(candidates.map(\.sessionRef)),
+                    existing: candidates
+                )
+            }
+        }
+    }
+
+    private func loadRelaySessionCandidates(
+        for tab: TerminalTab,
+        excluding seen: Set<SessionRef>,
+        existing: [LocalSessionCandidate]
+    ) {
+        let tabID = tab.id
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let endpoint = try MacRemoteAccessController.relayEndpoint()
+                let key = try ICloudKeychainRootKey().loadOrCreate()
+                let client = try RelayCatalogClient(endpoint: endpoint, rootKeyData: key)
+                guard let data = try await client.load() else { return }
+                let catalog = try JSONDecoder().decode(RemoteCatalog.self, from: data)
+                let candidates = self.relaySessionCandidates(
+                    in: catalog,
+                    excluding: seen,
+                    localMacID: MacRemoteAccessController.macID()
+                )
+                guard !candidates.isEmpty,
+                      let tab = self.tabs.first(where: { $0.id == tabID }),
+                      tab.commandCount == 0,
+                      tab.canReplaceFreshSession
+                else {
+                    return
+                }
+                self.renderSessionPicker(existing + candidates, for: tab)
+            } catch {
+                return
             }
         }
     }
@@ -4842,18 +4887,80 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return candidates
     }
 
-    private func hostname(for location: SessionLocation) -> String? {
-        guard case .sshHost(let hostID) = location,
-              let host = PtySession.loadSSHHosts().hosts.first(where: { $0.id == hostID })
-        else {
-            return nil
+    private func relaySessionCandidates(
+        in catalog: RemoteCatalog,
+        excluding seen: Set<SessionRef>,
+        localMacID: String
+    ) -> [LocalSessionCandidate] {
+        let now = Date()
+        var candidates: [LocalSessionCandidate] = []
+        var seenSessionRefs = seen
+        for mac in catalog.macs where
+            mac.id != localMacID &&
+            mac.online &&
+            now.timeIntervalSince(mac.lastSeen) < 10
+        {
+            let location = SessionLocation.relayMac(mac.id)
+            let newSessionRef = SessionRef(
+                location: location,
+                sessionID: UUID().uuidString
+            )
+            candidates.append(LocalSessionCandidate(
+                sessionRef: newSessionRef,
+                sessionID: newSessionRef.sessionID,
+                hostPrefix: mac.name,
+                title: "New session",
+                cwd: mac.homeDirectory ?? "/",
+                isClosedSession: false,
+                createdAt: nil,
+                commandCount: 0,
+                runningCommand: nil,
+                commandHistory: [],
+                kind: .newRelay(mac)
+            ))
+            for session in mac.sessions {
+                let sessionRef = SessionRef(
+                    location: location,
+                    sessionID: session.sessionID
+                )
+                guard seenSessionRefs.insert(sessionRef).inserted else { continue }
+                candidates.append(LocalSessionCandidate(
+                    sessionRef: sessionRef,
+                    sessionID: session.sessionID,
+                    hostPrefix: mac.name,
+                    title: session.title,
+                    cwd: session.cwd,
+                    isClosedSession: false,
+                    createdAt: session.createdAt,
+                    commandCount: session.commandCount,
+                    runningCommand: session.runningCommand,
+                    commandHistory: [],
+                    kind: .existing
+                ))
+            }
         }
-        return host.hostname.isEmpty ? host.alias : host.hostname
+        return candidates
+    }
+
+    private func hostname(for location: SessionLocation) -> String? {
+        switch location {
+        case .local:
+            return nil
+        case .sshHost(let hostID):
+            guard let host = PtySession.loadSSHHosts().hosts.first(where: { $0.id == hostID })
+            else { return nil }
+            return host.hostname.isEmpty ? host.alias : host.hostname
+        case .relayMac(let macID):
+            return macID
+        }
     }
 
     private func sessionCandidateTitle(_ candidate: LocalSessionCandidate) -> String {
-        if case .newRemote = candidate.kind {
+        switch candidate.kind {
+        case .newRemote, .newRelay:
             return "New session"
+        case .existing:
+            break
         }
         if let runningCommand = candidate.runningCommand,
            !runningCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -4863,8 +4970,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func sessionCandidateSubtitle(_ candidate: LocalSessionCandidate) -> String? {
-        if case .newRemote = candidate.kind {
+        switch candidate.kind {
+        case .newRemote, .newRelay:
             return "Remote home"
+        case .existing:
+            break
         }
         if let runningCommand = candidate.runningCommand,
            !runningCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -4874,8 +4984,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func sessionCandidateMetadata(_ candidate: LocalSessionCandidate) -> String {
-        if case .newRemote = candidate.kind {
+        switch candidate.kind {
+        case .newRemote:
             return "Login shell"
+        case .newRelay:
+            return "Encrypted relay"
+        case .existing:
+            break
         }
         let createdText = candidate.createdAt.map { relativeSessionTime(from: $0) } ?? "earlier"
         guard candidate.commandCount > 0 else {
@@ -4926,6 +5041,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             replaceFreshSession(in: tab, with: candidate)
         case .newRemote(let host):
             startNewRemoteSession(in: tab, with: candidate, on: host)
+        case .newRelay:
+            replaceFreshSession(
+                in: tab,
+                with: candidate,
+                createsRelaySession: true
+            )
         }
     }
 
@@ -5027,21 +5148,25 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         persistSessionState()
         configureSessionPickerIfPossible()
 
-        sessionCleanupQueue.async { [weak self] in
+        Task { [weak self] in
             do {
-                try PtySession.killDetachedSession(sessionRef: sessionRef)
-            } catch {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    self.sessionCatalog.restoreClosed([stored])
-                    self.persistSessionState()
-                    self.configureSessionPickerIfPossible()
-                    let alert = NSAlert()
-                    alert.alertStyle = .warning
-                    alert.messageText = "Closed tab could not be killed"
-                    alert.informativeText = "\(stored.title): \(error.localizedDescription)"
-                    alert.runModal()
+                if case .relayMac = sessionRef.location {
+                    try await RelayTerminalSession.killDetached(sessionRef)
+                } else {
+                    try await Task.detached {
+                        try PtySession.killDetachedSession(sessionRef: sessionRef)
+                    }.value
                 }
+            } catch {
+                guard let self else { return }
+                self.sessionCatalog.restoreClosed([stored])
+                self.persistSessionState()
+                self.configureSessionPickerIfPossible()
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Closed tab could not be killed"
+                alert.informativeText = "\(stored.title): \(error.localizedDescription)"
+                alert.runModal()
             }
         }
     }
@@ -5059,14 +5184,23 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private func replaceFreshSession(
         in tab: TerminalTab,
         with candidate: LocalSessionCandidate,
-        shellPath: String? = nil
+        shellPath: String? = nil,
+        createsRelaySession: Bool = false
     ) {
         tab.session.kill()
 
         hideSessionPicker(for: tab)
         clearCommandInput(in: tab)
         tab.sessionRef = candidate.sessionRef
-        tab.session = PtySession(sessionRef: candidate.sessionRef)
+        switch candidate.sessionRef.location {
+        case .relayMac:
+            tab.session = RelayTerminalSession(
+                sessionRef: candidate.sessionRef,
+                createsSession: createsRelaySession
+            )
+        case .local, .sshHost:
+            tab.session = PtySession(sessionRef: candidate.sessionRef)
+        }
         tab.title = candidate.title
         tab.createdAt = candidate.createdAt ?? Date()
         tab.commandLifecycle.apply(.replaceSession(
@@ -5469,11 +5603,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         workingDirectory: URL,
         shellPath: String? = nil
     ) {
-        let isRemoteSession: Bool
+        let isRemoteSession = tab.sessionRef.location != .local
+        let isSSHSession: Bool
         if case .sshHost = tab.sessionRef.location {
-            isRemoteSession = true
+            isSSHSession = true
         } else {
-            isRemoteSession = false
+            isSSHSession = false
         }
 
         let shell = shellPath ?? (isRemoteSession
@@ -5503,7 +5638,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             export LC_TERMINAL=Portal
             export LC_TERMINAL_VERSION=\(shellQuote(appVersion))
             export __CFBundleIdentifier=\(shellQuote(bundleIdentifier))
-            \(isRemoteSession ? remoteCodeFunctionScript : "")
+            \(isSSHSession ? remoteCodeFunctionScript : "")
             cd \(shellQuote(workingDirectory.path))
             stty -echo
             PROMPT=''
@@ -5577,7 +5712,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         switch tab.sessionRef.location {
         case .local:
             environment = ProcessInfo.processInfo.environment
-        case .sshHost:
+        case .sshHost, .relayMac:
             environment = [:]
         }
         environment["PWD"] = tab.currentCwd

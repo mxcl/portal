@@ -145,10 +145,12 @@ if [[ -n "$BASE_REF" ]]; then
     src/core/SessionWireProtocol.swift
     src/core/RemoteProtocol.swift
     src/core/RemoteSessionCreationClient.swift
+    src/core/RemoteTerminalSessionClient.swift
     src/core/RelayCrypto.swift
     src/app/PtySession.swift
     src/app/main.swift
     src/app/MacRemoteAccessController.swift
+    src/app/RelayTerminalSession.swift
     src/ios/MobileRemoteModel.swift
     Tests/VaulttyCoreTests/SessionWireProtocolTests.swift
     Tests/VaulttyCoreTests/RemoteProtocolTests.swift

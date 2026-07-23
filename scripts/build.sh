@@ -905,12 +905,14 @@ SWIFTC_COMMAND=(
   "$ROOT_DIR/src/core/SessionWireProtocol.swift" \
   "$ROOT_DIR/src/core/RemoteProtocol.swift" \
   "$ROOT_DIR/src/core/RemoteSessionCreationClient.swift" \
+  "$ROOT_DIR/src/core/RemoteTerminalSessionClient.swift" \
   "$ROOT_DIR/src/core/VaulttyCommandEnvelope.swift" \
   "$ROOT_DIR/src/core/RelayCrypto.swift" \
   "$ROOT_DIR/src/core/ICloudKeychainRootKey.swift" \
   "$ROOT_DIR/src/core/RelayClient.swift" \
   "$ROOT_DIR/src/app/PtySession.swift" \
   "$ROOT_DIR/src/app/MacRemoteAccessController.swift" \
+  "$ROOT_DIR/src/app/RelayTerminalSession.swift" \
   "$ROOT_DIR/src/core/CommandLifecycle.swift" \
   "$ROOT_DIR/src/app/Ansi.swift" \
   "$ROOT_DIR/src/app/GitDirectoryState.swift" \

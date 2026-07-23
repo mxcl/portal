@@ -21,6 +21,16 @@ private struct RendererBenchmark {
             return
         }
 
+        if CommandLine.arguments.contains("--scroll-self-test") {
+            let renderer = Ansi.StyledTextRenderer(rows: 3)
+            let output = renderer.process("one\r\ntwo\r\nthree\r\nfour\u{1B}[3;1H\u{1B}[2KFOUR")
+            precondition(output.plainText == "one\ntwo\nthree\nFOUR")
+            let margins = Ansi.StyledTextRenderer(rows: 4)
+            let shifted = margins.process("one\r\ntwo\r\nthree\r\nfour\u{1B}[2;4r\u{1B}[2;1H\u{1B}M")
+            precondition(shifted.plainText == "one\n\ntwo\nthree")
+            return
+        }
+
         let cases = [
             BenchmarkCase(
                 name: "carriage-return-progress",

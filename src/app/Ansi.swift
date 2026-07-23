@@ -55,10 +55,28 @@ enum Ansi {
         private var cursorCol = 0
         private var savedCursorRow = 0
         private var savedCursorCol = 0
+        private var viewportTop = 0
+        private var rows: Int?
+        private var scrollTop = 0
+        private var scrollBottom = 0
         private var droppedLineCount = 0
         private var visibleCellCount = 0
         private var attributeCache: AttributeCache = [:]
         private var linkBaseDirectory: String?
+
+        init(rows: Int? = nil) {
+            self.rows = rows.map { max(1, $0) }
+            scrollBottom = self.rows.map { $0 - 1 } ?? 0
+        }
+
+        func resize(rows: Int) {
+            let rows = max(1, rows)
+            let screenRow = cursorRow - viewportTop
+            self.rows = rows
+            scrollTop = 0
+            scrollBottom = rows - 1
+            cursorRow = viewportTop + min(max(0, screenRow), rows - 1)
+        }
 
         func reset() {
             pending.removeAll()
@@ -68,6 +86,9 @@ enum Ansi {
             cursorCol = 0
             savedCursorRow = 0
             savedCursorCol = 0
+            viewportTop = 0
+            scrollTop = 0
+            scrollBottom = rows.map { $0 - 1 } ?? 0
             droppedLineCount = 0
             visibleCellCount = 0
             attributeCache.removeAll(keepingCapacity: true)
@@ -170,7 +191,7 @@ enum Ansi {
                 cursorCol = 0
                 lineFeed()
             case "M":
-                cursorRow = max(0, cursorRow - 1)
+                reverseIndex()
             case "c":
                 reset()
             default:
@@ -189,24 +210,24 @@ enum Ansi {
 
             switch final {
             case "A":
-                cursorRow = max(0, cursorRow - firstParameter(body, defaultValue: 1))
+                moveCursorRows(-firstParameter(body, defaultValue: 1))
             case "B":
-                cursorRow += firstParameter(body, defaultValue: 1)
+                moveCursorRows(firstParameter(body, defaultValue: 1))
             case "C":
                 cursorCol += firstParameter(body, defaultValue: 1)
             case "D":
                 cursorCol = max(0, cursorCol - firstParameter(body, defaultValue: 1))
             case "E":
-                cursorRow += firstParameter(body, defaultValue: 1)
+                moveCursorRows(firstParameter(body, defaultValue: 1))
                 cursorCol = 0
             case "F":
-                cursorRow = max(0, cursorRow - firstParameter(body, defaultValue: 1))
+                moveCursorRows(-firstParameter(body, defaultValue: 1))
                 cursorCol = 0
             case "G":
                 cursorCol = max(0, firstParameter(body, defaultValue: 1) - 1)
             case "H", "f":
                 let parameters = parseParameters(body)
-                cursorRow = max(0, parameter(parameters, at: 0, defaultValue: 1) - 1)
+                cursorRow = absoluteRow(parameter(parameters, at: 0, defaultValue: 1) - 1)
                 cursorCol = max(0, parameter(parameters, at: 1, defaultValue: 1) - 1)
             case "J":
                 eraseDisplay(firstParameter(body, defaultValue: 0))
@@ -214,6 +235,12 @@ enum Ansi {
                 eraseLine(firstParameter(body, defaultValue: 0))
             case "X":
                 eraseCharacters(firstParameter(body, defaultValue: 1))
+            case "S":
+                scrollUp(firstParameter(body, defaultValue: 1))
+            case "T":
+                scrollDown(firstParameter(body, defaultValue: 1))
+            case "d":
+                cursorRow = absoluteRow(firstParameter(body, defaultValue: 1) - 1)
             case "m":
                 let parameters = parseParameters(body)
                 style.applySGR(parameters)
@@ -221,6 +248,8 @@ enum Ansi {
                 saveCursor()
             case "u":
                 restoreCursor()
+            case "r":
+                setScrollRegion(body)
             default:
                 break
             }
@@ -252,14 +281,41 @@ enum Ansi {
         }
 
         private func lineFeed() {
-            cursorRow += 1
+            if rows != nil, cursorRow - viewportTop == scrollBottom {
+                scrollUp(1)
+            } else {
+                moveCursorRows(1)
+            }
             cursorCol = 0
             ensureCursorRow()
         }
 
-        private func ensureCursorRow() {
+        private func reverseIndex() {
+            if rows != nil, cursorRow - viewportTop == scrollTop {
+                scrollDown(1)
+            } else {
+                moveCursorRows(-1)
+            }
+        }
+
+        private func moveCursorRows(_ offset: Int) {
+            guard let rows else {
+                cursorRow = max(0, cursorRow + offset)
+                return
+            }
+            let screenRow = min(max(0, cursorRow - viewportTop + offset), rows - 1)
+            cursorRow = viewportTop + screenRow
+        }
+
+        private func absoluteRow(_ screenRow: Int) -> Int {
+            guard let rows else { return max(0, screenRow) }
+            return viewportTop + min(max(0, screenRow), rows - 1)
+        }
+
+        private func ensureCursorRow(_ requestedRow: Int? = nil) {
+            let row = requestedRow ?? cursorRow
             var didAppendRow = false
-            while cursorRow >= lines.count {
+            while row >= lines.count {
                 lines.append([])
                 didAppendRow = true
             }
@@ -327,6 +383,61 @@ enum Ansi {
             guard cursorCol < end else { return }
             for col in cursorCol..<end {
                 lines[cursorRow][col] = Cell(scalar: " ", style: style)
+            }
+        }
+
+        private func setScrollRegion<C: Collection>(_ body: C) where C.Element == Unicode.Scalar {
+            guard let rows else { return }
+            let parameters = parseParameters(body)
+            let top = parameter(parameters, at: 0, defaultValue: 1) - 1
+            let bottom = parameter(parameters, at: 1, defaultValue: rows) - 1
+            if top >= 0, bottom < rows, top < bottom {
+                scrollTop = top
+                scrollBottom = bottom
+            } else {
+                scrollTop = 0
+                scrollBottom = rows - 1
+            }
+            cursorRow = viewportTop
+            cursorCol = 0
+        }
+
+        private func scrollUp(_ requestedCount: Int) {
+            guard let rows else { return }
+            let count = min(max(0, requestedCount), scrollBottom - scrollTop + 1)
+            guard count > 0 else { return }
+
+            if scrollTop == 0, scrollBottom == rows - 1 {
+                for _ in 0..<count {
+                    viewportTop += 1
+                    cursorRow += 1
+                    savedCursorRow += 1
+                    ensureCursorRow(viewportTop + rows - 1)
+                }
+                return
+            }
+
+            ensureCursorRow(viewportTop + scrollBottom)
+            let start = viewportTop + scrollTop
+            let end = viewportTop + scrollBottom
+            for _ in 0..<count {
+                visibleCellCount -= lines[start].count
+                lines.remove(at: start)
+                lines.insert([], at: end)
+            }
+        }
+
+        private func scrollDown(_ requestedCount: Int) {
+            guard rows != nil else { return }
+            let count = min(max(0, requestedCount), scrollBottom - scrollTop + 1)
+            guard count > 0 else { return }
+            ensureCursorRow(viewportTop + scrollBottom)
+            let start = viewportTop + scrollTop
+            let end = viewportTop + scrollBottom
+            for _ in 0..<count {
+                visibleCellCount -= lines[end].count
+                lines.remove(at: end)
+                lines.insert([], at: start)
             }
         }
 
@@ -403,6 +514,7 @@ enum Ansi {
                 droppedLineCount += removeCount
                 cursorRow = max(0, cursorRow - removeCount)
                 savedCursorRow = max(0, savedCursorRow - removeCount)
+                viewportTop = max(0, viewportTop - removeCount)
             }
         }
 

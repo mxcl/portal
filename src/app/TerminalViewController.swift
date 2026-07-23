@@ -2637,7 +2637,7 @@ private final class TerminalOutputProcessor {
     private let queue = DispatchQueue(label: "com.automicvault.vaultty.output-render", qos: .userInitiated)
     private let flushDelay: DispatchTimeInterval
     private let terminalScreen = Ansi.TerminalScreen(rows: 30, cols: 100)
-    private let styledRenderer = Ansi.StyledTextRenderer()
+    private let styledRenderer = Ansi.StyledTextRenderer(rows: 30)
     private var pendingShellOutput = ""
     private var isShellOutputFlushScheduled = false
     private var parserBuffer = ""
@@ -2728,6 +2728,7 @@ private final class TerminalOutputProcessor {
             self?.rows = rows
             self?.cols = cols
             self?.terminalScreen.resize(rows: rows, cols: cols)
+            self?.styledRenderer.resize(rows: rows)
         }
     }
 

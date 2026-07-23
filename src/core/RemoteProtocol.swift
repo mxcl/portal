@@ -55,6 +55,58 @@ public enum RemoteClientRole: String, Codable, Equatable, Sendable {
     case mac
 }
 
+public struct RemoteCapabilities: Codable, Equatable, Sendable {
+    public static let relayCompletion = "relay-completion-v1"
+
+    public var values: [String]
+
+    public init(values: [String]) {
+        self.values = values
+    }
+}
+
+public enum RemoteCompletionOperation: String, Codable, CaseIterable, Sendable {
+    case completeCommands = "complete-commands"
+    case completePath = "complete-path"
+    case runGenerator = "run-generator"
+}
+
+public struct RemoteCompletionRequest: Codable, Equatable, Sendable {
+    public static let maximumPayloadSize = 128 * 1024
+
+    public var operationID: String
+    public var operation: RemoteCompletionOperation
+    public var payload: Data
+
+    public init(operationID: String, operation: RemoteCompletionOperation, payload: Data) {
+        self.operationID = operationID
+        self.operation = operation
+        self.payload = payload
+    }
+}
+
+public struct RemoteCompletionResponse: Codable, Equatable, Sendable {
+    public static let maximumPayloadSize = 768 * 1024
+
+    public var operationID: String
+    public var payload: Data?
+    public var error: String?
+
+    public init(operationID: String, payload: Data? = nil, error: String? = nil) {
+        self.operationID = operationID
+        self.payload = payload
+        self.error = error
+    }
+}
+
+public struct RemoteCompletionCancellation: Codable, Equatable, Sendable {
+    public var operationID: String
+
+    public init(operationID: String) {
+        self.operationID = operationID
+    }
+}
+
 public struct RemoteTerminalSize: Codable, Equatable, Sendable {
     public var rows: UInt16
     public var cols: UInt16
@@ -127,6 +179,10 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
     case historyPage
     case terminalEvent
     case presence
+    case capabilities
+    case completionRequest
+    case completionResponse
+    case completionCancel
     case error
     case unknown(String)
 
@@ -148,6 +204,10 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
         case "historyPage": .historyPage
         case "terminalEvent": .terminalEvent
         case "presence": .presence
+        case "capabilities": .capabilities
+        case "completionRequest": .completionRequest
+        case "completionResponse": .completionResponse
+        case "completionCancel": .completionCancel
         case "error": .error
         default: .unknown(value)
         }
@@ -170,6 +230,10 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
         case .historyPage: "historyPage"
         case .terminalEvent: "terminalEvent"
         case .presence: "presence"
+        case .capabilities: "capabilities"
+        case .completionRequest: "completionRequest"
+        case .completionResponse: "completionResponse"
+        case .completionCancel: "completionCancel"
         case .error: "error"
         case .unknown(let value): value
         }

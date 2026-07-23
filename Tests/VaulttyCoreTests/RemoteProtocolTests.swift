@@ -41,6 +41,33 @@ struct RemoteProtocolTests {
         #expect(decoded == message)
     }
 
+    @Test("completion messages preserve typed operations and opaque payloads")
+    func completionRoundTrip() throws {
+        let request = RemoteCompletionRequest(
+            operationID: "completion",
+            operation: .completePath,
+            payload: Data(#"{"cwd":"/tmp","prefix":"s"}"#.utf8)
+        )
+        let message = RemoteMessage(
+            kind: .completionRequest,
+            requestID: "request",
+            macID: "mac",
+            sessionID: "session",
+            payload: try JSONEncoder().encode(request)
+        )
+
+        let decoded = try JSONDecoder().decode(
+            RemoteMessage.self,
+            from: JSONEncoder().encode(message)
+        )
+
+        #expect(decoded == message)
+        #expect(try JSONDecoder().decode(
+            RemoteCompletionRequest.self,
+            from: #require(decoded.payload)
+        ) == request)
+    }
+
     @Test("unknown message kinds remain decodable and round-trip")
     func unknownMessageKindsDecode() throws {
         let fixture = Data(#"{"version":1,"kind":"futureFeature","requestID":"request"}"#.utf8)

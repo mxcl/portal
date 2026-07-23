@@ -4641,6 +4641,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private func renderSessionPicker(_ candidates: [LocalSessionCandidate], for tab: TerminalTab) {
         guard !candidates.isEmpty else {
             hideSessionPicker(for: tab)
+            tab.canReplaceFreshSession = true
             return
         }
 

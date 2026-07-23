@@ -11,6 +11,8 @@ struct CompletionRequest {
     let environment: [String: String]
     let location: SessionLocation
     let limit: Int
+    let cancellation: CompletionCancellation
+    let relayProvider: RelayCompletionProvider?
 }
 
 struct CompletionResult {
@@ -79,6 +81,177 @@ private struct BridgeGeneratorOutput: Decodable {
     let stdout: String
     let stderr: String
     let status: Int32
+}
+
+final class CompletionCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.withLock { cancelled }
+    }
+
+    func cancel() {
+        lock.withLock { cancelled = true }
+    }
+}
+
+private final class RelayCompletionResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: Data?
+
+    func store(_ result: Data?) {
+        lock.withLock { self.result = result }
+    }
+
+    func load() -> Data? {
+        lock.withLock { result }
+    }
+}
+
+final class RelayCompletionProvider: @unchecked Sendable {
+    private let lock = NSLock()
+    private var client: RemoteTerminalSessionClient?
+    private var generation = UUID().uuidString
+    private var revision = 0
+    private var isSupported = false
+    private var commandData: Data?
+    private var commandTask: Task<Data?, Never>?
+
+    var cacheIdentity: String {
+        lock.withLock { "\(generation):\(revision)" }
+    }
+
+    func connect(_ client: RemoteTerminalSessionClient) {
+        lock.withLock {
+            commandTask?.cancel()
+            self.client = client
+            generation = UUID().uuidString
+            revision = 0
+            isSupported = false
+            commandData = nil
+            commandTask = nil
+        }
+    }
+
+    func enable(_ capabilities: Set<String>) {
+        guard capabilities.contains(RemoteCapabilities.relayCompletion),
+              let input = try? JSONEncoder().encode(
+                BridgeCommandCompletionRequest(prefix: "")
+              )
+        else { return }
+
+        let state: (RemoteTerminalSessionClient, String)? = lock.withLock {
+            guard !isSupported, let client else { return nil }
+            isSupported = true
+            return (client, generation)
+        }
+        guard let (client, generation) = state else { return }
+        let task = Task {
+            try? await client.complete(
+                operation: .completeCommands,
+                payload: input,
+                timeoutNanoseconds: 2_000_000_000
+            )
+        }
+        lock.withLock {
+            guard self.generation == generation else {
+                task.cancel()
+                return
+            }
+            commandTask = task
+        }
+        Task { [weak self] in
+            guard let data = await task.value else { return }
+            self?.storeCommands(data, generation: generation)
+        }
+    }
+
+    func disconnect() {
+        lock.withLock {
+            commandTask?.cancel()
+            client = nil
+            generation = UUID().uuidString
+            revision = 0
+            isSupported = false
+            commandData = nil
+            commandTask = nil
+        }
+    }
+
+    func run(
+        operation: RemoteCompletionOperation,
+        input: Data,
+        timeout: TimeInterval,
+        cancellation: CompletionCancellation
+    ) -> Data? {
+        dispatchPrecondition(condition: .notOnQueue(.main))
+        guard !cancellation.isCancelled else { return nil }
+
+        if operation == .completeCommands {
+            let cached: Data? = lock.withLock { commandData }
+            if let cached { return cached }
+            let prefetched: Task<Data?, Never>? = lock.withLock { commandTask }
+            if let prefetched {
+                return wait(
+                    for: prefetched,
+                    cancellation: cancellation,
+                    cancelsTask: false
+                )
+            }
+        }
+
+        let client: RemoteTerminalSessionClient? = lock.withLock {
+            isSupported ? self.client : nil
+        }
+        guard let client else { return nil }
+        let timeoutNanoseconds = UInt64(
+            min(max(timeout, 0.001), 16) * 1_000_000_000
+        )
+        let task = Task {
+            try? await client.complete(
+                operation: operation,
+                payload: input,
+                timeoutNanoseconds: timeoutNanoseconds
+            )
+        }
+        let result = wait(for: task, cancellation: cancellation, cancelsTask: true)
+        if operation == .completeCommands, let result {
+            let currentGeneration = lock.withLock { generation }
+            storeCommands(result, generation: currentGeneration)
+        }
+        return result
+    }
+
+    private func wait(
+        for task: Task<Data?, Never>,
+        cancellation: CompletionCancellation,
+        cancelsTask: Bool
+    ) -> Data? {
+        let result = RelayCompletionResultBox()
+        let semaphore = DispatchSemaphore(value: 0)
+        let waiter = Task {
+            result.store(await task.value)
+            semaphore.signal()
+        }
+        while semaphore.wait(timeout: .now() + 0.01) == .timedOut {
+            if cancellation.isCancelled {
+                waiter.cancel()
+                if cancelsTask { task.cancel() }
+                return nil
+            }
+        }
+        return result.load()
+    }
+
+    private func storeCommands(_ data: Data, generation: String) {
+        lock.withLock {
+            guard self.generation == generation else { return }
+            commandData = data
+            commandTask = nil
+            revision += 1
+        }
+    }
 }
 
 final class CompletionPopupController: NSObject, NSPopoverDelegate {
@@ -878,7 +1051,9 @@ final class VaulttyCompletionEngine {
             environment: request.environment,
             timeout: timeout(for: generator),
             outputLimit: 64 * 1024,
-            location: request.location
+            location: request.location,
+            relayProvider: request.relayProvider,
+            cancellation: request.cancellation
         ) else {
             return []
         }
@@ -925,7 +1100,9 @@ final class VaulttyCompletionEngine {
                     environment: request.environment,
                     timeout: commandTimeout,
                     outputLimit: 64 * 1024,
-                    location: request.location
+                    location: request.location,
+                    relayProvider: request.relayProvider,
+                    cancellation: request.cancellation
                   )
             else {
                 return JSValue(object: ["stdout": "", "stderr": "", "status": 1], in: commandValue.context)!
@@ -1046,7 +1223,7 @@ final class VaulttyCompletionEngine {
         case .sshHost(let hostID):
             return "ssh:\(hostID)"
         case .relayMac(let macID):
-            return "relay:\(macID)"
+            return "relay:\(macID):\(request.relayProvider?.cacheIdentity ?? "none")"
         }
     }
 
@@ -1081,8 +1258,19 @@ final class VaulttyCompletionEngine {
             }
             return sources
         case .relayMac:
-            // ponytail: relay command completion waits for a typed query message.
-            return [:]
+            let bridgeRequest = BridgeCommandCompletionRequest(prefix: "")
+            guard let response: BridgeCompletionResponse = runRelayBridgeJSON(
+                operation: .completeCommands,
+                request: bridgeRequest,
+                timeout: 2,
+                completionRequest: request
+            ) else {
+                return [:]
+            }
+            return Dictionary(
+                response.suggestions.map { ($0.displayText, $0.source) },
+                uniquingKeysWith: { first, _ in first }
+            )
         }
     }
 
@@ -1115,7 +1303,14 @@ final class VaulttyCompletionEngine {
             .filter { $0.kind == "folder" || $0.isExecutable }
             .map(completionSuggestion)
         case .relayMac:
-            return []
+            return relayPathSuggestionPayloads(
+                prefix: prefix,
+                cwd: request.cwd,
+                foldersOnly: false,
+                request: request
+            )
+            .filter { $0.kind == "folder" || $0.isExecutable }
+            .map(completionSuggestion)
         }
     }
 
@@ -1132,7 +1327,13 @@ final class VaulttyCompletionEngine {
             )
             .map(completionSuggestion)
         case .relayMac:
-            return []
+            return relayPathSuggestionPayloads(
+                prefix: prefix,
+                cwd: request.cwd,
+                foldersOnly: foldersOnly,
+                request: request
+            )
+            .map(completionSuggestion)
         }
     }
 
@@ -1216,6 +1417,27 @@ final class VaulttyCompletionEngine {
         return response.suggestions
     }
 
+    private func relayPathSuggestionPayloads(
+        prefix: String,
+        cwd: String,
+        foldersOnly: Bool,
+        request: CompletionRequest
+    ) -> [BridgeCompletionSuggestion] {
+        guard !isRemotePathPrefix(prefix) else { return [] }
+        let bridgeRequest = BridgePathCompletionRequest(
+            cwd: cwd,
+            prefix: prefix,
+            foldersOnly: foldersOnly
+        )
+        let response: BridgeCompletionResponse? = runRelayBridgeJSON(
+            operation: .completePath,
+            request: bridgeRequest,
+            timeout: 2,
+            completionRequest: request
+        )
+        return response?.suggestions ?? []
+    }
+
     private func completionSuggestion(from bridge: BridgeCompletionSuggestion) -> CompletionSuggestion {
         CompletionSuggestion(
             displayText: bridge.displayText,
@@ -1262,6 +1484,26 @@ final class VaulttyCompletionEngine {
         } catch {
             return nil
         }
+    }
+
+    private func runRelayBridgeJSON<Request: Encodable, Response: Decodable>(
+        operation: RemoteCompletionOperation,
+        request: Request,
+        timeout: TimeInterval,
+        completionRequest: CompletionRequest
+    ) -> Response? {
+        guard let provider = completionRequest.relayProvider,
+              let input = try? JSONEncoder().encode(request),
+              let output = provider.run(
+                operation: operation,
+                input: input,
+                timeout: timeout,
+                cancellation: completionRequest.cancellation
+              )
+        else {
+            return nil
+        }
+        return try? JSONDecoder().decode(Response.self, from: output)
     }
 
     private func pathInsertValue(prefix: String, suggestionName: String, isDirectory: Bool) -> String {
@@ -1967,7 +2209,9 @@ private enum ShellCommandRunner {
         environment: [String: String],
         timeout: TimeInterval,
         outputLimit: Int,
-        location: SessionLocation
+        location: SessionLocation,
+        relayProvider: RelayCompletionProvider?,
+        cancellation: CompletionCancellation
     ) -> Output? {
         switch location {
         case .local:
@@ -1988,7 +2232,15 @@ private enum ShellCommandRunner {
                 outputLimit: outputLimit
             )
         case .relayMac:
-            return nil
+            return runRelayShell(
+                provider: relayProvider,
+                commandLine: commandLine,
+                cwd: cwd,
+                environment: environment,
+                timeout: timeout,
+                outputLimit: outputLimit,
+                cancellation: cancellation
+            )
         }
     }
 
@@ -2067,6 +2319,46 @@ private enum ShellCommandRunner {
         } catch {
             return nil
         }
+    }
+
+    private static func runRelayShell(
+        provider: RelayCompletionProvider?,
+        commandLine: String,
+        cwd: String,
+        environment: [String: String],
+        timeout: TimeInterval,
+        outputLimit: Int,
+        cancellation: CompletionCancellation
+    ) -> Output? {
+        let request = BridgeGeneratorRequest(
+            commandLine: commandLine,
+            cwd: cwd,
+            environment: environment
+                .sorted { $0.key < $1.key }
+                .map { BridgeGeneratorRequest.EnvironmentPair(key: $0.key, value: $0.value) },
+            timeoutMs: Int((timeout * 1000).rounded()),
+            outputLimit: outputLimit
+        )
+        guard let provider,
+              let input = try? JSONEncoder().encode(request),
+              let output = provider.run(
+                operation: .runGenerator,
+                input: input,
+                timeout: min(max(timeout + 1, 2), 16),
+                cancellation: cancellation
+              ),
+              let decoded = try? JSONDecoder().decode(
+                BridgeGeneratorOutput.self,
+                from: output
+              )
+        else {
+            return nil
+        }
+        return Output(
+            stdout: decoded.stdout,
+            stderr: decoded.stderr,
+            status: decoded.status
+        )
     }
 
     private static func shellPrelude(environment: [String: String]) -> String {

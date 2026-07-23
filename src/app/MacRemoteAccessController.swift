@@ -9,6 +9,7 @@ private let remoteAccessLogger = Logger(
 private final class RemoteCompletionProcess: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
+    private var isCancelled = false
 
     func run(
         helper: URL,
@@ -30,6 +31,7 @@ private final class RemoteCompletionProcess: @unchecked Sendable {
 
     func cancel() {
         lock.lock()
+        isCancelled = true
         let process = process
         lock.unlock()
         if process?.isRunning == true {
@@ -54,6 +56,7 @@ private final class RemoteCompletionProcess: @unchecked Sendable {
 
         lock.lock()
         self.process = process
+        let shouldCancel = isCancelled
         lock.unlock()
         defer {
             lock.lock()
@@ -61,8 +64,15 @@ private final class RemoteCompletionProcess: @unchecked Sendable {
             lock.unlock()
         }
 
-        try Task.checkCancellation()
+        guard !shouldCancel else { throw CancellationError() }
         try process.run()
+        lock.lock()
+        let cancelledAfterLaunch = isCancelled
+        lock.unlock()
+        if cancelledAfterLaunch {
+            process.terminate()
+            throw CancellationError()
+        }
         inputPipe.fileHandleForWriting.write(input)
         try inputPipe.fileHandleForWriting.close()
         let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
@@ -337,7 +347,6 @@ final class MacRemoteAccessController {
         guard let bridge = bridges[message.requestID],
               bridge.sessionID == message.sessionID,
               let payload = message.payload,
-              payload.count <= RemoteCompletionRequest.maximumPayloadSize,
               let request = try? JSONDecoder().decode(
                 RemoteCompletionRequest.self,
                 from: payload

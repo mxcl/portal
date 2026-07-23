@@ -3594,6 +3594,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let sessionCleanupQueue = DispatchQueue(label: "com.automicvault.vaultty.session-cleanup", qos: .utility)
     private let completionPopup = CompletionPopupController()
     private var completionRequestSerial = 0
+    private var completionCancellation: CompletionCancellation?
     private var pendingCompletionIndicatorTabID: UUID?
     private var deferredCompletionAcceptanceSerial: Int?
     private var activeCompletionRange: NSRange?
@@ -5696,6 +5697,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         completionRequestSerial += 1
         let serial = completionRequestSerial
+        completionCancellation?.cancel()
+        let cancellation = CompletionCancellation()
+        completionCancellation = cancellation
         showPendingCompletionIndicator(in: tab)
         var environment: [String: String]
         switch tab.sessionRef.location {
@@ -5713,12 +5717,15 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             shellPath: environment["SHELL"] ?? "/bin/zsh",
             environment: environment,
             location: tab.sessionRef.location,
-            limit: 256
+            limit: 256,
+            cancellation: cancellation,
+            relayProvider: (tab.session as? RelayTerminalSession)?.completionProvider
         )
 
         completionQueue.async { [weak self] in
-            guard let self else { return }
+            guard let self, !cancellation.isCancelled else { return }
             let result = self.completionEngine.completions(for: request)
+            guard !cancellation.isCancelled else { return }
             DispatchQueue.main.async { [weak self, weak tab] in
                 guard let self, let tab else { return }
                 guard self.activeTabID == tab.id,
@@ -5730,6 +5737,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                         self.clearPendingCompletionIndicator()
                     }
                     return
+                }
+                if self.completionCancellation === cancellation {
+                    self.completionCancellation = nil
                 }
                 let shouldAcceptAfterUpdate = self.deferredCompletionAcceptanceSerial == serial
                 if shouldAcceptAfterUpdate {
@@ -5966,6 +5976,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         deferredCompletionAcceptanceSerial = nil
         isCompletionInteractionArmed = false
         completionPopup.dismiss()
+        completionCancellation?.cancel()
+        completionCancellation = nil
         completionRequestSerial += 1
     }
 

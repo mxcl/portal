@@ -7,6 +7,7 @@ final class RelayTerminalSession: TerminalSession {
     var onExit: ((Int32) -> Void)?
     var onReady: ((Bool) -> Void)?
     var onPresence: ((Int) -> Void)?
+    let completionProvider = RelayCompletionProvider()
 
     private let sessionRef: SessionRef
     private let createsSession: Bool
@@ -56,6 +57,7 @@ final class RelayTerminalSession: TerminalSession {
                     transport: try RelayClient(endpoint: endpoint, rootKeyData: key)
                 )
                 self.client = client
+                completionProvider.connect(client)
                 try await client.connect(peerID: peerID)
                 completion(.success(()))
                 onReady?(false)
@@ -110,6 +112,7 @@ final class RelayTerminalSession: TerminalSession {
     func stop() {
         receiveTask?.cancel()
         pendingSend?.cancel()
+        completionProvider.disconnect()
         guard let client else { return }
         Task { await client.disconnect() }
         self.client = nil
@@ -117,6 +120,7 @@ final class RelayTerminalSession: TerminalSession {
 
     func kill() {
         receiveTask?.cancel()
+        completionProvider.disconnect()
         let previous = pendingSend
         pendingSend = Task { [weak self] in
             await previous?.value
@@ -155,8 +159,8 @@ final class RelayTerminalSession: TerminalSession {
                     onHistoryOutput?(text)
                 case .presence(let count):
                     onPresence?(count)
-                case .capabilities:
-                    break
+                case .capabilities(let values):
+                    completionProvider.enable(values)
                 }
                 retryDelay = .seconds(1)
             } catch is CancellationError {
@@ -166,10 +170,12 @@ final class RelayTerminalSession: TerminalSession {
                 onExit?(-1)
                 return
             } catch {
+                completionProvider.disconnect()
                 try? await Task.sleep(for: retryDelay)
                 retryDelay = min(retryDelay * 2, .seconds(30))
                 do {
                     try await client.reconnect(peerID: peerID)
+                    completionProvider.connect(client)
                 } catch {
                     continue
                 }

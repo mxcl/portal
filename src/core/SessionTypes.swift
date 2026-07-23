@@ -22,15 +22,18 @@ struct RemoteSessionDefaults: Equatable, Sendable {
 enum SessionLocation: Codable, Hashable, Sendable {
     case local
     case sshHost(String)
+    case relayMac(String)
 
     private enum CodingKeys: String, CodingKey {
         case kind
         case hostID
+        case macID
     }
 
     private enum Kind: String, Codable {
         case local
         case ssh
+        case relay
     }
 
     init(from decoder: Decoder) throws {
@@ -40,6 +43,8 @@ enum SessionLocation: Codable, Hashable, Sendable {
             self = .local
         case .ssh:
             self = .sshHost(try container.decode(String.self, forKey: .hostID))
+        case .relay:
+            self = .relayMac(try container.decode(String.self, forKey: .macID))
         }
     }
 
@@ -51,6 +56,9 @@ enum SessionLocation: Codable, Hashable, Sendable {
         case .sshHost(let hostID):
             try container.encode(Kind.ssh, forKey: .kind)
             try container.encode(hostID, forKey: .hostID)
+        case .relayMac(let macID):
+            try container.encode(Kind.relay, forKey: .kind)
+            try container.encode(macID, forKey: .macID)
         }
     }
 }

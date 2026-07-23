@@ -55,6 +55,18 @@ struct RemoteProtocolTests {
         #expect(roundTrip == decoded)
     }
 
+    @Test("previous relay messages decode with Mac-control defaults")
+    func previousRelayMessagesDecode() throws {
+        let fixture = Data(
+            #"{"version":1,"kind":"terminalEvent","requestID":"request","sequence":1,"payload":"aGk="}"#.utf8
+        )
+
+        let decoded = try JSONDecoder().decode(RemoteMessage.self, from: fixture)
+
+        #expect(decoded.clientRole == nil)
+        #expect(decoded.isHistory != true)
+    }
+
     @Test("session creation messages preserve their session identity")
     func sessionCreationRoundTrip() throws {
         let session = RemoteCatalogSession(

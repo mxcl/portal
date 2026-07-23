@@ -12,4 +12,19 @@ struct SessionTypesTests {
 
         #expect(sessions.map(\.sessionID) == ["session-1"])
     }
+
+    @Test("relay session locations survive persistence")
+    func relaySessionLocationRoundTrip() throws {
+        let reference = SessionRef(
+            location: .relayMac("remote-mac"),
+            sessionID: "session-1"
+        )
+
+        let decoded = try JSONDecoder().decode(
+            SessionRef.self,
+            from: JSONEncoder().encode(reference)
+        )
+
+        #expect(decoded == reference)
+    }
 }

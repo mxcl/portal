@@ -30,6 +30,7 @@ public struct RemoteMac: Codable, Equatable, Identifiable, Sendable {
     public var name: String
     public var online: Bool
     public var lastSeen: Date
+    public var homeDirectory: String?
     public var sessions: [RemoteCatalogSession]
 
     public init(
@@ -37,13 +38,55 @@ public struct RemoteMac: Codable, Equatable, Identifiable, Sendable {
         name: String,
         online: Bool,
         lastSeen: Date = Date(),
+        homeDirectory: String? = nil,
         sessions: [RemoteCatalogSession]
     ) {
         self.id = id
         self.name = name
         self.online = online
         self.lastSeen = lastSeen
+        self.homeDirectory = homeDirectory
         self.sessions = sessions
+    }
+}
+
+public enum RemoteClientRole: String, Codable, Equatable, Sendable {
+    case phone
+    case mac
+}
+
+public struct RemoteTerminalSize: Codable, Equatable, Sendable {
+    public var rows: UInt16
+    public var cols: UInt16
+
+    public init(rows: UInt16, cols: UInt16) {
+        self.rows = rows
+        self.cols = cols
+    }
+}
+
+public struct RemoteSessionState: Codable, Equatable, Sendable {
+    public var title: String
+    public var cwd: String
+    public var createdAt: Date
+    public var commandCount: Int
+    public var runningCommand: String?
+    public var commandHistory: [String]
+
+    public init(
+        title: String,
+        cwd: String,
+        createdAt: Date,
+        commandCount: Int,
+        runningCommand: String?,
+        commandHistory: [String]
+    ) {
+        self.title = title
+        self.cwd = cwd
+        self.createdAt = createdAt
+        self.commandCount = commandCount
+        self.runningCommand = runningCommand
+        self.commandHistory = commandHistory
     }
 }
 
@@ -77,6 +120,10 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
     case input
     case submit
     case interrupt
+    case resize
+    case clearHistory
+    case updateState
+    case kill
     case historyPage
     case terminalEvent
     case presence
@@ -94,6 +141,10 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
         case "input": .input
         case "submit": .submit
         case "interrupt": .interrupt
+        case "resize": .resize
+        case "clearHistory": .clearHistory
+        case "updateState": .updateState
+        case "kill": .kill
         case "historyPage": .historyPage
         case "terminalEvent": .terminalEvent
         case "presence": .presence
@@ -112,6 +163,10 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
         case .input: "input"
         case .submit: "submit"
         case .interrupt: "interrupt"
+        case .resize: "resize"
+        case .clearHistory: "clearHistory"
+        case .updateState: "updateState"
+        case .kill: "kill"
         case .historyPage: "historyPage"
         case .terminalEvent: "terminalEvent"
         case .presence: "presence"
@@ -133,8 +188,20 @@ public struct RemoteMessage: Codable, Equatable, Sendable {
     public var sessionID: String?
     public var sequence: UInt64?
     public var payload: Data?
+    public var clientRole: RemoteClientRole?
+    public var isHistory: Bool?
 
-    public init(version: UInt16 = currentVersion, kind: RemoteMessageKind, requestID: String, macID: String? = nil, sessionID: String? = nil, sequence: UInt64? = nil, payload: Data? = nil) {
+    public init(
+        version: UInt16 = currentVersion,
+        kind: RemoteMessageKind,
+        requestID: String,
+        macID: String? = nil,
+        sessionID: String? = nil,
+        sequence: UInt64? = nil,
+        payload: Data? = nil,
+        clientRole: RemoteClientRole? = nil,
+        isHistory: Bool? = nil
+    ) {
         self.version = version
         self.kind = kind
         self.requestID = requestID
@@ -142,6 +209,8 @@ public struct RemoteMessage: Codable, Equatable, Sendable {
         self.sessionID = sessionID
         self.sequence = sequence
         self.payload = payload
+        self.clientRole = clientRole
+        self.isHistory = isHistory
     }
 }
 

@@ -74,6 +74,7 @@ require_fixture "parse_attach_v2_tracks_client_role_and_version" "$ROOT_DIR/src/
 require_fixture "session_protocol_capability_parses_daemon_versions" "$ROOT_DIR/src/session_bridge/main.rs"
 require_fixture "adjacentVersionNegotiation" "$ROOT_DIR/Tests/VaulttyCoreTests/SessionWireProtocolTests.swift"
 require_fixture "unknownMessageKindsDecode" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
+require_fixture "previousRelayMessagesDecode" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
 require_fixture "publishedVector" "$ROOT_DIR/Tests/VaulttyCoreTests/RelayCryptoTests.swift"
 
 echo "Running Rust protocol tests"

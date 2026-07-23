@@ -10,5 +10,9 @@ The relay exposes three endpoints:
 
 The WebSocket broadcasts binary frames to every other peer in a room. It does not interpret, persist, log, or acknowledge terminal traffic. Catalog writes replace the previous opaque blob atomically. Blobs inactive for 30 days are deleted when read; production billing cleanup may delete them sooner once the subscription grace period and retention window have elapsed.
 
-Only protocol versions 1 and 2 of the local session protocol are supported. Relay envelope v1 is JSON containing an envelope version and AES-GCM combined representation. The encrypted inner message owns session identifiers, sequence numbers, message types, and payloads.
+Relay messages are additive. Mac clients may advertise `clientRole: "mac"` on
+attach and send resize, clear-history, state-update, and kill messages. Terminal
+events may mark replayed output with `isHistory: true`. Peers that predate these
+fields continue to decode the message and ignore behavior they do not support.
 
+Only protocol versions 1 and 2 of the local session protocol are supported. Relay envelope v1 is JSON containing an envelope version and AES-GCM combined representation. The encrypted inner message owns session identifiers, sequence numbers, message types, and payloads.

@@ -8,7 +8,7 @@ use std::ffi::CString;
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::fd::{AsRawFd, RawFd};
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -998,12 +998,8 @@ fn validate_peer_signature(stream: &UnixStream) -> io::Result<()> {
         .arg(&path)
         .output()?;
     let text = String::from_utf8_lossy(&output.stderr);
-    let path_text = String::from_utf8_lossy(path.as_os_str().as_bytes());
-    let looks_like_vaultty = is_supported_peer_path(&path_text);
-    let signed_by_expected_team =
-        text.contains("TeamIdentifier=") && !text.contains("TeamIdentifier=not set");
 
-    if output.status.success() && looks_like_vaultty && signed_by_expected_team {
+    if output.status.success() && is_supported_peer_signature(&text) {
         return Ok(());
     }
 
@@ -1014,11 +1010,16 @@ fn validate_peer_signature(stream: &UnixStream) -> io::Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn is_supported_peer_path(path: &str) -> bool {
-    path.ends_with("/Contents/MacOS/Portal")
-        || path.ends_with("/Portal")
-        || path.ends_with("/vaultty-session-bridge")
-        || path.ends_with("/vaultty-remote-agent")
+fn is_supported_peer_signature(text: &str) -> bool {
+    text.lines().any(|line| line == "TeamIdentifier=ZU76A67LGU")
+        && text.lines().any(|line| {
+            matches!(
+                line,
+                "Identifier=com.automicvault.vaultty"
+                    | "Identifier=com.automicvault.vaultty.session-bridge"
+                    | "Identifier=com.automicvault.vaultty.remote-agent"
+            )
+        })
 }
 
 #[cfg(target_os = "macos")]
@@ -1332,13 +1333,18 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn peer_path_accepts_app_and_helpers() {
-        assert!(is_supported_peer_path(
-            "/Applications/Portal.app/Contents/MacOS/Portal"
+    fn peer_signature_accepts_app_and_helpers() {
+        assert!(is_supported_peer_signature(
+            "Identifier=com.automicvault.vaultty\nTeamIdentifier=ZU76A67LGU"
         ));
-        assert!(is_supported_peer_path("/tmp/vaultty-session-bridge"));
-        assert!(!is_supported_peer_path(
-            "/Applications/Terminal.app/Contents/MacOS/Terminal"
+        assert!(is_supported_peer_signature(
+            "Identifier=com.automicvault.vaultty.session-bridge\nTeamIdentifier=ZU76A67LGU"
+        ));
+        assert!(!is_supported_peer_signature(
+            "Identifier=com.apple.Terminal\nTeamIdentifier=ZU76A67LGU"
+        ));
+        assert!(!is_supported_peer_signature(
+            "Identifier=com.automicvault.vaultty\nTeamIdentifier=OTHERTEAM"
         ));
     }
 }

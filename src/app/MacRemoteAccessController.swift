@@ -6,6 +6,83 @@ private let remoteAccessLogger = Logger(
     category: "RemoteAccess"
 )
 
+private final class RemoteCompletionProcess: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+
+    func run(
+        helper: URL,
+        operation: RemoteCompletionOperation,
+        input: Data
+    ) async throws -> Data {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    continuation.resume(with: Result {
+                        try self.runSync(helper: helper, operation: operation, input: input)
+                    })
+                }
+            }
+        } onCancel: {
+            cancel()
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        let process = process
+        lock.unlock()
+        if process?.isRunning == true {
+            process?.terminate()
+        }
+    }
+
+    private func runSync(
+        helper: URL,
+        operation: RemoteCompletionOperation,
+        input: Data
+    ) throws -> Data {
+        let process = Process()
+        let inputPipe = Pipe()
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.executableURL = helper
+        process.arguments = [operation.rawValue]
+        process.standardInput = inputPipe
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        lock.lock()
+        self.process = process
+        lock.unlock()
+        defer {
+            lock.lock()
+            self.process = nil
+            lock.unlock()
+        }
+
+        try Task.checkCancellation()
+        try process.run()
+        inputPipe.fileHandleForWriting.write(input)
+        try inputPipe.fileHandleForWriting.close()
+        let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let error = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        try Task.checkCancellation()
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(process.terminationStatus),
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        String(data: error, encoding: .utf8) ?? "Completion helper failed"
+                ]
+            )
+        }
+        return output
+    }
+}
+
 @MainActor
 final class MacRemoteAccessController {
     static let enabledDefaultsKey = "remoteAccessEnabled"
@@ -18,6 +95,11 @@ final class MacRemoteAccessController {
         var sessionID: String
     }
 
+    private struct ActiveCompletion {
+        var operationID: String
+        var task: Task<Void, Never>
+    }
+
     private let macID: String
     private let configuredEndpoint: URL?
     private let suppliedRootKey: Data?
@@ -27,6 +109,7 @@ final class MacRemoteAccessController {
     private var agentProcess: Process?
     private var bridges: [String: Bridge] = [:]
     private var pendingCreations: [String: PtySession] = [:]
+    private var activeCompletions: [String: ActiveCompletion] = [:]
 
     init() {
         macID = Self.macID()
@@ -164,6 +247,8 @@ final class MacRemoteAccessController {
         bridges.removeAll()
         pendingCreations.values.forEach { $0.stop() }
         pendingCreations.removeAll()
+        activeCompletions.values.forEach { $0.task.cancel() }
+        activeCompletions.removeAll()
         if let relay {
             Task { await relay.disconnect() }
         }
@@ -236,11 +321,118 @@ final class MacRemoteAccessController {
             )
         case .kill:
             bridges.removeValue(forKey: message.requestID)?.session.kill()
+        case .completionRequest:
+            startCompletion(message)
+        case .completionCancel:
+            cancelCompletion(message)
         case .historyPage:
             break
-        case .catalog, .sessionCreated, .terminalEvent, .presence, .error, .unknown:
+        case .catalog, .sessionCreated, .terminalEvent, .presence, .capabilities,
+             .completionResponse, .error, .unknown:
             break
         }
+    }
+
+    private func startCompletion(_ message: RemoteMessage) {
+        guard let bridge = bridges[message.requestID],
+              bridge.sessionID == message.sessionID,
+              let payload = message.payload,
+              payload.count <= RemoteCompletionRequest.maximumPayloadSize,
+              let request = try? JSONDecoder().decode(
+                RemoteCompletionRequest.self,
+                from: payload
+              ),
+              request.payload.count <= RemoteCompletionRequest.maximumPayloadSize,
+              let helper = completionBridgeURL()
+        else {
+            return
+        }
+
+        activeCompletions.removeValue(forKey: message.requestID)?.task.cancel()
+        let process = RemoteCompletionProcess()
+        let task = Task { [weak self] in
+            let response: RemoteCompletionResponse?
+            do {
+                let output = try await process.run(
+                    helper: helper,
+                    operation: request.operation,
+                    input: request.payload
+                )
+                try Task.checkCancellation()
+                guard output.count <= RemoteCompletionResponse.maximumPayloadSize else {
+                    throw NSError(
+                        domain: NSPOSIXErrorDomain,
+                        code: Int(EFBIG),
+                        userInfo: [
+                            NSLocalizedDescriptionKey: "Completion response is too large"
+                        ]
+                    )
+                }
+                response = RemoteCompletionResponse(
+                    operationID: request.operationID,
+                    payload: output
+                )
+            } catch is CancellationError {
+                response = nil
+            } catch {
+                response = RemoteCompletionResponse(
+                    operationID: request.operationID,
+                    error: error.localizedDescription
+                )
+            }
+            self?.finishCompletion(
+                response,
+                requestID: message.requestID,
+                sessionID: bridge.sessionID,
+                operationID: request.operationID
+            )
+        }
+        activeCompletions[message.requestID] = ActiveCompletion(
+            operationID: request.operationID,
+            task: task
+        )
+    }
+
+    private func cancelCompletion(_ message: RemoteMessage) {
+        guard let payload = message.payload,
+              let cancellation = try? JSONDecoder().decode(
+                RemoteCompletionCancellation.self,
+                from: payload
+              ),
+              activeCompletions[message.requestID]?.operationID == cancellation.operationID
+        else {
+            return
+        }
+        activeCompletions.removeValue(forKey: message.requestID)?.task.cancel()
+    }
+
+    private func finishCompletion(
+        _ response: RemoteCompletionResponse?,
+        requestID: String,
+        sessionID: String,
+        operationID: String
+    ) {
+        guard activeCompletions[requestID]?.operationID == operationID else { return }
+        activeCompletions.removeValue(forKey: requestID)
+        guard let response,
+              let payload = try? JSONEncoder().encode(response) else { return }
+        send(RemoteMessage(
+            kind: .completionResponse,
+            requestID: requestID,
+            macID: macID,
+            sessionID: sessionID,
+            payload: payload
+        ))
+    }
+
+    private func completionBridgeURL() -> URL? {
+        let bundled = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Helpers/portal-session-bridge")
+        if FileManager.default.isExecutableFile(atPath: bundled.path) {
+            return bundled
+        }
+        let local = URL(fileURLWithPath: "target/debug/portal-session-bridge")
+        return FileManager.default.isExecutableFile(atPath: local.path) ? local : nil
     }
 
     private func createSession(_ message: RemoteMessage) {
@@ -370,6 +562,17 @@ final class MacRemoteAccessController {
             nextSequence: 1,
             sessionID: sessionID
         )
+        if let payload = try? JSONEncoder().encode(RemoteCapabilities(
+            values: [RemoteCapabilities.relayCompletion]
+        )) {
+            send(RemoteMessage(
+                kind: .capabilities,
+                requestID: message.requestID,
+                macID: macID,
+                sessionID: sessionID,
+                payload: payload
+            ))
+        }
         session.onHistoryOutput = { [weak self] text in
             DispatchQueue.main.async {
                 self?.sendTerminal(text, requestID: message.requestID, isHistory: true)
@@ -407,6 +610,7 @@ final class MacRemoteAccessController {
     }
 
     private func detach(requestID: String) {
+        activeCompletions.removeValue(forKey: requestID)?.task.cancel()
         bridges.removeValue(forKey: requestID)?.session.stop()
     }
 

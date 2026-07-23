@@ -155,6 +155,8 @@ final class RelayTerminalSession: TerminalSession {
                     onHistoryOutput?(text)
                 case .presence(let count):
                     onPresence?(count)
+                case .capabilities:
+                    break
                 }
                 retryDelay = .seconds(1)
             } catch is CancellationError {

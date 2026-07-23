@@ -20,12 +20,12 @@ persistent shell process and private OSC lifecycle markers.
 
 > [!WARNING]
 >
-> † Portal Terminal currently executes bundled Fig completion generator commands through
-> `/bin/zsh -lc` for compatibility with specs that rely on shell quoting, pipes,
+> † Portal Terminal executes bundled Fig completion generator commands through
+> a login shell for compatibility with specs that rely on shell quoting, pipes,
 > redirects, and command syntax. Completion specs and custom generators can
-> therefore execute shell code. This is a known security hole; the intended fix
-> is to sandbox or otherwise constrain completion execution without breaking Fig
-> compatibility.
+> therefore execute shell code. For relay-backed sessions, those generators run
+> on the remote Mac as the signed-in user over the existing encrypted relay
+> connection. Only use completion specs you trust.
 
 ## Sessions Survive Tabs
 

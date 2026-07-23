@@ -155,6 +155,122 @@ struct RemoteTerminalSessionClientTests {
 
         _ = try await transport.waitForMessage(kind: .completionCancel)
     }
+
+    @Test("rejects oversized completion input before sending")
+    func completionInputLimit() async throws {
+        let transport = FakeTerminalTransport()
+        let client = RemoteTerminalSessionClient(
+            macID: "mac",
+            sessionID: "session",
+            requestID: "request",
+            transport: transport
+        )
+        try await advertiseCompletion(to: client, through: transport)
+
+        await #expect(throws: RemoteTerminalSessionError.invalidResponse) {
+            try await client.complete(
+                operation: .runGenerator,
+                payload: Data(
+                    repeating: 0,
+                    count: RemoteCompletionRequest.maximumPayloadSize + 1
+                ),
+                timeoutNanoseconds: 1_000_000_000
+            )
+        }
+        #expect(await transport.sentMessages.allSatisfy {
+            $0.kind != .completionRequest
+        })
+    }
+
+    @Test("cancellation discards late responses without disturbing terminal traffic")
+    func completionCancellationAndLateResponse() async throws {
+        let transport = FakeTerminalTransport()
+        let client = RemoteTerminalSessionClient(
+            macID: "mac",
+            sessionID: "session",
+            requestID: "request",
+            transport: transport
+        )
+        try await advertiseCompletion(to: client, through: transport)
+
+        let completion = Task {
+            try await client.complete(
+                operation: .runGenerator,
+                payload: Data(),
+                timeoutNanoseconds: 1_000_000_000
+            )
+        }
+        let sent = try await transport.waitForMessage(kind: .completionRequest)
+        let request = try JSONDecoder().decode(
+            RemoteCompletionRequest.self,
+            from: #require(sent.payload)
+        )
+        completion.cancel()
+        _ = try await transport.waitForMessage(kind: .completionCancel)
+        await #expect(throws: CancellationError.self) {
+            try await completion.value
+        }
+
+        try await transport.enqueue(RemoteMessage(
+            kind: .completionResponse,
+            requestID: "request",
+            macID: "mac",
+            sessionID: "session",
+            payload: try JSONEncoder().encode(RemoteCompletionResponse(
+                operationID: request.operationID,
+                payload: Data("late".utf8)
+            ))
+        ))
+        try await transport.enqueue(RemoteMessage(
+            kind: .terminalEvent,
+            requestID: "request",
+            macID: "mac",
+            sessionID: "session",
+            sequence: 1,
+            payload: Data("still connected".utf8)
+        ))
+
+        #expect(try await client.receive() == .output("still connected"))
+    }
+
+    @Test("reconnect invalidates advertised completion capability")
+    func reconnectInvalidatesCapability() async throws {
+        let transport = FakeTerminalTransport()
+        let client = RemoteTerminalSessionClient(
+            macID: "mac",
+            sessionID: "session",
+            requestID: "request",
+            transport: transport
+        )
+        try await advertiseCompletion(to: client, through: transport)
+
+        try await client.reconnect(peerID: "peer")
+
+        await #expect(throws: RemoteTerminalSessionError.completionUnavailable) {
+            try await client.complete(
+                operation: .completeCommands,
+                payload: Data(),
+                timeoutNanoseconds: 1_000_000_000
+            )
+        }
+    }
+
+    private func advertiseCompletion(
+        to client: RemoteTerminalSessionClient,
+        through transport: FakeTerminalTransport
+    ) async throws {
+        try await client.connect(peerID: "peer")
+        try await transport.enqueue(RemoteMessage(
+            kind: .capabilities,
+            requestID: "request",
+            macID: "mac",
+            sessionID: "session",
+            payload: try JSONEncoder().encode(RemoteCapabilities(
+                values: [RemoteCapabilities.relayCompletion]
+            ))
+        ))
+        _ = try await client.receive()
+    }
 }
 
 private actor FakeTerminalTransport: RemoteRelayTransport {

@@ -68,6 +68,24 @@ struct RemoteProtocolTests {
         ) == request)
     }
 
+    @Test("completion operations are an exact allowlist")
+    func completionOperationAllowlist() throws {
+        for operation in RemoteCompletionOperation.allCases {
+            let encoded = try JSONEncoder().encode(operation)
+            #expect(try JSONDecoder().decode(
+                RemoteCompletionOperation.self,
+                from: encoded
+            ) == operation)
+        }
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(
+                RemoteCompletionOperation.self,
+                from: Data(#""arbitrary-command""#.utf8)
+            )
+        }
+    }
+
     @Test("unknown message kinds remain decodable and round-trip")
     func unknownMessageKindsDecode() throws {
         let fixture = Data(#"{"version":1,"kind":"futureFeature","requestID":"request"}"#.utf8)

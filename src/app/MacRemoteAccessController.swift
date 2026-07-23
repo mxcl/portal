@@ -103,6 +103,7 @@ final class MacRemoteAccessController {
         var session: PtySession
         var nextSequence: UInt64
         var sessionID: String
+        var pendingSnapshot: RemoteTerminalSnapshot?
     }
 
     private struct ActiveCompletion {
@@ -337,7 +338,8 @@ final class MacRemoteAccessController {
             cancelCompletion(message)
         case .historyPage:
             break
-        case .catalog, .sessionCreated, .terminalEvent, .presence, .capabilities,
+        case .catalog, .sessionCreated, .terminalSnapshot, .terminalEvent,
+             .presence, .capabilities,
              .completionResponse, .error, .unknown:
             break
         }
@@ -569,7 +571,8 @@ final class MacRemoteAccessController {
         bridges[message.requestID] = Bridge(
             session: session,
             nextSequence: 1,
-            sessionID: sessionID
+            sessionID: sessionID,
+            pendingSnapshot: nil
         )
         if let payload = try? JSONEncoder().encode(RemoteCapabilities(
             values: [RemoteCapabilities.relayCompletion]
@@ -585,6 +588,34 @@ final class MacRemoteAccessController {
         session.onHistoryOutput = { [weak self] text in
             DispatchQueue.main.async {
                 self?.sendTerminal(text, requestID: message.requestID, isHistory: true)
+                self?.sendPendingSnapshot(requestID: message.requestID)
+            }
+        }
+        session.onSnapshot = { [weak self] rows, cols, contents in
+            DispatchQueue.main.async {
+                guard var bridge = self?.bridges[message.requestID] else { return }
+                bridge.pendingSnapshot = RemoteTerminalSnapshot(
+                    rows: rows,
+                    cols: cols,
+                    contents: Data(contents.utf8)
+                )
+                self?.bridges[message.requestID] = bridge
+            }
+        }
+        session.onGeometry = { [weak self] rows, cols in
+            DispatchQueue.main.async {
+                guard let self,
+                      let payload = try? JSONEncoder().encode(
+                        RemoteTerminalSize(rows: rows, cols: cols)
+                      )
+                else { return }
+                self.send(RemoteMessage(
+                    kind: .resize,
+                    requestID: message.requestID,
+                    macID: self.macID,
+                    sessionID: sessionID,
+                    payload: payload
+                ))
             }
         }
         session.onOutput = { [weak self] text in
@@ -636,6 +667,22 @@ final class MacRemoteAccessController {
             sequence: sequence,
             payload: Data(text.utf8),
             isHistory: isHistory
+        ))
+    }
+
+    private func sendPendingSnapshot(requestID: String) {
+        guard var bridge = bridges[requestID],
+              let snapshot = bridge.pendingSnapshot,
+              let payload = try? JSONEncoder().encode(snapshot)
+        else { return }
+        bridge.pendingSnapshot = nil
+        bridges[requestID] = bridge
+        send(RemoteMessage(
+            kind: .terminalSnapshot,
+            requestID: requestID,
+            macID: macID,
+            sessionID: bridge.sessionID,
+            payload: payload
         ))
     }
 

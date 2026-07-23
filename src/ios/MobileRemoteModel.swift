@@ -24,6 +24,7 @@ public final class MobileRemoteModel {
     public private(set) var catalog: RemoteCatalog?
     public private(set) var connectionState: MobileConnectionState = .idle
     public private(set) var chunks: [TerminalChunk] = []
+    public private(set) var terminalSize: RemoteTerminalSize?
     public private(set) var transcript = VaulttyBlockTranscript()
     public private(set) var presenceCount = 1
     public private(set) var isLocked = false
@@ -246,6 +247,7 @@ public final class MobileRemoteModel {
         try await relay.connect(peerID: peerID)
         connectionState = .connecting
         chunks.removeAll(keepingCapacity: true)
+        terminalSize = nil
         transcript.reset()
         sequenceTracker.reset(to: nil)
         let requestID = UUID().uuidString
@@ -304,6 +306,21 @@ public final class MobileRemoteModel {
             if chunks.count > 2_000 {
                 chunks.removeFirst(chunks.count - 2_000)
             }
+        case .terminalSnapshot:
+            guard let payload = message.payload,
+                  let snapshot = try? JSONDecoder().decode(
+                    RemoteTerminalSnapshot.self,
+                    from: payload
+                  )
+            else { return }
+            terminalSize = RemoteTerminalSize(rows: snapshot.rows, cols: snapshot.cols)
+            chunks.append(TerminalChunk(id: nextChunkID, data: snapshot.contents))
+            nextChunkID &+= 1
+        case .resize:
+            guard let payload = message.payload,
+                  let size = try? JSONDecoder().decode(RemoteTerminalSize.self, from: payload)
+            else { return }
+            terminalSize = size
         case .error:
             let text = message.payload.flatMap { String(data: $0, encoding: .utf8) } ?? "Remote session failed"
             connectionState = .failed(text)
@@ -314,8 +331,9 @@ public final class MobileRemoteModel {
                 presenceCount = count
             }
         case .catalog, .attach, .detach, .createSession, .sessionCreated,
-             .input, .submit, .interrupt, .resize, .clearHistory, .updateState,
-             .kill, .historyPage, .unknown:
+             .input, .submit, .interrupt, .clearHistory, .updateState,
+             .kill, .historyPage, .capabilities, .completionRequest,
+             .completionResponse, .completionCancel, .unknown:
             break
         }
     }

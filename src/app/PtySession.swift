@@ -195,6 +195,8 @@ private final class SSHSessionTransport: SessionTransport {
 final class PtySession {
     var onOutput: ((String) -> Void)?
     var onHistoryOutput: ((String) -> Void)?
+    var onSnapshot: ((UInt16, UInt16, String) -> Void)?
+    var onGeometry: ((UInt16, UInt16) -> Void)?
     var onExit: ((Int32) -> Void)?
     var onReady: ((Bool) -> Void)?
     var onPresence: ((Int) -> Void)?
@@ -561,12 +563,13 @@ final class PtySession {
         case .historyPage(_, _, _, let text):
             treatsNextOutputAsLegacyHistory = false
             onHistoryOutput?(text)
-        case .snapshot:
-            // macOS replays the retained byte history; phones render this canonical screen directly.
-            break
+        case .snapshot(_, let rows, let cols, let contents):
+            onSnapshot?(rows, cols, contents)
         case .presence(let count):
             onPresence?(count)
-        case .protocolVersion, .supportedProtocols, .geometry:
+        case .geometry(let rows, let cols):
+            onGeometry?(rows, cols)
+        case .protocolVersion, .supportedProtocols:
             break
         case .notFound:
             reportExit(-1)

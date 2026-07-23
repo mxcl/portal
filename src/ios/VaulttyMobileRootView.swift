@@ -278,7 +278,9 @@ private struct MobileSessionView: View {
         VStack(spacing: 0) {
             statusBar
             if showsTerminal {
-                VaulttyTerminalView(chunks: model.chunks) { model.sendInput($0) }
+                VaulttyTerminalView(chunks: model.chunks, size: model.terminalSize) {
+                    model.sendInput($0)
+                }
                     .background(.black)
             } else {
                 blockTranscript
@@ -495,6 +497,7 @@ private struct TerminalKey: View {
 
 private struct VaulttyTerminalView: UIViewRepresentable {
     let chunks: [TerminalChunk]
+    let size: RemoteTerminalSize?
     let onInput: (Data) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -517,14 +520,17 @@ private struct VaulttyTerminalView: UIViewRepresentable {
 
     func updateUIView(_ view: TerminalView, context: Context) {
         context.coordinator.onInput = onInput
+        context.coordinator.size = size
+        context.coordinator.applySize()
         for chunk in chunks where chunk.id > context.coordinator.lastChunkID {
             view.feed(byteArray: Array(chunk.data)[...])
             context.coordinator.lastChunkID = chunk.id
         }
     }
 
-    final class Coordinator: NSObject, TerminalViewDelegate {
+    @MainActor final class Coordinator: NSObject, @preconcurrency TerminalViewDelegate {
         var onInput: (Data) -> Void
+        var size: RemoteTerminalSize?
         var lastChunkID: UInt64 = 0
         weak var terminalView: TerminalView?
 
@@ -540,8 +546,18 @@ private struct VaulttyTerminalView: UIViewRepresentable {
             _ = terminalView?.becomeFirstResponder()
         }
 
+        @MainActor func applySize() {
+            guard let terminalView, let size else { return }
+            terminalView.getTerminal().resize(cols: Int(size.cols), rows: Int(size.rows))
+        }
+
         func send(source: TerminalView, data: ArraySlice<UInt8>) { onInput(Data(data)) }
-        func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {}
+        func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+            guard let size,
+                  newCols != size.cols || newRows != size.rows
+            else { return }
+            applySize()
+        }
         func setTerminalTitle(source: TerminalView, title: String) {}
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
         func scrolled(source: TerminalView, position: Double) {}

@@ -23,6 +23,33 @@ struct RemoteProtocolTests {
         #expect(decoded == message)
     }
 
+    @Test("terminal snapshots preserve the daemon grid and canonical screen")
+    func terminalSnapshotRoundTrip() throws {
+        let snapshot = RemoteTerminalSnapshot(
+            rows: 24,
+            cols: 80,
+            contents: Data("\u{1B}[2J\u{1B}[Hvi".utf8)
+        )
+        let message = RemoteMessage(
+            kind: .terminalSnapshot,
+            requestID: "request",
+            macID: "mac",
+            sessionID: "session",
+            payload: try JSONEncoder().encode(snapshot)
+        )
+
+        let decoded = try JSONDecoder().decode(
+            RemoteMessage.self,
+            from: JSONEncoder().encode(message)
+        )
+
+        #expect(decoded.kind == .terminalSnapshot)
+        #expect(try JSONDecoder().decode(
+            RemoteTerminalSnapshot.self,
+            from: #require(decoded.payload)
+        ) == snapshot)
+    }
+
     @Test("semantic command submissions preserve their encrypted payload")
     func submitRoundTrip() throws {
         let message = RemoteMessage(

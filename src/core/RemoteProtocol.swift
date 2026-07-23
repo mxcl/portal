@@ -117,6 +117,18 @@ public struct RemoteTerminalSize: Codable, Equatable, Sendable {
     }
 }
 
+public struct RemoteTerminalSnapshot: Codable, Equatable, Sendable {
+    public var rows: UInt16
+    public var cols: UInt16
+    public var contents: Data
+
+    public init(rows: UInt16, cols: UInt16, contents: Data) {
+        self.rows = rows
+        self.cols = cols
+        self.contents = contents
+    }
+}
+
 public struct RemoteSessionState: Codable, Equatable, Sendable {
     public var title: String
     public var cwd: String
@@ -177,6 +189,7 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
     case updateState
     case kill
     case historyPage
+    case terminalSnapshot
     case terminalEvent
     case presence
     case capabilities
@@ -202,6 +215,7 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
         case "updateState": .updateState
         case "kill": .kill
         case "historyPage": .historyPage
+        case "terminalSnapshot": .terminalSnapshot
         case "terminalEvent": .terminalEvent
         case "presence": .presence
         case "capabilities": .capabilities
@@ -228,6 +242,7 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
         case .updateState: "updateState"
         case .kill: "kill"
         case .historyPage: "historyPage"
+        case .terminalSnapshot: "terminalSnapshot"
         case .terminalEvent: "terminalEvent"
         case .presence: "presence"
         case .capabilities: "capabilities"

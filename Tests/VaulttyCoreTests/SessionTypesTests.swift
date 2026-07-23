@@ -17,7 +17,8 @@ struct SessionTypesTests {
     func relaySessionLocationRoundTrip() throws {
         let reference = SessionRef(
             location: .relayMac("remote-mac"),
-            sessionID: "session-1"
+            sessionID: "session-1",
+            hostName: "Studio Mac"
         )
 
         let decoded = try JSONDecoder().decode(
@@ -26,5 +27,17 @@ struct SessionTypesTests {
         )
 
         #expect(decoded == reference)
+        #expect(decoded.hostName == "Studio Mac")
+        #expect(decoded == SessionRef(
+            location: .relayMac("remote-mac"),
+            sessionID: "session-1",
+            hostName: "Renamed Mac"
+        ))
+
+        let previous = try JSONDecoder().decode(
+            SessionRef.self,
+            from: Data(#"{"location":{"kind":"relay","macID":"remote-mac"},"sessionID":"session-1"}"#.utf8)
+        )
+        #expect(previous.hostName == nil)
     }
 }

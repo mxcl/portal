@@ -66,6 +66,22 @@ enum SessionLocation: Codable, Hashable, Sendable {
 struct SessionRef: Codable, Hashable, Sendable {
     var location: SessionLocation
     var sessionID: String
+    var hostName: String?
+
+    init(location: SessionLocation, sessionID: String, hostName: String? = nil) {
+        self.location = location
+        self.sessionID = sessionID
+        self.hostName = hostName
+    }
+
+    static func == (lhs: SessionRef, rhs: SessionRef) -> Bool {
+        lhs.location == rhs.location && lhs.sessionID == rhs.sessionID
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(location)
+        hasher.combine(sessionID)
+    }
 
     static func local(_ sessionID: String) -> SessionRef {
         SessionRef(location: .local, sessionID: sessionID)

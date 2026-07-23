@@ -4776,7 +4776,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             candidates.append(LocalSessionCandidate(
                 sessionRef: visibleRef,
                 sessionID: visible.sessionID,
-                hostPrefix: hostname(for: visibleRef.location),
+                hostPrefix: hostname(for: visibleRef),
                 title: visible.title,
                 cwd: visible.cwd,
                 isClosedSession: false,
@@ -4796,7 +4796,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             candidates.append(LocalSessionCandidate(
                 sessionRef: closedRef,
                 sessionID: closed.sessionID,
-                hostPrefix: hostname(for: closedRef.location),
+                hostPrefix: hostname(for: closedRef),
                 title: closed.title,
                 cwd: closed.cwd,
                 isClosedSession: true,
@@ -4903,7 +4903,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             let location = SessionLocation.relayMac(mac.id)
             let newSessionRef = SessionRef(
                 location: location,
-                sessionID: UUID().uuidString
+                sessionID: UUID().uuidString,
+                hostName: mac.name
             )
             candidates.append(LocalSessionCandidate(
                 sessionRef: newSessionRef,
@@ -4921,7 +4922,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             for session in mac.sessions {
                 let sessionRef = SessionRef(
                     location: location,
-                    sessionID: session.sessionID
+                    sessionID: session.sessionID,
+                    hostName: mac.name
                 )
                 guard seenSessionRefs.insert(sessionRef).inserted else { continue }
                 candidates.append(LocalSessionCandidate(
@@ -4942,8 +4944,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return candidates
     }
 
-    private func hostname(for location: SessionLocation) -> String? {
-        switch location {
+    private func hostname(for sessionRef: SessionRef) -> String? {
+        switch sessionRef.location {
         case .local:
             return nil
         case .sshHost(let hostID):
@@ -4951,7 +4953,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             else { return nil }
             return host.hostname.isEmpty ? host.alias : host.hostname
         case .relayMac(let macID):
-            return macID
+            return sessionRef.hostName ?? macID
         }
     }
 
@@ -5258,7 +5260,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let button = TitleTabButton(tabID: tab.id, title: standardTitle)
         button.updateTitle(
             standardTitle,
-            hostPrefix: hostname(for: tab.sessionRef.location),
+            hostPrefix: hostname(for: tab.sessionRef),
             detail: detailForDirectory(tab.currentCwd)
         )
         button.target = self
@@ -6417,7 +6419,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         if let button = tabButtons[tab.id] {
             button.updateTitle(
                 standardTitle,
-                hostPrefix: hostname(for: tab.sessionRef.location),
+                hostPrefix: hostname(for: tab.sessionRef),
                 detail: detail
             )
             layoutTabStripBeforeMeasuringSelection()
@@ -6426,14 +6428,14 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func displayTabTitle(_ title: String, in tab: TerminalTab) -> String {
-        guard let hostname = hostname(for: tab.sessionRef.location) else {
+        guard let hostname = hostname(for: tab.sessionRef) else {
             return title
         }
         return "\(hostname):\(title)"
     }
 
     private func standardTabTitle(_ title: String, in tab: TerminalTab) -> String {
-        guard let hostname = hostname(for: tab.sessionRef.location) else {
+        guard let hostname = hostname(for: tab.sessionRef) else {
             return title
         }
         let prefix = "\(hostname):"
@@ -6541,7 +6543,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                     directoryText: directoryText,
                     gitSummary: gitSummary,
                     font: tab.statusLabel.font,
-                    hostPrefix: self.hostname(for: tab.sessionRef.location)
+                    hostPrefix: self.hostname(for: tab.sessionRef)
                 )
             }
         }
@@ -6561,7 +6563,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.statusLabel.attributedStringValue = commandBarStatusText(
             text,
             font: tab.statusLabel.font,
-            hostPrefix: hostname(for: tab.sessionRef.location)
+            hostPrefix: hostname(for: tab.sessionRef)
         )
     }
 

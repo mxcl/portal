@@ -19,10 +19,11 @@
     {
       "layers" : [
         {
+          "glass" : false,
           "image-name" : "Vaultty.png",
           "name" : "Portal",
           "position" : {
-            "scale" : 0.95,
+            "scale" : 0.907,
             "translation-in-points" : [
               0,
               0

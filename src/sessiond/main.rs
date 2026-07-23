@@ -1009,18 +1009,14 @@ fn validate_peer_signature(stream: &UnixStream) -> io::Result<()> {
 
     Err(io::Error::new(
         io::ErrorKind::PermissionDenied,
-        format!("peer process is not signed InfiniTTY: {}", path.display()),
+        format!("peer process is not signed Portal Terminal: {}", path.display()),
     ))
 }
 
 #[cfg(target_os = "macos")]
 fn is_supported_peer_path(path: &str) -> bool {
-    path.ends_with("/Contents/MacOS/InfiniTTY")
-        || path.ends_with("/InfiniTTY")
-        || path.ends_with("/Contents/MacOS/InfiniTerm")
-        || path.ends_with("/InfiniTerm")
-        || path.ends_with("/Contents/MacOS/Vaultty")
-        || path.ends_with("/Vaultty")
+    path.ends_with("/Contents/MacOS/Portal")
+        || path.ends_with("/Portal")
         || path.ends_with("/vaultty-session-bridge")
         || path.ends_with("/vaultty-remote-agent")
 }
@@ -1336,15 +1332,9 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn peer_path_accepts_current_and_previous_app_names() {
+    fn peer_path_accepts_app_and_helpers() {
         assert!(is_supported_peer_path(
-            "/Applications/InfiniTTY.app/Contents/MacOS/InfiniTTY"
-        ));
-        assert!(is_supported_peer_path(
-            "/Applications/InfiniTerm.app/Contents/MacOS/InfiniTerm"
-        ));
-        assert!(is_supported_peer_path(
-            "/Applications/Vaultty.app/Contents/MacOS/Vaultty"
+            "/Applications/Portal.app/Contents/MacOS/Portal"
         ));
         assert!(is_supported_peer_path("/tmp/vaultty-session-bridge"));
         assert!(!is_supported_peer_path(

@@ -20,7 +20,7 @@
       "layers" : [
         {
           "image-name" : "Vaultty.png",
-          "name" : "InfiniTTY",
+          "name" : "Portal",
           "position" : {
             "scale" : 0.95,
             "translation-in-points" : [

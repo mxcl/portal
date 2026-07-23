@@ -79,14 +79,14 @@ final class MacRemoteAccessController {
             }
         } catch {
             stop()
-            NSLog("InfiniTTY remote access could not start: \(error)")
+            NSLog("Portal remote access could not start: \(error)")
         }
     }
 
     private func launchAgent() {
         guard agentProcess?.isRunning != true else { return }
         guard let helper = remoteAgentURL() else {
-            remoteAccessLogger.error("InfiniTTY remote agent is missing")
+            remoteAccessLogger.error("Portal remote agent is missing")
             return
         }
         let endpoint: URL
@@ -94,7 +94,7 @@ final class MacRemoteAccessController {
             endpoint = try relayEndpoint()
         } catch {
             remoteAccessLogger.error(
-                "InfiniTTY remote relay endpoint is invalid: \(String(describing: error), privacy: .public)"
+                "Portal remote relay endpoint is invalid: \(String(describing: error), privacy: .public)"
             )
             return
         }
@@ -103,7 +103,7 @@ final class MacRemoteAccessController {
             key = try ICloudKeychainRootKey().loadOrCreate()
         } catch {
             remoteAccessLogger.error(
-                "InfiniTTY remote key is unavailable: \(String(describing: error), privacy: .public)"
+                "Portal remote key is unavailable: \(String(describing: error), privacy: .public)"
             )
             return
         }
@@ -119,7 +119,7 @@ final class MacRemoteAccessController {
         process.standardError = FileHandle.nullDevice
         process.terminationHandler = { process in
             remoteAccessLogger.error(
-                "InfiniTTY remote agent exited with status \(process.terminationStatus)"
+                "Portal remote agent exited with status \(process.terminationStatus)"
             )
         }
         do {
@@ -129,7 +129,7 @@ final class MacRemoteAccessController {
             try? keyPipe.fileHandleForWriting.close()
         } catch {
             remoteAccessLogger.error(
-                "InfiniTTY remote agent could not launch: \(String(describing: error), privacy: .public)"
+                "Portal remote agent could not launch: \(String(describing: error), privacy: .public)"
             )
         }
     }
@@ -144,7 +144,7 @@ final class MacRemoteAccessController {
             process.waitUntilExit()
         } catch {
             remoteAccessLogger.error(
-                "InfiniTTY remote agent could not be terminated: \(String(describing: error), privacy: .public)"
+                "Portal remote agent could not be terminated: \(String(describing: error), privacy: .public)"
             )
         }
         agentProcess = nil
@@ -236,8 +236,8 @@ final class MacRemoteAccessController {
         } ?? "/bin/zsh"
         var environment = ProcessInfo.processInfo.environment
         environment["TERM"] = "xterm-256color"
-        environment["TERM_PROGRAM"] = "InfiniTTY"
-        environment["LC_TERMINAL"] = "InfiniTTY"
+        environment["TERM_PROGRAM"] = "Portal"
+        environment["LC_TERMINAL"] = "Portal"
         environment["VAULTTY"] = "1"
         environment["PROMPT"] = ""
         environment["RPROMPT"] = ""
@@ -327,8 +327,8 @@ final class MacRemoteAccessController {
         """
         export VAULTTY=1
         export TERM=xterm-256color
-        export TERM_PROGRAM=InfiniTTY
-        export LC_TERMINAL=InfiniTTY
+        export TERM_PROGRAM=Portal
+        export LC_TERMINAL=Portal
         cd \(shellQuote(home.path))
         stty -echo
         PROMPT=''
@@ -429,7 +429,7 @@ final class MacRemoteAccessController {
             sessions = try PtySession.listSessions()
         } catch {
             remoteAccessLogger.error(
-                "InfiniTTY session listing failed: \(String(describing: error), privacy: .public)"
+                "Portal session listing failed: \(String(describing: error), privacy: .public)"
             )
             sessions = []
         }

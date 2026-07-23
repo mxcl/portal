@@ -6,15 +6,15 @@
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>InfiniTTY</string>
+  <string>Portal</string>
   <key>CFBundleIdentifier</key>
   <string>com.automicvault.vaultty</string>
   <key>CFBundleIconFile</key>
-  <string>InfiniTTY</string>
+  <string>Portal</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>InfiniTTY</string>
+  <string>Portal</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleDocumentTypes</key>

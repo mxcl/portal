@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGURATION="${CONFIGURATION:-release}"
-APP_NAME="InfiniTTY"
+APP_NAME="Portal"
 APP_BUNDLE_ID="com.automicvault.vaultty"
 SESSIOND_HELPER_ID="com.automicvault.vaultty.sessiond"
 SESSION_BRIDGE_ID="com.automicvault.vaultty.session-bridge"
@@ -28,10 +28,10 @@ usage() {
   cat <<'EOF'
 Usage: scripts/build.sh [--debug|--release] [--install] [--run] [--dmg] [--notarize] [--publish] [--clobber] [--with-ghostty-vt] [--output PATH] [-- APP_ARGS...]
 
-Build and codesign InfiniTTY.app using an installed Developer ID identity.
+Build and codesign Portal.app using an installed Developer ID identity.
 
 Options:
-  --install          Replace /Applications/InfiniTTY.app with the built app.
+  --install          Replace /Applications/Portal.app with the built app.
   --run              Open the built app, or exec it when APP_ARGS are supplied.
   --dmg              Build a DMG.
   --notarize         Build and notarize a DMG.
@@ -234,9 +234,9 @@ resolve_main_app_provisioning_profile() {
   local profile="${VAULTTY_PROVISIONING_PROFILE:-}"
   if [[ -n "$profile" ]]; then
     profile="$(normalize_profile_path "$profile")"
-    [[ -f "$profile" ]] || die "InfiniTTY provisioning profile not found: $profile"
+    [[ -f "$profile" ]] || die "Portal provisioning profile not found: $profile"
     profile_matches_main_app "$profile" ||
-      die "InfiniTTY provisioning profile does not authorize $APP_BUNDLE_ID and $APP_KEYCHAIN_ACCESS_GROUP: $profile"
+      die "Portal provisioning profile does not authorize $APP_BUNDLE_ID and $APP_KEYCHAIN_ACCESS_GROUP: $profile"
     printf '%s\n' "$profile"
     return 0
   fi
@@ -484,7 +484,7 @@ generate_release_plan() {
   if previous_tag="$(latest_release_tag)"; then
     ensure_git_tag_available "$previous_tag"
     compare_range="$previous_tag..$target_ref"
-    prompt="Plan the next InfiniTTY release.
+    prompt="Plan the next Portal release.
 
 Repository: $ROOT_DIR
 Previous release tag: $previous_tag
@@ -501,7 +501,7 @@ Output exactly this format, with no code fence, no title, no preamble, no commit
 2. New Semantic Version
 <X.Y.Z>"
   else
-    prompt="Plan the initial InfiniTTY release.
+    prompt="Plan the initial Portal release.
 
 Repository: $ROOT_DIR
 Current Cargo package version: $current_version
@@ -825,7 +825,7 @@ done < <(
 [[ "${#SWIFT_DEPS_LINK_ARGS[@]}" -gt 1 ]] ||
   die "Swift package dependencies did not produce linkable object files in $SWIFT_DEPS_BIN_DIR"
 
-echo "Building InfiniTTY app bundle"
+echo "Building Portal app bundle"
 rm -rf "$APP_DIR"
 mkdir -p \
   "$MACOS_DIR" \

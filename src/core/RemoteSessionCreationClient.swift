@@ -17,7 +17,7 @@ public enum RemoteSessionCreationError: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .timedOut:
-            "The Mac did not respond. Make sure InfiniTTY is running and up to date."
+            "The Mac did not respond. Make sure Portal Terminal is running and up to date."
         case .invalidResponse:
             "The Mac returned an invalid session."
         case .remote(let message):

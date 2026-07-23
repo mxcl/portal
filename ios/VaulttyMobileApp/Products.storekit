@@ -35,12 +35,12 @@
       "id" : "21429751",
       "localizations" : [
         {
-          "description" : "Attach to your InfiniTTY sessions from iPhone.",
-          "displayName" : "InfiniTTY Remote",
+          "description" : "Attach to your Portal Terminal sessions from iPhone.",
+          "displayName" : "Portal Remote",
           "locale" : "en_US"
         }
       ],
-      "name" : "InfiniTTY Remote",
+      "name" : "Portal Remote",
       "subscriptions" : [
         {
           "adHocOffers" : [
@@ -80,7 +80,7 @@
           ],
           "localizations" : [
             {
-              "description" : "Secure access to open InfiniTTY sessions.",
+              "description" : "Secure access to open Portal Terminal sessions.",
               "displayName" : "Monthly",
               "locale" : "en_US"
             }
@@ -132,7 +132,7 @@
           ],
           "localizations" : [
             {
-              "description" : "Secure access to open InfiniTTY sessions.",
+              "description" : "Secure access to open Portal Terminal sessions.",
               "displayName" : "Annual",
               "locale" : "en_US"
             }

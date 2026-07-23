@@ -3024,6 +3024,7 @@ private final class SessionCandidateButton: NSControl {
     let sessionID: String
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
+    private let hostLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private let metaLabel = NSTextField(labelWithString: "")
     private var trackingArea: NSTrackingArea?
@@ -3039,6 +3040,7 @@ private final class SessionCandidateButton: NSControl {
         layer?.cornerRadius = 8
         layer?.backgroundColor = NSColor.clear.cgColor
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let normalizedHostPrefix = hostPrefix?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         iconView.image = NSImage(
             systemSymbolName: "terminal",
@@ -3056,6 +3058,15 @@ private final class SessionCandidateButton: NSControl {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
 
+        hostLabel.attributedStringValue = normalizedHostPrefix.map {
+            hostPrefixAttributedString($0, color: TahoeGlassPalette.titleTextActive)
+        } ?? NSAttributedString()
+        hostLabel.lineBreakMode = .byTruncatingMiddle
+        hostLabel.maximumNumberOfLines = 1
+        hostLabel.isHidden = normalizedHostPrefix?.isEmpty != false
+        hostLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(hostLabel)
+
         detailLabel.font = .systemFont(ofSize: 12, weight: .regular)
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.lineBreakMode = .byTruncatingMiddle
@@ -3072,9 +3083,19 @@ private final class SessionCandidateButton: NSControl {
         metaLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(metaLabel)
 
-        let metaTopConstraint = subtitle?.isEmpty == false
-            ? metaLabel.topAnchor.constraint(equalTo: detailLabel.bottomAnchor, constant: 3)
-            : metaLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6)
+        let hasHost = normalizedHostPrefix?.isEmpty == false
+        let hasSubtitle = subtitle?.isEmpty == false
+        let detailTopConstraint = detailLabel.topAnchor.constraint(
+            equalTo: hasHost ? hostLabel.bottomAnchor : titleLabel.bottomAnchor,
+            constant: 3
+        )
+        let metaTopAnchor = hasSubtitle
+            ? detailLabel.bottomAnchor
+            : (hasHost ? hostLabel.bottomAnchor : titleLabel.bottomAnchor)
+        let metaTopConstraint = metaLabel.topAnchor.constraint(
+            equalTo: metaTopAnchor,
+            constant: hasSubtitle || hasHost ? 3 : 6
+        )
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 82),
@@ -3088,9 +3109,13 @@ private final class SessionCandidateButton: NSControl {
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
 
+            hostLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            hostLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            hostLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
+
             detailLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             detailLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            detailLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
+            detailTopConstraint,
 
             metaLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             metaLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
@@ -3099,7 +3124,6 @@ private final class SessionCandidateButton: NSControl {
 
         setAccessibilityValue(metadata)
         let subtitleText = subtitle ?? ""
-        let normalizedHostPrefix = hostPrefix?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hostSuffixTitle = plainTextWithHostSuffix(title, hostPrefix: normalizedHostPrefix)
         setAccessibilityLabel(hostSuffixTitle)
         toolTip = [hostSuffixTitle, subtitleText.isEmpty ? nil : subtitleText, metadata]
@@ -3109,8 +3133,8 @@ private final class SessionCandidateButton: NSControl {
             }
             .joined(separator: "\n")
 
-        applyTitle(title, hostPrefix: normalizedHostPrefix)
-        applyDetail(subtitleText, hostPrefix: nil)
+        titleLabel.stringValue = title
+        detailLabel.stringValue = subtitleText
 
         updateAppearance()
     }
@@ -3173,44 +3197,6 @@ private final class SessionCandidateButton: NSControl {
         iconView.contentTintColor = isHovering
             ? NSColor.labelColor
             : TahoeGlassPalette.titleTextActive
-    }
-
-    private func applyTitle(_ title: String, hostPrefix: String?) {
-        let titleAttributes: [NSAttributedString.Key: Any] = [
-            .font: titleLabel.font ?? NSFont.systemFont(ofSize: 14, weight: .semibold),
-            .foregroundColor: NSColor.labelColor
-        ]
-        titleLabel.attributedStringValue = attributedTextWithHostSuffix(
-            title,
-            attributes: titleAttributes,
-            hostPrefix: hostPrefix
-        )
-    }
-
-    private func applyDetail(_ detail: String, hostPrefix: String?) {
-        let detailAttributes: [NSAttributedString.Key: Any] = [
-            .font: detailLabel.font ?? NSFont.systemFont(ofSize: 12, weight: .regular),
-            .foregroundColor: NSColor.secondaryLabelColor
-        ]
-        detailLabel.attributedStringValue = attributedTextWithHostSuffix(
-            detail,
-            attributes: detailAttributes,
-            hostPrefix: hostPrefix
-        )
-    }
-
-    private func attributedTextWithHostSuffix(
-        _ text: String,
-        attributes: [NSAttributedString.Key: Any],
-        hostPrefix: String?
-    ) -> NSAttributedString {
-        let output = NSMutableAttributedString(string: text, attributes: attributes)
-        guard let hostPrefix = hostPrefix, !hostPrefix.isEmpty else {
-            return output
-        }
-        output.append(NSAttributedString(string: "  "))
-        output.append(hostPrefixAttributedString(hostPrefix, color: TahoeGlassPalette.titleTextActive))
-        return output
     }
 
     private func plainTextWithHostSuffix(_ text: String, hostPrefix: String?) -> String {

@@ -211,8 +211,9 @@ export default function Home() {
             and iPhone builders.
           </h2>
           <p>
-            Portal comes from longtime Mac and iPhone app builders. We built
-            the details we expect when we sit down at a Mac or pick up a phone.
+            Portal comes from the creator of Homebrew and longtime Mac and
+            iPhone app builders. We built the details we expect when we sit
+            down at a Mac or pick up a phone.
           </p>
         </div>
         <ul className="craft-details">

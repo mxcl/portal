@@ -48,11 +48,12 @@ float fbm(vec2 p) {
 }
 
 void main() {
-  vec2 center = vec2(0.5, 0.48);
-  vec2 ellipse = vec2(0.25, 0.34);
+  vec2 center = vec2(0.5, 0.47);
+  vec2 ellipse = vec2(0.225, 0.305);
   vec2 q = (vUv - center) / ellipse;
   float radius = length(q);
   float angle = atan(q.y, q.x);
+  float turn = angle / 6.2831853 + 0.5;
   float cursor = exp(-length(vUv - uPointer) * 13.0) * uExcite;
 
   float flow = fbm(vec2(angle * 1.8 - uTime * 0.34, uTime * 0.11));
@@ -65,22 +66,44 @@ void main() {
 
   float pulseA = pow(max(0.0, sin(angle * 9.0 - uTime * 4.2 + flow * 5.0)), 12.0);
   float pulseB = pow(max(0.0, sin(angle * 13.0 + uTime * 3.1 + fine * 4.0)), 16.0);
-  float outer = exp(-abs(radius - 1.10 - (fine - 0.5) * 0.09) * 105.0)
-    * (pulseA + pulseB) * 0.8;
+  float outer = exp(-abs(radius - 1.13 - (fine - 0.5) * 0.14) * 70.0)
+    * (pulseA + pulseB) * 0.9;
+  float wispFade = 1.0 - smoothstep(1.06, 1.58, radius);
+  float wisps = exp(-abs(radius - 1.24 - (flow - 0.5) * 0.32) * 42.0)
+    * (pulseA * 0.7 + pulseB * 0.5) * wispFade;
+
+  float cellA = floor(turn * 72.0);
+  float seedA = hash(vec2(cellA, 19.0));
+  float lifeA = fract(seedA + uTime * (0.09 + seedA * 0.08));
+  float localA = fract(turn * 72.0) - 0.5 + (lifeA - 0.5) * (seedA - 0.5);
+  float sparkA = exp(-localA * localA * 210.0)
+    * exp(-abs(radius - (1.04 + lifeA * 0.48)) * 155.0)
+    * pow(1.0 - lifeA, 2.0);
+
+  float cellB = floor(turn * 109.0);
+  float seedB = hash(vec2(cellB, 47.0));
+  float lifeB = fract(seedB + uTime * (0.12 + seedB * 0.06));
+  float localB = fract(turn * 109.0) - 0.5 - (lifeB - 0.5) * (seedB - 0.5);
+  float sparkB = exp(-localB * localB * 260.0)
+    * exp(-abs(radius - (1.02 + lifeB * 0.58)) * 185.0)
+    * pow(1.0 - lifeB, 2.4);
+  float sparks = (sparkA + sparkB) * (0.75 + cursor * 1.8);
 
   float energy = core * (0.65 + flow * 0.7)
     + threadA * (0.25 + pulseA)
     + threadB * (0.2 + pulseB)
-    + outer;
+    + outer
+    + wisps
+    + sparks * 1.7;
   energy *= 1.0 + cursor * 2.3;
 
   float side = smoothstep(-0.75, 0.75, q.x);
   vec3 cyan = vec3(0.16, 0.72, 1.0);
   vec3 violet = vec3(0.82, 0.25, 1.0);
   vec3 color = mix(cyan, violet, side);
-  color = mix(color, vec3(1.0), clamp(core * 0.72 + pulseA + cursor, 0.0, 1.0));
+  color = mix(color, vec3(1.0), clamp(core * 0.72 + pulseA + sparks + cursor, 0.0, 1.0));
 
-  float glow = exp(-abs(radius - 1.0) * 22.0) * 0.16;
+  float glow = exp(-abs(radius - 1.0) * 18.0) * 0.18;
   float alpha = clamp(energy * 0.92 + glow, 0.0, 1.0);
   if (alpha < 0.01) discard;
   gl_FragColor = vec4(color * (energy * 1.35 + glow), alpha);

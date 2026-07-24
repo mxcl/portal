@@ -231,7 +231,7 @@ h1 span {
 
 .portal-electric {
   z-index: 2;
-  filter: saturate(1.35) brightness(1.5) drop-shadow(0 0 12px rgb(90 170 255 / 0.72));
+  filter: saturate(1.4) brightness(1.55) drop-shadow(0 0 18px rgb(90 170 255 / 0.68));
   mix-blend-mode: screen;
   touch-action: pan-y;
 }

@@ -3565,6 +3565,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var tabs: [TerminalTab] = []
     private var closedTabs: [StoredTab] { sessionCatalog.closedTabs }
     private var isKillingClosedTabs = false
+    private var killingSessionRefs = Set<SessionRef>()
     private var activeTabID: UUID?
     private var tabButtons: [UUID: TitleTabButton] = [:]
     private var sessionPickerCandidatesByTab: [UUID: [SessionRef: LocalSessionCandidate]] = [:]
@@ -4626,6 +4627,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func renderSessionPicker(_ candidates: [LocalSessionCandidate], for tab: TerminalTab) {
+        let candidates = candidates.filter {
+            !killingSessionRefs.contains($0.sessionRef) && !sessionCatalog.isExited($0.sessionRef)
+        }
         guard !candidates.isEmpty else {
             hideSessionPicker(for: tab)
             tab.canReplaceFreshSession = true
@@ -5164,6 +5168,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             return
         }
 
+        killingSessionRefs.insert(sessionRef)
         removeClosedSession(sessionRef)
         persistSessionState()
         configureSessionPickerIfPossible()
@@ -5177,8 +5182,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                         try PtySession.killDetachedSession(sessionRef: sessionRef)
                     }.value
                 }
+                guard let self else { return }
+                self.killingSessionRefs.remove(sessionRef)
+                self.removeExitedSessionFromPersistentHistory(sessionRef)
+                self.configureSessionPickerIfPossible()
             } catch {
                 guard let self else { return }
+                self.killingSessionRefs.remove(sessionRef)
                 self.sessionCatalog.restoreClosed([stored])
                 self.persistSessionState()
                 self.configureSessionPickerIfPossible()

@@ -658,13 +658,13 @@ h1 span {
 .completion-input {
   display: flex;
   align-items: center;
-  gap: 12px;
   padding: 28px 26px;
   border-bottom: 1px solid #303441;
   color: #f4f6fb;
 }
 
 .completion-input > span {
+  margin-right: 12px;
   color: #68c8ff;
 }
 

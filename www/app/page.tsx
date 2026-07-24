@@ -37,12 +37,11 @@ export default function Home() {
 
         <div className="portal-stage" aria-hidden="true">
           <div className="portal-aura" />
-          <img className="portal-core" src="/portal-icon.png" alt="" />
           <ParticleObject
             className="portal-particles"
             src="/portal-icon.png"
-            count={22000}
-            size={2.8}
+            count={30000}
+            size={2.6}
             sizeVariance={0.8}
             radius={150}
             strength={1.25}

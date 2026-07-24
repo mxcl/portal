@@ -208,7 +208,6 @@ h1 span {
   transform: translateY(-48%);
 }
 
-.portal-core,
 .portal-particles,
 .portal-aura {
   position: absolute;
@@ -217,29 +216,14 @@ h1 span {
   height: 100%;
 }
 
-.portal-core {
+.portal-particles {
   z-index: 1;
-  object-fit: contain;
-  filter: contrast(1.25) saturate(1.3) brightness(1.08);
+  filter: saturate(1.5) brightness(1.6);
   mask-image: radial-gradient(
     ellipse 39% 50% at 50% 49%,
     black 0%,
     black 69%,
     transparent 83%
-  );
-}
-
-.portal-particles {
-  z-index: 2;
-  opacity: 0.9;
-  filter: saturate(1.4) brightness(1.5);
-  mask-image: radial-gradient(
-    ellipse 42% 52% at 50% 50%,
-    transparent 0%,
-    transparent 48%,
-    black 61%,
-    black 78%,
-    transparent 91%
   );
 }
 

@@ -220,8 +220,55 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="craft">
+        <div className="craft-copy">
+          <p className="section-kicker">06 / Native by experience</p>
+          <h2>
+            Built by Mac
+            <br />
+            and iPhone builders.
+          </h2>
+          <p>
+            Portal comes from longtime Mac and iPhone app builders. We built
+            the details we expect when we sit down at a Mac or pick up a phone.
+          </p>
+        </div>
+        <ul className="craft-details">
+          <li>
+            <span aria-hidden="true">⌘⇧T</span>
+            <div>
+              <h3>Closed tabs come back.</h3>
+              <p>
+                Close one with ⌘W. Reopen it with ⌘⇧T, even after relaunching
+                Portal.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span aria-hidden="true">⌘F</span>
+            <div>
+              <h3>The Edit menu works.</h3>
+              <p>
+                Cut, copy, paste, select all, and history search use the Mac
+                shortcuts already in your hands.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span aria-hidden="true">iOS</span>
+            <div>
+              <h3>The keyboard makes room.</h3>
+              <p>
+                Show or dismiss it without leaving your session. Completions
+                appear as you type.
+              </p>
+            </div>
+          </li>
+        </ul>
+      </section>
+
       <section className="linux">
-        <span>06 / NEXT DESTINATION</span>
+        <span>07 / NEXT DESTINATION</span>
         <h2>Linux is through the next portal.</h2>
         <p>Coming soon.</p>
         <a className="primary-action" href="#top">

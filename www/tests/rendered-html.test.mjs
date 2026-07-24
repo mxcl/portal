@@ -20,6 +20,8 @@ test("server-renders the Portal landing page", async () => {
   assert.match(html, /Just works\./);
   assert.match(html, /Every CLI\. Already fluent\./);
   assert.match(html, /Proper macOS blur/);
+  assert.match(html, /Built by Mac/);
+  assert.match(html, /Closed tabs come back\./);
   assert.match(html, /Linux is through the next portal\./);
   assert.match(html, /portal-icon\.png/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);

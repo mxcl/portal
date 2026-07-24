@@ -21,8 +21,8 @@ export default function Home() {
             Persistent shell transport online
           </p>
           <h1>
-            <span>Your Mac</span>
-            <span>has a</span>
+            <span>Give your</span>
+            <span>Mac a</span>
             <span className="gradient-text">portal.</span>
           </h1>
           <p className="lede">

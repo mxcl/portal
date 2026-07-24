@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://portal-terminal.dev"),
-  title: "Portal — Your Mac has a portal",
+  title: "Portal — Give your Mac a portal",
   description:
     "Open new shells and rejoin sessions from any Mac or iPhone while the host Mac is awake.",
   icons: {
@@ -22,14 +22,14 @@ export const metadata: Metadata = {
     apple: "/portal-icon.png",
   },
   openGraph: {
-    title: "Portal — Your Mac has a portal",
+    title: "Portal — Give your Mac a portal",
     description:
       "Open new shells and rejoin sessions from any Mac or iPhone. No SSH setup.",
     images: [{ url: "/og.png", width: 1730, height: 909, alt: "Portal" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Portal — Your Mac has a portal",
+    title: "Portal — Give your Mac a portal",
     description:
       "Open new shells and rejoin sessions from any Mac or iPhone. No SSH setup.",
     images: ["/og.png"],

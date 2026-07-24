@@ -13,7 +13,7 @@ test("server-renders the Portal landing page", async () => {
   const html = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(html, /<title>Portal — Your Mac has a portal<\/title>/i);
+  assert.match(html, /<title>Portal — Give your Mac a portal<\/title>/i);
   assert.match(html, /Your host Mac just needs to be awake/);
   assert.match(html, /Sessions stay put until you/);
   assert.match(html, /One session\./);

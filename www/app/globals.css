@@ -153,7 +153,7 @@ h1 span {
 
 .gradient-text {
   width: max-content;
-  padding-right: 0.08em;
+  padding: 0 0.08em 0.12em 0;
   color: transparent;
   background: linear-gradient(90deg, #f4f8ff 0%, #91d7ff 48%, #c28bff 100%);
   background-clip: text;

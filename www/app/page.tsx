@@ -1,4 +1,4 @@
-import { ParticleObject } from "@/components/canvasui/ParticleObject";
+import { ElectricPortal } from "@/components/ElectricPortal";
 
 export default function Home() {
   return (
@@ -37,25 +37,8 @@ export default function Home() {
 
         <div className="portal-stage" aria-hidden="true">
           <div className="portal-aura" />
-          <ParticleObject
-            className="portal-particles"
-            src="/portal-icon.png"
-            count={30000}
-            size={2.6}
-            sizeVariance={0.8}
-            radius={150}
-            strength={1.25}
-            swirl={1.35}
-            spring={0.7}
-            damping={0.28}
-            drift={0.85}
-            scale={3.35}
-            orbit={false}
-            zoom={false}
-            floatIntensity={0.35}
-            rotationIntensity={0.08}
-            floatSpeed={0.75}
-          />
+          <img className="portal-core" src="/portal-icon.png" alt="" />
+          <ElectricPortal className="portal-electric" />
           <div className="portal-flare" />
         </div>
 

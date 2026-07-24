@@ -3107,12 +3107,6 @@ private final class SessionCandidateButton: NSControl {
         setAccessibilityValue(metadata)
         let subtitleText = subtitle ?? ""
         setAccessibilityLabel(title)
-        toolTip = [title, subtitleText.isEmpty ? nil : subtitleText, metadata]
-            .compactMap { value in
-                guard let value, !value.isEmpty else { return nil }
-                return value
-            }
-            .joined(separator: "\n")
 
         titleLabel.stringValue = title
         detailLabel.stringValue = subtitleText

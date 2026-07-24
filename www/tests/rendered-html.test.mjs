@@ -15,7 +15,12 @@ test("server-renders the Portal landing page", async () => {
 
   assert.equal(response.status, 200);
   assert.match(html, /<title>Portal — The terminal that never leaves<\/title>/i);
-  assert.match(html, /Close the tab/);
+  assert.match(html, /Sessions live until you/);
+  assert.match(html, /One session\./);
+  assert.match(html, /Just works\./);
+  assert.match(html, /Every CLI\. Already fluent\./);
+  assert.match(html, /Proper macOS blur/);
+  assert.match(html, /Linux is through the next portal\./);
   assert.match(html, /portal-icon\.png/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });

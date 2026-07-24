@@ -1,23 +1,5 @@
 import { ParticleObject } from "@/components/canvasui/ParticleObject";
 
-const features = [
-  {
-    number: "01",
-    title: "Commands become places.",
-    copy: "Every command and its output lives in a block you can scan, revisit, and act on.",
-  },
-  {
-    number: "02",
-    title: "Sessions outlive windows.",
-    copy: "Close a tab. Quit Portal. Your shell keeps running until you decide it is done.",
-  },
-  {
-    number: "03",
-    title: "Your Macs feel like one.",
-    copy: "Local and remote sessions share one picker. Rejoin the right shell from the Mac in front of you.",
-  },
-];
-
 export default function Home() {
   return (
     <main>
@@ -44,8 +26,8 @@ export default function Home() {
             <span className="gradient-text">leaves.</span>
           </h1>
           <p className="lede">
-            Portal turns commands into blocks and keeps every session alive—
-            through closed tabs, app quits, and the space between your Macs.
+            Open a terminal session. Leave. Rejoin it from any Mac or iPhone.
+            Everything is exactly where you left it.
           </p>
           <a className="primary-action" href="#inside">
             Enter Portal
@@ -86,78 +68,166 @@ export default function Home() {
       </section>
 
       <section className="statement" id="inside">
-        <p className="section-kicker">The shell should belong to you</p>
+        <p className="section-kicker">01 / Persistent by default</p>
         <h2>
-          Close the tab.
+          Portal into
           <br />
-          <span>Not the session.</span>
+          <span>your terminal.</span>
         </h2>
         <p className="statement-copy">
-          Portal separates the life of your shell from the life of a window.
-          Your work waits exactly where you left it.
+          Sessions live until you <code>exit</code>. Close the tab, quit the
+          app, or pick up another device—your shell keeps running.
+          <small>
+            Synced through your iCloud account. No SSH. End-to-end encrypted.
+          </small>
         </p>
       </section>
 
       <section className="product-shot">
         <div className="shot-frame">
           <div className="shot-bar">
-            <span>PORTAL / LOCAL SESSION</span>
-            <span>CONNECTED · 00:42:17</span>
+            <span>PORTAL / AVAILABLE SESSIONS</span>
+            <span>REJOIN ANYWHERE</span>
           </div>
           <img
-            src="/session-blocks.webp"
-            alt="Portal showing terminal commands arranged in clear output blocks"
+            src="/remote-sessions.webp"
+            alt="Portal showing terminal sessions ready to rejoin"
           />
         </div>
         <p className="shot-caption">
           <span>01</span>
-          A terminal designed around what you did, not just what flew past.
+          Every session stays available until you end it.
         </p>
       </section>
 
-      <section className="features" aria-label="Portal features">
-        {features.map((feature) => (
-          <article key={feature.number}>
-            <span className="feature-number">{feature.number}</span>
-            <h3>{feature.title}</h3>
-            <p>{feature.copy}</p>
-          </article>
-        ))}
-      </section>
-
-      <section className="remote">
-        <div className="remote-copy">
-          <p className="section-kicker">Distance: irrelevant</p>
+      <section className="sync">
+        <div className="sync-copy">
+          <p className="section-kicker">02 / Live everywhere</p>
           <h2>
-            One portal.
+            One session.
             <br />
-            Every shell.
+            Every screen.
           </h2>
           <p>
-            Attach to persistent sessions on another Mac over SSH. No new
-            passwords, no open terminal listener, no pretending remote work is
-            local.
+            Type on your Mac. Watch it appear on your iPhone. Use both at once,
+            alongside every other Mac and iPhone you own.
           </p>
         </div>
-        <div className="remote-frame">
+        <div
+          className="device-stage"
+          role="img"
+          aria-label="A command typed on a Mac appearing live on an iPhone"
+        >
+          <div className="mac-device">
+            <div className="device-bar">
+              <i />
+              <i />
+              <i />
+              <span>portal — zsh</span>
+            </div>
+            <div className="device-terminal">
+              <p>
+                <span className="prompt">❯</span>{" "}
+                <span className="typed-command">npm run ship</span>
+              </p>
+              <p className="terminal-output">✓ release published</p>
+            </div>
+          </div>
+          <div className="connection-beam">
+            <i />
+            <i />
+            <i />
+          </div>
+          <div className="phone-device">
+            <div className="phone-island" />
+            <span className="phone-label">PORTAL · LIVE</span>
+            <div className="device-terminal">
+              <p>
+                <span className="prompt">❯</span>{" "}
+                <span className="typed-command">npm run ship</span>
+              </p>
+              <p className="terminal-output">✓ release published</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="no-rituals">
+        <p className="section-kicker">03 / Zero ceremony</p>
+        <h2>Just works.</h2>
+        <p className="rituals-copy">
+          No servers to configure. No sessions to babysit. No networking
+          archaeology.
+        </p>
+        <div className="rituals" aria-label="Tools Portal does not require">
+          {["ssh", "mosh", "screen", "tmux"].map((tool) => (
+            <code key={tool}>{tool}</code>
+          ))}
+        </div>
+      </section>
+
+      <section className="autocomplete">
+        <div className="completion-demo" aria-hidden="true">
+          <div className="completion-input">
+            <span>❯</span>
+            <strong>git che</strong>
+            <i />
+          </div>
+          <div className="completion-menu">
+            <p className="selected">
+              <strong>checkout</strong>
+              <span>Switch branches or restore files</span>
+            </p>
+            <p>
+              <strong>cherry-pick</strong>
+              <span>Apply changes from a commit</span>
+            </p>
+            <p>
+              <strong>check-ignore</strong>
+              <span>Debug gitignore files</span>
+            </p>
+          </div>
+        </div>
+        <div className="autocomplete-copy">
+          <p className="section-kicker">04 / Autocomplete, completed</p>
+          <h2>Every CLI. Already fluent.</h2>
+          <p>
+            State-of-the-art completions without hunting for completion files
+            or configuring Oh My Zsh. Fast on your Mac. Just as instant when
+            you portal in from iPhone.
+          </p>
+        </div>
+      </section>
+
+      <section className="beauty">
+        <div className="beauty-copy">
+          <p className="section-kicker">05 / Native to the core</p>
+          <h2>
+            Powerful can
+            <br />
+            be beautiful.
+          </h2>
+          <p>
+            Proper macOS blur, vibrancy, and translucency. The terminal finally
+            belongs beside your best apps.
+          </p>
+        </div>
+        <div className="beauty-shot">
           <img
-            src="/remote-sessions.webp"
-            alt="Portal session picker showing available sessions"
+            src="/session-blocks.webp"
+            alt="Portal’s translucent macOS interface over a colorful desktop"
           />
         </div>
       </section>
 
-      <section className="finale">
-        <img src="/portal-icon.png" alt="" aria-hidden="true" />
-        <div>
-          <p className="section-kicker">The command line, with continuity</p>
-          <h2>Your work is still there.</h2>
-          <p>Portal for macOS. Built on libghostty. Made for long-running ideas.</p>
-          <a className="primary-action" href="#top">
-            Back to the portal
-            <span aria-hidden="true">↑</span>
-          </a>
-        </div>
+      <section className="linux">
+        <span>06 / NEXT DESTINATION</span>
+        <h2>Linux is through the next portal.</h2>
+        <p>Coming soon.</p>
+        <a className="primary-action" href="#top">
+          Back to the portal
+          <span aria-hidden="true">↑</span>
+        </a>
       </section>
 
       <footer>

@@ -14,23 +14,24 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://portal-terminal.dev"),
-  title: "Portal — The terminal that never leaves",
+  title: "Portal — Your Mac has a portal",
   description:
-    "A macOS block terminal with persistent local and remote shell sessions.",
+    "Open new shells and rejoin sessions from any Mac or iPhone while the host Mac is awake.",
   icons: {
     icon: "/portal-icon.png",
     apple: "/portal-icon.png",
   },
   openGraph: {
-    title: "Portal — The terminal that never leaves",
+    title: "Portal — Your Mac has a portal",
     description:
-      "Commands become blocks. Sessions survive tabs, app quits, and the space between your Macs.",
+      "Open new shells and rejoin sessions from any Mac or iPhone. No SSH setup.",
     images: [{ url: "/og.png", width: 1730, height: 909, alt: "Portal" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Portal — The terminal that never leaves",
-    description: "A macOS terminal built around session continuity.",
+    title: "Portal — Your Mac has a portal",
+    description:
+      "Open new shells and rejoin sessions from any Mac or iPhone. No SSH setup.",
     images: ["/og.png"],
   },
 };

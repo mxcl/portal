@@ -13,8 +13,9 @@ test("server-renders the Portal landing page", async () => {
   const html = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(html, /<title>Portal — The terminal that never leaves<\/title>/i);
-  assert.match(html, /Sessions live until you/);
+  assert.match(html, /<title>Portal — Your Mac has a portal<\/title>/i);
+  assert.match(html, /Your host Mac just needs to be awake/);
+  assert.match(html, /Sessions stay put until you/);
   assert.match(html, /One session\./);
   assert.match(html, /Just works\./);
   assert.match(html, /Every CLI\. Already fluent\./);
@@ -25,5 +26,8 @@ test("server-renders the Portal landing page", async () => {
   assert.match(html, /Linux is through the next portal\./);
   assert.match(html, /portal-icon\.png/);
   assert.match(html, /portal-electric/);
-  assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
+  assert.doesNotMatch(
+    html,
+    /codex-preview|Your site is taking shape|never leaves|still running/i,
+  );
 });

@@ -21,13 +21,13 @@ export default function Home() {
             Persistent shell transport online
           </p>
           <h1>
-            <span>The terminal</span>
-            <span>that never</span>
-            <span className="gradient-text">leaves.</span>
+            <span>Your Mac</span>
+            <span>has a</span>
+            <span className="gradient-text">portal.</span>
           </h1>
           <p className="lede">
-            Open a terminal session. Leave. Rejoin it from any Mac or iPhone.
-            Everything is exactly where you left it.
+            Open a new shell or rejoin one from any Mac or iPhone. No SSH
+            setup. Your host Mac just needs to be awake.
           </p>
           <a className="primary-action" href="#inside">
             Enter Portal
@@ -57,8 +57,9 @@ export default function Home() {
           <span>your terminal.</span>
         </h2>
         <p className="statement-copy">
-          Sessions live until you <code>exit</code>. Close the tab, quit the
-          app, or pick up another device—your shell keeps running.
+          Sessions stay put until you <code>exit</code>. Close the tab, quit
+          Portal, or switch devices. Jump straight back in whenever the host
+          Mac is awake.
           <small>
             Synced through your iCloud account. No SSH. End-to-end encrypted.
           </small>
@@ -78,7 +79,7 @@ export default function Home() {
         </div>
         <p className="shot-caption">
           <span>01</span>
-          Every session stays available until you end it.
+          Sessions stay put until you end them.
         </p>
       </section>
 
@@ -265,7 +266,7 @@ export default function Home() {
           <span aria-hidden="true">&gt;_</span>
           <strong>PORTAL</strong>
         </a>
-        <p>YOUR SESSION IS STILL RUNNING.</p>
+        <p>YOUR SESSION IS STILL THERE.</p>
         <p>© 2026</p>
       </footer>
     </main>

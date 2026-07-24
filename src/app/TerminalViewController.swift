@@ -4641,14 +4641,26 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             }
 
         var rowCount = 0
-        for (_, sectionCandidates) in sections {
+        for (location, sectionCandidates) in sections {
             let header = NSTextField(labelWithString: sessionCandidateHostTitle(sectionCandidates[0]))
             header.attributedStringValue = hostPrefixAttributedString(
                 header.stringValue,
                 color: TahoeGlassPalette.titleTextActive
             )
-            header.heightAnchor.constraint(equalToConstant: 16).isActive = true
-            tab.sessionPickerStack.addArrangedSubview(header)
+            let headerStack = NSStackView()
+            headerStack.orientation = .horizontal
+            headerStack.alignment = .centerY
+            headerStack.spacing = 4
+            headerStack.heightAnchor.constraint(equalToConstant: 16).isActive = true
+            if location != .local {
+                let icon = NSImageView()
+                icon.image = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
+                icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 8, weight: .semibold)
+                icon.contentTintColor = TahoeGlassPalette.titleTextActive.withAlphaComponent(0.34)
+                headerStack.addArrangedSubview(icon)
+            }
+            headerStack.addArrangedSubview(header)
+            tab.sessionPickerStack.addArrangedSubview(headerStack)
 
             for rowCandidates in sectionCandidates.chunked(into: 4).reversed() {
                 let buttons = rowCandidates.map { candidate in

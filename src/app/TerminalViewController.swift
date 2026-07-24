@@ -4653,9 +4653,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 case (.local, .local):
                     return false
                 case (.local, _):
-                    return true
-                case (_, .local):
                     return false
+                case (_, .local):
+                    return true
                 default:
                     return sessionCandidateHostTitle(lhs.value[0])
                         .localizedStandardCompare(sessionCandidateHostTitle(rhs.value[0])) == .orderedAscending

@@ -3024,7 +3024,6 @@ private final class SessionCandidateButton: NSControl {
     let sessionID: String
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
-    private let hostLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private let metaLabel = NSTextField(labelWithString: "")
     private var trackingArea: NSTrackingArea?
@@ -3032,7 +3031,7 @@ private final class SessionCandidateButton: NSControl {
         didSet { updateAppearance() }
     }
 
-    init(sessionRef: SessionRef, title: String, subtitle: String?, metadata: String, hostPrefix: String?) {
+    init(sessionRef: SessionRef, title: String, subtitle: String?, metadata: String) {
         self.sessionRef = sessionRef
         self.sessionID = sessionRef.sessionID
         super.init(frame: .zero)
@@ -3040,7 +3039,6 @@ private final class SessionCandidateButton: NSControl {
         layer?.cornerRadius = 8
         layer?.backgroundColor = NSColor.clear.cgColor
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let normalizedHostPrefix = hostPrefix?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         iconView.image = NSImage(
             systemSymbolName: "terminal",
@@ -3058,15 +3056,6 @@ private final class SessionCandidateButton: NSControl {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
 
-        hostLabel.attributedStringValue = normalizedHostPrefix.map {
-            hostPrefixAttributedString($0, color: TahoeGlassPalette.titleTextActive)
-        } ?? NSAttributedString()
-        hostLabel.lineBreakMode = .byTruncatingMiddle
-        hostLabel.maximumNumberOfLines = 1
-        hostLabel.isHidden = normalizedHostPrefix?.isEmpty != false
-        hostLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(hostLabel)
-
         detailLabel.font = .systemFont(ofSize: 12, weight: .regular)
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.lineBreakMode = .byTruncatingMiddle
@@ -3083,18 +3072,15 @@ private final class SessionCandidateButton: NSControl {
         metaLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(metaLabel)
 
-        let hasHost = normalizedHostPrefix?.isEmpty == false
         let hasSubtitle = subtitle?.isEmpty == false
         let detailTopConstraint = detailLabel.topAnchor.constraint(
-            equalTo: hasHost ? hostLabel.bottomAnchor : titleLabel.bottomAnchor,
+            equalTo: titleLabel.bottomAnchor,
             constant: 3
         )
-        let metaTopAnchor = hasSubtitle
-            ? detailLabel.bottomAnchor
-            : (hasHost ? hostLabel.bottomAnchor : titleLabel.bottomAnchor)
+        let metaTopAnchor = hasSubtitle ? detailLabel.bottomAnchor : titleLabel.bottomAnchor
         let metaTopConstraint = metaLabel.topAnchor.constraint(
             equalTo: metaTopAnchor,
-            constant: hasSubtitle || hasHost ? 3 : 6
+            constant: hasSubtitle ? 3 : 6
         )
 
         NSLayoutConstraint.activate([
@@ -3109,10 +3095,6 @@ private final class SessionCandidateButton: NSControl {
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
 
-            hostLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            hostLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            hostLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
-
             detailLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             detailLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
             detailTopConstraint,
@@ -3124,9 +3106,8 @@ private final class SessionCandidateButton: NSControl {
 
         setAccessibilityValue(metadata)
         let subtitleText = subtitle ?? ""
-        let hostSuffixTitle = plainTextWithHostSuffix(title, hostPrefix: normalizedHostPrefix)
-        setAccessibilityLabel(hostSuffixTitle)
-        toolTip = [hostSuffixTitle, subtitleText.isEmpty ? nil : subtitleText, metadata]
+        setAccessibilityLabel(title)
+        toolTip = [title, subtitleText.isEmpty ? nil : subtitleText, metadata]
             .compactMap { value in
                 guard let value, !value.isEmpty else { return nil }
                 return value
@@ -3197,13 +3178,6 @@ private final class SessionCandidateButton: NSControl {
         iconView.contentTintColor = isHovering
             ? NSColor.labelColor
             : TahoeGlassPalette.titleTextActive
-    }
-
-    private func plainTextWithHostSuffix(_ text: String, hostPrefix: String?) -> String {
-        guard let hostPrefix = hostPrefix, !hostPrefix.isEmpty else {
-            return text
-        }
-        return "\(text)  \(hostPrefix)"
     }
 }
 
@@ -4669,8 +4643,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         var rowCount = 0
         for (_, sectionCandidates) in sections {
             let header = NSTextField(labelWithString: sessionCandidateHostTitle(sectionCandidates[0]))
-            header.font = .systemFont(ofSize: 11, weight: .semibold)
-            header.textColor = .secondaryLabelColor
+            header.attributedStringValue = hostPrefixAttributedString(
+                header.stringValue,
+                color: TahoeGlassPalette.titleTextActive
+            )
             header.heightAnchor.constraint(equalToConstant: 16).isActive = true
             tab.sessionPickerStack.addArrangedSubview(header)
 
@@ -4680,8 +4656,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                         sessionRef: candidate.sessionRef,
                         title: sessionCandidateTitle(candidate),
                         subtitle: sessionCandidateSubtitle(candidate),
-                        metadata: sessionCandidateMetadata(candidate),
-                        hostPrefix: candidate.hostPrefix
+                        metadata: sessionCandidateMetadata(candidate)
                     )
                     button.target = self
                     button.action = #selector(attachSessionFromPicker(_:))

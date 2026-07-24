@@ -4647,33 +4647,59 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             }
             return lhs.sessionID < rhs.sessionID
         }
-        let candidateRows = orderedCandidates.chunked(into: 4).reversed()
-        for rowCandidates in candidateRows {
-            let buttons = rowCandidates.map { candidate in
-                let button = SessionCandidateButton(
-                    sessionRef: candidate.sessionRef,
-                    title: sessionCandidateTitle(candidate),
-                    subtitle: sessionCandidateSubtitle(candidate),
-                    metadata: sessionCandidateMetadata(candidate),
-                    hostPrefix: candidate.hostPrefix
-                )
-                button.target = self
-                button.action = #selector(attachSessionFromPicker(_:))
-                if candidate.isClosedSession {
-                    button.menu = closedSessionCandidateMenu(for: candidate.sessionRef)
+        let sections = Dictionary(grouping: orderedCandidates, by: \.sessionRef.location)
+            .sorted { lhs, rhs in
+                switch (lhs.key, rhs.key) {
+                case (.local, .local):
+                    return false
+                case (.local, _):
+                    return true
+                case (_, .local):
+                    return false
+                default:
+                    return sessionCandidateHostTitle(lhs.value[0])
+                        .localizedStandardCompare(sessionCandidateHostTitle(rhs.value[0])) == .orderedAscending
                 }
-                return button
             }
 
-            let row = SessionCandidateRowView(buttons: buttons)
-            tab.sessionPickerStack.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: tab.sessionPickerStack.widthAnchor).isActive = true
+        var rowCount = 0
+        for (_, sectionCandidates) in sections {
+            let header = NSTextField(labelWithString: sessionCandidateHostTitle(sectionCandidates[0]))
+            header.font = .systemFont(ofSize: 11, weight: .semibold)
+            header.textColor = .secondaryLabelColor
+            header.heightAnchor.constraint(equalToConstant: 16).isActive = true
+            tab.sessionPickerStack.addArrangedSubview(header)
+
+            for rowCandidates in sectionCandidates.chunked(into: 4).reversed() {
+                let buttons = rowCandidates.map { candidate in
+                    let button = SessionCandidateButton(
+                        sessionRef: candidate.sessionRef,
+                        title: sessionCandidateTitle(candidate),
+                        subtitle: sessionCandidateSubtitle(candidate),
+                        metadata: sessionCandidateMetadata(candidate),
+                        hostPrefix: candidate.hostPrefix
+                    )
+                    button.target = self
+                    button.action = #selector(attachSessionFromPicker(_:))
+                    if candidate.isClosedSession {
+                        button.menu = closedSessionCandidateMenu(for: candidate.sessionRef)
+                    }
+                    return button
+                }
+
+                let row = SessionCandidateRowView(buttons: buttons)
+                tab.sessionPickerStack.addArrangedSubview(row)
+                row.widthAnchor.constraint(equalTo: tab.sessionPickerStack.widthAnchor).isActive = true
+                rowCount += 1
+            }
         }
 
         tab.sessionPickerView.isHidden = false
-        let rowCount = Int(ceil(Double(orderedCandidates.count) / 4.0))
-        let rowSpacing = max(0, rowCount - 1) * 10
-        tab.sessionPickerHeightConstraint?.constant = CGFloat(16 + rowCount * 82 + rowSpacing)
+        let arrangedViewCount = rowCount + sections.count
+        let spacing = max(0, arrangedViewCount - 1) * 10
+        tab.sessionPickerHeightConstraint?.constant = CGFloat(
+            16 + rowCount * 82 + sections.count * 16 + spacing
+        )
         tab.rootView.needsLayout = true
     }
 
@@ -4957,6 +4983,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             return titleForCommand(runningCommand)
         }
         return displaySessionCwd(candidate.cwd)
+    }
+
+    private func sessionCandidateHostTitle(_ candidate: LocalSessionCandidate) -> String {
+        candidate.hostPrefix ?? Host.current().localizedName ?? "This Mac"
     }
 
     private func sessionCandidateSubtitle(_ candidate: LocalSessionCandidate) -> String? {

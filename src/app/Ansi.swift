@@ -1127,6 +1127,8 @@ enum Ansi {
         assert(linkScheme(in: output, text: text, needle: "https://two.test/a") == "https")
         assert(linkScheme(in: output, text: text, needle: "file:///tmp/x") == "file")
         assert(linkScheme(in: output, text: text, needle: "ftp://nope") == nil)
+        let punctuation = String(repeating: ".", count: 40) + "!"
+        assert(StyledTextRenderer().process(punctuation).plainText == punctuation)
 
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("vaultty-ansi-\(UUID().uuidString)", isDirectory: true)
@@ -1174,7 +1176,7 @@ enum Ansi {
     private static let clickableURLSchemes: Set<String> = ["file", "http", "https"]
 
     private static let pathDetector = try! NSRegularExpression(
-        pattern: #"(?<![A-Za-z0-9_./~-])((?:~|/|\./|\.\./)?(?:(?:[A-Za-z0-9_.$+@%-]+/)+[A-Za-z0-9_.$+@%-]+|(?:[A-Za-z0-9_.$+@%-]+\.)+[A-Za-z][A-Za-z0-9_+-]{0,11})/?)(?::([0-9]+))?(?::[0-9]+)?"#
+        pattern: #"(?<![A-Za-z0-9_./~-])((?:~|/|\./|\.\./)?(?:(?:[A-Za-z0-9_.$+@%-]+/)+[A-Za-z0-9_.$+@%-]+|(?:[A-Za-z0-9_$+@%-]+\.)+[A-Za-z][A-Za-z0-9_+-]{0,11})/?)(?::([0-9]+))?(?::[0-9]+)?"#
     )
 
     private static func linkifyURLs(

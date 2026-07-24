@@ -18,6 +18,30 @@ public struct TerminalChunk: Identifiable, Equatable, Sendable {
     public let data: Data
 }
 
+public struct MobileCompletionSuggestion: Decodable, Identifiable, Sendable {
+    public var id: String { "\(kind):\(displayText):\(insertText)" }
+    public let displayText: String
+    public let insertText: String
+    public let description: String?
+    public let kind: String
+    public let priority: Int
+    public let source: String
+}
+
+private struct MobileCompletionResponse: Decodable {
+    let suggestions: [MobileCompletionSuggestion]
+}
+
+private struct MobileCommandCompletionRequest: Encodable {
+    let prefix: String
+}
+
+private struct MobilePathCompletionRequest: Encodable {
+    let cwd: String
+    let prefix: String
+    let foldersOnly: Bool
+}
+
 @MainActor
 @Observable
 public final class MobileRemoteModel {
@@ -31,6 +55,8 @@ public final class MobileRemoteModel {
     public private(set) var creatingMacID: String?
     public private(set) var sessionCreationError: String?
     public private(set) var isRefreshingCatalog = false
+    public private(set) var completionSuggestions: [MobileCompletionSuggestion] = []
+    public private(set) var isCompleting = false
     public var showsPaywall = false
 
     private let endpoint: URL
@@ -47,6 +73,13 @@ public final class MobileRemoteModel {
     private var backgroundGraceTask: Task<Void, Never>?
     private var targetSession: RemoteCatalogSession?
     private var targetMac: RemoteMac?
+    private var supportsCompletion = false
+    private var commandCompletions: [MobileCompletionSuggestion] = []
+    private var completionOperationID: String?
+    private var completionOperation: RemoteCompletionOperation?
+    private var completionPrefix = ""
+    private var completionIsCommand = true
+    private var completionTimeoutTask: Task<Void, Never>?
     public init(endpoint: URL = URL(string: "https://vaultty-relay.mxcl.dev")!) {
         self.endpoint = endpoint
         if let existing = UserDefaults.standard.string(forKey: "vaulttyRemotePeerID") {
@@ -139,6 +172,7 @@ public final class MobileRemoteModel {
     }
 
     private func closeConnection(clearTarget: Bool) {
+        resetCompletion()
         if let requestID, let attachedMacID, let attachedSessionID {
             send(RemoteMessage(
                 kind: .detach,
@@ -191,6 +225,46 @@ public final class MobileRemoteModel {
         ))
     }
 
+    public func complete(_ input: String, cwd: String) {
+        completionPrefix = input.lastIndex(where: \.isWhitespace)
+            .map { String(input[input.index(after: $0)...]) } ?? input
+        completionIsCommand = !input.contains(where: \.isWhitespace)
+        completionSuggestions = []
+        isCompleting = !input.isEmpty
+        guard !input.isEmpty else {
+            cancelRemoteCompletion()
+            return
+        }
+        guard supportsCompletion else { return }
+
+        if completionIsCommand {
+            if !commandCompletions.isEmpty {
+                cancelRemoteCompletion()
+                showCommandCompletions()
+            } else if completionOperation != .completeCommands {
+                requestCompletion(
+                    .completeCommands,
+                    payload: MobileCommandCompletionRequest(prefix: "")
+                )
+            }
+        } else {
+            requestCompletion(
+                .completePath,
+                payload: MobilePathCompletionRequest(
+                    cwd: cwd,
+                    prefix: completionPrefix,
+                    foldersOnly: false
+                )
+            )
+        }
+    }
+
+    public func cancelCompletion() {
+        cancelRemoteCompletion()
+        completionSuggestions = []
+        isCompleting = false
+    }
+
     public func sceneDidEnterBackground() {
         backgroundedAt = Date()
         backgroundGraceTask?.cancel()
@@ -241,6 +315,7 @@ public final class MobileRemoteModel {
     }
 
     private func connect(session: RemoteCatalogSession, mac: RemoteMac) async throws {
+        resetCompletion()
         let key = try ICloudKeychainRootKey().loadOrCreate()
         let relay = try RelayClient(endpoint: endpoint, rootKeyData: key)
         self.relay = relay
@@ -273,6 +348,7 @@ public final class MobileRemoteModel {
                 throw CancellationError()
             } catch {
                 connectionState = .reconnecting
+                resetCompletion()
                 await relay.disconnect()
                 try await Task.sleep(for: retryDelay)
                 retryDelay = min(retryDelay * 2, .seconds(30))
@@ -330,12 +406,173 @@ public final class MobileRemoteModel {
                let count = Int(text) {
                 presenceCount = count
             }
+        case .capabilities:
+            guard let payload = message.payload,
+                  let capabilities = try? JSONDecoder().decode(
+                    RemoteCapabilities.self,
+                    from: payload
+                  )
+            else { return }
+            supportsCompletion = capabilities.values.contains(
+                RemoteCapabilities.relayCompletion
+            )
+            if supportsCompletion {
+                if isCompleting {
+                    completeCurrentInput(cwd: targetSession?.cwd ?? "/")
+                } else {
+                    requestCompletion(
+                        .completeCommands,
+                        payload: MobileCommandCompletionRequest(prefix: "")
+                    )
+                }
+            }
+        case .completionResponse:
+            handleCompletionResponse(message)
         case .catalog, .attach, .detach, .createSession, .sessionCreated,
              .input, .submit, .interrupt, .clearHistory, .updateState,
-             .kill, .historyPage, .capabilities, .completionRequest,
-             .completionResponse, .completionCancel, .unknown:
+             .kill, .historyPage, .completionRequest, .completionCancel, .unknown:
             break
         }
+    }
+
+    private func completeCurrentInput(cwd: String) {
+        if completionIsCommand {
+            if commandCompletions.isEmpty {
+                requestCompletion(
+                    .completeCommands,
+                    payload: MobileCommandCompletionRequest(prefix: "")
+                )
+            } else {
+                showCommandCompletions()
+            }
+        } else {
+            requestCompletion(
+                .completePath,
+                payload: MobilePathCompletionRequest(
+                    cwd: cwd,
+                    prefix: completionPrefix,
+                    foldersOnly: false
+                )
+            )
+        }
+    }
+
+    private func requestCompletion<T: Encodable>(
+        _ operation: RemoteCompletionOperation,
+        payload: T
+    ) {
+        guard supportsCompletion,
+              let requestID,
+              let attachedMacID,
+              let attachedSessionID,
+              let input = try? JSONEncoder().encode(payload),
+              input.count <= RemoteCompletionRequest.maximumPayloadSize
+        else { return }
+        cancelRemoteCompletion()
+        let operationID = UUID().uuidString
+        completionOperationID = operationID
+        completionOperation = operation
+        send(RemoteMessage(
+            kind: .completionRequest,
+            requestID: requestID,
+            macID: attachedMacID,
+            sessionID: attachedSessionID,
+            payload: try? JSONEncoder().encode(RemoteCompletionRequest(
+                operationID: operationID,
+                operation: operation,
+                payload: input
+            ))
+        ))
+        completionTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled,
+                  self?.completionOperationID == operationID else { return }
+            self?.cancelRemoteCompletion()
+            self?.isCompleting = false
+        }
+    }
+
+    private func handleCompletionResponse(_ message: RemoteMessage) {
+        guard let payload = message.payload,
+              let response = try? JSONDecoder().decode(
+                RemoteCompletionResponse.self,
+                from: payload
+              ),
+              response.operationID == completionOperationID
+        else { return }
+        completionTimeoutTask?.cancel()
+        completionTimeoutTask = nil
+        let operation = completionOperation
+        completionOperationID = nil
+        completionOperation = nil
+        guard response.error == nil,
+              let output = response.payload,
+              output.count <= RemoteCompletionResponse.maximumPayloadSize,
+              let decoded = try? JSONDecoder().decode(
+                MobileCompletionResponse.self,
+                from: output
+              )
+        else {
+            isCompleting = false
+            return
+        }
+        if operation == .completeCommands {
+            commandCompletions = decoded.suggestions
+            if completionIsCommand, isCompleting {
+                showCommandCompletions()
+            }
+        } else {
+            completionSuggestions = Array(decoded.suggestions.prefix(8))
+            isCompleting = false
+        }
+    }
+
+    private func showCommandCompletions() {
+        completionSuggestions = Array(commandCompletions
+            .filter {
+                completionPrefix.isEmpty ||
+                    $0.displayText.range(
+                        of: completionPrefix,
+                        options: [.anchored, .caseInsensitive]
+                    ) != nil
+            }
+            .sorted { $0.displayText.localizedStandardCompare($1.displayText) == .orderedAscending }
+            .prefix(8))
+        isCompleting = false
+    }
+
+    private func cancelRemoteCompletion() {
+        completionTimeoutTask?.cancel()
+        completionTimeoutTask = nil
+        guard let operationID = completionOperationID,
+              let requestID,
+              let attachedMacID,
+              let attachedSessionID,
+              let payload = try? JSONEncoder().encode(
+                RemoteCompletionCancellation(operationID: operationID)
+              )
+        else {
+            completionOperationID = nil
+            completionOperation = nil
+            return
+        }
+        send(RemoteMessage(
+            kind: .completionCancel,
+            requestID: requestID,
+            macID: attachedMacID,
+            sessionID: attachedSessionID,
+            payload: payload
+        ))
+        completionOperationID = nil
+        completionOperation = nil
+    }
+
+    private func resetCompletion() {
+        cancelRemoteCompletion()
+        supportsCompletion = false
+        commandCompletions = []
+        completionSuggestions = []
+        isCompleting = false
     }
 
     private func send(_ message: RemoteMessage) {

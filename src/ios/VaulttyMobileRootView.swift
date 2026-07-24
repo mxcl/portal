@@ -273,6 +273,7 @@ private struct MobileSessionView: View {
     let session: RemoteCatalogSession
     let mac: RemoteMac
     @State private var command = ""
+    @State private var showsCompletions = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -358,10 +359,27 @@ private struct MobileSessionView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .submitLabel(.send)
+                    .onChange(of: command) { _, value in
+                        showsCompletions = !value.isEmpty
+                        model.complete(value, cwd: session.cwd)
+                    }
                     .onSubmit {
                         guard !command.isEmpty else { return }
                         model.submit(command)
                         command = ""
+                    }
+                    .popover(
+                        isPresented: $showsCompletions,
+                        attachmentAnchor: .rect(.bounds),
+                        arrowEdge: .bottom
+                    ) {
+                        MobileCompletionPopover(
+                            suggestions: model.completionSuggestions,
+                            isLoading: model.isCompleting
+                        ) { suggestion in
+                            apply(suggestion)
+                        }
+                        .presentationCompactAdaptation(.popover)
                     }
             }
             Menu {
@@ -424,6 +442,63 @@ private struct MobileSessionView: View {
         case .reconnecting: "Reconnecting"
         case .failed(let message): message
         }
+    }
+
+    private func apply(_ suggestion: MobileCompletionSuggestion) {
+        let start = command.lastIndex(where: \.isWhitespace)
+            .map { command.index(after: $0) } ?? command.startIndex
+        command.replaceSubrange(start..., with: suggestion.insertText)
+    }
+}
+
+private struct MobileCompletionPopover: View {
+    let suggestions: [MobileCompletionSuggestion]
+    let isLoading: Bool
+    let onSelect: (MobileCompletionSuggestion) -> Void
+
+    var body: some View {
+        Group {
+            if suggestions.isEmpty {
+                if isLoading {
+                    ProgressView("Completing…")
+                } else {
+                    ContentUnavailableView("No completions", systemImage: "text.magnifyingglass")
+                }
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(suggestions) { suggestion in
+                            Button {
+                                onSelect(suggestion)
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(suggestion.displayText)
+                                            .font(.body.monospaced())
+                                        if let description = suggestion.description {
+                                            Text(description)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    Spacer()
+                                    Text(suggestion.kind)
+                                        .font(.caption2.monospaced())
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .contentShape(.rect)
+                                .padding(.horizontal, 12)
+                                .frame(minHeight: 44)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Insert completion")
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: 320, height: suggestions.isEmpty ? 88 : min(CGFloat(suggestions.count) * 48, 288))
     }
 }
 

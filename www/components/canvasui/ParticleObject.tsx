@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export interface ParticleObjectOptions {
@@ -56,8 +55,6 @@ export interface ParticleObjectOptions {
   fov?: number;
   /** Camera distance from the center of the asset. */
   cameraDistance?: number;
-  /** Base URL of the Draco decoder, fetched only when a model needs it. */
-  dracoDecoderPath?: string;
   /** Called after an asset finishes loading. */
   onLoad?: (() => void) | null;
   /** Called when an asset fails to load. */
@@ -103,7 +100,6 @@ const DEFAULTS: Required<ParticleObjectOptions> = {
   autoRotateSpeed: 2,
   fov: 65,
   cameraDistance: 4.2,
-  dracoDecoderPath: "https://www.gstatic.com/draco/versioned/decoders/1.5.7/",
   onLoad: null,
   onError: null,
 };
@@ -604,9 +600,6 @@ export function createParticleObject(
   let disposed = false;
 
   const loader = new GLTFLoader();
-  const draco = new DRACOLoader();
-  draco.setDecoderPath(config.dracoDecoderPath);
-  loader.setDRACOLoader(draco);
 
   function clearPoints() {
     if (!points) return;
@@ -682,7 +675,6 @@ export function createParticleObject(
       if (!kind) throw new Error("Unrecognized asset format");
 
       if (kind === "glb" || kind === "gltf") {
-        draco.setDecoderPath(config.dracoDecoderPath);
         const resourcePath = src.slice(0, src.lastIndexOf("/") + 1);
         const data = kind === "glb" ? buffer : new TextDecoder().decode(bytes);
         const gltf = await loader.parseAsync(data, resourcePath);
@@ -1004,7 +996,6 @@ export function createParticleObject(
       controls.dispose();
       clearAsset();
       material.dispose();
-      draco.dispose();
       renderer.dispose();
     },
   };

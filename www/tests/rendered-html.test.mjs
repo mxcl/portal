@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
 test("server-renders the Portal landing page", async () => {
@@ -17,4 +18,14 @@ test("server-renders the Portal landing page", async () => {
   assert.match(html, /Close the tab/);
   assert.match(html, /portal-icon\.png/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
+});
+
+test("server bundle does not evaluate the browser-only Draco loader", async () => {
+  const assets = new URL("../dist/server/ssr/assets/", import.meta.url);
+  const files = (await readdir(assets)).filter((file) => file.endsWith(".js"));
+  const bundles = await Promise.all(
+    files.map((file) => readFile(new URL(file, assets), "utf8")),
+  );
+
+  assert.doesNotMatch(bundles.join("\n"), /draco_decoder\.wasm/);
 });

@@ -511,7 +511,7 @@ private struct MobileBlockView: View {
                 Text("❯")
                     .foregroundStyle(.green)
                 Text(block.command)
-                    .fontWeight(.semibold)
+                    .font(.callout.monospaced().weight(.medium))
                     .textSelection(.enabled)
                 Spacer(minLength: 8)
                 state

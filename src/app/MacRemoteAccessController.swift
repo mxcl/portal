@@ -437,16 +437,13 @@ final class MacRemoteAccessController {
     }
 
     private func completionBridgeURL() -> URL? {
-        let sibling = URL(fileURLWithPath: CommandLine.arguments[0])
+        let helperDirectory = URL(fileURLWithPath: CommandLine.arguments[0])
             .deletingLastPathComponent()
-            .appendingPathComponent("portal-session-bridge")
-        if FileManager.default.isExecutableFile(atPath: sibling.path) {
-            return sibling
-        }
-        let bundled = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Helpers/portal-session-bridge")
-        if FileManager.default.isExecutableFile(atPath: bundled.path) {
-            return bundled
+        for name in ["vaultty-session-bridge", "portal-session-bridge"] {
+            let sibling = helperDirectory.appendingPathComponent(name)
+            if FileManager.default.isExecutableFile(atPath: sibling.path) {
+                return sibling
+            }
         }
         let local = URL(fileURLWithPath: "target/debug/portal-session-bridge")
         return FileManager.default.isExecutableFile(atPath: local.path) ? local : nil

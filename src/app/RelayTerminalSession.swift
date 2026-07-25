@@ -122,13 +122,13 @@ final class RelayTerminalSession: TerminalSession {
     }
 
     func kill() {
-        receiveTask?.cancel()
         completionProvider.disconnect()
         let previous = pendingSend
         pendingSend = Task { [weak self] in
             await previous?.value
             guard let self, let client else { return }
             try? await client.send(.kill)
+            receiveTask?.cancel()
             self.client = nil
         }
     }

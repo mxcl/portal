@@ -115,6 +115,23 @@ struct RemoteTerminalSessionClientTests {
         }
     }
 
+    @Test("kill is delivered before the client disconnects")
+    func killDelivery() async throws {
+        let (client, transport) = makeClient(role: .mac)
+        let running = run(client)
+        var events = running.events.makeAsyncIterator()
+        _ = await events.next()
+        _ = try await transport.waitForMessage(kind: .attach)
+        _ = await events.next()
+
+        try await client.send(.kill)
+
+        _ = try await transport.waitForMessage(kind: .kill)
+        _ = try await transport.waitForMessage(kind: .detach)
+        try await running.task.value
+        #expect(await transport.messageKinds().suffix(2) == [.kill, .detach])
+    }
+
     @Test("completion is capability-gated, correlated, and cancellable")
     func completionLifecycle() async throws {
         let (client, transport) = makeClient(role: .mac)
@@ -313,6 +330,10 @@ private actor FakeTerminalTransport: RemoteRelayTransport {
 
     func messageCount(kind: RemoteMessageKind) -> Int {
         sentMessages.count { $0.kind == kind }
+    }
+
+    func messageKinds() -> [RemoteMessageKind] {
+        sentMessages.map(\.kind)
     }
 }
 

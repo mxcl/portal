@@ -3177,6 +3177,10 @@ private final class SessionCandidateButton: NSControl {
 
 private final class SessionHeaderAddButton: NSButton {
     let sessionRef: SessionRef
+    private var hoverTrackingArea: NSTrackingArea?
+    private var isHovering = false {
+        didSet { updateAppearance() }
+    }
 
     init(sessionRef: SessionRef, hostName: String) {
         self.sessionRef = sessionRef
@@ -3185,7 +3189,8 @@ private final class SessionHeaderAddButton: NSButton {
         symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
         imagePosition = .imageOnly
         isBordered = false
-        contentTintColor = TahoeGlassPalette.titleTextActive.withAlphaComponent(0.5)
+        wantsLayer = true
+        layer?.cornerRadius = 5
         toolTip = "New session on \(hostName)"
         setAccessibilityLabel(toolTip)
         translatesAutoresizingMaskIntoConstraints = false
@@ -3193,10 +3198,42 @@ private final class SessionHeaderAddButton: NSButton {
             widthAnchor.constraint(equalToConstant: 20),
             heightAnchor.constraint(equalToConstant: 20)
         ])
+        updateAppearance()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited],
+            owner: self
+        )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovering = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovering = false
+    }
+
+    private func updateAppearance() {
+        layer?.backgroundColor = isHovering
+            ? TahoeGlassPalette.titleSegmentHoverFill.cgColor
+            : NSColor.clear.cgColor
+        contentTintColor = isHovering
+            ? TahoeGlassPalette.titleTextActive
+            : TahoeGlassPalette.titleTextActive.withAlphaComponent(0.5)
     }
 }
 

@@ -336,7 +336,7 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
         if needsGeometryUpdate {
             currentContentSize = size
             currentDocumentHeight = contentHeight
-            scrollView.frame = NSRect(origin: .zero, size: size)
+            scrollView.setFrameSize(size)
             scrollView.hasVerticalScroller = shouldFlashScrollers
             listView.frame = NSRect(x: 0, y: 0, width: Self.popupWidth, height: contentHeight)
         }
@@ -379,7 +379,7 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
         let size = NSSize(width: Self.popupWidth, height: placement.height)
         if currentContentSize != size {
             currentContentSize = size
-            scrollView.frame = NSRect(origin: .zero, size: size)
+            scrollView.setFrameSize(size)
             scrollView.hasVerticalScroller = currentDocumentHeight > placement.height
             listView.frame = NSRect(x: 0, y: 0, width: Self.popupWidth, height: currentDocumentHeight)
             popover.contentViewController?.preferredContentSize = size

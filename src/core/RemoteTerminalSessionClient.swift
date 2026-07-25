@@ -1,13 +1,35 @@
 import Foundation
 
+public enum RemoteTerminalConnectionState: Equatable, Sendable {
+    case connecting
+    case attached
+    case reconnecting
+}
+
 public enum RemoteTerminalEvent: Equatable, Sendable {
-    case output(String)
-    case history(String)
+    case connection(RemoteTerminalConnectionState)
+    case output(Data)
+    case history(Data)
+    case snapshot(RemoteTerminalSnapshot)
+    case size(RemoteTerminalSize)
     case presence(Int)
-    case capabilities(Set<String>)
+    case completionAvailabilityChanged(Bool)
+}
+
+public enum RemoteTerminalCommand: Equatable, Sendable {
+    case input(Data)
+    case submit(String)
+    case interrupt
+    case resize(RemoteTerminalSize)
+    case clearHistory
+    case updateState(RemoteSessionState)
+    case kill
 }
 
 public enum RemoteTerminalSessionError: Error, Equatable, LocalizedError {
+    case alreadyRunning
+    case notAttached
+    case deliveryUnknown
     case invalidResponse
     case sequenceGap(expected: UInt64)
     case completionUnavailable
@@ -16,6 +38,12 @@ public enum RemoteTerminalSessionError: Error, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
+        case .alreadyRunning:
+            "The remote terminal session is already running."
+        case .notAttached:
+            "The remote terminal session is not attached."
+        case .deliveryUnknown:
+            "The remote terminal command may not have been delivered."
         case .invalidResponse:
             "The Mac returned an invalid terminal message."
         case .sequenceGap:
@@ -31,10 +59,23 @@ public enum RemoteTerminalSessionError: Error, Equatable, LocalizedError {
 }
 
 public actor RemoteTerminalSessionClient {
+    private enum State: Equatable {
+        case idle
+        case connecting
+        case attached
+        case reconnecting
+        case stopping
+    }
+
+    private let peerID: String
     private let macID: String
     private let sessionID: String
     private let requestID: String
+    private let role: RemoteClientRole
     private let transport: any RemoteRelayTransport
+    private var state = State.idle
+    private var isRunning = false
+    private var shouldStop = false
     private var sequenceTracker = RemoteSequenceTracker()
     private var capabilities = Set<String>()
     private var completionWaiters: [
@@ -43,120 +84,111 @@ public actor RemoteTerminalSessionClient {
     private var completionTimeouts: [String: Task<Void, Never>] = [:]
 
     public init(
+        peerID: String,
         macID: String,
         sessionID: String,
+        role: RemoteClientRole,
         requestID: String = UUID().uuidString,
         transport: any RemoteRelayTransport
     ) {
+        self.peerID = peerID
         self.macID = macID
         self.sessionID = sessionID
+        self.role = role
         self.requestID = requestID
         self.transport = transport
     }
 
-    public func connect(peerID: String) async throws {
-        try await transport.connect(peerID: peerID)
-        sequenceTracker.reset(to: nil)
-        capabilities.removeAll()
-        try await send(.attach, clientRole: .mac)
-    }
+    public func run(
+        _ handle: @escaping @Sendable (RemoteTerminalEvent) async -> Void
+    ) async throws {
+        guard !isRunning else { throw RemoteTerminalSessionError.alreadyRunning }
+        isRunning = true
+        shouldStop = false
+        state = .connecting
+        await handle(.connection(.connecting))
+        var retryDelayNanoseconds: UInt64 = 1_000_000_000
 
-    public func reconnect(peerID: String) async throws {
-        failAllCompletions()
-        await transport.disconnect()
-        try await connect(peerID: peerID)
-    }
+        do {
+            while !shouldStop, !Task.isCancelled {
+                do {
+                    try await attach()
+                    guard !shouldStop, !Task.isCancelled else { break }
+                    state = .attached
+                    await handle(.connection(.attached))
 
-    public func receive() async throws -> RemoteTerminalEvent {
-        while !Task.isCancelled {
-            let data = try await transport.receive()
-            let message = try JSONDecoder().decode(RemoteMessage.self, from: data)
-            guard message.version == RemoteMessage.currentVersion,
-                  message.requestID == requestID,
-                  message.macID == macID,
-                  message.sessionID == nil || message.sessionID == sessionID else { continue }
-            switch message.kind {
-            case .terminalEvent:
-                guard let sequence = message.sequence,
-                      let payload = message.payload,
-                      let text = String(data: payload, encoding: .utf8)
-                else { throw RemoteTerminalSessionError.invalidResponse }
-                switch sequenceTracker.accept(sequence) {
-                case .accepted:
-                    return message.isHistory == true ? .history(text) : .output(text)
-                case .duplicate:
-                    continue
-                case .gap(let expected):
-                    throw RemoteTerminalSessionError.sequenceGap(expected: expected)
+                    while !shouldStop, !Task.isCancelled {
+                        if let event = try await receiveEvent() {
+                            retryDelayNanoseconds = 1_000_000_000
+                            await handle(event)
+                        }
+                    }
+                } catch is CancellationError {
+                    break
+                } catch let error as RemoteTerminalSessionError {
+                    if case .remote = error { throw error }
+                    guard !shouldStop else { break }
+                    await recover(
+                        handle: handle,
+                        retryDelayNanoseconds: retryDelayNanoseconds
+                    )
+                    retryDelayNanoseconds = min(
+                        retryDelayNanoseconds * 2,
+                        30_000_000_000
+                    )
+                } catch {
+                    guard !shouldStop else { break }
+                    await recover(
+                        handle: handle,
+                        retryDelayNanoseconds: retryDelayNanoseconds
+                    )
+                    retryDelayNanoseconds = min(
+                        retryDelayNanoseconds * 2,
+                        30_000_000_000
+                    )
                 }
-            case .presence:
-                guard let payload = message.payload,
-                      let text = String(data: payload, encoding: .utf8),
-                      let count = Int(text)
-                else { throw RemoteTerminalSessionError.invalidResponse }
-                return .presence(count)
-            case .capabilities:
-                guard let payload = message.payload,
-                      let advertised = try? JSONDecoder().decode(
-                        RemoteCapabilities.self,
-                        from: payload
-                      )
-                else { throw RemoteTerminalSessionError.invalidResponse }
-                capabilities = Set(advertised.values)
-                return .capabilities(capabilities)
-            case .completionResponse:
-                guard let payload = message.payload,
-                      let response = try? JSONDecoder().decode(
-                        RemoteCompletionResponse.self,
-                        from: payload
-                      )
-                else { throw RemoteTerminalSessionError.invalidResponse }
-                resolveCompletion(response)
-                continue
-            case .error:
-                let text = message.payload.flatMap {
-                    String(data: $0, encoding: .utf8)
-                } ?? "Remote session failed"
-                throw RemoteTerminalSessionError.remote(text)
-            default:
-                continue
             }
+        } catch {
+            await finishRun()
+            throw error
         }
-        throw CancellationError()
+        await finishRun()
     }
 
-    public func sendInput(_ text: String) async throws {
-        try await send(.input, payload: Data(text.utf8))
-    }
-
-    public func interrupt() async throws {
-        try await send(.interrupt)
-    }
-
-    public func resize(rows: UInt16, cols: UInt16) async throws {
-        try await send(
-            .resize,
-            payload: JSONEncoder().encode(RemoteTerminalSize(rows: rows, cols: cols))
-        )
-    }
-
-    public func clearHistory() async throws {
-        try await send(.clearHistory)
-    }
-
-    public func updateState(_ state: RemoteSessionState) async throws {
-        try await send(.updateState, payload: JSONEncoder().encode(state))
-    }
-
-    public func kill() async throws {
-        try await send(.kill)
+    public func send(_ command: RemoteTerminalCommand) async throws {
+        guard state == .attached else { throw RemoteTerminalSessionError.notAttached }
+        do {
+            switch command {
+            case .input(let data):
+                try await sendMessage(.input, payload: data)
+            case .submit(let command):
+                try await sendMessage(.submit, payload: Data(command.utf8))
+            case .interrupt:
+                try await sendMessage(.interrupt)
+            case .resize(let size):
+                try await sendMessage(.resize, payload: JSONEncoder().encode(size))
+            case .clearHistory:
+                try await sendMessage(.clearHistory)
+            case .updateState(let state):
+                try await sendMessage(.updateState, payload: JSONEncoder().encode(state))
+            case .kill:
+                try await sendMessage(.kill)
+                await disconnect()
+            }
+        } catch {
+            state = .reconnecting
+            failAllCompletions()
+            await transport.disconnect()
+            throw RemoteTerminalSessionError.deliveryUnknown
+        }
     }
 
     public func complete(
         operation: RemoteCompletionOperation,
         payload: Data,
-        timeoutNanoseconds: UInt64
+        timeout: TimeInterval
     ) async throws -> Data {
+        guard state == .attached else { throw RemoteTerminalSessionError.notAttached }
         guard capabilities.contains(RemoteCapabilities.relayCompletion) else {
             throw RemoteTerminalSessionError.completionUnavailable
         }
@@ -165,6 +197,9 @@ public actor RemoteTerminalSessionClient {
         }
 
         let operationID = UUID().uuidString
+        let timeoutNanoseconds = UInt64(
+            min(max(timeout, 0.001), 60) * 1_000_000_000
+        )
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 completionWaiters[operationID] = continuation
@@ -179,7 +214,7 @@ public actor RemoteTerminalSessionClient {
                 Task { [weak self] in
                     guard let self else { return }
                     do {
-                        try await self.send(
+                        try await self.sendMessage(
                             .completionRequest,
                             payload: JSONEncoder().encode(RemoteCompletionRequest(
                                 operationID: operationID,
@@ -190,9 +225,10 @@ public actor RemoteTerminalSessionClient {
                     } catch {
                         await self.failCompletion(
                             operationID,
-                            error: error,
+                            error: RemoteTerminalSessionError.deliveryUnknown,
                             sendsCancellation: false
                         )
+                        await self.deliveryFailed()
                     }
                 }
             }
@@ -208,9 +244,129 @@ public actor RemoteTerminalSessionClient {
     }
 
     public func disconnect() async {
+        guard state != .idle else { return }
+        shouldStop = true
+        let wasAttached = state == .attached
+        state = .stopping
         failAllCompletions()
-        try? await send(.detach)
+        if wasAttached {
+            try? await sendMessage(.detach)
+        }
         await transport.disconnect()
+    }
+
+    private func attach() async throws {
+        sequenceTracker.reset(to: nil)
+        capabilities.removeAll()
+        try await transport.connect(peerID: peerID)
+        try await sendMessage(.attach, clientRole: role)
+    }
+
+    private func receiveEvent() async throws -> RemoteTerminalEvent? {
+        while !Task.isCancelled {
+            let data = try await transport.receive()
+            let message = try JSONDecoder().decode(RemoteMessage.self, from: data)
+            guard message.version == RemoteMessage.currentVersion,
+                  message.requestID == requestID,
+                  message.macID == macID,
+                  message.sessionID == nil || message.sessionID == sessionID else { continue }
+            switch message.kind {
+            case .terminalEvent:
+                guard let sequence = message.sequence,
+                      let payload = message.payload
+                else { throw RemoteTerminalSessionError.invalidResponse }
+                switch sequenceTracker.accept(sequence) {
+                case .accepted:
+                    return message.isHistory == true ? .history(payload) : .output(payload)
+                case .duplicate:
+                    continue
+                case .gap(let expected):
+                    throw RemoteTerminalSessionError.sequenceGap(expected: expected)
+                }
+            case .terminalSnapshot:
+                guard let payload = message.payload,
+                      let snapshot = try? JSONDecoder().decode(
+                        RemoteTerminalSnapshot.self,
+                        from: payload
+                      )
+                else { throw RemoteTerminalSessionError.invalidResponse }
+                return .snapshot(snapshot)
+            case .resize:
+                guard let payload = message.payload,
+                      let size = try? JSONDecoder().decode(RemoteTerminalSize.self, from: payload)
+                else { throw RemoteTerminalSessionError.invalidResponse }
+                return .size(size)
+            case .presence:
+                guard let payload = message.payload,
+                      let text = String(data: payload, encoding: .utf8),
+                      let count = Int(text)
+                else { throw RemoteTerminalSessionError.invalidResponse }
+                return .presence(count)
+            case .capabilities:
+                guard let payload = message.payload,
+                      let advertised = try? JSONDecoder().decode(
+                        RemoteCapabilities.self,
+                        from: payload
+                      )
+                else { throw RemoteTerminalSessionError.invalidResponse }
+                capabilities = Set(advertised.values)
+                return .completionAvailabilityChanged(
+                    capabilities.contains(RemoteCapabilities.relayCompletion)
+                )
+            case .completionResponse:
+                guard let payload = message.payload,
+                      let response = try? JSONDecoder().decode(
+                        RemoteCompletionResponse.self,
+                        from: payload
+                      )
+                else { throw RemoteTerminalSessionError.invalidResponse }
+                resolveCompletion(response)
+            case .error:
+                let text = message.payload.flatMap {
+                    String(data: $0, encoding: .utf8)
+                } ?? "Remote session failed"
+                throw RemoteTerminalSessionError.remote(text)
+            default:
+                continue
+            }
+        }
+        throw CancellationError()
+    }
+
+    private func recover(
+        handle: @escaping @Sendable (RemoteTerminalEvent) async -> Void,
+        retryDelayNanoseconds: UInt64
+    ) async {
+        state = .reconnecting
+        let hadCompletion = capabilities.contains(RemoteCapabilities.relayCompletion)
+        capabilities.removeAll()
+        failAllCompletions()
+        await transport.disconnect()
+        if hadCompletion {
+            await handle(.completionAvailabilityChanged(false))
+        }
+        await handle(.connection(.reconnecting))
+        try? await Task.sleep(nanoseconds: retryDelayNanoseconds)
+    }
+
+    private func deliveryFailed() async {
+        guard state == .attached else { return }
+        state = .reconnecting
+        failAllCompletions()
+        await transport.disconnect()
+    }
+
+    private func finishRun() async {
+        let wasAttached = state == .attached
+        shouldStop = true
+        state = .stopping
+        failAllCompletions()
+        if wasAttached {
+            try? await sendMessage(.detach)
+        }
+        await transport.disconnect()
+        state = .idle
+        isRunning = false
     }
 
     private func resolveCompletion(_ response: RemoteCompletionResponse) {
@@ -239,10 +395,11 @@ public actor RemoteTerminalSessionClient {
         completionTimeouts.removeValue(forKey: operationID)?.cancel()
         continuation.resume(throwing: error)
         if sendsCancellation,
+           state == .attached,
            let payload = try? JSONEncoder().encode(
-            RemoteCompletionCancellation(operationID: operationID)
+               RemoteCompletionCancellation(operationID: operationID)
            ) {
-            try? await send(.completionCancel, payload: payload)
+            try? await sendMessage(.completionCancel, payload: payload)
         }
     }
 
@@ -256,7 +413,7 @@ public actor RemoteTerminalSessionClient {
         }
     }
 
-    private func send(
+    private func sendMessage(
         _ kind: RemoteMessageKind,
         payload: Data? = nil,
         clientRole: RemoteClientRole? = nil

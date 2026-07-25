@@ -61,12 +61,8 @@ public final class MobileRemoteModel {
 
     private let endpoint: URL
     private let peerID: String
-    private var relay: RelayClient?
+    private var client: RemoteTerminalSessionClient?
     private var receiveTask: Task<Void, Never>?
-    private var requestID: String?
-    private var attachedMacID: String?
-    private var attachedSessionID: String?
-    private var sequenceTracker = RemoteSequenceTracker()
     private var nextChunkID: UInt64 = 1
     private var backgroundedAt: Date?
     private var lastAuthenticatedAt: Date?
@@ -75,11 +71,10 @@ public final class MobileRemoteModel {
     private var targetMac: RemoteMac?
     private var supportsCompletion = false
     private var commandCompletions: [MobileCompletionSuggestion] = []
-    private var completionOperationID: String?
     private var completionOperation: RemoteCompletionOperation?
     private var completionPrefix = ""
     private var completionIsCommand = true
-    private var completionTimeoutTask: Task<Void, Never>?
+    private var completionTask: Task<Void, Never>?
     public init(endpoint: URL = URL(string: "https://vaultty-relay.mxcl.dev")!) {
         self.endpoint = endpoint
         if let existing = UserDefaults.standard.string(forKey: "vaulttyRemotePeerID") {
@@ -173,19 +168,10 @@ public final class MobileRemoteModel {
 
     private func closeConnection(clearTarget: Bool) {
         resetCompletion()
-        if let requestID, let attachedMacID, let attachedSessionID {
-            send(RemoteMessage(
-                kind: .detach,
-                requestID: requestID,
-                macID: attachedMacID,
-                sessionID: attachedSessionID
-            ))
-        }
         receiveTask?.cancel()
         receiveTask = nil
-        if let relay { Task { await relay.disconnect() } }
-        relay = nil
-        requestID = nil
+        if let client { Task { await client.disconnect() } }
+        client = nil
         connectionState = .idle
         if clearTarget {
             targetSession = nil
@@ -194,35 +180,15 @@ public final class MobileRemoteModel {
     }
 
     public func sendInput(_ data: Data) {
-        guard let requestID, let attachedMacID, let attachedSessionID else { return }
-        send(RemoteMessage(
-            kind: .input,
-            requestID: requestID,
-            macID: attachedMacID,
-            sessionID: attachedSessionID,
-            payload: data
-        ))
+        send(.input(data))
     }
 
     public func submit(_ command: String) {
-        guard let requestID, let attachedMacID, let attachedSessionID else { return }
-        send(RemoteMessage(
-            kind: .submit,
-            requestID: requestID,
-            macID: attachedMacID,
-            sessionID: attachedSessionID,
-            payload: Data(command.utf8)
-        ))
+        send(.submit(command))
     }
 
     public func interrupt() {
-        guard let requestID, let attachedMacID, let attachedSessionID else { return }
-        send(RemoteMessage(
-            kind: .interrupt,
-            requestID: requestID,
-            macID: attachedMacID,
-            sessionID: attachedSessionID
-        ))
+        send(.interrupt)
     }
 
     public func complete(_ input: String, cwd: String) {
@@ -317,105 +283,44 @@ public final class MobileRemoteModel {
     private func connect(session: RemoteCatalogSession, mac: RemoteMac) async throws {
         resetCompletion()
         let key = try ICloudKeychainRootKey().loadOrCreate()
-        let relay = try RelayClient(endpoint: endpoint, rootKeyData: key)
-        self.relay = relay
-        try await relay.connect(peerID: peerID)
-        connectionState = .connecting
+        let client = RemoteTerminalSessionClient(
+            peerID: peerID,
+            macID: mac.id,
+            sessionID: session.sessionID,
+            role: .phone,
+            transport: try RelayClient(endpoint: endpoint, rootKeyData: key)
+        )
+        self.client = client
         chunks.removeAll(keepingCapacity: true)
         terminalSize = nil
         transcript.reset()
-        sequenceTracker.reset(to: nil)
-        let requestID = UUID().uuidString
-        self.requestID = requestID
-        attachedMacID = mac.id
-        attachedSessionID = session.sessionID
-        try await relay.send(JSONEncoder().encode(RemoteMessage(
-            kind: .attach,
-            requestID: requestID,
-            macID: mac.id,
-            sessionID: session.sessionID
-        )))
-        connectionState = .attached
-
-        var retryDelay = Duration.seconds(1)
-        while !Task.isCancelled {
-            do {
-                let data = try await relay.receive()
-                let message = try JSONDecoder().decode(RemoteMessage.self, from: data)
-                try handle(message)
-                retryDelay = .seconds(1)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                connectionState = .reconnecting
-                resetCompletion()
-                await relay.disconnect()
-                try await Task.sleep(for: retryDelay)
-                retryDelay = min(retryDelay * 2, .seconds(30))
-                try await relay.connect(peerID: peerID)
-                sequenceTracker.reset(to: nil)
-                try await relay.send(JSONEncoder().encode(RemoteMessage(
-                    kind: .attach,
-                    requestID: requestID,
-                    macID: mac.id,
-                    sessionID: session.sessionID
-                )))
-                connectionState = .attached
-            }
+        try await client.run { [weak self] event in
+            await self?.handle(event)
         }
     }
 
-    private func handle(_ message: RemoteMessage) throws {
-        guard message.version == RemoteMessage.currentVersion,
-              message.requestID == requestID,
-              message.macID == attachedMacID else { return }
-        switch message.kind {
-        case .terminalEvent:
-            guard let sequence = message.sequence,
-                  sequenceTracker.accept(sequence) == .accepted,
-                  let payload = message.payload else { return }
-            chunks.append(TerminalChunk(id: nextChunkID, data: payload))
-            if let text = String(data: payload, encoding: .utf8) {
+    private func handle(_ event: RemoteTerminalEvent) {
+        switch event {
+        case .connection(.connecting):
+            connectionState = .connecting
+        case .connection(.attached):
+            connectionState = .attached
+        case .connection(.reconnecting):
+            connectionState = .reconnecting
+        case .output(let data), .history(let data):
+            appendChunk(data)
+            if let text = String(data: data, encoding: .utf8) {
                 transcript.consume(text)
             }
-            nextChunkID &+= 1
-            if chunks.count > 2_000 {
-                chunks.removeFirst(chunks.count - 2_000)
-            }
-        case .terminalSnapshot:
-            guard let payload = message.payload,
-                  let snapshot = try? JSONDecoder().decode(
-                    RemoteTerminalSnapshot.self,
-                    from: payload
-                  )
-            else { return }
+        case .snapshot(let snapshot):
             terminalSize = RemoteTerminalSize(rows: snapshot.rows, cols: snapshot.cols)
-            chunks.append(TerminalChunk(id: nextChunkID, data: snapshot.contents))
-            nextChunkID &+= 1
-        case .resize:
-            guard let payload = message.payload,
-                  let size = try? JSONDecoder().decode(RemoteTerminalSize.self, from: payload)
-            else { return }
+            appendChunk(snapshot.contents)
+        case .size(let size):
             terminalSize = size
-        case .error:
-            let text = message.payload.flatMap { String(data: $0, encoding: .utf8) } ?? "Remote session failed"
-            connectionState = .failed(text)
-        case .presence:
-            if let payload = message.payload,
-               let text = String(data: payload, encoding: .utf8),
-               let count = Int(text) {
-                presenceCount = count
-            }
-        case .capabilities:
-            guard let payload = message.payload,
-                  let capabilities = try? JSONDecoder().decode(
-                    RemoteCapabilities.self,
-                    from: payload
-                  )
-            else { return }
-            supportsCompletion = capabilities.values.contains(
-                RemoteCapabilities.relayCompletion
-            )
+        case .presence(let count):
+            presenceCount = count
+        case .completionAvailabilityChanged(let available):
+            supportsCompletion = available
             if supportsCompletion {
                 if isCompleting {
                     completeCurrentInput(cwd: targetSession?.cwd ?? "/")
@@ -425,13 +330,17 @@ public final class MobileRemoteModel {
                         payload: MobileCommandCompletionRequest(prefix: "")
                     )
                 }
+            } else {
+                cancelRemoteCompletion()
             }
-        case .completionResponse:
-            handleCompletionResponse(message)
-        case .catalog, .attach, .detach, .createSession, .sessionCreated,
-             .input, .submit, .interrupt, .clearHistory, .updateState,
-             .kill, .historyPage, .completionRequest, .completionCancel, .unknown:
-            break
+        }
+    }
+
+    private func appendChunk(_ data: Data) {
+        chunks.append(TerminalChunk(id: nextChunkID, data: data))
+        nextChunkID &+= 1
+        if chunks.count > 2_000 {
+            chunks.removeFirst(chunks.count - 2_000)
         }
     }
 
@@ -462,56 +371,39 @@ public final class MobileRemoteModel {
         payload: T
     ) {
         guard supportsCompletion,
-              let requestID,
-              let attachedMacID,
-              let attachedSessionID,
+              let client,
               let input = try? JSONEncoder().encode(payload),
               input.count <= RemoteCompletionRequest.maximumPayloadSize
         else { return }
         cancelRemoteCompletion()
-        let operationID = UUID().uuidString
-        completionOperationID = operationID
         completionOperation = operation
-        send(RemoteMessage(
-            kind: .completionRequest,
-            requestID: requestID,
-            macID: attachedMacID,
-            sessionID: attachedSessionID,
-            payload: try? JSONEncoder().encode(RemoteCompletionRequest(
-                operationID: operationID,
-                operation: operation,
-                payload: input
-            ))
-        ))
-        completionTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled,
-                  self?.completionOperationID == operationID else { return }
-            self?.cancelRemoteCompletion()
-            self?.isCompleting = false
+        completionTask = Task { [weak self] in
+            do {
+                let output = try await client.complete(
+                    operation: operation,
+                    payload: input,
+                    timeout: 2
+                )
+                guard !Task.isCancelled else { return }
+                self?.handleCompletionResponse(output, operation: operation)
+            } catch is CancellationError {
+                return
+            } catch {
+                self?.isCompleting = false
+            }
         }
     }
 
-    private func handleCompletionResponse(_ message: RemoteMessage) {
-        guard let payload = message.payload,
-              let response = try? JSONDecoder().decode(
-                RemoteCompletionResponse.self,
-                from: payload
-              ),
-              response.operationID == completionOperationID
-        else { return }
-        completionTimeoutTask?.cancel()
-        completionTimeoutTask = nil
-        let operation = completionOperation
-        completionOperationID = nil
+    private func handleCompletionResponse(
+        _ output: Data,
+        operation: RemoteCompletionOperation
+    ) {
+        completionTask = nil
         completionOperation = nil
-        guard response.error == nil,
-              let output = response.payload,
-              output.count <= RemoteCompletionResponse.maximumPayloadSize,
-              let decoded = try? JSONDecoder().decode(
-                MobileCompletionResponse.self,
-                from: output
-              )
+        guard let decoded = try? JSONDecoder().decode(
+            MobileCompletionResponse.self,
+            from: output
+        )
         else {
             isCompleting = false
             return
@@ -542,28 +434,8 @@ public final class MobileRemoteModel {
     }
 
     private func cancelRemoteCompletion() {
-        completionTimeoutTask?.cancel()
-        completionTimeoutTask = nil
-        guard let operationID = completionOperationID,
-              let requestID,
-              let attachedMacID,
-              let attachedSessionID,
-              let payload = try? JSONEncoder().encode(
-                RemoteCompletionCancellation(operationID: operationID)
-              )
-        else {
-            completionOperationID = nil
-            completionOperation = nil
-            return
-        }
-        send(RemoteMessage(
-            kind: .completionCancel,
-            requestID: requestID,
-            macID: attachedMacID,
-            sessionID: attachedSessionID,
-            payload: payload
-        ))
-        completionOperationID = nil
+        completionTask?.cancel()
+        completionTask = nil
         completionOperation = nil
     }
 
@@ -575,9 +447,9 @@ public final class MobileRemoteModel {
         isCompleting = false
     }
 
-    private func send(_ message: RemoteMessage) {
-        guard let relay, let data = try? JSONEncoder().encode(message) else { return }
-        Task { try? await relay.send(data) }
+    private func send(_ command: RemoteTerminalCommand) {
+        guard let client else { return }
+        Task { try? await client.send(command) }
     }
 
     private func authenticateIfNeeded(force: Bool = false) async throws {

@@ -151,7 +151,7 @@ final class RelayCompletionProvider: @unchecked Sendable {
             try? await client.complete(
                 operation: .completeCommands,
                 payload: input,
-                timeoutNanoseconds: 2_000_000_000
+                timeout: 2
             )
         }
         lock.withLock {
@@ -205,14 +205,11 @@ final class RelayCompletionProvider: @unchecked Sendable {
             isSupported ? self.client : nil
         }
         guard let client else { return nil }
-        let timeoutNanoseconds = UInt64(
-            min(max(timeout, 0.001), 16) * 1_000_000_000
-        )
         let task = Task {
             try? await client.complete(
                 operation: operation,
                 payload: input,
-                timeoutNanoseconds: timeoutNanoseconds
+                timeout: timeout
             )
         }
         let result = wait(for: task, cancellation: cancellation, cancelsTask: true)

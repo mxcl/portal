@@ -14,6 +14,7 @@ final class RelayTerminalSession: TerminalSession {
     private var client: RemoteTerminalSessionClient?
     private var receiveTask: Task<Void, Never>?
     private var pendingSend: Task<Void, Never>?
+    private var startCompletion: ((Result<Void, Error>) -> Void)?
 
     init(sessionRef: SessionRef, createsSession: Bool = false) {
         self.sessionRef = sessionRef
@@ -35,6 +36,7 @@ final class RelayTerminalSession: TerminalSession {
             completion(.failure(RelayClientError.invalidEndpoint))
             return
         }
+        startCompletion = completion
         receiveTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -52,26 +54,27 @@ final class RelayTerminalSession: TerminalSession {
                     )
                 }
                 let client = RemoteTerminalSessionClient(
+                    peerID: peerID,
                     macID: macID,
                     sessionID: sessionRef.sessionID,
+                    role: .mac,
                     transport: try RelayClient(endpoint: endpoint, rootKeyData: key)
                 )
                 self.client = client
                 completionProvider.connect(client)
-                try await client.connect(peerID: peerID)
-                completion(.success(()))
-                onReady?(false)
-                await receive(from: client, peerID: peerID)
+                try await client.run { [weak self] event in
+                    await self?.receive(event)
+                }
             } catch is CancellationError {
                 return
             } catch {
-                completion(.failure(error))
+                fail(error)
             }
         }
     }
 
     func resize(rows: UInt16, cols: UInt16) {
-        send { try await $0.resize(rows: rows, cols: cols) }
+        send { try await $0.send(.resize(RemoteTerminalSize(rows: rows, cols: cols))) }
     }
 
     func isCanonicalInputModeEnabled() -> Bool? {
@@ -79,15 +82,15 @@ final class RelayTerminalSession: TerminalSession {
     }
 
     func sendInterrupt() {
-        send { try await $0.interrupt() }
+        send { try await $0.send(.interrupt) }
     }
 
     func clearHistory() {
-        send { try await $0.clearHistory() }
+        send { try await $0.send(.clearHistory) }
     }
 
     func write(_ string: String, suppressEcho: Bool = false) {
-        send { try await $0.sendInput(string) }
+        send { try await $0.send(.input(Data(string.utf8))) }
     }
 
     func updateState(
@@ -106,7 +109,7 @@ final class RelayTerminalSession: TerminalSession {
             runningCommand: runningCommand,
             commandHistory: commandHistory
         )
-        send { try await $0.updateState(state) }
+        send { try await $0.send(.updateState(state)) }
     }
 
     func stop() {
@@ -125,8 +128,7 @@ final class RelayTerminalSession: TerminalSession {
         pendingSend = Task { [weak self] in
             await previous?.value
             guard let self, let client else { return }
-            try? await client.kill()
-            await client.disconnect()
+            try? await client.send(.kill)
             self.client = nil
         }
     }
@@ -136,50 +138,70 @@ final class RelayTerminalSession: TerminalSession {
         let endpoint = try MacRemoteAccessController.relayEndpoint()
         let key = try ICloudKeychainRootKey().loadOrCreate()
         let client = RemoteTerminalSessionClient(
+            peerID: MacRemoteAccessController.macID(),
             macID: macID,
             sessionID: sessionRef.sessionID,
+            role: .mac,
             transport: try RelayClient(endpoint: endpoint, rootKeyData: key)
         )
-        try await client.connect(peerID: MacRemoteAccessController.macID())
-        try await client.kill()
-        await client.disconnect()
+        let (events, continuation) = AsyncStream.makeStream(of: RemoteTerminalEvent.self)
+        let runTask = Task {
+            defer { continuation.finish() }
+            try await client.run { continuation.yield($0) }
+        }
+        defer { runTask.cancel() }
+        for await event in events {
+            guard event == .connection(.attached) else { continue }
+            try await client.send(.kill)
+            break
+        }
+        _ = try await runTask.value
     }
 
-    private func receive(
-        from client: RemoteTerminalSessionClient,
-        peerID: String
-    ) async {
-        var retryDelay = Duration.seconds(1)
-        while !Task.isCancelled {
-            do {
-                switch try await client.receive() {
-                case .output(let text):
-                    onOutput?(text)
-                case .history(let text):
-                    onHistoryOutput?(text)
-                case .presence(let count):
-                    onPresence?(count)
-                case .capabilities(let values):
-                    completionProvider.enable(values)
-                }
-                retryDelay = .seconds(1)
-            } catch is CancellationError {
-                return
-            } catch RemoteTerminalSessionError.remote(let message) {
-                onOutput?("\r\n\(message)\r\n")
-                onExit?(-1)
-                return
-            } catch {
+    private func receive(_ event: RemoteTerminalEvent) {
+        switch event {
+        case .connection(.attached):
+            if let completion = startCompletion {
+                startCompletion = nil
+                completion(.success(()))
+                onReady?(false)
+            }
+        case .connection(.reconnecting):
+            completionProvider.disconnect()
+            if let client {
+                completionProvider.connect(client)
+            }
+        case .connection(.connecting):
+            break
+        case .output(let data):
+            onOutput?(String(decoding: data, as: UTF8.self))
+        case .history(let data):
+            onHistoryOutput?(String(decoding: data, as: UTF8.self))
+        case .presence(let count):
+            onPresence?(count)
+        case .completionAvailabilityChanged(let available):
+            if available {
+                completionProvider.enable([RemoteCapabilities.relayCompletion])
+            } else {
                 completionProvider.disconnect()
-                try? await Task.sleep(for: retryDelay)
-                retryDelay = min(retryDelay * 2, .seconds(30))
-                do {
-                    try await client.reconnect(peerID: peerID)
+                if let client {
                     completionProvider.connect(client)
-                } catch {
-                    continue
                 }
             }
+        case .snapshot, .size:
+            break
+        }
+    }
+
+    private func fail(_ error: Error) {
+        if let completion = startCompletion {
+            startCompletion = nil
+            completion(.failure(error))
+        } else {
+            if case RemoteTerminalSessionError.remote(let message) = error {
+                onOutput?("\r\n\(message)\r\n")
+            }
+            onExit?(-1)
         }
     }
 

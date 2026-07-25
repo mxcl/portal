@@ -9,7 +9,7 @@ export default function Home() {
           <strong>PORTAL</strong>
         </a>
         <div className="header-meta">
-          <span>macOS</span>
+          <span>MAC + IPHONE</span>
           <a href="#inside">SEE INSIDE</a>
         </div>
       </header>

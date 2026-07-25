@@ -862,7 +862,7 @@ fn socket_path() -> io::Result<PathBuf> {
         return Ok(home
             .join("Library")
             .join("Application Support")
-            .join("Portal Terminal")
+            .join("Vaultty")
             .join("runtime")
             .join("sessiond.sock"));
     }

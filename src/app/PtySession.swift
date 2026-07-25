@@ -440,7 +440,7 @@ final class PtySession {
     static func remoteStoredSessionMetadata(host: SSHHostRecord) throws -> [SessionMetadata] {
         let data = try runSSHCommand(
             host: host,
-            command: "cat \"$HOME/Library/Application Support/Portal Terminal/sessions.json\" 2>/dev/null || true",
+            command: "cat \"$HOME/Library/Application Support/Vaultty/sessions.json\" 2>/dev/null || true",
             batchMode: true
         )
         guard !data.isEmpty else { return [] }
@@ -1068,7 +1068,7 @@ final class PtySession {
         return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("Portal Terminal", isDirectory: true)
+            .appendingPathComponent("Vaultty", isDirectory: true)
             .appendingPathComponent("runtime", isDirectory: true)
             .appendingPathComponent("sessiond.sock", isDirectory: false)
             .path
@@ -1078,7 +1078,7 @@ final class PtySession {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("Portal Terminal", isDirectory: true)
+            .appendingPathComponent("Vaultty", isDirectory: true)
             .appendingPathComponent("hosts.json", isDirectory: false)
     }
 

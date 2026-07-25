@@ -960,7 +960,7 @@ fn socket_path() -> io::Result<PathBuf> {
     Ok(PathBuf::from(home)
         .join("Library")
         .join("Application Support")
-        .join("Portal Terminal")
+        .join("Vaultty")
         .join("runtime")
         .join("sessiond.sock"))
 }

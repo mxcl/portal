@@ -16,7 +16,7 @@ test("server-renders the Portal landing page", async () => {
   assert.match(html, /<title>Portal — Give your Mac a portal<\/title>/i);
   assert.match(html, /Portal is a terminal app for Mac and iPhone/);
   assert.match(html, /finds your Macs automatically/);
-  assert.match(html, /Your host Mac just needs to be awake/);
+  assert.match(html, /whenever the host Mac is awake/);
   assert.match(html, /Sessions stay put until you/);
   assert.match(html, /MAC \+ IPHONE/);
   assert.match(html, /One session\./);

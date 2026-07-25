@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://portal-terminal.dev"),
   title: "Portal — Give your Mac a portal",
   description:
-    "Open new shells and rejoin sessions from any Mac or iPhone while the host Mac is awake.",
+    "A terminal app for Mac and iPhone that finds your Macs automatically. Open or rejoin shells with no SSH setup.",
   icons: {
     icon: "/portal-icon.png",
     apple: "/portal-icon.png",
@@ -24,14 +24,14 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Portal — Give your Mac a portal",
     description:
-      "Open new shells and rejoin sessions from any Mac or iPhone. No SSH setup.",
+      "A terminal app for Mac and iPhone that finds your Macs automatically. No SSH setup or configuration.",
     images: [{ url: "/og.png", width: 1730, height: 909, alt: "Portal" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Portal — Give your Mac a portal",
     description:
-      "Open new shells and rejoin sessions from any Mac or iPhone. No SSH setup.",
+      "A terminal app for Mac and iPhone that finds your Macs automatically. No SSH setup or configuration.",
     images: ["/og.png"],
   },
 };

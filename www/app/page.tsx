@@ -18,7 +18,7 @@ export default function Home() {
         <div className="hero-copy">
           <p className="eyebrow">
             <span className="live-dot" />
-            Persistent shell transport online
+            Native terminal. Zero configuration.
           </p>
           <h1>
             <span>Give your</span>
@@ -26,8 +26,9 @@ export default function Home() {
             <span className="gradient-text">portal.</span>
           </h1>
           <p className="lede">
-            Open a new shell or rejoin one from any Mac or iPhone. No SSH
-            setup. Your host Mac just needs to be awake.
+            Portal is a terminal app for Mac and iPhone that finds your Macs
+            automatically. Open or rejoin shells with no SSH setup or
+            configuration. Your host Mac just needs to be awake.
           </p>
           <a className="primary-action" href="#inside">
             Enter Portal

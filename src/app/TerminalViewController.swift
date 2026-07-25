@@ -3175,6 +3175,31 @@ private final class SessionCandidateButton: NSControl {
     }
 }
 
+private final class SessionHeaderAddButton: NSButton {
+    let sessionRef: SessionRef
+
+    init(sessionRef: SessionRef, hostName: String) {
+        self.sessionRef = sessionRef
+        super.init(frame: .zero)
+        image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
+        symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+        imagePosition = .imageOnly
+        isBordered = false
+        contentTintColor = TahoeGlassPalette.titleTextActive.withAlphaComponent(0.5)
+        toolTip = "New session on \(hostName)"
+        setAccessibilityLabel(toolTip)
+        translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: 20),
+            heightAnchor.constraint(equalToConstant: 20)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
 private final class SessionCandidateRowView: NSView {
     private enum Metrics {
         static let columnCount = 4
@@ -4636,7 +4661,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         var rowCount = 0
         for (location, sectionCandidates) in sections {
-            let header = NSTextField(labelWithString: sessionCandidateHostTitle(sectionCandidates[0]))
+            let hostTitle = sessionCandidateHostTitle(sectionCandidates[0])
+            let header = NSTextField(labelWithString: hostTitle)
             header.attributedStringValue = hostPrefixAttributedString(
                 header.stringValue,
                 color: TahoeGlassPalette.titleTextActive
@@ -4645,7 +4671,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             headerStack.orientation = .horizontal
             headerStack.alignment = .centerY
             headerStack.spacing = 4
-            headerStack.heightAnchor.constraint(equalToConstant: 16).isActive = true
+            headerStack.heightAnchor.constraint(equalToConstant: 20).isActive = true
             if location != .local {
                 let icon = NSImageView()
                 icon.image = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
@@ -4654,9 +4680,25 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 headerStack.addArrangedSubview(icon)
             }
             headerStack.addArrangedSubview(header)
+            if let candidate = sectionCandidates.first(where: {
+                if case .existing = $0.kind { return false }
+                return true
+            }) {
+                let button = SessionHeaderAddButton(
+                    sessionRef: candidate.sessionRef,
+                    hostName: hostTitle
+                )
+                button.target = self
+                button.action = #selector(startNewSessionFromPicker(_:))
+                headerStack.addArrangedSubview(button)
+            }
             tab.sessionPickerStack.addArrangedSubview(headerStack)
 
-            for rowCandidates in sectionCandidates.chunked(into: 4).reversed() {
+            let existingCandidates = sectionCandidates.filter {
+                if case .existing = $0.kind { return true }
+                return false
+            }
+            for rowCandidates in existingCandidates.chunked(into: 4).reversed() {
                 let buttons = rowCandidates.map { candidate in
                     let button = SessionCandidateButton(
                         sessionRef: candidate.sessionRef,
@@ -4683,7 +4725,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let arrangedViewCount = rowCount + sections.count
         let spacing = max(0, arrangedViewCount - 1) * 10
         tab.sessionPickerHeightConstraint?.constant = CGFloat(
-            16 + rowCount * 82 + sections.count * 16 + spacing
+            16 + rowCount * 82 + sections.count * 20 + spacing
         )
         tab.rootView.needsLayout = true
     }
@@ -5041,6 +5083,23 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             return
         }
 
+        attachSessionFromPicker(candidate, in: tab)
+    }
+
+    @objc private func startNewSessionFromPicker(_ sender: SessionHeaderAddButton) {
+        guard let tab = activeTab,
+              tab.canReplaceFreshSession,
+              tab.blocks.isEmpty,
+              let candidate = sessionPickerCandidatesByTab[tab.id]?[sender.sessionRef]
+        else {
+            NSSound.beep()
+            return
+        }
+
+        attachSessionFromPicker(candidate, in: tab)
+    }
+
+    private func attachSessionFromPicker(_ candidate: LocalSessionCandidate, in tab: TerminalTab) {
         switch candidate.kind {
         case .existing:
             replaceFreshSession(in: tab, with: candidate)

@@ -162,7 +162,7 @@ h1 span {
 }
 
 .lede {
-  width: min(520px, 100%);
+  width: min(520px, 40vw);
   margin: 45px 0 34px;
   color: #b4bac8;
   font-size: clamp(16px, 1.4vw, 21px);
@@ -934,6 +934,10 @@ footer {
   .hero-copy {
     width: auto;
     padding-right: 22px;
+  }
+
+  .lede {
+    width: min(520px, 100%);
   }
 
   h1 {

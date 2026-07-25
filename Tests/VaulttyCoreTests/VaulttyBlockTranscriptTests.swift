@@ -4,6 +4,31 @@ import Testing
 
 @Suite("Vaultty block transcript")
 struct VaulttyBlockTranscriptTests {
+    @Test("parser emits typed markers in order and resets partial input")
+    func typedMarkers() {
+        var parser = VaulttyMarkerParser()
+        let cwd = Data("/repo\n".utf8).base64EncodedString()
+        let command = Data("echo hi".utf8).base64EncodedString()
+
+        #expect(parser.consume("before\u{1B}]133;R;\(cwd)\u{7}\u{1B}]13") == [
+            .text("before"),
+            .marker(VaulttyMarker(rawValue: "R;\(cwd)")),
+        ])
+        #expect(parser.consume("3;C;\(command)\u{7}\u{1B}]133;D;wat\u{7}") == [
+            .marker(VaulttyMarker(rawValue: "C;\(command)")),
+            .marker(VaulttyMarker(rawValue: "D;wat")),
+        ])
+        #expect(VaulttyMarker(rawValue: "R;\(cwd)").kind == .shellReady(cwd: "/repo"))
+        #expect(VaulttyMarker(rawValue: "C;\(command)").kind == .commandStarted(command: "echo hi"))
+        #expect(VaulttyMarker(rawValue: "P;bad").kind == .cwdChanged(nil))
+        #expect(VaulttyMarker(rawValue: "D;wat").kind == .commandFinished(status: -1))
+        #expect(VaulttyMarker(rawValue: "X;a;b").kind == .unknown(code: "X", payload: "a;b"))
+
+        _ = parser.consume("\u{1B}]133;C;partial")
+        parser.reset()
+        #expect(parser.consume("visible") == [.text("visible")])
+    }
+
     @Test("reconstructs blocks when markers are split across network chunks")
     func splitMarkers() throws {
         var transcript = VaulttyBlockTranscript()
@@ -56,4 +81,3 @@ struct VaulttyBlockTranscriptTests {
 private extension Collection {
     var only: Element? { count == 1 ? first : nil }
 }
-

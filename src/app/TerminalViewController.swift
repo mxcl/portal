@@ -2673,8 +2673,6 @@ private final class PtyPassthroughView: NSView {
 }
 
 private final class TerminalOutputProcessor {
-    private static let vaulttyMarkerPrefix = "\u{1B}]133;"
-
     struct Snapshot {
         let blockID: UUID
         let plainText: String
@@ -2685,7 +2683,7 @@ private final class TerminalOutputProcessor {
 
     enum Event {
         case snapshot(Snapshot)
-        case marker(String, isReplay: Bool)
+        case marker(VaulttyMarker, isReplay: Bool)
         case replayCommandStarted(blockID: UUID, command: String)
     }
 
@@ -2698,7 +2696,7 @@ private final class TerminalOutputProcessor {
     private let styledRenderer = Ansi.StyledTextRenderer(rows: 30)
     private var pendingShellOutput = ""
     private var isShellOutputFlushScheduled = false
-    private var parserBuffer = ""
+    private var markerParser = VaulttyMarkerParser()
     private var pendingBlockID: UUID?
     private var activeBlockID: UUID?
     private var activeBlockCwd: String?
@@ -2720,7 +2718,7 @@ private final class TerminalOutputProcessor {
             guard let self else { return }
             self.pendingShellOutput.removeAll(keepingCapacity: true)
             self.isShellOutputFlushScheduled = false
-            self.parserBuffer.removeAll(keepingCapacity: true)
+            self.markerParser.reset()
             self.pendingBlockID = blockID
             self.activeBlockID = nil
             self.activeBlockCwd = cwd
@@ -2826,7 +2824,7 @@ private final class TerminalOutputProcessor {
     private func resetForReplayOnQueue() {
         pendingShellOutput.removeAll(keepingCapacity: true)
         isShellOutputFlushScheduled = false
-        parserBuffer.removeAll(keepingCapacity: true)
+        markerParser.reset()
         pendingBlockID = nil
         activeBlockID = nil
         activeBlockCwd = nil
@@ -2856,77 +2854,40 @@ private final class TerminalOutputProcessor {
             onTerminalResponse?(response)
         }
 
-        parserBuffer += text
-        var visible = ""
-
-        while true {
-            guard let start = parserBuffer.range(of: Self.vaulttyMarkerPrefix) else {
-                if let partialPrefix = trailingMarkerPrefixRange(in: parserBuffer) {
-                    visible += String(parserBuffer[..<partialPrefix.lowerBound])
-                    parserBuffer.removeSubrange(..<partialPrefix.lowerBound)
-                } else {
-                    visible += parserBuffer
-                    parserBuffer.removeAll(keepingCapacity: true)
+        for event in markerParser.consume(text) {
+            switch event {
+            case .text(let visible):
+                flushVisible(visible)
+            case .marker(let marker):
+                emit(.marker(marker, isReplay: isReplayingCommand))
+                if case .commandStarted(let command) = marker.kind {
+                    if let pendingBlockID {
+                        activeBlockID = pendingBlockID
+                        self.pendingBlockID = nil
+                        isReplayingCommand = false
+                    } else {
+                        let blockID = UUID()
+                        terminalScreen.resetForCommand()
+                        styledRenderer.reset()
+                        isAlternateScreenActive = false
+                        isApplicationCursorModeActive = false
+                        activeBlockID = blockID
+                        activeBlockCwd = nil
+                        isReplayingCommand = true
+                        emit(.replayCommandStarted(
+                            blockID: blockID,
+                            command: command
+                        ))
+                    }
                 }
-                break
-            }
-
-            visible += String(parserBuffer[..<start.lowerBound])
-            parserBuffer.removeSubrange(..<start.lowerBound)
-
-            guard let end = parserBuffer.firstIndex(of: "\u{7}") else {
-                break
-            }
-
-            let markerStart = parserBuffer.index(parserBuffer.startIndex, offsetBy: 6)
-            let marker = String(parserBuffer[markerStart..<end])
-            parserBuffer.removeSubrange(...end)
-            flushVisible(visible)
-            visible.removeAll(keepingCapacity: true)
-            emit(.marker(marker, isReplay: isReplayingCommand))
-            if marker.hasPrefix("C;") {
-                if let pendingBlockID {
-                    activeBlockID = pendingBlockID
-                    self.pendingBlockID = nil
-                    isReplayingCommand = false
-                } else {
-                    let blockID = UUID()
-                    terminalScreen.resetForCommand()
-                    styledRenderer.reset()
-                    isAlternateScreenActive = false
-                    isApplicationCursorModeActive = false
-                    activeBlockID = blockID
+                if case .commandFinished = marker.kind {
+                    activeBlockID = nil
+                    pendingBlockID = nil
                     activeBlockCwd = nil
-                    isReplayingCommand = true
-                    emit(.replayCommandStarted(
-                        blockID: blockID,
-                        command: Self.commandPayload(fromCommandStartMarker: marker)
-                    ))
+                    isReplayingCommand = false
                 }
             }
-            if marker.hasPrefix("D;") {
-                activeBlockID = nil
-                pendingBlockID = nil
-                activeBlockCwd = nil
-                isReplayingCommand = false
-            }
         }
-
-        flushVisible(visible)
-    }
-
-    private func trailingMarkerPrefixRange(in text: String) -> Range<String.Index>? {
-        guard !text.isEmpty else { return nil }
-
-        var prefix = Self.vaulttyMarkerPrefix
-        while prefix.count > 1 {
-            prefix.removeLast()
-            if text.hasSuffix(prefix) {
-                let start = text.index(text.endIndex, offsetBy: -prefix.count)
-                return start..<text.endIndex
-            }
-        }
-        return nil
     }
 
     private func flushVisible(_ text: String) {
@@ -3045,18 +3006,6 @@ private final class TerminalOutputProcessor {
         DispatchQueue.main.async { [weak self] in
             self?.onEvent?(event)
         }
-    }
-
-    private static func commandPayload(fromCommandStartMarker marker: String) -> String {
-        guard let separator = marker.firstIndex(of: ";") else { return "" }
-        let payloadStart = marker.index(after: separator)
-        let payload = String(marker[payloadStart...])
-        guard let data = Data(base64Encoded: payload),
-              let command = String(data: data, encoding: .utf8)
-        else {
-            return ""
-        }
-        return command
     }
 
     private func terminalResponses(in text: String) -> [String] {
@@ -6313,37 +6262,36 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    private func handleMarker(_ marker: String, isReplay: Bool, in tab: TerminalTab) {
-        let parts = marker.split(separator: ";", maxSplits: 1).map(String.init)
-        guard let code = parts.first else { return }
-        let payload = parts.count > 1 ? parts[1] : ""
-        if code == "C" || code == "D" {
-            let oscPayload = "133;\(marker)"
+    private func handleMarker(_ marker: VaulttyMarker, isReplay: Bool, in tab: TerminalTab) {
+        switch marker.kind {
+        case .commandStarted, .commandFinished:
+            let oscPayload = "133;\(marker.rawValue)"
             guard oscPayload.withCString({ vaulttyGhosttyOscCommandType($0) }) == 3 else {
                 return
             }
+        default:
+            break
         }
-        switch code {
-        case "R":
-            tab.commandLifecycle.apply(.shellReady(cwd: decodeBase64(payload)))
+        switch marker.kind {
+        case .shellReady(let cwd):
+            tab.commandLifecycle.apply(.shellReady(cwd: cwd))
             updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
             updateCommandBarVisibility(for: tab)
             updateTabTitleForDirectory(tab)
             persistSessionState()
             runInitialCommandIfNeeded(in: tab)
-        case "C":
+        case .commandStarted:
             tab.commandLifecycle.apply(.commandStarted)
-        case "P":
-            if let cwd = decodeBase64(payload) {
+        case .cwdChanged(let cwd):
+            if let cwd {
                 tab.commandLifecycle.apply(.cwdChanged(cwd))
             }
             persistSessionState()
-        case "O":
+        case .openRemoteCode(let payload):
             if !isReplay {
                 openRemoteCode(payload: payload, in: tab)
             }
-        case "D":
-            let status = Int32(payload.trimmingCharacters(in: .whitespacesAndNewlines)) ?? -1
+        case .commandFinished(let status):
             let change = tab.commandLifecycle.apply(.commandFinished(
                 status: status,
                 isReplay: isReplay,
@@ -6364,7 +6312,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             scrollToBottom(tab)
             focusInput(for: tab)
             runInitialCommandIfNeeded(in: tab)
-        default:
+        case .unknown:
             break
         }
     }

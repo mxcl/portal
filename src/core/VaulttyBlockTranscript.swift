@@ -54,35 +54,70 @@ public struct VaulttyBlockTranscript: Sendable {
                 blocks[activeBlockIndex].output += rendered
                 revision &+= 1
             case .marker(let marker):
-                consumeMarker(marker)
+                consume(marker)
             }
         }
     }
 
-    private mutating func consumeMarker(_ marker: String) {
-        let fields = marker.split(separator: ";", omittingEmptySubsequences: false)
-        guard let code = fields.first else { return }
-        let payload = fields.dropFirst().joined(separator: ";")
-
-        switch code {
-        case "R", "P":
-            currentCwd = Self.decode(payload)
-        case "C":
+    private mutating func consume(_ marker: VaulttyMarker) {
+        switch marker.kind {
+        case .shellReady(let cwd):
+            currentCwd = cwd
+        case .cwdChanged(let cwd):
+            currentCwd = cwd
+        case .commandStarted(let command):
             if let activeBlockIndex,
                case .running = blocks[activeBlockIndex].state {
                 blocks[activeBlockIndex].state = .completed(-1)
             }
             renderer.resetOutputState()
-            blocks.append(VaulttyBlock(command: Self.decode(payload) ?? "", cwd: currentCwd))
+            blocks.append(VaulttyBlock(command: command, cwd: currentCwd))
             activeBlockIndex = blocks.indices.last
             revision &+= 1
-        case "D":
+        case .commandFinished(let status):
             guard let activeBlockIndex else { return }
-            blocks[activeBlockIndex].state = .completed(Int32(payload) ?? -1)
+            blocks[activeBlockIndex].state = .completed(status)
             self.activeBlockIndex = nil
             revision &+= 1
-        default:
+        case .openRemoteCode, .unknown:
             break
+        }
+    }
+}
+
+public struct VaulttyMarker: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
+        case shellReady(cwd: String?)
+        case commandStarted(command: String)
+        case cwdChanged(String?)
+        case openRemoteCode(payload: String)
+        case commandFinished(status: Int32)
+        case unknown(code: String, payload: String)
+    }
+
+    public let rawValue: String
+    public let kind: Kind
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+        let fields = rawValue.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+        let code = fields.first.map(String.init) ?? ""
+        let payload = fields.count > 1 ? String(fields[1]) : ""
+        switch code {
+        case "R":
+            kind = .shellReady(cwd: Self.decode(payload))
+        case "C":
+            kind = .commandStarted(command: Self.decode(payload) ?? "")
+        case "P":
+            kind = .cwdChanged(Self.decode(payload))
+        case "O":
+            kind = .openRemoteCode(payload: payload)
+        case "D":
+            kind = .commandFinished(
+                status: Int32(payload.trimmingCharacters(in: .whitespacesAndNewlines)) ?? -1
+            )
+        default:
+            kind = .unknown(code: code, payload: payload)
         }
     }
 
@@ -97,13 +132,17 @@ public struct VaulttyBlockTranscript: Sendable {
 public struct VaulttyMarkerParser: Sendable {
     public enum Event: Equatable, Sendable {
         case text(String)
-        case marker(String)
+        case marker(VaulttyMarker)
     }
 
     private static let prefix = "\u{1B}]133;"
     private var buffer = ""
 
     public init() {}
+
+    public mutating func reset() {
+        buffer.removeAll(keepingCapacity: true)
+    }
 
     public mutating func consume(_ text: String) -> [Event] {
         buffer += text
@@ -122,7 +161,9 @@ public struct VaulttyMarkerParser: Sendable {
             buffer.removeSubrange(..<start.lowerBound)
             guard let end = buffer.firstIndex(of: "\u{7}") else { break }
             let markerStart = buffer.index(buffer.startIndex, offsetBy: Self.prefix.count)
-            events.append(.marker(String(buffer[markerStart..<end])))
+            events.append(.marker(VaulttyMarker(
+                rawValue: String(buffer[markerStart..<end])
+            )))
             buffer.removeSubrange(...end)
         }
         return events

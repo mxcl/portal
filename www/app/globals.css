@@ -938,11 +938,21 @@ footer {
 
   .lede {
     width: min(520px, 100%);
+    margin-left: -14px;
+    padding: 12px 14px;
+    background: linear-gradient(90deg, rgb(2 3 7 / 0.88), rgb(2 3 7 / 0.62) 72%, transparent);
+    text-shadow: 0 1px 8px #000;
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
   }
 
   h1 {
     font-size: clamp(58px, 15.6vw, 105px);
     text-wrap: wrap;
+  }
+
+  h1 span {
+    text-shadow: 0 3px 24px rgb(0 0 0 / 0.95), 0 0 64px rgb(0 0 0 / 0.9);
   }
 
   .portal-stage {

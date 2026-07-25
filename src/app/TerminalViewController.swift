@@ -125,7 +125,8 @@ private final class SessionPickerView: NSView {
     weak var sessionPickerStack: NSStackView?
 
     static func headerButtonHitTestingSelfTest() -> Bool {
-        let picker = SessionPickerView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
+        let picker = SessionPickerView(frame: NSRect(x: 20, y: 20, width: 40, height: 40))
         let stack = NSStackView(frame: picker.bounds)
         let header = NSView(frame: picker.bounds)
         let button = SessionHeaderAddButton(
@@ -134,17 +135,19 @@ private final class SessionPickerView: NSView {
         )
         button.frame = NSRect(x: 10, y: 10, width: 20, height: 20)
         picker.sessionPickerStack = stack
+        container.addSubview(picker)
         picker.addSubview(stack)
         stack.addArrangedSubview(header)
         header.addSubview(button)
-        return picker.hitTest(NSPoint(x: 20, y: 20)) === button
+        return container.hitTest(NSPoint(x: 40, y: 40)) === button
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden, alphaValue > 0.01, bounds.contains(point) else { return nil }
-        return headerButton(at: point) ?? candidateButton(at: point)
+        guard !isHidden, alphaValue > 0.01, frame.contains(point) else { return nil }
+        let localPoint = convert(point, from: superview)
+        return headerButton(at: localPoint) ?? candidateButton(at: localPoint)
     }
 
     private func headerButton(at point: NSPoint) -> SessionHeaderAddButton? {

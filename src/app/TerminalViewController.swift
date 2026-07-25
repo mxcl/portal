@@ -5802,7 +5802,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         if mode == .explicit,
            result.suggestions.count == 1,
            let suggestion = result.suggestions.first {
-            applyCompletion(suggestion, in: tab)
+            let shouldContinue = shouldContinueCompletion(afterApplying: suggestion)
+            applyCompletion(suggestion, in: tab, dismissAfterApplying: !shouldContinue)
+            if shouldContinue {
+                requestCompletion(in: tab, mode: .continuation)
+            }
             return
         }
 
@@ -5944,7 +5948,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func shouldContinueCompletion(afterApplying suggestion: CompletionSuggestion) -> Bool {
-        suggestion.kind == .folder || suggestion.insertText.hasSuffix("/")
+        suggestion.kind == .folder ||
+            suggestion.insertText.hasSuffix("/") ||
+            (suggestion.kind == .command && suggestion.insertText.last?.isWhitespace == true)
     }
 
     private func shouldContinueCompletion(afterInserting value: String, from result: CompletionResult) -> Bool {

@@ -33,6 +33,19 @@ struct CommandLifecycleTests {
         #expect(status == 7)
     }
 
+    @Test("completion recovers when the command-start marker is missed")
+    func completionWithoutCommandStart() throws {
+        let lifecycle = CommandLifecycle(cwd: "/repo")
+        let submission = lifecycle.apply(.submit(command: "git status", cwd: "/repo", at: .now))
+        let blockID = try #require(submission.addedBlockIDs.first)
+
+        let completion = lifecycle.apply(.commandFinished(status: 0, isReplay: false, at: .now))
+
+        #expect(completion.finishedBlockIDs == [blockID])
+        #expect(!lifecycle.state.isCommandRunning)
+        #expect(lifecycle.state.isShellReady)
+    }
+
     @Test("history replay never enables input while a command remains active")
     func replayKeepsInputDisabledForRunningCommand() {
         let lifecycle = CommandLifecycle(cwd: "/repo", commandCount: 2)

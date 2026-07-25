@@ -270,11 +270,11 @@ final class CommandLifecycle {
             }
 
         case .commandFinished(let status, let isReplay, let timestamp):
-            if let activeBlockID = state.activeBlockID,
-               let index = state.blocks.firstIndex(where: { $0.id == activeBlockID }) {
+            if let blockID = state.activeBlockID ?? state.pendingBlockID,
+               let index = state.blocks.firstIndex(where: { $0.id == blockID }) {
                 state.blocks[index].finishedAt = isReplay ? nil : timestamp
                 state.blocks[index].state = .completed(status)
-                change.finishedBlockIDs = [activeBlockID]
+                change.finishedBlockIDs = [blockID]
             }
             state.activeBlockID = nil
             state.pendingBlockID = nil

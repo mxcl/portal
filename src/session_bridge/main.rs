@@ -872,7 +872,7 @@ fn socket_path() -> io::Result<PathBuf> {
         let state_home = env::var_os("XDG_STATE_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".local").join("state"));
-        Ok(state_home.join("portal-terminal").join("sessiond.sock"))
+        Ok(state_home.join("vaultty").join("sessiond.sock"))
     }
 }
 

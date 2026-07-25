@@ -27,8 +27,8 @@ export default function Home() {
           </h1>
           <p className="lede">
             Portal is a delightful terminal app for Mac and iPhone that finds
-            your Macs automatically. Open or rejoin shells with no SSH setup
-            or configuration.
+            your other devices automatically. Open and rejoin shells with no
+            SSH setup or configuration.
           </p>
           <a className="primary-action" href="#inside">
             Enter Portal

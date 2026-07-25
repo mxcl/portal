@@ -126,12 +126,17 @@ private final class SessionPickerView: NSView {
 
     static func headerButtonHitTestingSelfTest() -> Bool {
         let picker = SessionPickerView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        let stack = NSStackView(frame: picker.bounds)
+        let header = NSView(frame: picker.bounds)
         let button = SessionHeaderAddButton(
             sessionRef: .local("hit-test"),
             hostName: "test"
         )
         button.frame = NSRect(x: 10, y: 10, width: 20, height: 20)
-        picker.addSubview(button)
+        picker.sessionPickerStack = stack
+        picker.addSubview(stack)
+        stack.addArrangedSubview(header)
+        header.addSubview(button)
         return picker.hitTest(NSPoint(x: 20, y: 20)) === button
     }
 
@@ -139,7 +144,20 @@ private final class SessionPickerView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, alphaValue > 0.01, bounds.contains(point) else { return nil }
-        return candidateButton(at: point) ?? super.hitTest(point) as? SessionHeaderAddButton
+        return headerButton(at: point) ?? candidateButton(at: point)
+    }
+
+    private func headerButton(at point: NSPoint) -> SessionHeaderAddButton? {
+        sessionPickerStack?.layoutSubtreeIfNeeded()
+        for row in sessionPickerStack?.arrangedSubviews.reversed() ?? [] {
+            for case let button as SessionHeaderAddButton in row.subviews.reversed() {
+                let buttonPoint = button.convert(point, from: self)
+                if button.bounds.contains(buttonPoint) {
+                    return button
+                }
+            }
+        }
+        return nil
     }
 
     func candidateButton(at point: NSPoint) -> SessionCandidateButton? {

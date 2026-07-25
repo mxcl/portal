@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGURATION="${CONFIGURATION:-release}"
 APP_NAME="Portal"
+EXECUTABLE_NAME="Vaultty"
 APP_BUNDLE_ID="com.automicvault.vaultty"
 SESSIOND_HELPER_ID="com.automicvault.vaultty.sessiond"
 SESSION_BRIDGE_ID="com.automicvault.vaultty.session-bridge"
@@ -125,9 +126,9 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 HELPERS_DIR="$CONTENTS_DIR/Helpers"
 FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
-EXECUTABLE="$MACOS_DIR/$APP_NAME"
-SESSIOND_HELPER="$HELPERS_DIR/portal-sessiond"
-SESSION_BRIDGE_HELPER="$HELPERS_DIR/portal-session-bridge"
+EXECUTABLE="$MACOS_DIR/$EXECUTABLE_NAME"
+SESSIOND_HELPER="$HELPERS_DIR/vaultty-sessiond"
+SESSION_BRIDGE_HELPER="$HELPERS_DIR/vaultty-session-bridge"
 GHOSTTY_PROBE="$HELPERS_DIR/portal-ghostty-probe"
 GHOSTTY_DYLIB="$FRAMEWORKS_DIR/libghostty-vt.dylib"
 GHOSTTY_BRIDGE_OBJECT="$BUILD_DIR/GhosttyOscBridge.o"
@@ -759,12 +760,12 @@ install_app() (
 )
 
 kill_existing() {
-  pkill -x "$APP_NAME" 2>/dev/null || true
+  pkill -x "$EXECUTABLE_NAME" 2>/dev/null || true
   for _ in {1..50}; do
-    pgrep -x "$APP_NAME" >/dev/null || return 0
+    pgrep -x "$EXECUTABLE_NAME" >/dev/null || return 0
     sleep 0.1
   done
-  pkill -9 -x "$APP_NAME" 2>/dev/null || true
+  pkill -9 -x "$EXECUTABLE_NAME" 2>/dev/null || true
 }
 
 RELEASE_VERSION=""
@@ -1018,7 +1019,7 @@ fi
 if [[ "$RUN_APP" == true ]]; then
   kill_existing
   if [[ "${#APP_ARGS[@]}" -gt 0 ]]; then
-    exec "$FINAL_APP/Contents/MacOS/$APP_NAME" "${APP_ARGS[@]}"
+    exec "$FINAL_APP/Contents/MacOS/$EXECUTABLE_NAME" "${APP_ARGS[@]}"
   fi
   open "$FINAL_APP"
 fi

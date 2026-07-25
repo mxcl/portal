@@ -818,19 +818,19 @@ fn sessiond_path() -> io::Result<PathBuf> {
     if let Ok(current_exe) = env::current_exe()
         && let Some(dir) = current_exe.parent()
     {
-        let sibling = dir.join("portal-sessiond");
+        let sibling = dir.join("vaultty-sessiond");
         if is_executable(&sibling) {
             return Ok(sibling);
         }
     }
 
-    if let Some(path) = find_on_path("portal-sessiond") {
+    if let Some(path) = find_on_path("vaultty-sessiond") {
         return Ok(path);
     }
 
     Err(io::Error::new(
         io::ErrorKind::NotFound,
-        "portal-sessiond was not found next to the bridge or on PATH",
+        "vaultty-sessiond was not found next to the bridge or on PATH",
     ))
 }
 

@@ -917,7 +917,7 @@ final class PtySession {
         let bundled = Bundle.main.bundleURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Helpers", isDirectory: true)
-            .appendingPathComponent("portal-sessiond", isDirectory: false)
+            .appendingPathComponent("vaultty-sessiond", isDirectory: false)
             .path
         if FileManager.default.isExecutableFile(atPath: bundled) {
             return bundled
@@ -938,7 +938,7 @@ final class PtySession {
         throw NSError(
             domain: NSPOSIXErrorDomain,
             code: Int(ENOENT),
-            userInfo: [NSLocalizedDescriptionKey: "portal-sessiond helper was not found"]
+            userInfo: [NSLocalizedDescriptionKey: "vaultty-sessiond helper was not found"]
         )
     }
 

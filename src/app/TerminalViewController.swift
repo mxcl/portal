@@ -3619,26 +3619,6 @@ private final class TerminalTab {
 final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private typealias StoredTab = SessionCatalog.Record
 
-    private struct LocalSessionCandidate {
-        enum Kind {
-            case existing
-            case newRemote(SSHHostRecord)
-            case newRelay(RemoteMac)
-        }
-
-        var sessionRef: SessionRef
-        var sessionID: String
-        var hostPrefix: String?
-        var title: String
-        var cwd: String
-        var isClosedSession: Bool
-        var createdAt: Date?
-        var commandCount: Int
-        var runningCommand: String?
-        var commandHistory: [String]
-        var kind: Kind
-    }
-
     private struct TerminalGridSize {
         let rows: UInt16
         let cols: UInt16
@@ -3656,7 +3636,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var killingSessionRefs = Set<SessionRef>()
     private var activeTabID: UUID?
     private var tabButtons: [UUID: TitleTabButton] = [:]
-    private var sessionPickerCandidatesByTab: [UUID: [SessionRef: LocalSessionCandidate]] = [:]
+    private var sessionPickerCandidatesByTab: [UUID: [SessionRef: SessionPickerCandidate]] = [:]
+    private var sessionPickerModelsByTab: [UUID: SessionPickerModel] = [:]
     var onInstallStagedUpdate: (() -> Void)?
     var backgroundBlurEffect = BackgroundBlurEffect.preferred {
         didSet {
@@ -4709,55 +4690,76 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func configureSessionPicker(for tab: TerminalTab) {
-        let (candidates, seen) = localSessionCandidates(excluding: tab)
-        let initialCandidates = candidates + newRemoteSessionCandidates()
-        renderSessionPicker(initialCandidates, for: tab)
-        loadRemoteSessionCandidates(for: tab, excluding: seen, existing: initialCandidates)
+        let model = SessionPickerModel()
+        sessionPickerModelsByTab[tab.id]?.invalidate()
+        sessionPickerModelsByTab[tab.id] = model
+        let initial = localSessionCandidates(excluding: tab) + newRemoteSessionCandidates()
+        let excluded = Set(tabs.map(\.sessionRef))
+        let tabID = tab.id
+        model.refresh(
+            initial: initial,
+            excluding: excluded,
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            loadSSH: { [weak self] in
+                await withCheckedContinuation { continuation in
+                    guard let self else {
+                        continuation.resume(returning: [])
+                        return
+                    }
+                    self.remoteSessionQueue.async { [weak self] in
+                        continuation.resume(returning: self?.remoteSessionCandidates() ?? [])
+                    }
+                }
+            },
+            loadRelay: { [weak self] in
+                await self?.relaySessionCandidates() ?? []
+            },
+            isAvailable: { [weak self] sessionRef in
+                guard let self else { return false }
+                return !self.killingSessionRefs.contains(sessionRef)
+                    && !self.sessionCatalog.isExited(sessionRef)
+            },
+            onUpdate: { [weak self] snapshot in
+                guard let self,
+                      let tab = self.tabs.first(where: { $0.id == tabID }),
+                      tab.commandCount == 0
+                else {
+                    return
+                }
+                self.renderSessionPicker(snapshot, for: tab)
+            }
+        )
     }
 
-    private func renderSessionPicker(_ candidates: [LocalSessionCandidate], for tab: TerminalTab) {
-        let candidates = candidates.filter {
-            !killingSessionRefs.contains($0.sessionRef) && !sessionCatalog.isExited($0.sessionRef)
-        }
-        guard !candidates.isEmpty else {
-            hideSessionPicker(for: tab)
+    private func renderSessionPicker(_ snapshot: SessionPickerSnapshot, for tab: TerminalTab) {
+        guard !snapshot.sections.isEmpty else {
             tab.canReplaceFreshSession = true
+            sessionPickerCandidatesByTab[tab.id] = [:]
+            tab.sessionPickerView.isHidden = true
+            tab.sessionPickerHeightConstraint?.constant = 0
+            for view in tab.sessionPickerStack.arrangedSubviews {
+                tab.sessionPickerStack.removeArrangedSubview(view)
+                view.removeFromSuperview()
+            }
+            tab.rootView.needsLayout = true
             return
         }
 
         tab.canReplaceFreshSession = true
-        sessionPickerCandidatesByTab[tab.id] = Dictionary(uniqueKeysWithValues: candidates.map { ($0.sessionRef, $0) })
+        let candidates = snapshot.sections.flatMap { section in
+            section.items.map(\.candidate) + [section.newSession].compactMap { $0 }
+        }
+        sessionPickerCandidatesByTab[tab.id] = Dictionary(
+            uniqueKeysWithValues: candidates.map { ($0.sessionRef, $0) }
+        )
         for view in tab.sessionPickerStack.arrangedSubviews {
             tab.sessionPickerStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
 
-        let orderedCandidates = candidates.sorted { lhs, rhs in
-            let lhsCreatedAt = lhs.createdAt ?? .distantPast
-            let rhsCreatedAt = rhs.createdAt ?? .distantPast
-            if lhsCreatedAt != rhsCreatedAt {
-                return lhsCreatedAt > rhsCreatedAt
-            }
-            return lhs.sessionID < rhs.sessionID
-        }
-        let sections = Dictionary(grouping: orderedCandidates, by: \.sessionRef.location)
-            .sorted { lhs, rhs in
-                switch (lhs.key, rhs.key) {
-                case (.local, .local):
-                    return false
-                case (.local, _):
-                    return false
-                case (_, .local):
-                    return true
-                default:
-                    return sessionCandidateHostTitle(lhs.value[0])
-                        .localizedStandardCompare(sessionCandidateHostTitle(rhs.value[0])) == .orderedAscending
-                }
-            }
-
         var rowCount = 0
-        for (location, sectionCandidates) in sections {
-            let hostTitle = sessionCandidateHostTitle(sectionCandidates[0])
+        for section in snapshot.sections {
+            let hostTitle = section.title
             let header = NSTextField(labelWithString: hostTitle)
             header.attributedStringValue = hostPrefixAttributedString(
                 header.stringValue,
@@ -4768,7 +4770,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             headerStack.alignment = .centerY
             headerStack.spacing = 4
             headerStack.heightAnchor.constraint(equalToConstant: 20).isActive = true
-            if location != .local {
+            if section.location != .local {
                 let icon = NSImageView()
                 icon.image = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
                 icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 8, weight: .semibold)
@@ -4776,10 +4778,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 headerStack.addArrangedSubview(icon)
             }
             headerStack.addArrangedSubview(header)
-            if let candidate = sectionCandidates.first(where: {
-                if case .existing = $0.kind { return false }
-                return true
-            }) {
+            if let candidate = section.newSession {
                 let button = SessionHeaderAddButton(
                     sessionRef: candidate.sessionRef,
                     hostName: hostTitle
@@ -4790,21 +4789,18 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             }
             tab.sessionPickerStack.addArrangedSubview(headerStack)
 
-            let existingCandidates = sectionCandidates.filter {
-                if case .existing = $0.kind { return true }
-                return false
-            }
-            for rowCandidates in existingCandidates.chunked(into: 4).reversed() {
-                let buttons = rowCandidates.map { candidate in
+            for rowItems in section.items.chunked(into: 4).reversed() {
+                let buttons = rowItems.map { item in
+                    let candidate = item.candidate
                     let button = SessionCandidateButton(
                         sessionRef: candidate.sessionRef,
-                        title: sessionCandidateTitle(candidate),
-                        subtitle: sessionCandidateSubtitle(candidate),
-                        metadata: sessionCandidateMetadata(candidate)
+                        title: item.title,
+                        subtitle: item.subtitle,
+                        metadata: item.metadata
                     )
                     button.target = self
                     button.action = #selector(attachSessionFromPicker(_:))
-                    if candidate.isClosedSession {
+                    if candidate.isClosed {
                         button.menu = closedSessionCandidateMenu(for: candidate.sessionRef)
                     }
                     return button
@@ -4818,77 +4814,17 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
 
         tab.sessionPickerView.isHidden = false
-        let arrangedViewCount = rowCount + sections.count
+        let arrangedViewCount = rowCount + snapshot.sections.count
         let spacing = max(0, arrangedViewCount - 1) * 10
         tab.sessionPickerHeightConstraint?.constant = CGFloat(
-            16 + rowCount * 82 + sections.count * 20 + spacing
+            16 + rowCount * 82 + snapshot.sections.count * 20 + spacing
         )
         tab.rootView.needsLayout = true
     }
 
-    private func loadRemoteSessionCandidates(
-        for tab: TerminalTab,
-        excluding seen: Set<SessionRef>,
-        existing: [LocalSessionCandidate]
-    ) {
-        let tabID = tab.id
-        remoteSessionQueue.async { [weak self] in
-            guard let self else { return }
-            let remoteCandidates = self.remoteSessionCandidates(excluding: seen)
-            DispatchQueue.main.async { [weak self] in
-                guard let self,
-                      let tab = self.tabs.first(where: { $0.id == tabID }),
-                      tab.commandCount == 0,
-                      tab.canReplaceFreshSession
-                else {
-                    return
-                }
-                let candidates = existing + remoteCandidates
-                self.renderSessionPicker(candidates, for: tab)
-                self.loadRelaySessionCandidates(
-                    for: tab,
-                    excluding: Set(candidates.map(\.sessionRef)),
-                    existing: candidates
-                )
-            }
-        }
-    }
-
-    private func loadRelaySessionCandidates(
-        for tab: TerminalTab,
-        excluding seen: Set<SessionRef>,
-        existing: [LocalSessionCandidate]
-    ) {
-        let tabID = tab.id
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let endpoint = try MacRemoteAccessController.relayEndpoint()
-                let key = try ICloudKeychainRootKey().loadOrCreate()
-                let client = try RelayCatalogClient(endpoint: endpoint, rootKeyData: key)
-                guard let data = try await client.load() else { return }
-                let catalog = try JSONDecoder().decode(RemoteCatalog.self, from: data)
-                let candidates = self.relaySessionCandidates(
-                    in: catalog,
-                    excluding: seen,
-                    localMacID: MacRemoteAccessController.macID()
-                )
-                guard !candidates.isEmpty,
-                      let tab = self.tabs.first(where: { $0.id == tabID }),
-                      tab.commandCount == 0,
-                      tab.canReplaceFreshSession
-                else {
-                    return
-                }
-                self.renderSessionPicker(existing + candidates, for: tab)
-            } catch {
-                return
-            }
-        }
-    }
-
     private func hideSessionPicker(for tab: TerminalTab) {
         tab.canReplaceFreshSession = false
+        sessionPickerModelsByTab.removeValue(forKey: tab.id)?.invalidate()
         sessionPickerCandidatesByTab.removeValue(forKey: tab.id)
         tab.sessionPickerView.isHidden = true
         tab.sessionPickerHeightConstraint?.constant = 0
@@ -4899,9 +4835,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.rootView.needsLayout = true
     }
 
-    private func localSessionCandidates(excluding tab: TerminalTab) -> ([LocalSessionCandidate], Set<SessionRef>) {
+    private func localSessionCandidates(excluding tab: TerminalTab) -> [SessionPickerCandidate] {
         var seen = Set(tabs.map(\.sessionRef))
-        var candidates: [LocalSessionCandidate] = []
+        var candidates: [SessionPickerCandidate] = []
 
         for visible in sessionCatalog.visibleRecords() {
             let visibleRef = sessionRef(from: visible)
@@ -4910,18 +4846,17 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                   visible.windowID != windowID,
                   seen.insert(visibleRef).inserted
             else { continue }
-            candidates.append(LocalSessionCandidate(
+            candidates.append(SessionPickerCandidate(
                 sessionRef: visibleRef,
-                sessionID: visible.sessionID,
-                hostPrefix: hostname(for: visibleRef),
+                hostTitle: hostname(for: visibleRef) ?? Host.current().localizedName ?? "This Mac",
                 title: visible.title,
                 cwd: visible.cwd,
-                isClosedSession: false,
+                isClosed: false,
                 createdAt: visible.createdAt,
                 commandCount: visible.commandCount ?? 0,
                 runningCommand: visible.runningCommand,
                 commandHistory: visible.commandHistory ?? [],
-                kind: .existing
+                action: .attach
             ))
         }
 
@@ -4930,18 +4865,17 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             guard shouldPersistStoredSession(closed),
                   seen.insert(closedRef).inserted
             else { continue }
-            candidates.append(LocalSessionCandidate(
+            candidates.append(SessionPickerCandidate(
                 sessionRef: closedRef,
-                sessionID: closed.sessionID,
-                hostPrefix: hostname(for: closedRef),
+                hostTitle: hostname(for: closedRef) ?? Host.current().localizedName ?? "This Mac",
                 title: closed.title,
                 cwd: closed.cwd,
-                isClosedSession: true,
+                isClosed: true,
                 createdAt: closed.createdAt,
                 commandCount: closed.commandCount ?? 0,
                 runningCommand: closed.runningCommand,
                 commandHistory: closed.commandHistory ?? [],
-                kind: .existing
+                action: .attach
             ))
         }
 
@@ -4951,25 +4885,24 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 sessionID: session.sessionID
             )
             guard seen.insert(sessionRef).inserted else { continue }
-            candidates.append(LocalSessionCandidate(
+            candidates.append(SessionPickerCandidate(
                 sessionRef: sessionRef,
-                sessionID: session.sessionID,
-                hostPrefix: nil,
+                hostTitle: Host.current().localizedName ?? "This Mac",
                 title: session.title,
                 cwd: session.cwd,
-                isClosedSession: false,
+                isClosed: false,
                 createdAt: session.createdAt,
                 commandCount: session.commandCount,
                 runningCommand: session.runningCommand,
                 commandHistory: session.commandHistory,
-                kind: .existing
+                action: .attach
             ))
         }
 
-        return (candidates, seen)
+        return candidates
     }
 
-    private func newRemoteSessionCandidates() -> [LocalSessionCandidate] {
+    private func newRemoteSessionCandidates() -> [SessionPickerCandidate] {
         PtySession.loadSSHHosts().hosts
             .filter(\.enrolled)
             .map { host in
@@ -4977,26 +4910,25 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                     location: .sshHost(host.id),
                     sessionID: UUID().uuidString
                 )
-                return LocalSessionCandidate(
+                return SessionPickerCandidate(
                     sessionRef: sessionRef,
-                    sessionID: sessionRef.sessionID,
-                    hostPrefix: host.hostname.isEmpty ? host.alias : host.hostname,
+                    hostTitle: host.hostname.isEmpty ? host.alias : host.hostname,
                     title: "New session",
                     cwd: "",
-                    isClosedSession: false,
+                    isClosed: false,
                     createdAt: nil,
                     commandCount: 0,
                     runningCommand: nil,
                     commandHistory: [],
-                    kind: .newRemote(host)
+                    action: .createSSH(host)
                 )
             }
     }
 
-    private func remoteSessionCandidates(excluding seen: Set<SessionRef>) -> [LocalSessionCandidate] {
+    private func remoteSessionCandidates() -> [SessionPickerCandidate] {
         let hosts = PtySession.loadSSHHosts().hosts.filter(\.enrolled)
-        var candidates: [LocalSessionCandidate] = []
-        var seenSessionRefs = seen
+        var candidates: [SessionPickerCandidate] = []
+        var seenSessionRefs = Set<SessionRef>()
         for host in hosts {
             let location = SessionLocation.sshHost(host.id)
             let liveSessions = (try? PtySession.listSessions(location: location)) ?? []
@@ -5006,32 +4938,36 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 let sessionRef = SessionRef(location: location, sessionID: session.sessionID)
                 guard !seenSessionRefs.contains(sessionRef) else { continue }
                 seenSessionRefs.insert(sessionRef)
-                candidates.append(LocalSessionCandidate(
+                candidates.append(SessionPickerCandidate(
                     sessionRef: sessionRef,
-                    sessionID: session.sessionID,
-                    hostPrefix: host.hostname.isEmpty ? host.alias : host.hostname,
+                    hostTitle: host.hostname.isEmpty ? host.alias : host.hostname,
                     title: session.title,
                     cwd: session.cwd,
-                    isClosedSession: false,
+                    isClosed: false,
                     createdAt: session.createdAt,
                     commandCount: session.commandCount,
                     runningCommand: session.runningCommand,
                     commandHistory: session.commandHistory,
-                    kind: .existing
+                    action: .attach
                 ))
             }
         }
         return candidates
     }
 
-    private func relaySessionCandidates(
-        in catalog: RemoteCatalog,
-        excluding seen: Set<SessionRef>,
-        localMacID: String
-    ) -> [LocalSessionCandidate] {
+    private func relaySessionCandidates() async -> [SessionPickerCandidate] {
+        guard let endpoint = try? MacRemoteAccessController.relayEndpoint(),
+              let key = try? ICloudKeychainRootKey().loadOrCreate(),
+              let client = try? RelayCatalogClient(endpoint: endpoint, rootKeyData: key),
+              let data = try? await client.load(),
+              let catalog = try? JSONDecoder().decode(RemoteCatalog.self, from: data)
+        else {
+            return []
+        }
         let now = Date()
-        var candidates: [LocalSessionCandidate] = []
-        var seenSessionRefs = seen
+        var candidates: [SessionPickerCandidate] = []
+        var seenSessionRefs = Set<SessionRef>()
+        let localMacID = MacRemoteAccessController.macID()
         for mac in catalog.macs where
             mac.id != localMacID &&
             mac.online &&
@@ -5043,18 +4979,17 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 sessionID: UUID().uuidString,
                 hostName: mac.name
             )
-            candidates.append(LocalSessionCandidate(
+            candidates.append(SessionPickerCandidate(
                 sessionRef: newSessionRef,
-                sessionID: newSessionRef.sessionID,
-                hostPrefix: mac.name,
+                hostTitle: mac.name,
                 title: "New session",
                 cwd: mac.homeDirectory ?? "/",
-                isClosedSession: false,
+                isClosed: false,
                 createdAt: nil,
                 commandCount: 0,
                 runningCommand: nil,
                 commandHistory: [],
-                kind: .newRelay(mac)
+                action: .createRelay
             ))
             for session in mac.sessions {
                 let sessionRef = SessionRef(
@@ -5063,18 +4998,17 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                     hostName: mac.name
                 )
                 guard seenSessionRefs.insert(sessionRef).inserted else { continue }
-                candidates.append(LocalSessionCandidate(
+                candidates.append(SessionPickerCandidate(
                     sessionRef: sessionRef,
-                    sessionID: session.sessionID,
-                    hostPrefix: mac.name,
+                    hostTitle: mac.name,
                     title: session.title,
                     cwd: session.cwd,
-                    isClosedSession: false,
+                    isClosed: false,
                     createdAt: session.createdAt,
                     commandCount: session.commandCount,
                     runningCommand: session.runningCommand,
                     commandHistory: [],
-                    kind: .existing
+                    action: .attach
                 ))
             }
         }
@@ -5092,76 +5026,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         case .relayMac(let macID):
             return sessionRef.hostName ?? macID
         }
-    }
-
-    private func sessionCandidateTitle(_ candidate: LocalSessionCandidate) -> String {
-        switch candidate.kind {
-        case .newRemote, .newRelay:
-            return "New session"
-        case .existing:
-            break
-        }
-        if let runningCommand = candidate.runningCommand,
-           !runningCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return titleForCommand(runningCommand)
-        }
-        return displaySessionCwd(candidate.cwd)
-    }
-
-    private func sessionCandidateHostTitle(_ candidate: LocalSessionCandidate) -> String {
-        candidate.hostPrefix ?? Host.current().localizedName ?? "This Mac"
-    }
-
-    private func sessionCandidateSubtitle(_ candidate: LocalSessionCandidate) -> String? {
-        switch candidate.kind {
-        case .newRemote, .newRelay:
-            return "Remote home"
-        case .existing:
-            break
-        }
-        if let runningCommand = candidate.runningCommand,
-           !runningCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return displaySessionCwd(candidate.cwd)
-        }
-        return nil
-    }
-
-    private func sessionCandidateMetadata(_ candidate: LocalSessionCandidate) -> String {
-        switch candidate.kind {
-        case .newRemote:
-            return "Login shell"
-        case .newRelay:
-            return "Encrypted relay"
-        case .existing:
-            break
-        }
-        let createdText = candidate.createdAt.map { relativeSessionTime(from: $0) } ?? "earlier"
-        guard candidate.commandCount > 0 else {
-            return createdText
-        }
-        return "\(createdText) · \(commandCountText(candidate.commandCount))"
-    }
-
-    private func displaySessionCwd(_ cwd: String) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if cwd == home {
-            return "~"
-        }
-        if cwd.hasPrefix(home + "/") {
-            return "~" + String(cwd.dropFirst(home.count))
-        }
-        return cwd
-    }
-
-    private func relativeSessionTime(from date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        formatter.dateTimeStyle = .named
-        return formatter.localizedString(for: date, relativeTo: Date())
-    }
-
-    private func commandCountText(_ count: Int) -> String {
-        count == 1 ? "1 command" : "\(count) commands"
     }
 
     @objc private func attachSessionFromPicker(_ sender: SessionCandidateButton) {
@@ -5195,13 +5059,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         attachSessionFromPicker(candidate, in: tab)
     }
 
-    private func attachSessionFromPicker(_ candidate: LocalSessionCandidate, in tab: TerminalTab) {
-        switch candidate.kind {
-        case .existing:
+    private func attachSessionFromPicker(_ candidate: SessionPickerCandidate, in tab: TerminalTab) {
+        switch candidate.action {
+        case .attach:
             replaceFreshSession(in: tab, with: candidate)
-        case .newRemote(let host):
+        case .createSSH(let host):
             startNewRemoteSession(in: tab, with: candidate, on: host)
-        case .newRelay:
+        case .createRelay:
             replaceFreshSession(
                 in: tab,
                 with: candidate,
@@ -5212,7 +5076,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func startNewRemoteSession(
         in tab: TerminalTab,
-        with candidate: LocalSessionCandidate,
+        with candidate: SessionPickerCandidate,
         on host: SSHHostRecord
     ) {
         let tabID = tab.id
@@ -5287,7 +5151,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
               tab.canReplaceFreshSession,
               tab.blocks.isEmpty,
               let candidate = sessionPickerCandidatesByTab[tab.id]?[sessionRef],
-              candidate.isClosedSession
+              candidate.isClosed
         else {
             NSSound.beep()
             return
@@ -5349,7 +5213,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func replaceFreshSession(
         in tab: TerminalTab,
-        with candidate: LocalSessionCandidate,
+        with candidate: SessionPickerCandidate,
         shellPath: String? = nil,
         createsRelaySession: Bool = false
     ) {

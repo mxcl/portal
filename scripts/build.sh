@@ -903,6 +903,7 @@ SWIFTC_COMMAND=(
   "$ROOT_DIR/src/app/main.swift" \
   "$ROOT_DIR/src/core/SessionTypes.swift" \
   "$ROOT_DIR/src/core/SessionCatalog.swift" \
+  "$ROOT_DIR/src/core/SessionPickerModel.swift" \
   "$ROOT_DIR/src/core/SessionWireProtocol.swift" \
   "$ROOT_DIR/src/core/RemoteProtocol.swift" \
   "$ROOT_DIR/src/core/RemoteSessionCreationClient.swift" \

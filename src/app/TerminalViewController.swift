@@ -895,6 +895,7 @@ private final class SelectableBlockTextField: NSTextField {
 private final class BlockOutputTextView: NSTextView {
     private static let linkCapsuleColor = NSColor.white.withAlphaComponent(0.10)
     private var linkTrackingArea: NSTrackingArea?
+    private var firstMouseLink: (value: Any, characterIndex: Int)?
     private var hoveredLinkRange: NSRange? {
         didSet {
             guard hoveredLinkRange != oldValue else { return }
@@ -915,7 +916,16 @@ private final class BlockOutputTextView: NSTextView {
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
+        firstMouseLink = event.flatMap(link(at:))
+        return true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let firstMouseLink = firstMouseLink
+        super.mouseDown(with: event)
+        guard self.firstMouseLink != nil, let firstMouseLink else { return }
+        self.firstMouseLink = nil
+        clicked(onLink: firstMouseLink.value, at: firstMouseLink.characterIndex)
     }
 
     override func didChangeText() {
@@ -994,7 +1004,23 @@ private final class BlockOutputTextView: NSTextView {
         }
     }
 
+    private func link(at event: NSEvent) -> (value: Any, characterIndex: Int)? {
+        let point = convert(event.locationInWindow, from: nil)
+        var result: (value: Any, characterIndex: Int)?
+        enumerateLinkRects { [weak self] range, rect in
+            guard result == nil,
+                  rect.contains(point),
+                  let value = self?.textStorage?.attribute(.link, at: range.location, effectiveRange: nil)
+            else {
+                return
+            }
+            result = (value, range.location)
+        }
+        return result
+    }
+
     override func clicked(onLink link: Any, at charIndex: Int) {
+        firstMouseLink = nil
         if let fileLink = link as? Ansi.FileLink {
             followFileLink(fileLink)
             return

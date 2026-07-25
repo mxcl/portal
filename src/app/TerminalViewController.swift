@@ -124,11 +124,22 @@ private final class NonHitTestingVisualEffectView: NSVisualEffectView {
 private final class SessionPickerView: NSView {
     weak var sessionPickerStack: NSStackView?
 
+    static func headerButtonHitTestingSelfTest() -> Bool {
+        let picker = SessionPickerView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        let button = SessionHeaderAddButton(
+            sessionRef: .local("hit-test"),
+            hostName: "test"
+        )
+        button.frame = NSRect(x: 10, y: 10, width: 20, height: 20)
+        picker.addSubview(button)
+        return picker.hitTest(NSPoint(x: 20, y: 20)) === button
+    }
+
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, alphaValue > 0.01, bounds.contains(point) else { return nil }
-        return candidateButton(at: point)
+        return candidateButton(at: point) ?? super.hitTest(point) as? SessionHeaderAddButton
     }
 
     func candidateButton(at point: NSPoint) -> SessionCandidateButton? {
@@ -3644,6 +3655,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(PtyPassthroughView.passthroughRoutingSelfTest())
         assert(TerminalOutputProcessor.alternateScreenTranscriptSelfTest())
         assert(TerminalOutputProcessor.terminalSizeProbeSelfTest())
+        assert(SessionPickerView.headerButtonHitTestingSelfTest())
     }()
 
     private enum TabClickTarget {

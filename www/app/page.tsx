@@ -26,9 +26,9 @@ export default function Home() {
             <span className="gradient-text">portal.</span>
           </h1>
           <p className="lede">
-            Portal is a terminal app for Mac and iPhone that finds your Macs
-            automatically. Open or rejoin shells with no SSH setup or
-            configuration.
+            Portal is a delightful terminal app for Mac and iPhone that finds
+            your Macs automatically. Open or rejoin shells with no SSH setup
+            or configuration.
           </p>
           <a className="primary-action" href="#inside">
             Enter Portal

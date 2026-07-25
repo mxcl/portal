@@ -571,6 +571,7 @@ private final class CompletionListView: NSView {
     private var trackingArea: NSTrackingArea?
 
     override var isFlipped: Bool { true }
+    override var allowsVibrancy: Bool { true }
     override var acceptsFirstResponder: Bool { false }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {

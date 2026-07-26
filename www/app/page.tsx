@@ -10,6 +10,7 @@ export default function Home() {
         </a>
         <div className="header-meta">
           <span>MAC + IPHONE</span>
+          <a href="/security">SECURITY</a>
           <a href="#inside">SEE INSIDE</a>
         </div>
       </header>
@@ -267,7 +268,9 @@ export default function Home() {
           <span aria-hidden="true">&gt;_</span>
           <strong>PORTAL</strong>
         </a>
-        <p>YOUR SESSION IS STILL THERE.</p>
+        <p>
+          <a href="/security">SECURITY</a>
+        </p>
         <p>© 2026</p>
       </footer>
     </main>

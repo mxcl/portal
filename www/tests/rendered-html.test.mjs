@@ -34,3 +34,25 @@ test("server-renders the Portal landing page", async () => {
     /codex-preview|Your site is taking shape|never leaves|still running/i,
   );
 });
+
+test("server-renders the security model", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  const response = await worker.fetch(
+    new Request("http://localhost/security", {
+      headers: { accept: "text/html" },
+    }),
+    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+  const html = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(html, /<title>Security — Portal<\/title>/i);
+  assert.match(html, /What leaves your Mac\./);
+  assert.match(html, /Never leaves the Mac/);
+  assert.match(html, /even when both devices are on the same Wi-Fi/i);
+  assert.match(html, /relay never receives the encryption key/i);
+  assert.match(html, /no per-device revocation/i);
+});

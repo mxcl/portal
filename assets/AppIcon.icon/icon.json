@@ -24,7 +24,7 @@
           "image-name" : "Vaultty.png",
           "name" : "Portal",
           "position" : {
-            "scale" : 0.9,
+            "scale" : 0.95,
             "translation-in-points" : [
               0,
               5

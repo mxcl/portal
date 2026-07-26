@@ -1215,7 +1215,7 @@ final class VaulttyCompletionEngine {
     private func commandCacheKey(for request: CompletionRequest) -> String {
         switch request.location {
         case .local:
-            return "local:\(request.environment["PATH"] ?? "")"
+            return "local:\(request.shellPath):\(request.environment["PATH"] ?? "")"
         case .sshHost(let hostID):
             return "ssh:\(hostID)"
         case .relayMac(let macID):
@@ -1227,7 +1227,13 @@ final class VaulttyCompletionEngine {
         switch request.location {
         case .local:
             var sources: [String: String] = [:]
-            let path = request.environment["PATH"] ?? ""
+            let loginPath = ShellCommandRunner.loginPath(
+                shellPath: request.shellPath,
+                environment: request.environment
+            )
+            let path = [loginPath, request.environment["PATH"]]
+                .compactMap { $0 }
+                .joined(separator: ":")
             for directory in path.split(separator: ":").map(String.init) {
                 guard let contents = try? fileManager.contentsOfDirectory(atPath: directory) else { continue }
                 for name in contents {
@@ -2199,6 +2205,21 @@ private enum ShellCommandRunner {
         let status: Int32
     }
 
+    static func loginPath(shellPath: String, environment: [String: String]) -> String? {
+        var environment = environment
+        environment.removeValue(forKey: "PATH")
+        let interactive = ["bash", "zsh"].contains(URL(fileURLWithPath: shellPath).lastPathComponent)
+        return runLocalShell(
+            commandLine: "printf '%s' \"$PATH\"",
+            cwd: environment["HOME"] ?? "/",
+            environment: environment,
+            timeout: 2,
+            outputLimit: 64 * 1024,
+            shellPath: shellPath,
+            interactive: interactive
+        )?.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func runShell(
         commandLine: String,
         cwd: String,
@@ -2245,11 +2266,13 @@ private enum ShellCommandRunner {
         cwd: String,
         environment: [String: String],
         timeout: TimeInterval,
-        outputLimit: Int
+        outputLimit: Int,
+        shellPath: String = "/bin/zsh",
+        interactive: Bool = false
     ) -> Output? {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", shellPrelude(environment: environment) + commandLine]
+        process.executableURL = URL(fileURLWithPath: shellPath)
+        process.arguments = [interactive ? "-lic" : "-lc", shellPrelude(environment: environment) + commandLine]
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)
         process.environment = environment
         process.standardInput = FileHandle.nullDevice

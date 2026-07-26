@@ -105,7 +105,7 @@ final class SessionPickerModel {
                 ? $0.sessionRef.sessionID < $1.sessionRef.sessionID
                 : lhsDate > rhsDate
         }
-        let sections = Dictionary(grouping: ordered, by: \.hostTitle)
+        let sections = Dictionary(grouping: ordered) { $0.hostTitle.lowercased() }
             .map { _, candidates in
                 SessionPickerSection(
                     location: candidates[0].sessionRef.location,

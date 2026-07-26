@@ -24,10 +24,10 @@
           "image-name" : "Vaultty.png",
           "name" : "Portal",
           "position" : {
-            "scale" : 0.8,
+            "scale" : 0.9,
             "translation-in-points" : [
-              7,
-              9
+              0,
+              5
             ]
           }
         }

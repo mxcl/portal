@@ -5,6 +5,45 @@ import Testing
 @Suite("Session picker model")
 struct SessionPickerModelTests {
     @MainActor
+    @Test("groups the same host discovered through SSH and relay once")
+    func groupsHostAcrossTransports() async throws {
+        let model = SessionPickerModel()
+        var snapshots: [SessionPickerSnapshot] = []
+
+        model.refresh(
+            initial: [],
+            excluding: [],
+            homeDirectory: "/Users/test",
+            loadSSH: {
+                [candidate(
+                    id: "ssh-session",
+                    host: "Pangolin",
+                    date: 1,
+                    location: .sshHost("pangolin-ssh")
+                )]
+            },
+            loadRelay: {
+                [candidate(
+                    id: "new-relay-session",
+                    host: "Pangolin",
+                    date: 0,
+                    location: .relayMac("pangolin-relay"),
+                    action: .createRelay
+                )]
+            },
+            isAvailable: { _ in true },
+            onUpdate: { snapshots.append($0) }
+        )
+
+        try await Task.sleep(nanoseconds: 10_000_000)
+
+        let final = try #require(snapshots.last)
+        #expect(final.sections.map(\.title) == ["Pangolin"])
+        #expect(final.sections[0].items.count == 1)
+        #expect(final.sections[0].newSession?.action == .createRelay)
+    }
+
+    @MainActor
     @Test("deduplicates, groups, sorts, and rejects stale loads")
     func progressiveSnapshots() async throws {
         let model = SessionPickerModel()
@@ -50,7 +89,8 @@ struct SessionPickerModelTests {
         id: String,
         host: String,
         date: TimeInterval,
-        location: SessionLocation? = nil
+        location: SessionLocation? = nil,
+        action: SessionPickerCandidate.Action = .attach
     ) -> SessionPickerCandidate {
         SessionPickerCandidate(
             sessionRef: SessionRef(location: location ?? .sshHost(host), sessionID: id),
@@ -62,7 +102,7 @@ struct SessionPickerModelTests {
             commandCount: 1,
             runningCommand: nil,
             commandHistory: [],
-            action: .attach
+            action: action
         )
     }
 }

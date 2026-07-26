@@ -120,9 +120,43 @@ export default function Security() {
             </div>
           </div>
           <p>
-            Live terminal ciphertext is broadcast in memory and discarded.
-            The encrypted catalog is stored so your devices can find available
-            sessions and expires after 30 days of inactivity.
+            The relay has two storage classes, and neither contains plaintext:
+          </p>
+          <dl className="relay-storage">
+            <div>
+              <dt>Temporary / memory only</dt>
+              <dd>
+                Each encrypted terminal frame exists only long enough to be
+                broadcast to the other connected peers. Peer identifiers exist
+                while their sockets are connected; opaque room and
+                authorization state may remain until the relay process restarts.
+              </dd>
+            </div>
+            <div>
+              <dt>Durable / stored on disk</dt>
+              <dd>
+                One encrypted session-catalog blob per opaque room. Each update
+                atomically replaces the previous blob—there is no catalog
+                history. A blob inactive for 30 days is deleted on its next
+                read; production billing cleanup may delete it sooner after a
+                subscription expires.
+              </dd>
+            </div>
+            <div>
+              <dt>Never stored by the relay</dt>
+              <dd>
+                Plaintext commands, keystrokes, output, paths, session names,
+                the account root key, and derived encryption keys. The relay
+                implementation does not persist or log live terminal frames.
+              </dd>
+            </div>
+          </dl>
+          <p>
+            Portal defines no permanent relay record: the catalog is retained
+            only for device discovery and is subject to deletion. Hosting and
+            network providers may keep ordinary connection metadata under
+            their own operational policies; that metadata is outside Portal’s
+            end-to-end encryption boundary.
           </p>
         </section>
 

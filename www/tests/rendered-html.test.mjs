@@ -54,5 +54,9 @@ test("server-renders the security model", async () => {
   assert.match(html, /Never leaves the Mac/);
   assert.match(html, /even when both devices are on the same Wi-Fi/i);
   assert.match(html, /relay never receives the encryption key/i);
+  assert.match(html, /Temporary \/ memory only/i);
+  assert.match(html, /Durable \/ stored on disk/i);
+  assert.match(html, /there is no catalog history/i);
+  assert.match(html, /does not persist or log live terminal frames/i);
   assert.match(html, /no per-device revocation/i);
 });

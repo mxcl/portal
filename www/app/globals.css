@@ -1004,6 +1004,33 @@ footer {
   margin-top: 12px;
 }
 
+.relay-storage {
+  margin: 52px 0;
+  border-top: 1px solid #303441;
+}
+
+.relay-storage > div {
+  display: grid;
+  grid-template-columns: 0.45fr 1fr;
+  gap: clamp(24px, 5vw, 70px);
+  padding: 30px 0;
+  border-bottom: 1px solid #303441;
+}
+
+.relay-storage dt {
+  color: #72cfff;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.relay-storage dd {
+  margin: 0;
+  color: #a4aaba;
+  line-height: 1.7;
+}
+
 .security-limits ul {
   max-width: 760px;
   margin-left: auto;
@@ -1261,6 +1288,11 @@ footer {
 
   .security-columns {
     grid-template-columns: 1fr;
+  }
+
+  .relay-storage > div {
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 }
 

@@ -366,7 +366,7 @@ h1 span {
   letter-spacing: 0.13em;
 }
 
-.shot-frame img,
+.shot-frame video,
 .remote-frame img {
   display: block;
   width: 100%;

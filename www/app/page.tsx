@@ -74,9 +74,13 @@ export default function Home() {
             <span>PORTAL / AVAILABLE SESSIONS</span>
             <span>REJOIN ANYWHERE</span>
           </div>
-          <img
-            src="/remote-sessions.webp"
-            alt="Portal showing terminal sessions ready to rejoin"
+          <video
+            src="/portal-terminal-natural-loop.webm"
+            aria-label="Portal showing terminal sessions ready to rejoin"
+            autoPlay
+            loop
+            muted
+            playsInline
           />
         </div>
         <p className="shot-caption">

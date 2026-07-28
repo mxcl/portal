@@ -27,9 +27,9 @@ export default function Home() {
             <span className="gradient-text">portal.</span>
           </h1>
           <p className="lede">
-            Portal is a delightful, opinionated terminal app for Mac and iPhone
-            that finds your other devices automatically. Open, close and rejoin shells
-            with no setup or configuration. Just open the app.
+            Portal is a delightful, opinionated terminal app for Mac and
+            iPhone. Your Macs appear automatically through iCloud—no Portal
+            account, no setup, no configuration. Just open the app.
           </p>
           <a className="primary-action" href="#inside">
             Enter Portal
@@ -63,7 +63,8 @@ export default function Home() {
           Portal, or switch devices. Jump straight back in whenever the host
           Mac is awake.
           <small>
-            Synced through your iCloud account. No SSH. End-to-end encrypted.
+            Your iCloud account connects your devices. No Portal account. No
+            SSH. End-to-end encrypted.
           </small>
         </p>
       </section>

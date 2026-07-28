@@ -167,7 +167,7 @@ enum SessionWireProtocol {
                 base64(sessionID),
                 base64(workingDirectory),
                 base64(shellPath),
-                environmentBlob.isEmpty ? "-" : base64(environmentBlob)
+                base64(environmentBlob.isEmpty ? "VAULTTY=" : environmentBlob)
             ].joined(separator: " ")
         case .attachV2(
             let version,

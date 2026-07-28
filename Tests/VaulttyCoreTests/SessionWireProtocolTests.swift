@@ -22,7 +22,14 @@ struct SessionWireProtocolTests {
     }
 
     @Test("client commands use one encoder")
-    func clientCommands() {
+    func clientCommands() throws {
+        let emptyEnvironmentAttach = SessionWireProtocol.encode(.attach(
+            sessionID: "id",
+            workingDirectory: "/tmp",
+            shellPath: "/bin/sh",
+            environment: [:]
+        )).split(separator: " ")
+        #expect(try decode(String(#require(emptyEnvironmentAttach.last))) == "VAULTTY=")
         #expect(SessionWireProtocol.encode(.resize(rows: 24, cols: 80)) == "RESIZE 24 80")
         #expect(SessionWireProtocol.encode(.interrupt) == "INTERRUPT")
         #expect(SessionWireProtocol.encode(.clearHistory) == "CLEAR_HISTORY")

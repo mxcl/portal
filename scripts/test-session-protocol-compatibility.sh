@@ -38,13 +38,14 @@ assert_probe() {
 assert_v1_attach() {
   local socket_path="$1"
   local session_id="$2"
+  local environment="${3:-TERM=xterm-256color}"
   ruby -rbase64 -rsocket -e '
     encoded = ARGV[1, 4].map { |value| Base64.strict_encode64(value) }
     socket = UNIXSocket.new(ARGV.fetch(0))
     socket.write("ATTACH #{encoded.join(" ")}\n")
     response = socket.gets&.strip
     abort "v1 ATTACH failed: #{response.inspect}" unless response&.start_with?("READY ")
-  ' "$socket_path" "$session_id" /tmp /usr/bin/false TERM=xterm-256color
+  ' "$socket_path" "$session_id" /tmp /usr/bin/false "$environment"
 }
 
 assert_current_bridge_previous_daemon() {
@@ -83,6 +84,7 @@ wait_for_socket "$previous_socket"
 echo "Testing current client fallback against previous daemon"
 assert_probe "$previous_socket" LEGACY_EOF
 assert_v1_attach "$previous_socket" current-client-previous-daemon
+assert_v1_attach "$previous_socket" current-empty-environment-client VAULTTY=
 assert_current_bridge_previous_daemon \
   "$ROOT_DIR/target/debug/portal-session-bridge" \
   "$previous_socket"

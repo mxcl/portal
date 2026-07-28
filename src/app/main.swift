@@ -790,7 +790,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         manageHostsItem.target = self
 
         let killClosedTabsItem = sessionsMenu.addItem(
-            withTitle: "Kill Closed Tabs...",
+            withTitle: "Exit Closed Tabs...",
             action: #selector(killClosedTabs(_:)),
             keyEquivalent: ""
         )

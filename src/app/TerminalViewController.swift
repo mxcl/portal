@@ -4172,9 +4172,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Kill closed tabs?"
-        alert.informativeText = "This will permanently stop \(closedTabs.count) closed shell session\(closedTabs.count == 1 ? "" : "s"). Visible tabs will not be killed."
-        alert.addButton(withTitle: "Kill Closed Tabs")
+        alert.messageText = "Exit closed tabs?"
+        alert.informativeText = "This will permanently stop \(closedTabs.count) closed shell session\(closedTabs.count == 1 ? "" : "s"). Visible tabs will not be exited."
+        alert.addButton(withTitle: "Exit Closed Tabs")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
@@ -4214,7 +4214,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
                     let failureAlert = NSAlert()
                     failureAlert.alertStyle = .warning
-                    failureAlert.messageText = "Some closed tabs could not be killed"
+                    failureAlert.messageText = "Some closed tabs could not be exited"
                     failureAlert.informativeText = failedTargets
                         .map { "\($0.stored.title): \($0.error.localizedDescription)" }
                         .joined(separator: "\n")
@@ -5085,7 +5085,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         connectItem.representedObject = sessionRef
         menu.addItem(.separator())
         let killItem = menu.addItem(
-            withTitle: "Kill",
+            withTitle: "Exit",
             action: #selector(killClosedSessionCandidate(_:)),
             keyEquivalent: ""
         )
@@ -5143,7 +5143,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 self.configureSessionPickerIfPossible()
                 let alert = NSAlert()
                 alert.alertStyle = .warning
-                alert.messageText = "Closed tab could not be killed"
+                alert.messageText = "Closed tab could not be exited"
                 alert.informativeText = "\(stored.title): \(error.localizedDescription)"
                 alert.runModal()
             }

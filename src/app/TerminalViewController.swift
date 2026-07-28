@@ -4736,8 +4736,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                     )
                     button.target = self
                     button.action = #selector(attachSessionFromPicker(_:))
-                    if candidate.isClosed {
-                        button.menu = closedSessionCandidateMenu(for: candidate.sessionRef)
+                    if candidate.canExit,
+                       !sessionCatalog.isVisibleOutsideCurrentWindow(candidate.sessionRef) {
+                        button.menu = sessionCandidateMenu(for: candidate.sessionRef)
                     }
                     return button
                 }
@@ -4831,7 +4832,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 commandCount: session.commandCount,
                 runningCommand: session.runningCommand,
                 commandHistory: session.commandHistory,
-                action: .attach
+                action: .attach,
+                attachedClientCount: session.attachedClientCount
             ))
         }
 
@@ -4891,7 +4893,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                     commandCount: session.commandCount,
                     runningCommand: session.runningCommand,
                     commandHistory: [],
-                    action: .attach
+                    action: .attach,
+                    attachedClientCount: session.attachedClientCount
                 ))
             }
         }
@@ -4955,11 +4958,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    private func closedSessionCandidateMenu(for sessionRef: SessionRef) -> NSMenu {
+    private func sessionCandidateMenu(for sessionRef: SessionRef) -> NSMenu {
         let menu = NSMenu()
         let connectItem = menu.addItem(
             withTitle: "Connect",
-            action: #selector(connectClosedSessionCandidate(_:)),
+            action: #selector(connectSessionCandidate(_:)),
             keyEquivalent: ""
         )
         connectItem.target = self
@@ -4967,7 +4970,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         menu.addItem(.separator())
         let killItem = menu.addItem(
             withTitle: "Exit",
-            action: #selector(killClosedSessionCandidate(_:)),
+            action: #selector(killSessionCandidate(_:)),
             keyEquivalent: ""
         )
         killItem.target = self
@@ -4975,13 +4978,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return menu
     }
 
-    @objc private func connectClosedSessionCandidate(_ sender: NSMenuItem) {
+    @objc private func connectSessionCandidate(_ sender: NSMenuItem) {
         guard let sessionRef = sender.representedObject as? SessionRef,
               let tab = activeTab,
               tab.canReplaceFreshSession,
               tab.blocks.isEmpty,
               let candidate = sessionPickerCandidatesByTab[tab.id]?[sessionRef],
-              candidate.isClosed
+              candidate.action == .attach
         else {
             NSSound.beep()
             return
@@ -4990,14 +4993,18 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         replaceFreshSession(in: tab, with: candidate)
     }
 
-    @objc private func killClosedSessionCandidate(_ sender: NSMenuItem) {
+    @objc private func killSessionCandidate(_ sender: NSMenuItem) {
         guard let sessionRef = sender.representedObject as? SessionRef,
-              let stored = closedTabs.first(where: { self.sessionRef(from: $0) == sessionRef })
+              let tab = activeTab,
+              let candidate = sessionPickerCandidatesByTab[tab.id]?[sessionRef],
+              candidate.canExit,
+              !sessionCatalog.isVisibleOutsideCurrentWindow(sessionRef)
         else {
             NSSound.beep()
             return
         }
 
+        let stored = closedTabs.first(where: { self.sessionRef(from: $0) == sessionRef })
         killingSessionRefs.insert(sessionRef)
         removeClosedSession(sessionRef)
         persistSessionState()
@@ -5019,13 +5026,15 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             } catch {
                 guard let self else { return }
                 self.killingSessionRefs.remove(sessionRef)
-                self.sessionCatalog.restoreClosed([stored])
+                if let stored {
+                    self.sessionCatalog.restoreClosed([stored])
+                }
                 self.persistSessionState()
                 self.configureSessionPickerIfPossible()
                 let alert = NSAlert()
                 alert.alertStyle = .warning
-                alert.messageText = "Closed tab could not be exited"
-                alert.informativeText = "\(stored.title): \(error.localizedDescription)"
+                alert.messageText = "Session could not be exited"
+                alert.informativeText = "\(candidate.title): \(error.localizedDescription)"
                 alert.runModal()
             }
         }

@@ -16,6 +16,11 @@ struct SessionPickerCandidate: Equatable, Sendable {
     var runningCommand: String?
     var commandHistory: [String]
     var action: Action
+    var attachedClientCount: Int? = nil
+
+    var canExit: Bool {
+        action == .attach && (isClosed || attachedClientCount == 0)
+    }
 }
 
 struct SessionPickerItem: Equatable, Sendable {

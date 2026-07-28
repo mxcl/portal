@@ -4,6 +4,25 @@ import Testing
 
 @Suite("Session picker model")
 struct SessionPickerModelTests {
+    @Test("only detached or closed sessions can be exited")
+    func exitEligibility() {
+        let visible = candidate(id: "visible", host: "This Mac", date: 1, location: .local)
+        var closed = visible
+        closed.isClosed = true
+        var detached = visible
+        detached.attachedClientCount = 0
+        var attached = visible
+        attached.attachedClientCount = 1
+        var create = detached
+        create.action = .createRelay
+
+        #expect(!visible.canExit)
+        #expect(closed.canExit)
+        #expect(detached.canExit)
+        #expect(!attached.canExit)
+        #expect(!create.canExit)
+    }
+
     @MainActor
     @Test("loads relay sessions")
     func loadsRelaySessions() async throws {

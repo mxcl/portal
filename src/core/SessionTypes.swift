@@ -141,3 +141,81 @@ struct SessionMetadata: Decodable, Sendable {
         attachedClientCount = try container.decodeIfPresent(Int.self, forKey: .attachedClientCount) ?? 0
     }
 }
+
+enum SessionDaemonNamespace: Sendable {
+    case canonical
+    case portalDevelopment
+}
+
+struct SessionDaemonIdentity: Sendable {
+    // Remove this compatibility routing once the unreleased Portal Terminal namespace drains.
+    private static let routingPrefix = "vaultty-dev-session:v1:"
+    private static let canonicalPrefix = routingPrefix + "canonical:"
+    private static let portalDevelopmentPrefix = routingPrefix + "portal:"
+
+    var namespace: SessionDaemonNamespace
+    var rawSessionID: String
+
+    init(namespace: SessionDaemonNamespace, rawSessionID: String) {
+        self.namespace = namespace
+        self.rawSessionID = rawSessionID
+    }
+
+    init(externalSessionID: String) {
+        if let rawSessionID = Self.decode(externalSessionID, prefix: Self.canonicalPrefix) {
+            self.init(namespace: .canonical, rawSessionID: rawSessionID)
+        } else if let rawSessionID = Self.decode(externalSessionID, prefix: Self.portalDevelopmentPrefix) {
+            self.init(namespace: .portalDevelopment, rawSessionID: rawSessionID)
+        } else {
+            self.init(namespace: .canonical, rawSessionID: externalSessionID)
+        }
+    }
+
+    var externalSessionID: String {
+        switch namespace {
+        case .canonical where !rawSessionID.hasPrefix(Self.routingPrefix):
+            rawSessionID
+        case .canonical:
+            Self.canonicalPrefix + Data(rawSessionID.utf8).base64EncodedString()
+        case .portalDevelopment:
+            Self.portalDevelopmentPrefix + Data(rawSessionID.utf8).base64EncodedString()
+        }
+    }
+
+    var isPersistable: Bool {
+        namespace == .canonical
+    }
+
+    private static func decode(_ value: String, prefix: String) -> String? {
+        guard value.hasPrefix(prefix),
+              let data = Data(base64Encoded: String(value.dropFirst(prefix.count))),
+              let decoded = String(data: data, encoding: .utf8)
+        else {
+            return nil
+        }
+        return decoded
+    }
+}
+
+enum SessionDaemonInventory {
+    static func combine(
+        canonical: [SessionMetadata],
+        portalDevelopment: [SessionMetadata]
+    ) -> [SessionMetadata] {
+        canonical.map { metadata in
+            var metadata = metadata
+            metadata.sessionID = SessionDaemonIdentity(
+                namespace: .canonical,
+                rawSessionID: metadata.sessionID
+            ).externalSessionID
+            return metadata
+        } + portalDevelopment.map { metadata in
+            var metadata = metadata
+            metadata.sessionID = SessionDaemonIdentity(
+                namespace: .portalDevelopment,
+                rawSessionID: metadata.sessionID
+            ).externalSessionID
+            return metadata
+        }
+    }
+}

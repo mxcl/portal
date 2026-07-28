@@ -44,6 +44,12 @@ struct SessionPickerSnapshot: Equatable, Sendable {
 @MainActor
 final class SessionPickerModel {
     typealias Loader = @Sendable () async -> [SessionPickerCandidate]
+    typealias RetryingLoader = @Sendable () async -> [SessionPickerCandidate]?
+
+    private enum LoadResult: Sendable {
+        case local([SessionPickerCandidate])
+        case relay([SessionPickerCandidate])
+    }
 
     private var generation = 0
     private var loadTask: Task<Void, Never>?
@@ -52,6 +58,7 @@ final class SessionPickerModel {
         initial: [SessionPickerCandidate],
         excluding: Set<SessionRef>,
         homeDirectory: String,
+        loadLocal: @escaping RetryingLoader,
         loadRelay: @escaping Loader,
         isAvailable: @escaping @MainActor (SessionRef) -> Bool,
         onUpdate: @escaping @MainActor (SessionPickerSnapshot) -> Void
@@ -63,10 +70,27 @@ final class SessionPickerModel {
         onUpdate(snapshot(from: candidates, homeDirectory: homeDirectory))
 
         loadTask = Task { [weak self] in
-            let relay = await loadRelay()
-            guard let self, generation == self.generation, !Task.isCancelled else { return }
-            self.merge(relay, into: &candidates, excluding: excluding, isAvailable: isAvailable)
-            onUpdate(self.snapshot(from: candidates, homeDirectory: homeDirectory))
+            await withTaskGroup(of: LoadResult.self) { group in
+                group.addTask {
+                    let retryDelays: [UInt64] = [100_000_000, 500_000_000, 2_000_000_000]
+                    var attempt = 0
+                    while !Task.isCancelled {
+                        if let local = await loadLocal() { return .local(local) }
+                        try? await Task.sleep(nanoseconds: retryDelays[min(attempt, retryDelays.count - 1)])
+                        attempt += 1
+                    }
+                    return .local([])
+                }
+                group.addTask { .relay(await loadRelay()) }
+                for await result in group {
+                    guard let self, generation == self.generation, !Task.isCancelled else { return }
+                    switch result {
+                    case .local(let additions), .relay(let additions):
+                        self.merge(additions, into: &candidates, excluding: excluding, isAvailable: isAvailable)
+                    }
+                    onUpdate(self.snapshot(from: candidates, homeDirectory: homeDirectory))
+                }
+            }
         }
     }
 

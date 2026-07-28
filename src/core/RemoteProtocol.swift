@@ -23,6 +23,19 @@ public struct RemoteCatalog: Codable, Equatable, Sendable {
             macs[macIndex].sessions.append(session)
         }
     }
+
+    public mutating func recordHeartbeat(_ heartbeat: RemoteMac, sessions: [RemoteCatalogSession]?) {
+        var heartbeat = heartbeat
+        if let sessions {
+            heartbeat.sessions = sessions
+        } else if let previous = macs.first(where: { $0.id == heartbeat.id }) {
+            heartbeat.sessions = previous.sessions
+        } else {
+            return
+        }
+        macs.removeAll { $0.id == heartbeat.id }
+        macs.append(heartbeat)
+    }
 }
 
 public struct RemoteMac: Codable, Equatable, Identifiable, Sendable {

@@ -2,6 +2,35 @@ import Foundation
 import Testing
 @testable import VaulttyCore
 
+private actor LocalLoadSequence {
+    private var values: [[SessionPickerCandidate]?]
+
+    init(_ values: [[SessionPickerCandidate]?]) {
+        self.values = values
+    }
+
+    func next() -> [SessionPickerCandidate]? {
+        guard !values.isEmpty else { return nil }
+        return values.removeFirst()
+    }
+}
+
+private actor AsyncSignal {
+    private var isSignaled = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func signal() {
+        isSignaled = true
+        waiters.forEach { $0.resume() }
+        waiters.removeAll()
+    }
+
+    func wait() async {
+        guard !isSignaled else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+}
+
 @Suite("Session picker model")
 struct SessionPickerModelTests {
     @Test("only detached or closed sessions can be exited")
@@ -33,6 +62,7 @@ struct SessionPickerModelTests {
             initial: [],
             excluding: [],
             homeDirectory: "/Users/test",
+            loadLocal: { [] },
             loadRelay: {
                 [candidate(
                     id: "new-relay-session",
@@ -66,6 +96,7 @@ struct SessionPickerModelTests {
             initial: [local],
             excluding: [],
             homeDirectory: "/Users/test",
+            loadLocal: { [] },
             loadRelay: {
                 try? await Task.sleep(nanoseconds: 20_000_000)
                 return [oldRemote]
@@ -77,6 +108,7 @@ struct SessionPickerModelTests {
             initial: [local],
             excluding: [],
             homeDirectory: "/Users/test",
+            loadLocal: { [] },
             loadRelay: {
                 [oldRemote, oldRemote, candidate(id: "alpha", host: "Alpha", date: 3)]
             },
@@ -94,6 +126,39 @@ struct SessionPickerModelTests {
         #expect(final.sections.flatMap(\.items).filter {
             $0.candidate.sessionRef.sessionID == "old"
         }.count == 1)
+    }
+
+    @MainActor
+    @Test("retries failed local inventory while picker remains visible")
+    func retriesLocalInventory() async throws {
+        let recovered = candidate(id: "recovered", host: "This Mac", date: 1, location: .local)
+        let loads = LocalLoadSequence([nil, [recovered]])
+        let recoveredUpdate = AsyncSignal()
+        let model = SessionPickerModel()
+        var snapshots: [SessionPickerSnapshot] = []
+
+        model.refresh(
+            initial: [],
+            excluding: [],
+            homeDirectory: "/Users/test",
+            loadLocal: { await loads.next() },
+            loadRelay: { [] },
+            isAvailable: { _ in true },
+            onUpdate: {
+                snapshots.append($0)
+                if $0.sections.flatMap(\.items).contains(where: {
+                    $0.candidate.sessionRef.sessionID == "recovered"
+                }) {
+                    Task { await recoveredUpdate.signal() }
+                }
+            }
+        )
+
+        await recoveredUpdate.wait()
+
+        #expect(snapshots.last?.sections.flatMap(\.items).map(\.candidate.sessionRef.sessionID) == [
+            "recovered"
+        ])
     }
 
     private func candidate(

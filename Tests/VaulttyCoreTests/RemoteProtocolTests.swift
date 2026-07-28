@@ -215,6 +215,56 @@ struct RemoteProtocolTests {
         #expect(catalog.macs.first { $0.id == "other" }?.sessions.isEmpty == true)
     }
 
+    @Test("catalog heartbeat retains inventory through failure and accepts recovery")
+    func catalogInventoryRecovery() throws {
+        let first = RemoteCatalogSession(
+            sessionID: "first",
+            title: "first",
+            cwd: "/tmp",
+            createdAt: .distantPast,
+            commandCount: 1,
+            runningCommand: nil,
+            attachedClientCount: 0
+        )
+        let recovered = RemoteCatalogSession(
+            sessionID: "recovered",
+            title: "recovered",
+            cwd: "/tmp",
+            createdAt: .distantPast,
+            commandCount: 1,
+            runningCommand: nil,
+            attachedClientCount: 0
+        )
+        var catalog = RemoteCatalog(generatedAt: .distantPast, macs: [])
+
+        catalog.recordHeartbeat(
+            RemoteMac(id: "mac", name: "Mac", online: true, lastSeen: Date(timeIntervalSince1970: 1), sessions: []),
+            sessions: [first]
+        )
+        catalog.recordHeartbeat(
+            RemoteMac(id: "mac", name: "Renamed", online: true, lastSeen: Date(timeIntervalSince1970: 2), sessions: []),
+            sessions: nil
+        )
+        var mac = try #require(catalog.macs.first)
+        #expect(mac.name == "Renamed")
+        #expect(mac.lastSeen == Date(timeIntervalSince1970: 2))
+        #expect(mac.sessions == [first])
+
+        catalog.recordHeartbeat(
+            RemoteMac(id: "mac", name: "Renamed", online: true, lastSeen: Date(timeIntervalSince1970: 3), sessions: []),
+            sessions: [recovered]
+        )
+        mac = try #require(catalog.macs.first)
+        #expect(mac.lastSeen == Date(timeIntervalSince1970: 3))
+        #expect(mac.sessions == [recovered])
+
+        catalog.recordHeartbeat(
+            RemoteMac(id: "mac", name: "Renamed", online: true, lastSeen: Date(timeIntervalSince1970: 4), sessions: []),
+            sessions: []
+        )
+        #expect(try #require(catalog.macs.first).sessions.isEmpty)
+    }
+
     @Test("sequence tracker rejects replay and detects gaps")
     func sequenceValidation() {
         var tracker = RemoteSequenceTracker()

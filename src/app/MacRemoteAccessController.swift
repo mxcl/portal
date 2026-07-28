@@ -707,23 +707,9 @@ final class MacRemoteAccessController {
     }
 
     private func catalogData(merging existingData: Data?) -> Data? {
-        let sessions: [SessionMetadata]
+        let sessions: [RemoteCatalogSession]?
         do {
-            sessions = try PtySession.listSessions()
-        } catch {
-            remoteAccessLogger.error(
-                "Portal session listing failed: \(String(describing: error), privacy: .public)"
-            )
-            sessions = []
-        }
-        let now = Date()
-        let mac = RemoteMac(
-            id: macID,
-            name: Host.current().localizedName ?? "Mac",
-            online: true,
-            lastSeen: now,
-            homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
-            sessions: sessions.map {
+            sessions = try PtySession.listSessions().map {
                 RemoteCatalogSession(
                     sessionID: $0.sessionID,
                     title: $0.title,
@@ -734,12 +720,26 @@ final class MacRemoteAccessController {
                     attachedClientCount: $0.attachedClientCount
                 )
             }
+        } catch {
+            remoteAccessLogger.error(
+                "Portal session listing failed: \(String(describing: error), privacy: .public)"
+            )
+            sessions = nil
+        }
+        let now = Date()
+        let mac = RemoteMac(
+            id: macID,
+            name: Host.current().localizedName ?? "Mac",
+            online: true,
+            lastSeen: now,
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            sessions: []
         )
         var existing = existingData.flatMap { try? JSONDecoder().decode(RemoteCatalog.self, from: $0) }
             ?? RemoteCatalog(generatedAt: now, macs: [])
         existing.generatedAt = now
-        existing.macs.removeAll { $0.id == macID || now.timeIntervalSince($0.lastSeen) > 30 * 24 * 60 * 60 }
-        existing.macs.append(mac)
+        existing.macs.removeAll { now.timeIntervalSince($0.lastSeen) > 30 * 24 * 60 * 60 }
+        existing.recordHeartbeat(mac, sessions: sessions)
         return try? JSONEncoder().encode(existing)
     }
 

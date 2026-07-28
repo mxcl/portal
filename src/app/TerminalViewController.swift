@@ -4643,10 +4643,20 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
         let excluded = Set(tabs.map(\.sessionRef))
         let tabID = tab.id
+        let localHostName = Host.current().localizedName ?? "This Mac"
         model.refresh(
             initial: initial,
             excluding: excluded,
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            loadLocal: {
+                await withCheckedContinuation { continuation in
+                    DispatchQueue.global(qos: .utility).async {
+                        continuation.resume(returning: try? Self.daemonSessionCandidates(
+                            hostTitle: localHostName
+                        ))
+                    }
+                }
+            },
             loadRelay: { [weak self] in
                 await self?.relaySessionCandidates() ?? []
             },
@@ -4816,15 +4826,18 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             ))
         }
 
-        for session in (try? PtySession.listSessions()) ?? [] {
+        return candidates
+    }
+
+    private static func daemonSessionCandidates(hostTitle: String) throws -> [SessionPickerCandidate] {
+        try PtySession.listSessions().map { session in
             let sessionRef = SessionRef(
                 location: .local,
                 sessionID: session.sessionID
             )
-            guard seen.insert(sessionRef).inserted else { continue }
-            candidates.append(SessionPickerCandidate(
+            return SessionPickerCandidate(
                 sessionRef: sessionRef,
-                hostTitle: Host.current().localizedName ?? "This Mac",
+                hostTitle: hostTitle,
                 title: session.title,
                 cwd: session.cwd,
                 isClosed: false,
@@ -4834,10 +4847,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 commandHistory: session.commandHistory,
                 action: .attach,
                 attachedClientCount: session.attachedClientCount
-            ))
+            )
         }
-
-        return candidates
     }
 
     private func relaySessionCandidates() async -> [SessionPickerCandidate] {

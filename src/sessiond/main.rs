@@ -642,24 +642,31 @@ fn claim_daemon_socket_with_wait(
         return Err(io::Error::last_os_error());
     }
 
-    for attempt in 0..DAEMON_STARTUP_PROBES {
+    for _ in 0..DAEMON_STARTUP_PROBES {
         if UnixStream::connect(socket_path).is_ok() {
             return Err(io::Error::new(
                 io::ErrorKind::AddrInUse,
                 "session daemon is already running",
             ));
         }
-        if attempt + 1 < DAEMON_STARTUP_PROBES {
-            wait_for_adjacent_daemon();
+        wait_for_adjacent_daemon();
+    }
+    // v0.22 can create this socket without taking the ownership lock. During
+    // that compatibility window, bind is the only atomic arbiter: never unlink
+    // a path that could have become a live adjacent daemon's socket.
+    let listener = UnixListener::bind(socket_path).map_err(|error| {
+        if error.kind() == io::ErrorKind::AddrInUse {
+            io::Error::new(
+                io::ErrorKind::AddrInUse,
+                format!(
+                    "session daemon socket {} exists but did not answer; retry, and if this persists confirm no compatible daemon is running before removing it",
+                    socket_path.display()
+                ),
+            )
+        } else {
+            error
         }
-    }
-    match fs::remove_file(socket_path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
-
-    let listener = UnixListener::bind(socket_path)?;
+    })?;
     fs::set_permissions(socket_path, fs::Permissions::from_mode(0o600))?;
     Ok((listener, ownership))
 }
@@ -1363,12 +1370,14 @@ mod tests {
         fs::create_dir_all(&directory).expect("temporary directory should be created");
         let socket_path = directory.join("sessiond.sock");
         let mut adjacent_listener = None;
+        let mut waits = 0;
 
         let error = claim_daemon_socket_with_wait(&socket_path, || {
-            if adjacent_listener.is_none() {
+            waits += 1;
+            if waits == DAEMON_STARTUP_PROBES {
                 adjacent_listener = Some(
                     UnixListener::bind(&socket_path)
-                        .expect("adjacent daemon should bind during grace"),
+                        .expect("adjacent daemon should bind after the final probe"),
                 );
             }
         })
@@ -1378,6 +1387,40 @@ mod tests {
         UnixStream::connect(&socket_path).expect("adjacent daemon should remain connectable");
 
         drop(adjacent_listener);
+        fs::remove_dir_all(directory).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn daemon_socket_preserves_unresponsive_existing_path() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be valid")
+            .as_nanos();
+        let directory = PathBuf::from("/tmp").join(format!(
+            "portal-stale-daemon-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("temporary directory should be created");
+        let socket_path = directory.join("sessiond.sock");
+        let stale_listener =
+            UnixListener::bind(&socket_path).expect("stale socket should be created");
+        drop(stale_listener);
+        let original_inode = fs::metadata(&socket_path)
+            .expect("stale socket should remain")
+            .ino();
+
+        let error = claim_daemon_socket_with_wait(&socket_path, || {})
+            .expect_err("stale path must require explicit recovery during compatibility rollout");
+
+        assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
+        assert_eq!(
+            fs::metadata(&socket_path)
+                .expect("stale socket must not be removed")
+                .ino(),
+            original_inode
+        );
+
+        fs::remove_file(&socket_path).expect("test socket should be removed");
         fs::remove_dir_all(directory).expect("temporary directory should be removed");
     }
 

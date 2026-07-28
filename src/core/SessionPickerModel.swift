@@ -68,11 +68,11 @@ final class SessionPickerModel {
     ) {
         invalidate()
         let generation = generation
-        let initialCandidates = initial
+        var unconfirmedInitialCandidates = initial
         let failureDelays = relayFailureDelays.isEmpty ? [5_000_000_000] : relayFailureDelays
         onUpdate(snapshot(
             from: combinedCandidates(
-                initial: initialCandidates,
+                initial: unconfirmedInitialCandidates,
                 local: [],
                 relay: [],
                 excluding: excluding,
@@ -101,10 +101,14 @@ final class SessionPickerModel {
                     guard let self, generation == self.generation, !Task.isCancelled else { return }
                     switch result {
                     case .local(let additions):
+                        unconfirmedInitialCandidates.removeAll {
+                            if case .local = $0.sessionRef.location { return true }
+                            return false
+                        }
                         localCandidates = additions
                         onUpdate(self.snapshot(
                             from: self.combinedCandidates(
-                                initial: initialCandidates,
+                                initial: unconfirmedInitialCandidates,
                                 local: localCandidates,
                                 relay: relayCandidates,
                                 excluding: excluding,
@@ -115,12 +119,16 @@ final class SessionPickerModel {
                     case .relay(let result):
                         let retryDelay: UInt64
                         if let result {
+                            unconfirmedInitialCandidates.removeAll {
+                                if case .relayMac = $0.sessionRef.location { return true }
+                                return false
+                            }
                             relayCandidates = result
                             relayFailureAttempt = 0
                             retryDelay = relaySuccessDelay
                             onUpdate(self.snapshot(
                                 from: self.combinedCandidates(
-                                    initial: initialCandidates,
+                                    initial: unconfirmedInitialCandidates,
                                     local: localCandidates,
                                     relay: relayCandidates,
                                     excluding: excluding,

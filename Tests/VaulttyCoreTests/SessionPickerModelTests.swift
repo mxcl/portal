@@ -140,7 +140,7 @@ struct SessionPickerModelTests {
             initial: [local],
             excluding: [],
             homeDirectory: "/Users/test",
-            loadLocal: { [] },
+            loadLocal: { [local] },
             loadRelay: {
                 try? await Task.sleep(nanoseconds: 20_000_000)
                 return [oldRemote]
@@ -152,7 +152,7 @@ struct SessionPickerModelTests {
             initial: [local],
             excluding: [],
             homeDirectory: "/Users/test",
-            loadLocal: { [] },
+            loadLocal: { [local] },
             loadRelay: {
                 [oldRemote, oldRemote, candidate(id: "alpha", host: "Alpha", date: 3)]
             },
@@ -205,6 +205,86 @@ struct SessionPickerModelTests {
             "recovered"
         ])
         model.invalidate()
+    }
+
+    @MainActor
+    @Test("successful local inventory removes missing persisted local sessions")
+    func localInventoryRemovesPersistedGhosts() async throws {
+        let local = candidate(id: "local-ghost", host: "This Mac", date: 2, location: .local)
+        let relay = candidate(
+            id: "relay-last-good",
+            host: "Pangolin",
+            date: 1,
+            location: .relayMac("pangolin")
+        )
+        let updated = AsyncSignal()
+        let model = SessionPickerModel()
+        var snapshots: [SessionPickerSnapshot] = []
+
+        model.refresh(
+            initial: [local, relay],
+            excluding: [],
+            homeDirectory: "/Users/test",
+            loadLocal: { [] },
+            loadRelay: {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                return nil
+            },
+            isAvailable: { _ in true },
+            onUpdate: {
+                snapshots.append($0)
+                if snapshots.count == 2 {
+                    Task { await updated.signal() }
+                }
+            }
+        )
+
+        await updated.wait()
+        model.invalidate()
+
+        #expect(snapshots.last?.sections.flatMap(\.items).map(\.candidate.sessionRef.sessionID) == [
+            "relay-last-good"
+        ])
+    }
+
+    @MainActor
+    @Test("successful relay inventory removes missing persisted relay sessions")
+    func relayInventoryRemovesPersistedGhosts() async throws {
+        let local = candidate(id: "local-last-good", host: "This Mac", date: 2, location: .local)
+        let relay = candidate(
+            id: "relay-ghost",
+            host: "Pangolin",
+            date: 1,
+            location: .relayMac("pangolin")
+        )
+        let updated = AsyncSignal()
+        let model = SessionPickerModel()
+        var snapshots: [SessionPickerSnapshot] = []
+
+        model.refresh(
+            initial: [local, relay],
+            excluding: [],
+            homeDirectory: "/Users/test",
+            loadLocal: {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                return nil
+            },
+            loadRelay: { [] },
+            isAvailable: { _ in true },
+            onUpdate: {
+                snapshots.append($0)
+                if snapshots.count == 2 {
+                    Task { await updated.signal() }
+                }
+            }
+        )
+
+        await updated.wait()
+        model.invalidate()
+
+        #expect(snapshots.last?.sections.flatMap(\.items).map(\.candidate.sessionRef.sessionID) == [
+            "local-last-good"
+        ])
     }
 
     @MainActor

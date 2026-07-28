@@ -1,14 +1,14 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use libc::{TIOCGPGRP, TIOCSWINSZ, c_int, c_void, pid_t, winsize};
+use libc::{TIOCGPGRP, TIOCSWINSZ, c_char, c_int, c_void, pid_t, winsize};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::env;
-use std::ffi::CString;
+use std::ffi::{CString, OsString};
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::fd::{AsRawFd, RawFd};
-use std::os::unix::ffi::OsStringExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -237,8 +237,80 @@ struct Session {
     state: Weak<DaemonState>,
 }
 
+struct ChildLaunch {
+    cwd: CString,
+    shell: CString,
+    login_shell: CString,
+    _environment: Vec<CString>,
+    environment_pointers: Vec<*const c_char>,
+}
+
+impl ChildLaunch {
+    fn new(request: &AttachRequest) -> io::Result<Self> {
+        let cwd = CString::new(request.cwd.as_os_str().as_bytes())
+            .map_err(|_| invalid_child_value("working directory"))?;
+        let shell = CString::new(request.shell.as_bytes())
+            .unwrap_or_else(|_| CString::new("/bin/zsh").expect("static shell path is valid"));
+        let shell_name = Path::new(&request.shell)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("zsh");
+        let login_shell = CString::new(format!("-{shell_name}"))
+            .unwrap_or_else(|_| CString::new("-zsh").expect("static argv is valid"));
+
+        let mut inherited: HashMap<OsString, OsString> = env::vars_os().collect();
+        for (key, value) in &request.environment {
+            inherited.insert(OsString::from(key), OsString::from(value));
+        }
+        let environment = inherited
+            .into_iter()
+            .map(|(key, value)| {
+                let mut entry = key.into_vec();
+                entry.push(b'=');
+                entry.extend(value.into_vec());
+                CString::new(entry).map_err(|_| invalid_child_value("environment"))
+            })
+            .collect::<io::Result<Vec<_>>>()?;
+        let mut environment_pointers = environment
+            .iter()
+            .map(|entry| entry.as_ptr())
+            .collect::<Vec<_>>();
+        environment_pointers.push(std::ptr::null());
+
+        Ok(Self {
+            cwd,
+            shell,
+            login_shell,
+            _environment: environment,
+            environment_pointers,
+        })
+    }
+
+    fn exec(&self) -> ! {
+        // After forkpty only async-signal-safe operations are valid. In particular,
+        // Rust's current-directory and environment APIs may acquire inherited locks.
+        if unsafe { libc::chdir(self.cwd.as_ptr()) } != 0 {
+            unsafe { libc::_exit(126) }
+        }
+        let argv = [self.login_shell.as_ptr(), std::ptr::null()];
+        unsafe {
+            libc::execve(
+                self.shell.as_ptr(),
+                argv.as_ptr(),
+                self.environment_pointers.as_ptr(),
+            );
+            libc::_exit(127);
+        }
+    }
+}
+
+fn invalid_child_value(name: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, format!("invalid child {name}"))
+}
+
 impl Session {
     fn new(request: &AttachRequest, state: Weak<DaemonState>) -> io::Result<Arc<Self>> {
+        let child_launch = ChildLaunch::new(request)?;
         let mut master_fd: c_int = -1;
         let mut size = winsize {
             ws_row: 30,
@@ -259,28 +331,7 @@ impl Session {
         }
 
         if pid == 0 {
-            let _ = env::set_current_dir(&request.cwd);
-            for (key, value) in &request.environment {
-                unsafe {
-                    env::set_var(key, value);
-                }
-            }
-
-            let shell = CString::new(request.shell.as_bytes()).unwrap_or_else(|_| {
-                CString::new("/bin/zsh").expect("static shell path must be valid")
-            });
-            let shell_name = Path::new(&request.shell)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("zsh");
-            let login_shell = CString::new(format!("-{shell_name}"))
-                .unwrap_or_else(|_| CString::new("-zsh").expect("static argv must be valid"));
-            let mut argv = [login_shell.as_ptr(), std::ptr::null()];
-            unsafe {
-                libc::execv(shell.as_ptr(), argv.as_mut_ptr());
-                libc::perror(c"exec".as_ptr());
-                libc::_exit(127);
-            }
+            child_launch.exec();
         }
 
         let session = Arc::new(Self {
@@ -1248,6 +1299,50 @@ mod tests {
         assert!(
             finished_rx.recv_timeout(Duration::from_secs(1)).is_ok(),
             "kill must not block on a PTY read owned by another thread"
+        );
+    }
+
+    #[test]
+    fn child_exec_applies_prepared_cwd_and_environment() {
+        let cwd = fs::canonicalize(env::temp_dir()).expect("temporary directory should resolve");
+        let request = AttachRequest {
+            session_id: "child-launch-test".to_owned(),
+            cwd: cwd.clone(),
+            shell: "/bin/sh".to_owned(),
+            environment: vec![("VAULTTY_CHILD_TEST".to_owned(), "ready".to_owned())],
+            protocol_version: CURRENT_PROTOCOL_VERSION,
+            client_role: ClientRole::Mac,
+            allows_creation: true,
+        };
+        let state = Arc::new(DaemonState {
+            sessions: Mutex::new(HashMap::new()),
+        });
+        let session =
+            Session::new(&request, Arc::downgrade(&state)).expect("test session should start");
+        session.write_input(
+            b"printf '__VAULTTY_CHILD__%s:%s\\n' \"$VAULTTY_CHILD_TEST\" \"$PWD\"; exit\n",
+        );
+
+        let expected = format!("__VAULTTY_CHILD__ready:{}", cwd.display());
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let mut output = Vec::new();
+        while std::time::Instant::now() < deadline {
+            output = session
+                .terminal
+                .lock()
+                .expect("terminal lock poisoned")
+                .snapshot(MAX_SCROLLBACK_LINES)
+                .history;
+            if String::from_utf8_lossy(&output).contains(&expected) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(
+            String::from_utf8_lossy(&output).contains(&expected),
+            "child did not inherit the prepared cwd and environment: {}",
+            String::from_utf8_lossy(&output)
         );
     }
 

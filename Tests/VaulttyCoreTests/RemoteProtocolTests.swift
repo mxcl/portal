@@ -265,6 +265,30 @@ struct RemoteProtocolTests {
         #expect(try #require(catalog.macs.first).sessions.isEmpty)
     }
 
+    @Test("catalog heartbeat excludes sessions until they have a command")
+    func catalogHeartbeatExcludesEmptySessions() throws {
+        let empty = RemoteCatalogSession(
+            sessionID: "empty",
+            title: "~",
+            cwd: "/Users/test",
+            createdAt: .distantPast,
+            commandCount: 0,
+            runningCommand: nil,
+            attachedClientCount: 0
+        )
+        var active = empty
+        active.sessionID = "active"
+        active.commandCount = 1
+        var catalog = RemoteCatalog(generatedAt: .distantPast, macs: [])
+
+        catalog.recordHeartbeat(
+            RemoteMac(id: "mac", name: "Mac", online: true, sessions: []),
+            sessions: [empty, active]
+        )
+
+        #expect(try #require(catalog.macs.first).sessions == [active])
+    }
+
     @Test("sequence tracker rejects replay and detects gaps")
     func sequenceValidation() {
         var tracker = RemoteSequenceTracker()

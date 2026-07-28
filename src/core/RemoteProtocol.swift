@@ -27,7 +27,7 @@ public struct RemoteCatalog: Codable, Equatable, Sendable {
     public mutating func recordHeartbeat(_ heartbeat: RemoteMac, sessions: [RemoteCatalogSession]?) {
         var heartbeat = heartbeat
         if let sessions {
-            heartbeat.sessions = sessions
+            heartbeat.sessions = sessions.filter { $0.commandCount > 0 }
         } else if let previous = macs.first(where: { $0.id == heartbeat.id }) {
             heartbeat.sessions = previous.sessions
         } else {

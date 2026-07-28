@@ -3631,6 +3631,15 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(usesPagerKeyBindings(for: "git log"))
         assert(!usesPagerKeyBindings(for: "git status"))
         assert(!usesPagerKeyBindings(for: "git --no-pager log"))
+        let shellEnvironment = inheritedShellEnvironment([
+            "PAGER": "cat",
+            "GIT_PAGER": "cat",
+            "PRESERVED": "yes",
+        ])
+        assert(shellEnvironment["PAGER"] == "less")
+        assert(shellEnvironment["GIT_PAGER"] == "less")
+        assert(shellEnvironment["PRESERVED"] == "yes")
+        assert(inheritedShellEnvironment(["PAGER": "less"])["PAGER"] == "less")
     }()
 
     private enum TabClickTarget {
@@ -5516,7 +5525,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil
             } ?? "/bin/zsh")
 
-        var env: [String: String] = isRemoteSession ? [:] : ProcessInfo.processInfo.environment
+        var env: [String: String] = isRemoteSession
+            ? [:]
+            : Self.inheritedShellEnvironment(ProcessInfo.processInfo.environment)
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.automicvault.vaultty"
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         env["TERM"] = "xterm-256color"
@@ -6331,6 +6342,16 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             .drop(while: { URL(fileURLWithPath: String($0)).lastPathComponent.lowercased() != "git" })
             .dropFirst()
             .first(where: { !$0.hasPrefix("-") }) == "log"
+    }
+
+    private static func inheritedShellEnvironment(_ environment: [String: String]) -> [String: String] {
+        guard environment["PAGER"] == "cat", environment["GIT_PAGER"] == "cat" else {
+            return environment
+        }
+        var environment = environment
+        environment["PAGER"] = "less"
+        environment["GIT_PAGER"] = "less"
+        return environment
     }
 
     private func updateTabTitle(_ title: String, detail: String? = nil, in tab: TerminalTab) {

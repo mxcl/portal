@@ -5,8 +5,8 @@ import Testing
 @Suite("Session picker model")
 struct SessionPickerModelTests {
     @MainActor
-    @Test("groups the same host discovered through SSH and relay once")
-    func groupsHostAcrossTransports() async throws {
+    @Test("loads relay sessions")
+    func loadsRelaySessions() async throws {
         let model = SessionPickerModel()
         var snapshots: [SessionPickerSnapshot] = []
 
@@ -14,14 +14,6 @@ struct SessionPickerModelTests {
             initial: [],
             excluding: [],
             homeDirectory: "/Users/test",
-            loadSSH: {
-                [candidate(
-                    id: "ssh-session",
-                    host: "pangolin",
-                    date: 1,
-                    location: .sshHost("pangolin-ssh")
-                )]
-            },
             loadRelay: {
                 [candidate(
                     id: "new-relay-session",
@@ -39,7 +31,7 @@ struct SessionPickerModelTests {
 
         let final = try #require(snapshots.last)
         #expect(final.sections.count == 1)
-        #expect(final.sections[0].items.count == 1)
+        #expect(final.sections[0].items.isEmpty)
         #expect(final.sections[0].newSession?.action == .createRelay)
     }
 
@@ -55,11 +47,10 @@ struct SessionPickerModelTests {
             initial: [local],
             excluding: [],
             homeDirectory: "/Users/test",
-            loadSSH: {
+            loadRelay: {
                 try? await Task.sleep(nanoseconds: 20_000_000)
                 return [oldRemote]
             },
-            loadRelay: { [] },
             isAvailable: { _ in true },
             onUpdate: { snapshots.append($0) }
         )
@@ -67,8 +58,9 @@ struct SessionPickerModelTests {
             initial: [local],
             excluding: [],
             homeDirectory: "/Users/test",
-            loadSSH: { [oldRemote, oldRemote] },
-            loadRelay: { [candidate(id: "alpha", host: "Alpha", date: 3)] },
+            loadRelay: {
+                [oldRemote, oldRemote, candidate(id: "alpha", host: "Alpha", date: 3)]
+            },
             isAvailable: { _ in true },
             onUpdate: { snapshots.append($0) }
         )
@@ -93,7 +85,7 @@ struct SessionPickerModelTests {
         action: SessionPickerCandidate.Action = .attach
     ) -> SessionPickerCandidate {
         SessionPickerCandidate(
-            sessionRef: SessionRef(location: location ?? .sshHost(host), sessionID: id),
+            sessionRef: SessionRef(location: location ?? .relayMac(host), sessionID: id),
             hostTitle: host,
             title: id,
             cwd: "/Users/test/\(id)",

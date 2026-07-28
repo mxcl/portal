@@ -3605,11 +3605,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let completionQueue = DispatchQueue(label: "com.automicvault.vaultty.completion", qos: .userInitiated)
     private let gitStateProvider = GitDirectoryStateProvider()
     private let gitStateQueue = DispatchQueue(label: "com.automicvault.vaultty.git-state", qos: .utility)
-    private let remoteSessionQueue = DispatchQueue(
-        label: "com.automicvault.vaultty.remote-sessions",
-        qos: .utility,
-        attributes: .concurrent
-    )
     private let sessionCleanupQueue = DispatchQueue(label: "com.automicvault.vaultty.session-cleanup", qos: .utility)
     private let completionPopup = CompletionPopupController()
     private var completionRequestSerial = 0
@@ -4642,24 +4637,16 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let model = SessionPickerModel()
         sessionPickerModelsByTab[tab.id]?.invalidate()
         sessionPickerModelsByTab[tab.id] = model
-        let initial = localSessionCandidates(excluding: tab) + newRemoteSessionCandidates()
+        let initial = localSessionCandidates(excluding: tab).filter {
+            if case .sshHost = $0.sessionRef.location { return false }
+            return true
+        }
         let excluded = Set(tabs.map(\.sessionRef))
         let tabID = tab.id
         model.refresh(
             initial: initial,
             excluding: excluded,
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
-            loadSSH: { [weak self] in
-                await withCheckedContinuation { continuation in
-                    guard let self else {
-                        continuation.resume(returning: [])
-                        return
-                    }
-                    self.remoteSessionQueue.async { [weak self] in
-                        continuation.resume(returning: self?.remoteSessionCandidates() ?? [])
-                    }
-                }
-            },
             loadRelay: { [weak self] in
                 await self?.relaySessionCandidates() ?? []
             },
@@ -4851,59 +4838,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return candidates
     }
 
-    private func newRemoteSessionCandidates() -> [SessionPickerCandidate] {
-        PtySession.loadSSHHosts().hosts
-            .filter(\.enrolled)
-            .map { host in
-                let sessionRef = SessionRef(
-                    location: .sshHost(host.id),
-                    sessionID: UUID().uuidString
-                )
-                return SessionPickerCandidate(
-                    sessionRef: sessionRef,
-                    hostTitle: host.hostname.isEmpty ? host.alias : host.hostname,
-                    title: "New session",
-                    cwd: "",
-                    isClosed: false,
-                    createdAt: nil,
-                    commandCount: 0,
-                    runningCommand: nil,
-                    commandHistory: [],
-                    action: .createSSH(host)
-                )
-            }
-    }
-
-    private func remoteSessionCandidates() -> [SessionPickerCandidate] {
-        let hosts = PtySession.loadSSHHosts().hosts.filter(\.enrolled)
-        var candidates: [SessionPickerCandidate] = []
-        var seenSessionRefs = Set<SessionRef>()
-        for host in hosts {
-            let location = SessionLocation.sshHost(host.id)
-            let liveSessions = (try? PtySession.listSessions(location: location)) ?? []
-            let storedSessions = (try? PtySession.remoteStoredSessionMetadata(host: host)) ?? []
-            let sessions = liveSessions + storedSessions
-            for session in sessions {
-                let sessionRef = SessionRef(location: location, sessionID: session.sessionID)
-                guard !seenSessionRefs.contains(sessionRef) else { continue }
-                seenSessionRefs.insert(sessionRef)
-                candidates.append(SessionPickerCandidate(
-                    sessionRef: sessionRef,
-                    hostTitle: host.hostname.isEmpty ? host.alias : host.hostname,
-                    title: session.title,
-                    cwd: session.cwd,
-                    isClosed: false,
-                    createdAt: session.createdAt,
-                    commandCount: session.commandCount,
-                    runningCommand: session.runningCommand,
-                    commandHistory: session.commandHistory,
-                    action: .attach
-                ))
-            }
-        }
-        return candidates
-    }
-
     private func relaySessionCandidates() async -> [SessionPickerCandidate] {
         guard let endpoint = try? MacRemoteAccessController.relayEndpoint(),
               let key = try? ICloudKeychainRootKey().loadOrCreate(),
@@ -5012,65 +4946,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         switch candidate.action {
         case .attach:
             replaceFreshSession(in: tab, with: candidate)
-        case .createSSH(let host):
-            startNewRemoteSession(in: tab, with: candidate, on: host)
         case .createRelay:
             replaceFreshSession(
                 in: tab,
                 with: candidate,
                 createsRelaySession: true
             )
-        }
-    }
-
-    private func startNewRemoteSession(
-        in tab: TerminalTab,
-        with candidate: SessionPickerCandidate,
-        on host: SSHHostRecord
-    ) {
-        let tabID = tab.id
-        let localSessionRef = tab.sessionRef
-        hideSessionPicker(for: tab)
-        setCommandBarStatusText("Connecting to \(host.alias)...", in: tab)
-
-        remoteSessionQueue.async { [weak self] in
-            do {
-                let defaults = try PtySession.remoteSessionDefaults(host: host)
-                DispatchQueue.main.async { [weak self] in
-                    guard let self,
-                          let tab = self.tabs.first(where: { $0.id == tabID }),
-                          tab.sessionRef == localSessionRef,
-                          tab.blocks.isEmpty
-                    else {
-                        return
-                    }
-                    var remoteCandidate = candidate
-                    remoteCandidate.cwd = defaults.homeDirectory
-                    remoteCandidate.title = "~"
-                    self.replaceFreshSession(
-                        in: tab,
-                        with: remoteCandidate,
-                        shellPath: defaults.shellPath
-                    )
-                }
-            } catch {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self,
-                          let tab = self.tabs.first(where: { $0.id == tabID }),
-                          tab.sessionRef == localSessionRef,
-                          tab.blocks.isEmpty
-                    else {
-                        return
-                    }
-                    self.updateCommandBarDirectoryStatus(for: tab)
-                    self.configureSessionPicker(for: tab)
-                    let alert = NSAlert()
-                    alert.alertStyle = .warning
-                    alert.messageText = "Could not start remote session"
-                    alert.informativeText = "\(host.alias): \(error.localizedDescription)"
-                    alert.runModal()
-                }
-            }
         }
     }
 

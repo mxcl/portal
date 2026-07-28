@@ -3,7 +3,6 @@ import Foundation
 struct SessionPickerCandidate: Equatable, Sendable {
     enum Action: Equatable, Sendable {
         case attach
-        case createSSH(SSHHostRecord)
         case createRelay
     }
 
@@ -48,7 +47,6 @@ final class SessionPickerModel {
         initial: [SessionPickerCandidate],
         excluding: Set<SessionRef>,
         homeDirectory: String,
-        loadSSH: @escaping Loader,
         loadRelay: @escaping Loader,
         isAvailable: @escaping @MainActor (SessionRef) -> Bool,
         onUpdate: @escaping @MainActor (SessionPickerSnapshot) -> Void
@@ -60,13 +58,8 @@ final class SessionPickerModel {
         onUpdate(snapshot(from: candidates, homeDirectory: homeDirectory))
 
         loadTask = Task { [weak self] in
-            let ssh = await loadSSH()
-            guard let self, generation == self.generation, !Task.isCancelled else { return }
-            self.merge(ssh, into: &candidates, excluding: excluding, isAvailable: isAvailable)
-            onUpdate(self.snapshot(from: candidates, homeDirectory: homeDirectory))
-
             let relay = await loadRelay()
-            guard generation == self.generation, !Task.isCancelled else { return }
+            guard let self, generation == self.generation, !Task.isCancelled else { return }
             self.merge(relay, into: &candidates, excluding: excluding, isAvailable: isAvailable)
             onUpdate(self.snapshot(from: candidates, homeDirectory: homeDirectory))
         }

@@ -782,13 +782,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         let sessionsItem = NSMenuItem()
         let sessionsMenu = NSMenu(title: "Sessions")
 
-        let manageHostsItem = sessionsMenu.addItem(
-            withTitle: "Manage SSH Hosts...",
-            action: #selector(manageSSHHosts(_:)),
-            keyEquivalent: ""
-        )
-        manageHostsItem.target = self
-
         let killClosedTabsItem = sessionsMenu.addItem(
             withTitle: "Exit Closed Tabs...",
             action: #selector(killClosedTabs(_:)),

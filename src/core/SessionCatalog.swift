@@ -68,8 +68,8 @@ final class SessionCatalog {
 
     func restore(restoresPersistedWindow: Bool) -> Restoration {
         let storage = load()
-        let persistedVisibleTabs = storage.visibleTabs.filter(shouldPersist)
-        closedTabs = storage.closedTabs.filter(shouldPersist)
+        let persistedVisibleTabs = storage.visibleTabs.filter(shouldRestore)
+        closedTabs = storage.closedTabs.filter(shouldRestore)
 
         if restoresPersistedWindow,
            let restoredWindowID = persistedVisibleTabs.compactMap(\.windowID).first,
@@ -167,6 +167,12 @@ final class SessionCatalog {
 
     func shouldPersist(_ record: Record) -> Bool {
         (record.commandCount ?? 0) > 0 && !isExited(record.resolvedRef)
+    }
+
+    private func shouldRestore(_ record: Record) -> Bool {
+        guard shouldPersist(record) else { return false }
+        if case .sshHost = record.resolvedRef.location { return false }
+        return true
     }
 
     func isExited(_ sessionRef: SessionRef) -> Bool {

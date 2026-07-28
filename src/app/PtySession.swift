@@ -193,8 +193,6 @@ private final class SSHSessionTransport: SessionTransport {
 }
 
 final class PtySession {
-    private static let directSSHEnabled = false
-
     var onOutput: ((String) -> Void)?
     var onHistoryOutput: ((String) -> Void)?
     var onSnapshot: ((UInt16, UInt16, String) -> Void)?
@@ -527,7 +525,6 @@ final class PtySession {
                 )
             }
         case .sshHost(let hostID):
-            guard Self.directSSHEnabled else { throw Self.directSSHDisabledError() }
             let host = try Self.sshHostRecord(id: hostID)
             transport = SSHSessionTransport(
                 queue: queue,
@@ -656,14 +653,6 @@ final class PtySession {
         )
     }
 
-    private static func directSSHDisabledError() -> NSError {
-        NSError(
-            domain: NSPOSIXErrorDomain,
-            code: Int(EPROTONOSUPPORT),
-            userInfo: [NSLocalizedDescriptionKey: "direct SSH is temporarily unavailable"]
-        )
-    }
-
     private static func sendCommandNoResponse(
         _ command: SessionWireProtocol.ClientCommand,
         location: SessionLocation
@@ -673,7 +662,6 @@ final class PtySession {
         case .local:
             try sendLocalCommandNoResponse(line, startsDaemon: true)
         case .sshHost(let hostID):
-            guard directSSHEnabled else { throw directSSHDisabledError() }
             let host = try sshHostRecord(id: hostID)
             let process = makeSSHBridgeProcess(host: host, batchMode: true)
             let inputPipe = Pipe()
@@ -719,7 +707,6 @@ final class PtySession {
     }
 
     private static func runSSHBridgeCommand(host: SSHHostRecord, command: String) throws -> Data {
-        guard directSSHEnabled else { throw directSSHDisabledError() }
         let process = makeSSHBridgeProcess(host: host, batchMode: true)
         let inputPipe = Pipe()
         process.standardInput = inputPipe
@@ -753,7 +740,6 @@ final class PtySession {
         input: Data,
         timeout: TimeInterval = 5
     ) throws -> Data {
-        guard directSSHEnabled else { throw directSSHDisabledError() }
         let host = try sshHostRecord(id: hostID)
         let process = makeSSHBridgeProcess(host: host, batchMode: true, arguments: arguments)
         let inputPipe = Pipe()
@@ -765,7 +751,6 @@ final class PtySession {
     }
 
     private static func runSSHCommand(host: SSHHostRecord, command: String, batchMode: Bool) throws -> Data {
-        guard directSSHEnabled else { throw directSSHDisabledError() }
         let process = makeSSHProcess(host: host, command: command, batchMode: batchMode)
         let output = try runProcess(process)
         return try output()

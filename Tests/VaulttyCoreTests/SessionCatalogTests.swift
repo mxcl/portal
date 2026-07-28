@@ -58,6 +58,27 @@ struct SessionCatalogTests {
         #expect(restoration.tabs.map(\.sessionID) == ["remote-window"])
     }
 
+    @Test("restore ignores direct SSH sessions")
+    func restoreIgnoresDirectSSH() throws {
+        var visibleSSH = record(id: "visible-ssh", windowID: "window", createdAt: 2)
+        visibleSSH.sessionRef = SessionRef(location: .sshHost("host"), sessionID: visibleSSH.sessionID)
+        var closedSSH = record(id: "closed-ssh", windowID: nil, createdAt: 1)
+        closedSSH.sessionRef = SessionRef(location: .sshHost("host"), sessionID: closedSSH.sessionID)
+        let local = record(id: "local", windowID: "window", createdAt: 3)
+        let store = MemorySessionCatalogStore(data: try JSONEncoder().encode(TestCatalogStorage(
+            visibleTabs: [visibleSSH, local],
+            closedTabs: [closedSSH],
+            activeSessionID: nil,
+            activeSessionIDs: nil
+        )))
+        let catalog = SessionCatalog(store: store, windowID: "window")
+
+        let restoration = catalog.restore(restoresPersistedWindow: true)
+
+        #expect(restoration.tabs.map(\.sessionID) == ["local"])
+        #expect(catalog.closedTabs.isEmpty)
+    }
+
     @Test("persist replaces only the current window and preserves other windows")
     func persistMergesWindows() throws {
         let other = record(id: "other", windowID: "other-window", createdAt: 1)

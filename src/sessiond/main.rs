@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::ffi::{CString, OsString};
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -27,6 +27,7 @@ const PREVIOUS_PROTOCOL_VERSION: u16 = 1;
 const MAX_SCROLLBACK_LINES: usize = 10_000;
 const MAX_SCROLLBACK_BYTES: usize = 16 * 1024 * 1024;
 const INITIAL_HISTORY_LINES: usize = 1_000;
+const DAEMON_STARTUP_PROBES: usize = 5;
 
 #[derive(Clone, Debug)]
 struct AttachRequest {
@@ -597,12 +598,7 @@ fn serve() -> io::Result<()> {
         fs::create_dir_all(parent)?;
         fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
     }
-    if socket_path.exists() {
-        let _ = fs::remove_file(&socket_path);
-    }
-
-    let listener = UnixListener::bind(&socket_path)?;
-    fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
+    let (listener, _ownership) = claim_daemon_socket(&socket_path)?;
     let state = Arc::new(DaemonState {
         sessions: Mutex::new(HashMap::new()),
     });
@@ -621,6 +617,51 @@ fn serve() -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn claim_daemon_socket(socket_path: &Path) -> io::Result<(UnixListener, File)> {
+    claim_daemon_socket_with_wait(socket_path, || {
+        // v0.22 does not participate in the ownership lock. Give an adjacent
+        // daemon already being spawned time to bind before reclaiming a stale path.
+        thread::sleep(std::time::Duration::from_millis(25));
+    })
+}
+
+fn claim_daemon_socket_with_wait(
+    socket_path: &Path,
+    mut wait_for_adjacent_daemon: impl FnMut(),
+) -> io::Result<(UnixListener, File)> {
+    let ownership_path = socket_path.with_extension("lock");
+    let ownership = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .open(ownership_path)?;
+    if unsafe { libc::flock(ownership.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    for attempt in 0..DAEMON_STARTUP_PROBES {
+        if UnixStream::connect(socket_path).is_ok() {
+            return Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                "session daemon is already running",
+            ));
+        }
+        if attempt + 1 < DAEMON_STARTUP_PROBES {
+            wait_for_adjacent_daemon();
+        }
+    }
+    match fs::remove_file(socket_path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+
+    let listener = UnixListener::bind(socket_path)?;
+    fs::set_permissions(socket_path, fs::Permissions::from_mode(0o600))?;
+    Ok((listener, ownership))
 }
 
 fn handle_client(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<()> {
@@ -1150,6 +1191,7 @@ fn last_marker_offset(history: &[u8], marker: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::MetadataExt;
     use std::time::Duration;
 
     fn encoded(value: &str) -> String {
@@ -1271,6 +1313,72 @@ mod tests {
         assert_eq!(metadata.title, "project");
         assert_eq!(metadata.cwd, "/tmp/project");
         assert_eq!(metadata.command_count, 0);
+    }
+
+    #[test]
+    fn daemon_socket_ownership_prevents_unlink_race() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be valid")
+            .as_nanos();
+        let directory = PathBuf::from("/tmp").join(format!(
+            "portal-sessiond-ownership-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("temporary directory should be created");
+        let socket_path = directory.join("sessiond.sock");
+        let (listener, ownership) =
+            claim_daemon_socket(&socket_path).expect("first daemon should own socket");
+        let original_inode = fs::metadata(&socket_path)
+            .expect("owned socket should exist")
+            .ino();
+
+        let error = claim_daemon_socket(&socket_path)
+            .expect_err("second daemon must not claim or unlink the socket");
+
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(
+            fs::metadata(&socket_path)
+                .expect("first daemon socket should remain")
+                .ino(),
+            original_inode
+        );
+        UnixStream::connect(&socket_path).expect("first daemon socket should remain connectable");
+
+        drop(listener);
+        drop(ownership);
+        fs::remove_dir_all(directory).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn daemon_socket_grace_preserves_adjacent_daemon_startup() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be valid")
+            .as_nanos();
+        let directory = PathBuf::from("/tmp").join(format!(
+            "portal-adjacent-daemon-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("temporary directory should be created");
+        let socket_path = directory.join("sessiond.sock");
+        let mut adjacent_listener = None;
+
+        let error = claim_daemon_socket_with_wait(&socket_path, || {
+            if adjacent_listener.is_none() {
+                adjacent_listener = Some(
+                    UnixListener::bind(&socket_path)
+                        .expect("adjacent daemon should bind during grace"),
+                );
+            }
+        })
+        .expect_err("current daemon must preserve adjacent daemon startup");
+
+        assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
+        UnixStream::connect(&socket_path).expect("adjacent daemon should remain connectable");
+
+        drop(adjacent_listener);
+        fs::remove_dir_all(directory).expect("temporary directory should be removed");
     }
 
     #[test]

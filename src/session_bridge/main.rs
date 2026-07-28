@@ -686,8 +686,6 @@ fn ensure_daemon_is_running() -> io::Result<()> {
         fs::create_dir_all(parent)?;
         fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
     }
-    let _ = fs::remove_file(&socket_path);
-
     Command::new(daemon)
         .arg("serve")
         .env("VAULTTY_SESSIOND_SOCKET", &socket_path)

@@ -239,6 +239,16 @@ enum SessionWireProtocol {
         return versions.isEmpty ? nil : versions
     }
 
+    static func localBridgeCandidates(forExecutable executablePath: String) -> [String] {
+        let executable = URL(fileURLWithPath: executablePath)
+        guard ["portal-remote-agent", "vaultty-remote-agent"].contains(executable.lastPathComponent)
+        else { return [] }
+        let directory = executable.deletingLastPathComponent()
+        return ["vaultty-session-bridge", "portal-session-bridge"].map {
+            directory.appendingPathComponent($0).path
+        }
+    }
+
     private static func base64(_ value: String) -> String {
         Data(value.utf8).base64EncodedString()
     }

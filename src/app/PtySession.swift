@@ -512,12 +512,20 @@ final class PtySession {
         let transport: any SessionTransport
         switch sessionRef.location {
         case .local:
-            try Self.ensureDaemonIsRunning()
-            transport = LocalSessionTransport(
-                queue: queue,
-                connect: Self.connectToDaemon,
-                write: Self.writeAll
-            )
+            if let process = Self.makeLocalBridgeProcess() {
+                transport = SSHSessionTransport(
+                    queue: queue,
+                    process: process,
+                    write: Self.writeAll
+                )
+            } else {
+                try Self.ensureDaemonIsRunning()
+                transport = LocalSessionTransport(
+                    queue: queue,
+                    connect: Self.connectToDaemon,
+                    write: Self.writeAll
+                )
+            }
         case .sshHost(let hostID):
             guard Self.directSSHEnabled else { throw Self.directSSHDisabledError() }
             let host = try Self.sshHostRecord(id: hostID)
@@ -605,6 +613,14 @@ final class PtySession {
         let line = SessionWireProtocol.encode(command)
         switch location {
         case .local:
+            if let process = makeLocalBridgeProcess() {
+                let output = try runLocalBridgeCommand(process, command: line)
+                let response = String(decoding: output, as: UTF8.self)
+                    .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
+                    .first
+                    .map(String.init) ?? ""
+                return SessionWireProtocol.Decoder.decode(response)
+            }
             try ensureDaemonIsRunning()
             let fd = try connectToDaemon()
             defer { close(fd) }
@@ -711,6 +727,24 @@ final class PtySession {
         try writeAll(command + "\n", to: inputPipe.fileHandleForWriting.fileDescriptor)
         try inputPipe.fileHandleForWriting.close()
         return try output()
+    }
+
+    private static func runLocalBridgeCommand(_ process: Process, command: String) throws -> Data {
+        let inputPipe = Pipe()
+        process.standardInput = inputPipe
+        let output = try runProcess(process)
+        try writeAll(command + "\n", to: inputPipe.fileHandleForWriting.fileDescriptor)
+        try inputPipe.fileHandleForWriting.close()
+        return try output()
+    }
+
+    private static func makeLocalBridgeProcess() -> Process? {
+        guard let path = SessionWireProtocol.localBridgeCandidates(
+            forExecutable: CommandLine.arguments[0]
+        ).first(where: FileManager.default.isExecutableFile(atPath:)) else { return nil }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        return process
     }
 
     static func runSSHBridgeSubcommand(

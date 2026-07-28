@@ -47,6 +47,20 @@ assert_v1_attach() {
   ' "$socket_path" "$session_id" /tmp /usr/bin/false TERM=xterm-256color
 }
 
+assert_current_bridge_previous_daemon() {
+  local bridge_path="$1"
+  local socket_path="$2"
+  ruby -rbase64 -e '
+    command = ["ATTACH", *ARGV[2, 4].map { |value| Base64.strict_encode64(value) }].join(" ")
+    IO.popen({"VAULTTY_SESSIOND_SOCKET" => ARGV.fetch(1)}, [ARGV.fetch(0)], "r+") do |bridge|
+      bridge.puts(command)
+      response = bridge.gets&.strip
+      abort "current bridge to previous daemon failed: #{response.inspect}" unless response&.start_with?("READY ")
+      Process.kill("TERM", bridge.pid)
+    end
+  ' "$bridge_path" "$socket_path" bridge-previous-daemon /tmp /bin/cat TERM=xterm-256color
+}
+
 mkdir -p "$TEMP_DIR/previous"
 git -C "$ROOT_DIR" archive "$BASE_REF" | tar -x -C "$TEMP_DIR/previous"
 
@@ -69,6 +83,9 @@ wait_for_socket "$previous_socket"
 echo "Testing current client fallback against previous daemon"
 assert_probe "$previous_socket" LEGACY_EOF
 assert_v1_attach "$previous_socket" current-client-previous-daemon
+assert_current_bridge_previous_daemon \
+  "$ROOT_DIR/target/debug/portal-session-bridge" \
+  "$previous_socket"
 
 current_socket="$TEMP_DIR/current.sock"
 VAULTTY_SESSIOND_SOCKET="$current_socket" \

@@ -202,6 +202,15 @@ final class PtySession {
     var onPresence: ((Int) -> Void)?
 
     private let sessionRef: SessionRef
+    private var daemonIdentity: SessionDaemonIdentity {
+        SessionDaemonIdentity(externalSessionID: sessionRef.sessionID)
+    }
+    private var wireSessionID: String {
+        if case .local = sessionRef.location {
+            return daemonIdentity.rawSessionID
+        }
+        return sessionRef.sessionID
+    }
     private let clientID = UUID().uuidString
     private let queue = DispatchQueue(label: "com.automicvault.vaultty.session-client")
     private var transport: (any SessionTransport)?
@@ -238,7 +247,10 @@ final class PtySession {
         queue.async { [weak self] in
             guard let self, !self.hasStopped() else { return }
             do {
-                let peerVersions = try Self.supportedProtocolVersions(for: self.sessionRef.location)
+                let peerVersions = try Self.supportedProtocolVersions(
+                    for: self.sessionRef.location,
+                    identity: self.daemonIdentity
+                )
                 guard let version = SessionWireProtocol.macAttachVersion(peerVersions: peerVersions) else {
                     throw Self.unsupportedProtocolError()
                 }
@@ -248,14 +260,14 @@ final class PtySession {
                         version: version,
                         role: .mac,
                         clientID: self.clientID,
-                        sessionID: self.sessionRef.sessionID,
+                        sessionID: self.wireSessionID,
                         workingDirectory: workingDirectory.path,
                         shellPath: shellPath,
                         environment: environment
                     )
                 } else {
                     attachCommand = .attach(
-                        sessionID: self.sessionRef.sessionID,
+                        sessionID: self.wireSessionID,
                         workingDirectory: workingDirectory.path,
                         shellPath: shellPath,
                         environment: environment
@@ -285,7 +297,10 @@ final class PtySession {
         queue.async { [weak self] in
             guard let self, !self.hasStopped() else { return }
             do {
-                let peerVersions = try Self.supportedProtocolVersions(for: self.sessionRef.location)
+                let peerVersions = try Self.supportedProtocolVersions(
+                    for: self.sessionRef.location,
+                    identity: self.daemonIdentity
+                )
                 guard let version = SessionWireProtocol.highestMutualVersion(peerVersions: peerVersions) else {
                     throw Self.unsupportedProtocolError()
                 }
@@ -295,13 +310,13 @@ final class PtySession {
                         version: version,
                         role: role,
                         clientID: self.clientID,
-                        sessionID: self.sessionRef.sessionID
+                        sessionID: self.wireSessionID
                     )
                 } else {
                     // v1 has no join-only verb. /usr/bin/false prevents a missing-session
                     // race from leaving behind a shell while preserving attach to an existing ID.
                     command = .attach(
-                        sessionID: self.sessionRef.sessionID,
+                        sessionID: self.wireSessionID,
                         workingDirectory: "/",
                         shellPath: "/usr/bin/false",
                         environment: ["TERM": "xterm-256color"]
@@ -414,11 +429,17 @@ final class PtySession {
     }
 
     static func killDetachedSession(sessionRef: SessionRef) throws {
-        let command = SessionWireProtocol.ClientCommand.kill(sessionID: sessionRef.sessionID)
         switch sessionRef.location {
         case .local:
-            try sendLocalCommandNoResponse(SessionWireProtocol.encode(command), startsDaemon: false)
+            let identity = SessionDaemonIdentity(externalSessionID: sessionRef.sessionID)
+            let command = SessionWireProtocol.ClientCommand.kill(sessionID: identity.rawSessionID)
+            try sendLocalCommandNoResponse(
+                SessionWireProtocol.encode(command),
+                namespace: identity.namespace,
+                startsDaemon: false
+            )
         case .sshHost:
+            let command = SessionWireProtocol.ClientCommand.kill(sessionID: sessionRef.sessionID)
             try sendCommandNoResponse(command, location: sessionRef.location)
         case .relayMac:
             throw unsupportedProtocolError()
@@ -426,7 +447,38 @@ final class PtySession {
     }
 
     static func listSessions(location: SessionLocation = .local) throws -> [SessionMetadata] {
+        if case .local = location {
+            let canonical = try listLocalSessions(namespace: .canonical, startsDaemon: true)
+            let portalDevelopment = (try? listLocalSessions(
+                namespace: .portalDevelopment,
+                startsDaemon: false
+            )) ?? []
+            return SessionDaemonInventory.combine(
+                canonical: canonical,
+                portalDevelopment: portalDevelopment
+            )
+        }
         let event = try sendSingleResponseCommand(.list, location: location)
+        guard case .sessions(let data) = event else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(EPROTO),
+                userInfo: [NSLocalizedDescriptionKey: "session daemon returned an invalid LIST response"]
+            )
+        }
+        return try JSONDecoder().decode([SessionMetadata].self, from: data)
+    }
+
+    private static func listLocalSessions(
+        namespace: SessionDaemonNamespace,
+        startsDaemon: Bool
+    ) throws -> [SessionMetadata] {
+        let event = try sendSingleResponseCommand(
+            .list,
+            location: .local,
+            localNamespace: namespace,
+            startsLocalDaemon: startsDaemon
+        )
         guard case .sessions(let data) = event else {
             throw NSError(
                 domain: NSPOSIXErrorDomain,
@@ -510,17 +562,20 @@ final class PtySession {
         let transport: any SessionTransport
         switch sessionRef.location {
         case .local:
-            if let process = Self.makeLocalBridgeProcess() {
+            let namespace = daemonIdentity.namespace
+            if let process = Self.makeLocalBridgeProcess(namespace: namespace) {
                 transport = SSHSessionTransport(
                     queue: queue,
                     process: process,
                     write: Self.writeAll
                 )
             } else {
-                try Self.ensureDaemonIsRunning()
+                if namespace == .canonical {
+                    try Self.ensureDaemonIsRunning()
+                }
                 transport = LocalSessionTransport(
                     queue: queue,
-                    connect: Self.connectToDaemon,
+                    connect: { try Self.connectToDaemon(namespace: namespace) },
                     write: Self.writeAll
                 )
             }
@@ -605,12 +660,14 @@ final class PtySession {
     @discardableResult
     private static func sendSingleResponseCommand(
         _ command: SessionWireProtocol.ClientCommand,
-        location: SessionLocation
+        location: SessionLocation,
+        localNamespace: SessionDaemonNamespace = .canonical,
+        startsLocalDaemon: Bool = true
     ) throws -> SessionWireProtocol.ServerEvent {
         let line = SessionWireProtocol.encode(command)
         switch location {
         case .local:
-            if let process = makeLocalBridgeProcess() {
+            if let process = makeLocalBridgeProcess(namespace: localNamespace) {
                 let output = try runLocalBridgeCommand(process, command: line)
                 let response = String(decoding: output, as: UTF8.self)
                     .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
@@ -618,8 +675,10 @@ final class PtySession {
                     .map(String.init) ?? ""
                 return SessionWireProtocol.Decoder.decode(response)
             }
-            try ensureDaemonIsRunning()
-            let fd = try connectToDaemon()
+            if startsLocalDaemon {
+                try ensureDaemonIsRunning()
+            }
+            let fd = try connectToDaemon(namespace: localNamespace)
             defer { close(fd) }
             try writeAll(line + "\n", to: fd)
             return SessionWireProtocol.Decoder.decode(try readLine(from: fd))
@@ -636,8 +695,16 @@ final class PtySession {
         }
     }
 
-    private static func supportedProtocolVersions(for location: SessionLocation) throws -> [UInt16] {
-        let event = try sendSingleResponseCommand(.supportedProtocols, location: location)
+    private static func supportedProtocolVersions(
+        for location: SessionLocation,
+        identity: SessionDaemonIdentity
+    ) throws -> [UInt16] {
+        let event = try sendSingleResponseCommand(
+            .supportedProtocols,
+            location: location,
+            localNamespace: identity.namespace,
+            startsLocalDaemon: identity.namespace == .canonical
+        )
         guard case .supportedProtocols(let peerVersions) = event else {
             // Protocol v1 predates discovery. A daemon that closes this probe is a v1 peer.
             return [SessionWireProtocol.previousVersion]
@@ -660,7 +727,7 @@ final class PtySession {
         let line = SessionWireProtocol.encode(command)
         switch location {
         case .local:
-            try sendLocalCommandNoResponse(line, startsDaemon: true)
+            try sendLocalCommandNoResponse(line, namespace: .canonical, startsDaemon: true)
         case .sshHost(let hostID):
             let host = try sshHostRecord(id: hostID)
             let process = makeSSHBridgeProcess(host: host, batchMode: true)
@@ -681,14 +748,18 @@ final class PtySession {
         }
     }
 
-    private static func sendLocalCommandNoResponse(_ command: String, startsDaemon: Bool) throws {
+    private static func sendLocalCommandNoResponse(
+        _ command: String,
+        namespace: SessionDaemonNamespace,
+        startsDaemon: Bool
+    ) throws {
         if startsDaemon {
             try ensureDaemonIsRunning()
         }
 
         let fd: Int32
         do {
-            fd = try connectToDaemon()
+            fd = try connectToDaemon(namespace: namespace)
         } catch {
             if !startsDaemon, isMissingDaemonConnectionError(error) {
                 return
@@ -725,12 +796,18 @@ final class PtySession {
         return try output()
     }
 
-    private static func makeLocalBridgeProcess() -> Process? {
+    private static func makeLocalBridgeProcess(namespace: SessionDaemonNamespace) -> Process? {
         guard let path = SessionWireProtocol.localBridgeCandidates(
             forExecutable: CommandLine.arguments[0]
         ).first(where: FileManager.default.isExecutableFile(atPath:)) else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
+        if namespace == .portalDevelopment {
+            var environment = ProcessInfo.processInfo.environment
+            environment["VAULTTY_SESSIOND_SOCKET"] = socketPath(namespace: namespace)
+            environment["VAULTTY_SESSIOND_REQUIRE_EXISTING"] = "1"
+            process.environment = environment
+        }
         return process
     }
 
@@ -842,14 +919,14 @@ final class PtySession {
         return String(decoding: bytes, as: UTF8.self)
     }
 
-    private static func connectToDaemon() throws -> Int32 {
+    private static func connectToDaemon(namespace: SessionDaemonNamespace = .canonical) throws -> Int32 {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw posixError("socket")
         }
 
         do {
-            try connect(fd: fd, path: socketPath())
+            try connect(fd: fd, path: socketPath(namespace: namespace))
             return fd
         } catch {
             close(fd)
@@ -906,7 +983,7 @@ final class PtySession {
         process.executableURL = URL(fileURLWithPath: helper)
         process.arguments = ["serve"]
         var env = ProcessInfo.processInfo.environment
-        env["VAULTTY_SESSIOND_SOCKET"] = socketPath()
+        env["VAULTTY_SESSIOND_SOCKET"] = socketPath(namespace: .canonical)
         if helper.contains("/target/debug/") || helper.contains("/target/app/debug/") {
             env["VAULTTY_SESSIOND_ALLOW_DEBUG_CLIENT"] = "1"
         }
@@ -1094,15 +1171,17 @@ final class PtySession {
             .replacingOccurrences(of: "`", with: "\\`")
     }
 
-    private static func socketPath() -> String {
-        if let override = ProcessInfo.processInfo.environment["VAULTTY_SESSIOND_SOCKET"],
+    private static func socketPath(namespace: SessionDaemonNamespace) -> String {
+        if namespace == .canonical,
+           let override = ProcessInfo.processInfo.environment["VAULTTY_SESSIOND_SOCKET"],
            !override.isEmpty {
             return override
         }
+        let applicationSupportName = namespace == .canonical ? "Vaultty" : "Portal Terminal"
         return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("Vaultty", isDirectory: true)
+            .appendingPathComponent(applicationSupportName, isDirectory: true)
             .appendingPathComponent("runtime", isDirectory: true)
             .appendingPathComponent("sessiond.sock", isDirectory: false)
             .path

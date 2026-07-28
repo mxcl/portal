@@ -101,6 +101,31 @@ struct SessionCatalogTests {
         #expect(stored.activeSessionIDs == ["other-window": "other", "this-window": "current"])
     }
 
+    @Test("development namespace sessions are never persisted")
+    func developmentNamespaceIsExcludedFromPersistence() throws {
+        let portalID = SessionDaemonIdentity(
+            namespace: .portalDevelopment,
+            rawSessionID: "portal-session"
+        ).externalSessionID
+        let existingPortal = record(id: portalID, windowID: "other-window", createdAt: 1)
+        let store = MemorySessionCatalogStore(data: try JSONEncoder().encode(TestCatalogStorage(
+            visibleTabs: [existingPortal],
+            closedTabs: [existingPortal],
+            activeSessionID: portalID,
+            activeSessionIDs: ["other-window": portalID]
+        )))
+        let catalog = SessionCatalog(store: store, windowID: "this-window")
+        _ = catalog.restore(restoresPersistedWindow: false)
+
+        catalog.appendClosed(existingPortal)
+        try catalog.persist(visibleTabs: [existingPortal], activeSessionRef: existingPortal.resolvedRef)
+
+        let stored = try JSONDecoder().decode(TestCatalogStorage.self, from: try #require(store.data))
+        #expect(stored.visibleTabs.isEmpty)
+        #expect(stored.closedTabs.isEmpty)
+        #expect(stored.activeSessionIDs?.isEmpty == true)
+    }
+
     @Test("exit removes closed history and prevents later persistence")
     func exitFiltersSession() throws {
         let store = MemorySessionCatalogStore()

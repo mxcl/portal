@@ -100,8 +100,14 @@ final class SessionCatalog {
         }
         var activeSessionIDs = (existing.activeSessionIDs ?? [:]).filter { _, sessionID in
             !exitedSessionIDs.contains(sessionID)
+                && SessionDaemonIdentity(externalSessionID: sessionID).isPersistable
         }
-        if let activeSessionRef, !isExited(activeSessionRef) {
+        let persistableActiveSessionRef = activeSessionRef.flatMap { sessionRef in
+            SessionDaemonIdentity(externalSessionID: sessionRef.sessionID).isPersistable
+                ? sessionRef
+                : nil
+        }
+        if let activeSessionRef = persistableActiveSessionRef, !isExited(activeSessionRef) {
             activeSessionIDs[windowID] = activeSessionRef.sessionID
         } else {
             activeSessionIDs.removeValue(forKey: windowID)
@@ -114,7 +120,7 @@ final class SessionCatalog {
         let storage = Storage(
             visibleTabs: otherWindowTabs + currentWindowTabs,
             closedTabs: closedTabs.filter(shouldPersist),
-            activeSessionID: activeSessionRef?.sessionID,
+            activeSessionID: persistableActiveSessionRef?.sessionID,
             activeSessionIDs: activeSessionIDs
         )
         try store.write(JSONEncoder().encode(storage))
@@ -166,7 +172,9 @@ final class SessionCatalog {
     }
 
     func shouldPersist(_ record: Record) -> Bool {
-        (record.commandCount ?? 0) > 0 && !isExited(record.resolvedRef)
+        (record.commandCount ?? 0) > 0
+            && !isExited(record.resolvedRef)
+            && SessionDaemonIdentity(externalSessionID: record.sessionID).isPersistable
     }
 
     private func shouldRestore(_ record: Record) -> Bool {

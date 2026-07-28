@@ -4424,7 +4424,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let tab = tabs[index]
         let isVisibleOutsideTab = isSessionVisibleOutsideTab(tab)
         let shouldPersistTab = shouldPersistSession(tab)
-        if shouldPersistTab && !isVisibleOutsideTab {
+        if shouldPersistTab && shouldStoreSession(tab) && !isVisibleOutsideTab {
             sessionCatalog.appendClosed(storedTab(from: tab))
         }
         stopRunningElapsedUpdates(for: tab)
@@ -4517,8 +4517,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private func persistSessionState() {
         do {
             try sessionCatalog.persist(
-                visibleTabs: tabs.filter(shouldPersistSession).map(storedTab(from:)),
-                activeSessionRef: activeTab.flatMap { shouldPersistSession($0) ? $0.sessionRef : nil }
+                visibleTabs: tabs.filter(shouldStoreSession).map(storedTab(from:)),
+                activeSessionRef: activeTab.flatMap { shouldStoreSession($0) ? $0.sessionRef : nil }
             )
             publishVisibleSessionState()
         } catch {
@@ -4528,6 +4528,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func shouldPersistSession(_ tab: TerminalTab) -> Bool {
         tab.commandCount > 0 && !tab.hasExited && !sessionCatalog.isExited(tab.sessionRef)
+    }
+
+    private func shouldStoreSession(_ tab: TerminalTab) -> Bool {
+        shouldPersistSession(tab)
+            && SessionDaemonIdentity(externalSessionID: tab.sessionID).isPersistable
     }
 
     private func shouldPersistStoredSession(_ tab: StoredTab) -> Bool {

@@ -675,10 +675,22 @@ fn tolerate_broken_pipe(result: io::Result<()>) -> io::Result<()> {
 
 fn ensure_daemon_is_running() -> io::Result<()> {
     let socket_path = socket_path()?;
-    match daemon_inventory_is_empty() {
+    let require_existing = env::var_os("VAULTTY_SESSIOND_REQUIRE_EXISTING").is_some();
+    ensure_daemon_is_running_at(&socket_path, require_existing)
+}
+
+fn ensure_daemon_is_running_at(socket_path: &Path, require_existing: bool) -> io::Result<()> {
+    match daemon_inventory_is_empty_at(socket_path) {
         Ok(_) => return Ok(()),
-        Err(error) if connect_to_daemon().is_ok() => return Err(error),
+        Err(error) if connect_to_daemon_at(socket_path).is_ok() => return Err(error),
         Err(_) => {}
+    }
+
+    if require_existing {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("no existing session daemon at {}", socket_path.display()),
+        ));
     }
 
     let daemon = sessiond_path()?;
@@ -688,7 +700,7 @@ fn ensure_daemon_is_running() -> io::Result<()> {
     }
     Command::new(daemon)
         .arg("serve")
-        .env("VAULTTY_SESSIOND_SOCKET", &socket_path)
+        .env("VAULTTY_SESSIOND_SOCKET", socket_path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -697,7 +709,7 @@ fn ensure_daemon_is_running() -> io::Result<()> {
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut last_error = None;
     while Instant::now() < deadline {
-        match daemon_inventory_is_empty() {
+        match daemon_inventory_is_empty_at(socket_path) {
             Ok(_) => {
                 return Ok(());
             }
@@ -711,8 +723,8 @@ fn ensure_daemon_is_running() -> io::Result<()> {
     Err(last_error.unwrap_or_else(|| io::Error::other("could not connect to portal-sessiond")))
 }
 
-fn daemon_inventory_is_empty() -> io::Result<bool> {
-    let mut stream = connect_to_daemon()?;
+fn daemon_inventory_is_empty_at(socket_path: &Path) -> io::Result<bool> {
+    let mut stream = connect_to_daemon_at(socket_path)?;
     let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
     let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
     stream.write_all(b"LIST\n")?;
@@ -802,7 +814,11 @@ fn bridge_signature_diagnostic() -> Option<String> {
 }
 
 fn connect_to_daemon() -> io::Result<UnixStream> {
-    UnixStream::connect(socket_path()?)
+    connect_to_daemon_at(&socket_path()?)
+}
+
+fn connect_to_daemon_at(socket_path: &Path) -> io::Result<UnixStream> {
+    UnixStream::connect(socket_path)
 }
 
 fn sessiond_path() -> io::Result<PathBuf> {
@@ -921,6 +937,19 @@ mod tests {
         );
         assert_eq!(parse_supported_protocols(""), None);
         assert_eq!(parse_supported_protocols("PROTOCOLS nope"), None);
+    }
+
+    #[test]
+    fn require_existing_daemon_does_not_create_a_missing_namespace() {
+        let temp = TempDir::new("require-existing");
+        let namespace = temp.path.join("legacy-runtime");
+        let socket = namespace.join("sessiond.sock");
+
+        let error = ensure_daemon_is_running_at(&socket, true)
+            .expect_err("a missing required daemon should fail");
+
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert!(!namespace.exists());
     }
 
     fn git(temp: &TempDir, arguments: &[&str]) {

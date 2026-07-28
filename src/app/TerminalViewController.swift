@@ -4710,6 +4710,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
 
         var rowCount = 0
+        var emptyRowCount = 0
         for section in snapshot.sections {
             let hostTitle = section.title
             let header = NSTextField(labelWithString: hostTitle)
@@ -4741,6 +4742,15 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             }
             tab.sessionPickerStack.addArrangedSubview(headerStack)
 
+            if section.items.isEmpty {
+                let emptyLabel = NSTextField(labelWithString: "No active sessions")
+                emptyLabel.font = .systemFont(ofSize: 11, weight: .regular)
+                emptyLabel.textColor = TahoeGlassPalette.titleTextActive.withAlphaComponent(0.22)
+                emptyLabel.heightAnchor.constraint(equalToConstant: 20).isActive = true
+                tab.sessionPickerStack.addArrangedSubview(emptyLabel)
+                emptyRowCount += 1
+            }
+
             for rowItems in section.items.chunked(into: 4).reversed() {
                 let buttons = rowItems.map { item in
                     let candidate = item.candidate
@@ -4767,10 +4777,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
 
         tab.sessionPickerView.isHidden = false
-        let arrangedViewCount = rowCount + snapshot.sections.count
+        let arrangedViewCount = rowCount + emptyRowCount + snapshot.sections.count
         let spacing = max(0, arrangedViewCount - 1) * 10
         tab.sessionPickerHeightConstraint?.constant = CGFloat(
-            16 + rowCount * 82 + snapshot.sections.count * 20 + spacing
+            16 + rowCount * 82 + (snapshot.sections.count + emptyRowCount) * 20 + spacing
         )
         tab.rootView.needsLayout = true
     }

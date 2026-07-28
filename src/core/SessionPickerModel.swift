@@ -43,12 +43,12 @@ struct SessionPickerSnapshot: Equatable, Sendable {
 
 @MainActor
 final class SessionPickerModel {
-    typealias Loader = @Sendable () async -> [SessionPickerCandidate]
     typealias RetryingLoader = @Sendable () async -> [SessionPickerCandidate]?
+    typealias Delay = @Sendable (UInt64) async -> Void
 
     private enum LoadResult: Sendable {
         case local([SessionPickerCandidate])
-        case relay([SessionPickerCandidate])
+        case relay([SessionPickerCandidate]?)
     }
 
     private var generation = 0
@@ -59,15 +59,27 @@ final class SessionPickerModel {
         excluding: Set<SessionRef>,
         homeDirectory: String,
         loadLocal: @escaping RetryingLoader,
-        loadRelay: @escaping Loader,
+        loadRelay: @escaping RetryingLoader,
         isAvailable: @escaping @MainActor (SessionRef) -> Bool,
-        onUpdate: @escaping @MainActor (SessionPickerSnapshot) -> Void
+        onUpdate: @escaping @MainActor (SessionPickerSnapshot) -> Void,
+        relaySuccessDelay: UInt64 = 2_000_000_000,
+        relayFailureDelays: [UInt64] = [500_000_000, 2_000_000_000, 5_000_000_000],
+        delay: @escaping Delay = { try? await Task.sleep(nanoseconds: $0) }
     ) {
         invalidate()
         let generation = generation
-        var candidates: [SessionPickerCandidate] = []
-        merge(initial, into: &candidates, excluding: excluding, isAvailable: isAvailable)
-        onUpdate(snapshot(from: candidates, homeDirectory: homeDirectory))
+        let initialCandidates = initial
+        let failureDelays = relayFailureDelays.isEmpty ? [5_000_000_000] : relayFailureDelays
+        onUpdate(snapshot(
+            from: combinedCandidates(
+                initial: initialCandidates,
+                local: [],
+                relay: [],
+                excluding: excluding,
+                isAvailable: isAvailable
+            ),
+            homeDirectory: homeDirectory
+        ))
 
         loadTask = Task { [weak self] in
             await withTaskGroup(of: LoadResult.self) { group in
@@ -82,13 +94,53 @@ final class SessionPickerModel {
                     return .local([])
                 }
                 group.addTask { .relay(await loadRelay()) }
+                var localCandidates: [SessionPickerCandidate] = []
+                var relayCandidates: [SessionPickerCandidate] = []
+                var relayFailureAttempt = 0
                 for await result in group {
                     guard let self, generation == self.generation, !Task.isCancelled else { return }
                     switch result {
-                    case .local(let additions), .relay(let additions):
-                        self.merge(additions, into: &candidates, excluding: excluding, isAvailable: isAvailable)
+                    case .local(let additions):
+                        localCandidates = additions
+                        onUpdate(self.snapshot(
+                            from: self.combinedCandidates(
+                                initial: initialCandidates,
+                                local: localCandidates,
+                                relay: relayCandidates,
+                                excluding: excluding,
+                                isAvailable: isAvailable
+                            ),
+                            homeDirectory: homeDirectory
+                        ))
+                    case .relay(let result):
+                        let retryDelay: UInt64
+                        if let result {
+                            relayCandidates = result
+                            relayFailureAttempt = 0
+                            retryDelay = relaySuccessDelay
+                            onUpdate(self.snapshot(
+                                from: self.combinedCandidates(
+                                    initial: initialCandidates,
+                                    local: localCandidates,
+                                    relay: relayCandidates,
+                                    excluding: excluding,
+                                    isAvailable: isAvailable
+                                ),
+                                homeDirectory: homeDirectory
+                            ))
+                        } else {
+                            retryDelay = failureDelays[
+                                min(relayFailureAttempt, failureDelays.count - 1)
+                            ]
+                            relayFailureAttempt += 1
+                        }
+                        guard generation == self.generation, !Task.isCancelled else { return }
+                        group.addTask {
+                            await delay(retryDelay)
+                            guard !Task.isCancelled else { return .relay(nil) }
+                            return .relay(await loadRelay())
+                        }
                     }
-                    onUpdate(self.snapshot(from: candidates, homeDirectory: homeDirectory))
                 }
             }
         }
@@ -98,6 +150,23 @@ final class SessionPickerModel {
         generation &+= 1
         loadTask?.cancel()
         loadTask = nil
+    }
+
+    private func combinedCandidates(
+        initial: [SessionPickerCandidate],
+        local: [SessionPickerCandidate],
+        relay: [SessionPickerCandidate],
+        excluding: Set<SessionRef>,
+        isAvailable: @MainActor (SessionRef) -> Bool
+    ) -> [SessionPickerCandidate] {
+        var candidates: [SessionPickerCandidate] = []
+        merge(initial, into: &candidates, excluding: excluding, isAvailable: isAvailable)
+        merge(local, into: &candidates, excluding: excluding, isAvailable: isAvailable)
+        for candidate in relay {
+            candidates.removeAll { $0.sessionRef == candidate.sessionRef }
+            merge([candidate], into: &candidates, excluding: excluding, isAvailable: isAvailable)
+        }
+        return candidates
     }
 
     private func merge(

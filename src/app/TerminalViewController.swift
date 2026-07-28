@@ -4663,7 +4663,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 }
             },
             loadRelay: { [weak self] in
-                await self?.relaySessionCandidates() ?? []
+                guard let self else { return nil }
+                return await self.relaySessionCandidates()
             },
             isAvailable: { [weak self] sessionRef in
                 guard let self else { return false }
@@ -4856,14 +4857,14 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    private func relaySessionCandidates() async -> [SessionPickerCandidate] {
+    private func relaySessionCandidates() async -> [SessionPickerCandidate]? {
         guard let endpoint = try? MacRemoteAccessController.relayEndpoint(),
               let key = try? ICloudKeychainRootKey().loadOrCreate(),
               let client = try? RelayCatalogClient(endpoint: endpoint, rootKeyData: key),
               let data = try? await client.load(),
               let catalog = try? JSONDecoder().decode(RemoteCatalog.self, from: data)
         else {
-            return []
+            return nil
         }
         let now = Date()
         var candidates: [SessionPickerCandidate] = []

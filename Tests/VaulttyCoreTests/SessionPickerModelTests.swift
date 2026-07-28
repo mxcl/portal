@@ -15,6 +15,49 @@ private actor LocalLoadSequence {
     }
 }
 
+private actor RelayLoadSequence {
+    private var values: [[SessionPickerCandidate]?]
+    private var loadCount = 0
+
+    init(_ values: [[SessionPickerCandidate]?]) {
+        self.values = values
+    }
+
+    func next() -> [SessionPickerCandidate]? {
+        loadCount += 1
+        guard !values.isEmpty else { return nil }
+        return values.removeFirst()
+    }
+
+    func count() -> Int {
+        loadCount
+    }
+}
+
+private actor RelayDelayGate {
+    private var callCount = 0
+    private var delayWaiters: [CheckedContinuation<Void, Never>] = []
+    private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    func delay() async {
+        callCount += 1
+        let ready = countWaiters.filter { callCount >= $0.0 }
+        countWaiters.removeAll { callCount >= $0.0 }
+        ready.forEach { $0.1.resume() }
+        await withCheckedContinuation { delayWaiters.append($0) }
+    }
+
+    func waitForCall(_ target: Int) async {
+        guard callCount < target else { return }
+        await withCheckedContinuation { countWaiters.append((target, $0)) }
+    }
+
+    func advance() {
+        guard !delayWaiters.isEmpty else { return }
+        delayWaiters.removeFirst().resume()
+    }
+}
+
 private actor AsyncSignal {
     private var isSignaled = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -82,6 +125,7 @@ struct SessionPickerModelTests {
         #expect(final.sections.count == 1)
         #expect(final.sections[0].items.isEmpty)
         #expect(final.sections[0].newSession?.action == .createRelay)
+        model.invalidate()
     }
 
     @MainActor
@@ -126,6 +170,7 @@ struct SessionPickerModelTests {
         #expect(final.sections.flatMap(\.items).filter {
             $0.candidate.sessionRef.sessionID == "old"
         }.count == 1)
+        model.invalidate()
     }
 
     @MainActor
@@ -159,6 +204,93 @@ struct SessionPickerModelTests {
         #expect(snapshots.last?.sections.flatMap(\.items).map(\.candidate.sessionRef.sessionID) == [
             "recovered"
         ])
+        model.invalidate()
+    }
+
+    @MainActor
+    @Test("relay refresh preserves stale cards through failure and replaces them on recovery")
+    func relayRefreshRecoversFromPartialCatalog() async throws {
+        let stale = candidate(id: "old", host: "Pangolin", date: 1)
+        let complete = [
+            stale,
+            candidate(id: "new-1", host: "Pangolin", date: 2),
+            candidate(id: "new-2", host: "Pangolin", date: 3),
+            candidate(id: "new-3", host: "Pangolin", date: 4),
+        ]
+        let loads = RelayLoadSequence([[stale], nil, complete])
+        let delays = RelayDelayGate()
+        let completeUpdate = AsyncSignal()
+        let model = SessionPickerModel()
+        var snapshots: [SessionPickerSnapshot] = []
+
+        model.refresh(
+            initial: [],
+            excluding: [],
+            homeDirectory: "/Users/test",
+            loadLocal: { [] },
+            loadRelay: { await loads.next() },
+            isAvailable: { _ in true },
+            onUpdate: {
+                snapshots.append($0)
+                if $0.sections.flatMap(\.items).count == 4 {
+                    model.invalidate()
+                    Task { await completeUpdate.signal() }
+                }
+            },
+            delay: { _ in await delays.delay() }
+        )
+
+        await delays.waitForCall(1)
+        #expect(snapshots.last?.sections.flatMap(\.items).map(\.candidate.sessionRef.sessionID) == [
+            "old"
+        ])
+
+        await delays.advance()
+        await delays.waitForCall(2)
+        #expect(await loads.count() == 2)
+        #expect(snapshots.last?.sections.flatMap(\.items).map(\.candidate.sessionRef.sessionID) == [
+            "old"
+        ])
+
+        await delays.advance()
+        await completeUpdate.wait()
+
+        #expect(snapshots.last?.sections.flatMap(\.items).map(\.candidate.sessionRef.sessionID) == [
+            "new-3", "new-2", "new-1", "old"
+        ])
+    }
+
+    @MainActor
+    @Test("invalidating the picker cancels a pending relay refresh")
+    func relayRefreshCancellation() async {
+        let loads = RelayLoadSequence([[candidate(id: "old", host: "Pangolin", date: 1)]])
+        let delayStarted = AsyncSignal()
+        let delayCancelled = AsyncSignal()
+        let model = SessionPickerModel()
+
+        model.refresh(
+            initial: [],
+            excluding: [],
+            homeDirectory: "/Users/test",
+            loadLocal: { [] },
+            loadRelay: { await loads.next() },
+            isAvailable: { _ in true },
+            onUpdate: { _ in },
+            delay: { _ in
+                await delayStarted.signal()
+                do {
+                    try await Task.sleep(nanoseconds: 30_000_000_000)
+                } catch {
+                    await delayCancelled.signal()
+                }
+            }
+        )
+
+        await delayStarted.wait()
+        model.invalidate()
+        await delayCancelled.wait()
+
+        #expect(await loads.count() == 1)
     }
 
     private func candidate(

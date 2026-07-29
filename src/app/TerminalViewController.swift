@@ -4756,7 +4756,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 let emptyLabel = NSTextField(labelWithString: "No active sessions")
                 emptyLabel.font = .systemFont(ofSize: 11, weight: .regular)
                 emptyLabel.textColor = TahoeGlassPalette.titleTextActive.withAlphaComponent(0.22)
-                emptyLabel.heightAnchor.constraint(equalToConstant: 20).isActive = true
+                emptyLabel.heightAnchor.constraint(equalToConstant: 82).isActive = true
                 tab.sessionPickerStack.addArrangedSubview(emptyLabel)
                 emptyRowCount += 1
             }
@@ -4790,7 +4790,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let arrangedViewCount = rowCount + emptyRowCount + snapshot.sections.count
         let spacing = max(0, arrangedViewCount - 1) * 10
         tab.sessionPickerHeightConstraint?.constant = CGFloat(
-            16 + rowCount * 82 + (snapshot.sections.count + emptyRowCount) * 20 + spacing
+            16 + (rowCount + emptyRowCount) * 82 + snapshot.sections.count * 20 + spacing
         )
         tab.rootView.needsLayout = true
     }

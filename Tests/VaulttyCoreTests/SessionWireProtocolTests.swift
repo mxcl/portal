@@ -75,7 +75,7 @@ struct SessionWireProtocolTests {
         #expect(fields.count == 8)
     }
 
-    @Test("remote agent routes through the bundled session bridge")
+    @Test("app and remote agent route through the bundled session bridge")
     func remoteAgentBridgeRouting() {
         #expect(SessionWireProtocol.localBridgeCandidates(
             forExecutable: "/Applications/Portal.app/Contents/Helpers/portal-remote-agent"
@@ -85,7 +85,10 @@ struct SessionWireProtocolTests {
         ])
         #expect(SessionWireProtocol.localBridgeCandidates(
             forExecutable: "/Applications/Portal.app/Contents/MacOS/Portal"
-        ).isEmpty)
+        ) == [
+            "/Applications/Portal.app/Contents/Helpers/vaultty-session-bridge",
+            "/Applications/Portal.app/Contents/Helpers/portal-session-bridge",
+        ])
     }
 
     @Test("decoder buffers partial lines and preserves event order")

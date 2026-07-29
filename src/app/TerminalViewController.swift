@@ -3640,6 +3640,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(shellEnvironment["GIT_PAGER"] == "less")
         assert(shellEnvironment["PRESERVED"] == "yes")
         assert(inheritedShellEnvironment(["PAGER": "less"])["PAGER"] == "less")
+        assert(inheritedShellEnvironment([:])["GIT_PAGER"] == "less")
     }()
 
     private enum TabClickTarget {
@@ -6345,12 +6346,14 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private static func inheritedShellEnvironment(_ environment: [String: String]) -> [String: String] {
-        guard environment["PAGER"] == "cat", environment["GIT_PAGER"] == "cat" else {
-            return environment
-        }
         var environment = environment
-        environment["PAGER"] = "less"
-        environment["GIT_PAGER"] = "less"
+        let pager = environment["PAGER"].flatMap { $0 == "cat" ? nil : $0 } ?? "less"
+        if environment["PAGER"] == nil || environment["PAGER"] == "cat" {
+            environment["PAGER"] = pager
+        }
+        if environment["GIT_PAGER"] == nil || environment["GIT_PAGER"] == "cat" {
+            environment["GIT_PAGER"] = pager
+        }
         return environment
     }
 

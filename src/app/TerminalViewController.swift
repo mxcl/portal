@@ -3638,6 +3638,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(shellEnvironment["PRESERVED"] == "yes")
         assert(inheritedShellEnvironment(["PAGER": "less"])["PAGER"] == "less")
         assert(inheritedShellEnvironment([:])["GIT_PAGER"] == "less")
+        let gitLogPager = pagerBehavior(for: "git log")
+        assert(gitLogPager.keyBindings && !gitLogPager.screenRendering)
+        let lessPager = pagerBehavior(for: "less README.md")
+        assert(lessPager.keyBindings && lessPager.screenRendering)
     }()
 
     private enum TabClickTarget {
@@ -6045,15 +6049,15 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
               let block = tab.blocks.first(where: { $0.id == blockID })
         else { return }
         clearCommandInput(in: tab)
-        let usesPagerKeyBindings = usesPagerKeyBindings(for: command)
-        tab.ptyPassthroughView.usesPagerKeyBindings = usesPagerKeyBindings
+        let pagerBehavior = Self.pagerBehavior(for: command)
+        tab.ptyPassthroughView.usesPagerKeyBindings = pagerBehavior.keyBindings
         updateTabTitle(titleForCommand(command), detail: command, in: tab)
 
         persistSessionState()
         tab.outputProcessor.resetForCommand(
             blockID: block.id,
             cwd: block.cwd,
-            usesPagerKeyBindings: usesPagerKeyBindings
+            usesPagerKeyBindings: pagerBehavior.screenRendering
         )
         addBlockView(block, to: tab)
         updateCommandBarVisibility(for: tab)
@@ -6327,9 +6331,17 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return "/usr/bin/env"
     }
 
-    private func usesPagerKeyBindings(for command: String) -> Bool {
-        guard let name = commandName(from: command) else { return false }
-        return ["less", "man", "more", "most"].contains(name)
+    private static func pagerBehavior(for command: String) -> (keyBindings: Bool, screenRendering: Bool) {
+        guard let name = commandName(from: command) else { return (false, false) }
+        let directPager = ["less", "man", "more", "most"].contains(name)
+        let gitLog = name == "git"
+            && !command.split(whereSeparator: { $0.isWhitespace }).contains("--no-pager")
+            && command
+                .split(whereSeparator: { $0.isWhitespace })
+                .drop(while: { URL(fileURLWithPath: String($0)).lastPathComponent.lowercased() != "git" })
+                .dropFirst()
+                .first(where: { !$0.hasPrefix("-") }) == "log"
+        return (directPager || gitLog, directPager)
     }
 
     private static func inheritedShellEnvironment(_ environment: [String: String]) -> [String: String] {
@@ -6603,7 +6615,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             .joined(separator: " ")
     }
 
-    private func commandName(from command: String) -> String? {
+    private static func commandName(from command: String) -> String? {
         let wrappers = Set(["builtin", "command", "env", "exec", "noglob", "sudo"])
         for part in command.split(whereSeparator: { $0.isWhitespace }) {
             let token = String(part)

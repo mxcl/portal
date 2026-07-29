@@ -14,6 +14,7 @@ struct CompletionRequest {
     let cancellation: CompletionCancellation
     let relayProvider: RelayCompletionProvider?
     let includesHistory: Bool
+    let historyOnly: Bool
 }
 
 struct CompletionResult {
@@ -820,6 +821,16 @@ final class VaulttyCompletionEngine {
     private var commandCache: [String: [CompletionSuggestion]] = [:]
 
     func completions(for request: CompletionRequest) -> CompletionResult {
+        if request.historyOnly {
+            let range = NSRange(location: 0, length: (request.input as NSString).length)
+            return CompletionResult(
+                replacementRange: range,
+                suggestions: historySuggestions(for: request).limited(to: request.limit),
+                commonPrefix: nil,
+                diagnostics: []
+            )
+        }
+
         let standard = standardCompletions(for: request)
         guard request.includesHistory,
               request.cursorOffset == (request.input as NSString).length

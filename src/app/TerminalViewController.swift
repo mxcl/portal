@@ -3597,6 +3597,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var deferredCompletionAcceptanceSerial: Int?
     private var activeCompletionRange: NSRange?
     private var activeCompletionCommonPrefix: String?
+    private var activeCompletionMode: CompletionRequestMode?
     private var isApplyingCompletion = false
     private var isCompletionInteractionArmed = false
     private var isShowingResizeTooltip = false
@@ -4044,7 +4045,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
         if completionPopup.isShown {
             updateCompletionAnchor(for: tab)
-            requestCompletion(in: tab, mode: .filtering)
+            requestCompletion(
+                in: tab,
+                mode: activeCompletionMode == .history ? .history : .filtering
+            )
         } else if shouldStartAutomaticCompletion(in: textView) {
             isCompletionInteractionArmed = false
             requestCompletion(in: tab, mode: .automatic)
@@ -5293,7 +5297,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             return false
         }
         focusInput(for: tab)
-        if completionPopup.isShown {
+        if completionPopup.isShown, activeCompletionMode == .history {
             isCompletionInteractionArmed = true
             if let suggestion = completionPopup.selectNext() {
                 renderCompletionPreview(suggestion, in: tab)
@@ -5693,7 +5697,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             limit: 256,
             cancellation: cancellation,
             relayProvider: (tab.session as? RelayTerminalSession)?.completionProvider,
-            includesHistory: mode == .history || (tab.inputView.string as NSString).length >= 2
+            includesHistory: mode == .history || (tab.inputView.string as NSString).length >= 2,
+            historyOnly: mode == .history
         )
 
         completionQueue.async { [weak self] in
@@ -5739,6 +5744,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         activeCompletionRange = result.replacementRange
         activeCompletionCommonPrefix = result.commonPrefix
+        activeCompletionMode = mode
         if mode == .explicit,
            let prefix = result.commonPrefix,
            let existing = substring(in: tab.inputView.string, range: result.replacementRange),
@@ -5948,6 +5954,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         clearPendingCompletionIndicator()
         activeCompletionRange = nil
         activeCompletionCommonPrefix = nil
+        activeCompletionMode = nil
         deferredCompletionAcceptanceSerial = nil
         isCompletionInteractionArmed = false
         completionPopup.dismiss()

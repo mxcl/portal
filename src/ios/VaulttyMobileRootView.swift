@@ -276,6 +276,7 @@ private struct MobileSessionView: View {
     @State private var showsCompletions = false
     @State private var isApplyingCompletion = false
     @State private var completionSelection = 0
+    @State private var isHistorySearch = false
     @State private var showsClearHistoryConfirmation = false
     @State private var showsClearHistoryError = false
 
@@ -366,13 +367,18 @@ private struct MobileSessionView: View {
                     .onChange(of: command) { _, value in
                         if isApplyingCompletion {
                             isApplyingCompletion = false
+                            isHistorySearch = false
                             showsCompletions = false
                             model.cancelCompletion()
                             return
                         }
                         completionSelection = 0
-                        showsCompletions = !value.isEmpty
-                        model.complete(value, cwd: currentCwd)
+                        showsCompletions = isHistorySearch || !value.isEmpty
+                        if isHistorySearch {
+                            model.searchHistory(value, cwd: currentCwd)
+                        } else {
+                            model.complete(value, cwd: currentCwd)
+                        }
                     }
                     .onSubmit {
                         if let suggestion = selectedCompletion {
@@ -386,12 +392,15 @@ private struct MobileSessionView: View {
                     }
                     .onKeyPress("r", phases: .down) { press in
                         guard press.modifiers.contains(.control) else { return .ignored }
-                        if showsCompletions, !model.completionSuggestions.isEmpty {
+                        if isHistorySearch,
+                           showsCompletions,
+                           !model.completionSuggestions.isEmpty {
                             completionSelection = (completionSelection + 1)
                                 % model.completionSuggestions.count
                             return .handled
                         }
                         completionSelection = 0
+                        isHistorySearch = true
                         showsCompletions = true
                         model.searchHistory(command, cwd: currentCwd)
                         return .handled
@@ -409,6 +418,11 @@ private struct MobileSessionView: View {
                             apply(suggestion)
                         }
                         .presentationCompactAdaptation(.popover)
+                    }
+                    .onChange(of: showsCompletions) { _, isShown in
+                        if !isShown {
+                            isHistorySearch = false
+                        }
                     }
             }
             Menu {
@@ -504,6 +518,7 @@ private struct MobileSessionView: View {
 
     private func apply(_ suggestion: MobileCompletionSuggestion) {
         isApplyingCompletion = true
+        isHistorySearch = false
         if suggestion.kind == "history" {
             command = suggestion.insertText
         } else {

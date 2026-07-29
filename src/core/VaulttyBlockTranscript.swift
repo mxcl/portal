@@ -35,7 +35,7 @@ public struct VaulttyBlockTranscript: Sendable {
 
     private var parser = VaulttyMarkerParser()
     private var renderer = PlainTerminalRenderer()
-    private var currentCwd: String?
+    public private(set) var currentCwd: String?
     private var activeBlockIndex: Int?
 
     public init() {}

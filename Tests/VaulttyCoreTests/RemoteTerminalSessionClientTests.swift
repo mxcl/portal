@@ -158,7 +158,17 @@ struct RemoteTerminalSessionClientTests {
                 values: [RemoteCapabilities.relayCompletion]
             ))
         ))
-        #expect(await events.next() == .completionAvailabilityChanged(true))
+        #expect(await events.next() == .capabilitiesChanged([
+            RemoteCapabilities.relayCompletion
+        ]))
+
+        await #expect(throws: RemoteTerminalSessionError.completionUnavailable) {
+            try await client.complete(
+                operation: .queryHistory,
+                payload: Data(),
+                timeout: 1
+            )
+        }
 
         await #expect(throws: RemoteTerminalSessionError.invalidResponse) {
             try await client.complete(

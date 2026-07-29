@@ -274,6 +274,10 @@ private struct MobileSessionView: View {
     let mac: RemoteMac
     @State private var command = ""
     @State private var showsCompletions = false
+    @State private var isApplyingCompletion = false
+    @State private var completionSelection = 0
+    @State private var showsClearHistoryConfirmation = false
+    @State private var showsClearHistoryError = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -360,13 +364,37 @@ private struct MobileSessionView: View {
                     .autocorrectionDisabled()
                     .submitLabel(.send)
                     .onChange(of: command) { _, value in
+                        if isApplyingCompletion {
+                            isApplyingCompletion = false
+                            showsCompletions = false
+                            model.cancelCompletion()
+                            return
+                        }
+                        completionSelection = 0
                         showsCompletions = !value.isEmpty
-                        model.complete(value, cwd: session.cwd)
+                        model.complete(value, cwd: currentCwd)
                     }
                     .onSubmit {
+                        if let suggestion = selectedCompletion {
+                            apply(suggestion)
+                            return
+                        }
+                        guard !model.isCompleting else { return }
                         guard !command.isEmpty else { return }
                         model.submit(command)
                         command = ""
+                    }
+                    .onKeyPress("r", phases: .down) { press in
+                        guard press.modifiers.contains(.control) else { return .ignored }
+                        if showsCompletions, !model.completionSuggestions.isEmpty {
+                            completionSelection = (completionSelection + 1)
+                                % model.completionSuggestions.count
+                            return .handled
+                        }
+                        completionSelection = 0
+                        showsCompletions = true
+                        model.searchHistory(command, cwd: currentCwd)
+                        return .handled
                     }
                     .popover(
                         isPresented: $showsCompletions,
@@ -375,7 +403,8 @@ private struct MobileSessionView: View {
                     ) {
                         MobileCompletionPopover(
                             suggestions: model.completionSuggestions,
-                            isLoading: model.isCompleting
+                            isLoading: model.isCompleting,
+                            selectedIndex: completionSelection
                         ) { suggestion in
                             apply(suggestion)
                         }
@@ -396,12 +425,32 @@ private struct MobileSessionView: View {
                 Button("Clear Screen  ⌃L", systemImage: "rectangle.on.rectangle.slash") {
                     model.sendInput(Data([0x0c]))
                 }
+                Divider()
+                Button("Clear Command History…", systemImage: "trash", role: .destructive) {
+                    showsClearHistoryConfirmation = true
+                }
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .frame(minWidth: 44, minHeight: 44)
                     .contentShape(.rect)
             }
             .accessibilityLabel("Terminal Actions")
+        }
+        .confirmationDialog(
+            "Clear command history on this host?",
+            isPresented: $showsClearHistoryConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear History", role: .destructive) {
+                Task {
+                    showsClearHistoryError = !(await model.clearHistory())
+                }
+            }
+        } message: {
+            Text("This permanently removes successful Vaultty commands. Session Up/Down history is unchanged.")
+        }
+        .alert("Command history could not be cleared", isPresented: $showsClearHistoryError) {
+            Button("OK") {}
         }
         .padding(8)
         .background(.bar)
@@ -444,16 +493,32 @@ private struct MobileSessionView: View {
         }
     }
 
+    private var currentCwd: String {
+        model.transcript.currentCwd ?? session.cwd
+    }
+
+    private var selectedCompletion: MobileCompletionSuggestion? {
+        guard model.completionSuggestions.indices.contains(completionSelection) else { return nil }
+        return model.completionSuggestions[completionSelection]
+    }
+
     private func apply(_ suggestion: MobileCompletionSuggestion) {
-        let start = command.lastIndex(where: \.isWhitespace)
-            .map { command.index(after: $0) } ?? command.startIndex
-        command.replaceSubrange(start..., with: suggestion.insertText)
+        isApplyingCompletion = true
+        if suggestion.kind == "history" {
+            command = suggestion.insertText
+        } else {
+            let start = command.lastIndex(where: \.isWhitespace)
+                .map { command.index(after: $0) } ?? command.startIndex
+            command.replaceSubrange(start..., with: suggestion.insertText)
+        }
+        showsCompletions = false
     }
 }
 
 private struct MobileCompletionPopover: View {
     let suggestions: [MobileCompletionSuggestion]
     let isLoading: Bool
+    let selectedIndex: Int
     let onSelect: (MobileCompletionSuggestion) -> Void
 
     var body: some View {
@@ -467,7 +532,7 @@ private struct MobileCompletionPopover: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(suggestions) { suggestion in
+                        ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
                             Button {
                                 onSelect(suggestion)
                             } label: {
@@ -490,6 +555,7 @@ private struct MobileCompletionPopover: View {
                                 .contentShape(.rect)
                                 .padding(.horizontal, 12)
                                 .frame(minHeight: 44)
+                                .background(index == selectedIndex ? Color.accentColor.opacity(0.16) : .clear)
                             }
                             .buttonStyle(.plain)
                             .accessibilityHint("Insert completion")

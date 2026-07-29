@@ -226,6 +226,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         controller?.clearActiveTab(sender)
     }
 
+    @objc private func clearCommandHistory(_ sender: Any?) {
+        controller?.clearCommandHistory(sender)
+    }
+
     @objc private func reopenClosedTab(_ sender: Any?) {
         controller?.reopenClosedTab(sender)
     }
@@ -485,6 +489,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
                     : nil)
             return process.terminationStatus == 0
                 && capabilities.contains("completion-v1")
+                && capabilities.contains("history-v1")
                 && sessionVersions.flatMap(SessionWireProtocol.highestMutualVersion(peerVersions:)) != nil
         } catch {
             return false
@@ -861,6 +866,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             keyEquivalent: "k"
         )
         clearItem.target = self
+        let clearHistoryItem = editMenu.addItem(
+            withTitle: "Clear Command History...",
+            action: #selector(clearCommandHistory(_:)),
+            keyEquivalent: ""
+        )
+        clearHistoryItem.target = self
 
         editItem.submenu = editMenu
         return editItem

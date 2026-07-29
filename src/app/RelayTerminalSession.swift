@@ -179,9 +179,9 @@ final class RelayTerminalSession: TerminalSession {
             onHistoryOutput?(String(decoding: data, as: UTF8.self))
         case .presence(let count):
             onPresence?(count)
-        case .completionAvailabilityChanged(let available):
-            if available {
-                completionProvider.enable([RemoteCapabilities.relayCompletion])
+        case .capabilitiesChanged(let capabilities):
+            if !capabilities.isEmpty {
+                completionProvider.enable(capabilities)
             } else {
                 completionProvider.disconnect()
                 if let client {

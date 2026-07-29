@@ -3327,6 +3327,7 @@ private final class TerminalTab {
     var runningElapsedTimer: Timer?
     var ttyModeTimer: Timer?
     var commandHistory: [String] { commandLifecycle.state.commandHistory }
+    var hostHistoryOptOutBlockIDs = Set<UUID>()
     var isFindMode = false
     var findCommandDraft = ""
     var findQuery = ""
@@ -3813,6 +3814,35 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             : TitleUpdateButton.visibleWidth
     }
 
+    func clearCommandHistory(_ sender: Any?) {
+        guard let tab = activeTab else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Clear command history on this host?"
+        alert.informativeText = "This permanently removes successful Vaultty commands stored on the active host. Session Up/Down history is unchanged."
+        alert.addButton(withTitle: "Clear History")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        dismissCompletion()
+        let location = tab.sessionRef.location
+        let relayProvider = (tab.session as? RelayTerminalSession)?.completionProvider
+        completionQueue.async { [weak self] in
+            guard let self else { return }
+            let cleared = completionEngine.clearHistory(
+                location: location,
+                relayProvider: relayProvider
+            )
+            guard !cleared else { return }
+            DispatchQueue.main.async {
+                let error = NSAlert()
+                error.alertStyle = .warning
+                error.messageText = "Command history could not be cleared"
+                error.runModal()
+            }
+        }
+    }
+
     func beginWindowResizeTooltip() {
         isShowingResizeTooltip = true
         updateWindowResizeTooltip()
@@ -3928,7 +3958,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                     textView.insertNewlineIgnoringFieldEditor(nil)
                     return true
                 }
-                submitCommandExcludingVisibleCompletionPreview(in: tab)
+                acceptSelectedCompletion(in: tab)
                 return true
             }
             if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
@@ -5226,6 +5256,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
             switch event.type {
             case .keyDown:
+                if self.handleHistoryKeyEvent(event) {
+                    return nil
+                }
                 if self.shouldRedirectKeyEventToCommandInput(event) {
                     self.restoreCommandFocusIfNeeded()
                 }
@@ -5246,6 +5279,30 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
             return event
         }
+    }
+
+    private func handleHistoryKeyEvent(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags == [.control],
+              event.charactersIgnoringModifiers?.lowercased() == "r",
+              let tab = activeTab,
+              tab.isShellReady,
+              !tab.isReplayingHistory,
+              !tab.isTerminalControlActive
+        else {
+            return false
+        }
+        focusInput(for: tab)
+        if completionPopup.isShown {
+            isCompletionInteractionArmed = true
+            if let suggestion = completionPopup.selectNext() {
+                renderCompletionPreview(suggestion, in: tab)
+            }
+        } else {
+            isCompletionInteractionArmed = true
+            requestCompletion(in: tab, mode: .history)
+        }
+        return true
     }
 
     private func shouldRedirectKeyEventToCommandInput(_ event: NSEvent) -> Bool {
@@ -5455,6 +5512,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             guard tab.sessionRef == configuredSessionRef else { return }
             guard !tab.hasExited else { return }
             let exitChange = tab.commandLifecycle.apply(.shellExited(status: status, at: Date()))
+            tab.hostHistoryOptOutBlockIDs.subtract(exitChange.finishedBlockIDs)
             tab.inputView.isEditable = false
             tab.inputView.isSelectable = false
             self.removeExitedSessionFromPersistentHistory(configuredSessionRef)
@@ -5585,6 +5643,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         case automatic
         case filtering
         case continuation
+        case history
     }
 
     private func shouldStartAutomaticCompletion(in textView: NSTextView) -> Bool {
@@ -5592,7 +5651,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         guard selectedRange.length == 0 else { return false }
 
         let parsed = ShellCompletionParser.parse(input: textView.string, cursorOffset: selectedRange.location)
-        guard parsed.commandTokenIndex != nil, !parsed.isCompletingCommand else { return false }
+        guard parsed.commandTokenIndex != nil else { return false }
+
+        if parsed.isCompletingCommand {
+            return selectedRange.location == (textView.string as NSString).length
+                && selectedRange.location >= 2
+        }
 
         let prefix = (textView.string as NSString).substring(to: selectedRange.location)
         guard let lastCharacter = prefix.last else { return false }
@@ -5628,7 +5692,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             location: tab.sessionRef.location,
             limit: 256,
             cancellation: cancellation,
-            relayProvider: (tab.session as? RelayTerminalSession)?.completionProvider
+            relayProvider: (tab.session as? RelayTerminalSession)?.completionProvider,
+            includesHistory: mode == .history || (tab.inputView.string as NSString).length >= 2
         )
 
         completionQueue.async { [weak self] in
@@ -5761,11 +5826,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    private func submitCommandExcludingVisibleCompletionPreview(in tab: TerminalTab) {
-        dismissCompletion()
-        submitCommand(in: tab)
-    }
-
     private var shellLineResetSequence: String {
         "\u{15}"
     }
@@ -5801,7 +5861,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         dismissAfterApplying: Bool = true
     ) {
         tab.inputView.clearMutedCompletionPreview()
-        guard let range = activeCompletionRange else { return }
+        guard let range = suggestion.replacementRange ?? activeCompletionRange else { return }
         replace(range: range, with: suggestion.insertText, in: tab)
         if dismissAfterApplying {
             dismissCompletion()
@@ -5811,7 +5871,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func renderCompletionPreview(_ suggestion: CompletionSuggestion, in tab: TerminalTab) {
-        guard let replacementRange = activeCompletionRange,
+        guard let replacementRange = suggestion.replacementRange ?? activeCompletionRange,
               let existing = substring(in: tab.inputView.string, range: replacementRange)
         else {
             tab.inputView.clearMutedCompletionPreview()
@@ -6035,6 +6095,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         guard let blockID = submission.addedBlockIDs.first,
               let block = tab.blocks.first(where: { $0.id == blockID })
         else { return }
+        if rawCommand.first == " " {
+            tab.hostHistoryOptOutBlockIDs.insert(blockID)
+        }
         clearCommandInput(in: tab)
         let usesPagerScreenRendering = usesPagerScreenRendering(for: command)
         updateTabTitle(titleForCommand(command), detail: command, in: tab)
@@ -6080,6 +6143,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.outputProcessor.finishCommand()
         let change = tab.commandLifecycle.apply(.interrupt(status: 130, at: Date()))
         for blockID in change.finishedBlockIDs {
+            tab.hostHistoryOptOutBlockIDs.remove(blockID)
             ensureBlockView(for: blockID, in: tab)
             updateBlockViewNow(for: blockID, in: tab)
         }
@@ -6210,14 +6274,25 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 openRemoteCode(payload: payload, in: tab)
             }
         case .commandFinished(let status):
+            let finishedBlock = (tab.activeBlockID ?? tab.pendingBlockID).flatMap { blockID in
+                tab.blocks.first(where: { $0.id == blockID })
+            }
             let change = tab.commandLifecycle.apply(.commandFinished(
                 status: status,
                 isReplay: isReplay,
                 at: Date()
             ))
             for blockID in change.finishedBlockIDs {
+                let optedOut = tab.hostHistoryOptOutBlockIDs.remove(blockID) != nil
                 ensureBlockView(for: blockID, in: tab)
                 updateBlockViewNow(for: blockID, in: tab)
+                if status == 0,
+                   !isReplay,
+                   !optedOut,
+                   let block = finishedBlock,
+                   block.id == blockID {
+                    recordSuccessfulCommand(block.command, cwd: block.cwd, in: tab)
+                }
             }
             stopRunningElapsedUpdates(for: tab)
             stopTtyModePolling(for: tab)
@@ -6231,6 +6306,19 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             runInitialCommandIfNeeded(in: tab)
         case .unknown:
             break
+        }
+    }
+
+    private func recordSuccessfulCommand(_ command: String, cwd: String, in tab: TerminalTab) {
+        let location = tab.sessionRef.location
+        let relayProvider = (tab.session as? RelayTerminalSession)?.completionProvider
+        completionQueue.async { [weak self] in
+            self?.completionEngine.recordSuccessfulCommand(
+                command,
+                cwd: cwd,
+                location: location,
+                relayProvider: relayProvider
+            )
         }
     }
 

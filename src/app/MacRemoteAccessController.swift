@@ -107,7 +107,7 @@ final class MacRemoteAccessController {
     }
 
     private struct ActiveCompletion {
-        var operationID: String
+        var requestID: String
         var task: Task<Void, Never>
     }
 
@@ -359,7 +359,6 @@ final class MacRemoteAccessController {
             return
         }
 
-        activeCompletions.removeValue(forKey: message.requestID)?.task.cancel()
         let process = RemoteCompletionProcess()
         let task = Task { [weak self] in
             let response: RemoteCompletionResponse?
@@ -398,8 +397,8 @@ final class MacRemoteAccessController {
                 operationID: request.operationID
             )
         }
-        activeCompletions[message.requestID] = ActiveCompletion(
-            operationID: request.operationID,
+        activeCompletions[request.operationID] = ActiveCompletion(
+            requestID: message.requestID,
             task: task
         )
     }
@@ -410,11 +409,11 @@ final class MacRemoteAccessController {
                 RemoteCompletionCancellation.self,
                 from: payload
               ),
-              activeCompletions[message.requestID]?.operationID == cancellation.operationID
+              activeCompletions[cancellation.operationID]?.requestID == message.requestID
         else {
             return
         }
-        activeCompletions.removeValue(forKey: message.requestID)?.task.cancel()
+        activeCompletions.removeValue(forKey: cancellation.operationID)?.task.cancel()
     }
 
     private func finishCompletion(
@@ -423,8 +422,8 @@ final class MacRemoteAccessController {
         sessionID: String,
         operationID: String
     ) {
-        guard activeCompletions[requestID]?.operationID == operationID else { return }
-        activeCompletions.removeValue(forKey: requestID)
+        guard activeCompletions[operationID]?.requestID == requestID else { return }
+        activeCompletions.removeValue(forKey: operationID)
         guard let response,
               let payload = try? JSONEncoder().encode(response) else { return }
         send(RemoteMessage(
@@ -578,7 +577,10 @@ final class MacRemoteAccessController {
             pendingSnapshot: nil
         )
         if let payload = try? JSONEncoder().encode(RemoteCapabilities(
-            values: [RemoteCapabilities.relayCompletion]
+            values: [
+                RemoteCapabilities.relayCompletion,
+                RemoteCapabilities.relayHistory
+            ]
         )) {
             send(RemoteMessage(
                 kind: .capabilities,
@@ -653,7 +655,12 @@ final class MacRemoteAccessController {
     }
 
     private func detach(requestID: String) {
-        activeCompletions.removeValue(forKey: requestID)?.task.cancel()
+        let operationIDs = activeCompletions.compactMap { operationID, completion in
+            completion.requestID == requestID ? operationID : nil
+        }
+        for operationID in operationIDs {
+            activeCompletions.removeValue(forKey: operationID)?.task.cancel()
+        }
         bridges.removeValue(forKey: requestID)?.session.stop()
     }
 

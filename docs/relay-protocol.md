@@ -19,20 +19,21 @@ daemon's canonical screen and grid size. Older phones ignore this additive
 message; newer phones use it to render full-screen programs without taking PTY
 resize authority from the Mac.
 
-After a terminal attach, a Mac may advertise the `relay-completion-v1`
-capability. A client must not send completion work until it receives that
-capability for the current connection. Completion uses the attached terminal's
-existing WebSocket and request ID:
+After a terminal attach, a Mac may advertise the `relay-completion-v1` and
+`relay-history-v1` capabilities. A client must not send work until it receives
+the corresponding capability for the current connection. Both use the attached
+terminal's existing WebSocket and request ID:
 
 - `completionRequest` contains a unique operation ID, one of
-  `complete-commands`, `complete-path`, or `run-generator`, and an opaque JSON
-  payload for the bundled `portal-session-bridge`.
+  `complete-commands`, `complete-path`, `run-generator`, `history-query`,
+  `history-record`, or `history-clear`, and an opaque JSON payload for the
+  bundled `portal-session-bridge`.
 - `completionResponse` returns the same operation ID with either an opaque JSON
   payload or an error.
 - `completionCancel` identifies work that the Mac should terminate.
 
-The Mac accepts completion only for a matching attached session, enforces
-request and response limits, and invokes only those three bridge subcommands.
+The Mac accepts work only for a matching attached session, enforces request and
+response limits, and invokes only those six bridge subcommands.
 Command discovery is prefetched and cached per connection. Path and generator
 completion each require one request/response exchange; reconnecting drops the
 cache. Superseded generator requests are cancelled and late responses are

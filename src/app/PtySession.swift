@@ -827,6 +827,27 @@ final class PtySession {
         return try output()
     }
 
+    static func runLocalBridgeSubcommand(
+        arguments: [String],
+        input: Data,
+        timeout: TimeInterval = 5
+    ) throws -> Data {
+        guard let process = makeLocalBridgeProcess(namespace: .canonical) else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(ENOENT),
+                userInfo: [NSLocalizedDescriptionKey: "Vaultty session bridge was not found"]
+            )
+        }
+        process.arguments = arguments
+        let inputPipe = Pipe()
+        process.standardInput = inputPipe
+        let output = try runProcess(process, timeout: timeout)
+        try writeAll(input, to: inputPipe.fileHandleForWriting.fileDescriptor)
+        try inputPipe.fileHandleForWriting.close()
+        return try output()
+    }
+
     private static func runSSHCommand(host: SSHHostRecord, command: String, batchMode: Bool) throws -> Data {
         let process = makeSSHProcess(host: host, command: command, batchMode: batchMode)
         let output = try runProcess(process)

@@ -13,7 +13,7 @@ public enum RemoteTerminalEvent: Equatable, Sendable {
     case snapshot(RemoteTerminalSnapshot)
     case size(RemoteTerminalSize)
     case presence(Int)
-    case completionAvailabilityChanged(Bool)
+    case capabilitiesChanged(Set<String>)
 }
 
 public enum RemoteTerminalCommand: Equatable, Sendable {
@@ -189,7 +189,7 @@ public actor RemoteTerminalSessionClient {
         timeout: TimeInterval
     ) async throws -> Data {
         guard state == .attached else { throw RemoteTerminalSessionError.notAttached }
-        guard capabilities.contains(RemoteCapabilities.relayCompletion) else {
+        guard capabilities.contains(operation.requiredCapability) else {
             throw RemoteTerminalSessionError.completionUnavailable
         }
         guard payload.count <= RemoteCompletionRequest.maximumPayloadSize else {
@@ -310,9 +310,7 @@ public actor RemoteTerminalSessionClient {
                       )
                 else { throw RemoteTerminalSessionError.invalidResponse }
                 capabilities = Set(advertised.values)
-                return .completionAvailabilityChanged(
-                    capabilities.contains(RemoteCapabilities.relayCompletion)
-                )
+                return .capabilitiesChanged(capabilities)
             case .completionResponse:
                 guard let payload = message.payload,
                       let response = try? JSONDecoder().decode(
@@ -338,12 +336,12 @@ public actor RemoteTerminalSessionClient {
         retryDelayNanoseconds: UInt64
     ) async {
         state = .reconnecting
-        let hadCompletion = capabilities.contains(RemoteCapabilities.relayCompletion)
+        let previousCapabilities = capabilities
         capabilities.removeAll()
         failAllCompletions()
         await transport.disconnect()
-        if hadCompletion {
-            await handle(.completionAvailabilityChanged(false))
+        if !previousCapabilities.isEmpty {
+            await handle(.capabilitiesChanged([]))
         }
         await handle(.connection(.reconnecting))
         try? await Task.sleep(nanoseconds: retryDelayNanoseconds)

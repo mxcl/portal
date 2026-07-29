@@ -70,6 +70,7 @@ public enum RemoteClientRole: String, Codable, Equatable, Sendable {
 
 public struct RemoteCapabilities: Codable, Equatable, Sendable {
     public static let relayCompletion = "relay-completion-v1"
+    public static let relayHistory = "relay-history-v1"
 
     public var values: [String]
 
@@ -82,6 +83,18 @@ public enum RemoteCompletionOperation: String, Codable, CaseIterable, Sendable {
     case completeCommands = "complete-commands"
     case completePath = "complete-path"
     case runGenerator = "run-generator"
+    case queryHistory = "history-query"
+    case recordHistory = "history-record"
+    case clearHistory = "history-clear"
+
+    public var requiredCapability: String {
+        switch self {
+        case .completeCommands, .completePath, .runGenerator:
+            RemoteCapabilities.relayCompletion
+        case .queryHistory, .recordHistory, .clearHistory:
+            RemoteCapabilities.relayHistory
+        }
+    }
 }
 
 public struct RemoteCompletionRequest: Codable, Equatable, Sendable {

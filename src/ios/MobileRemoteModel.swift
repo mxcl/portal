@@ -42,6 +42,17 @@ private struct MobilePathCompletionRequest: Encodable {
     let foldersOnly: Bool
 }
 
+private struct MobileHistoryQueryRequest: Encodable {
+    let cwd: String
+    let prefix: String
+    let limit: Int
+}
+
+private struct MobileHistoryRecordRequest: Encodable {
+    let command: String
+    let cwd: String
+}
+
 @MainActor
 @Observable
 public final class MobileRemoteModel {
@@ -70,11 +81,18 @@ public final class MobileRemoteModel {
     private var targetSession: RemoteCatalogSession?
     private var targetMac: RemoteMac?
     private var supportsCompletion = false
+    private var supportsHistory = false
     private var commandCompletions: [MobileCompletionSuggestion] = []
     private var completionOperation: RemoteCompletionOperation?
     private var completionPrefix = ""
     private var completionIsCommand = true
     private var completionTask: Task<Void, Never>?
+    private var historyTask: Task<Void, Never>?
+    private var completionInput = ""
+    private var standardSuggestions: [MobileCompletionSuggestion] = []
+    private var historySuggestions: [MobileCompletionSuggestion] = []
+    private var submittedCommands: [String] = []
+    private var observedBlockIDs = Set<UUID>()
     public init(endpoint: URL = URL(string: "https://vaultty-relay.mxcl.dev")!) {
         self.endpoint = endpoint
         if let existing = UserDefaults.standard.string(forKey: "vaulttyRemotePeerID") {
@@ -184,6 +202,9 @@ public final class MobileRemoteModel {
     }
 
     public func submit(_ command: String) {
+        if command.first != " " {
+            submittedCommands.append(command)
+        }
         send(.submit(command))
     }
 
@@ -192,14 +213,22 @@ public final class MobileRemoteModel {
     }
 
     public func complete(_ input: String, cwd: String) {
+        completionInput = input
         completionPrefix = input.lastIndex(where: \.isWhitespace)
             .map { String(input[input.index(after: $0)...]) } ?? input
         completionIsCommand = !input.contains(where: \.isWhitespace)
+        standardSuggestions = []
+        historySuggestions = []
         completionSuggestions = []
         isCompleting = !input.isEmpty
         guard !input.isEmpty else {
             cancelRemoteCompletion()
+            historyTask?.cancel()
+            historyTask = nil
             return
+        }
+        if input.count >= 2 {
+            requestHistory(input, cwd: cwd)
         }
         guard supportsCompletion else { return }
 
@@ -225,8 +254,38 @@ public final class MobileRemoteModel {
         }
     }
 
+    public func searchHistory(_ input: String, cwd: String) {
+        completionInput = input
+        completionPrefix = input
+        completionIsCommand = !input.contains(where: \.isWhitespace)
+        standardSuggestions = []
+        historySuggestions = []
+        completionSuggestions = []
+        isCompleting = true
+        cancelRemoteCompletion()
+        requestHistory(input, cwd: cwd)
+    }
+
+    public func clearHistory() async -> Bool {
+        guard supportsHistory, let client else { return false }
+        do {
+            _ = try await client.complete(
+                operation: .clearHistory,
+                payload: Data("{}".utf8),
+                timeout: 2
+            )
+            historySuggestions = []
+            mergeSuggestions()
+            return true
+        } catch {
+            return false
+        }
+    }
+
     public func cancelCompletion() {
         cancelRemoteCompletion()
+        historyTask?.cancel()
+        historyTask = nil
         completionSuggestions = []
         isCompleting = false
     }
@@ -307,10 +366,17 @@ public final class MobileRemoteModel {
             connectionState = .attached
         case .connection(.reconnecting):
             connectionState = .reconnecting
-        case .output(let data), .history(let data):
+        case .output(let data):
             appendChunk(data)
             if let text = String(data: data, encoding: .utf8) {
                 transcript.consume(text)
+                recordCompletedSubmissionIfNeeded()
+            }
+        case .history(let data):
+            appendChunk(data)
+            if let text = String(data: data, encoding: .utf8) {
+                transcript.consume(text)
+                observedBlockIDs.formUnion(transcript.blocks.map(\.id))
             }
         case .snapshot(let snapshot):
             terminalSize = RemoteTerminalSize(rows: snapshot.rows, cols: snapshot.cols)
@@ -319,8 +385,9 @@ public final class MobileRemoteModel {
             terminalSize = size
         case .presence(let count):
             presenceCount = count
-        case .completionAvailabilityChanged(let available):
-            supportsCompletion = available
+        case .capabilitiesChanged(let capabilities):
+            supportsCompletion = capabilities.contains(RemoteCapabilities.relayCompletion)
+            supportsHistory = capabilities.contains(RemoteCapabilities.relayHistory)
             if supportsCompletion {
                 if isCompleting {
                     completeCurrentInput(cwd: targetSession?.cwd ?? "/")
@@ -333,6 +400,14 @@ public final class MobileRemoteModel {
             } else {
                 cancelRemoteCompletion()
             }
+            if supportsHistory,
+               isCompleting,
+               completionInput.isEmpty || completionInput.count >= 2 {
+                requestHistory(
+                    completionInput,
+                    cwd: transcript.currentCwd ?? targetSession?.cwd ?? "/"
+                )
+            }
         }
     }
 
@@ -341,6 +416,27 @@ public final class MobileRemoteModel {
         nextChunkID &+= 1
         if chunks.count > 2_000 {
             chunks.removeFirst(chunks.count - 2_000)
+        }
+    }
+
+    private func recordCompletedSubmissionIfNeeded() {
+        guard let client else { return }
+        for block in transcript.blocks where !observedBlockIDs.contains(block.id) {
+            guard case .completed(let status) = block.state else { continue }
+            observedBlockIDs.insert(block.id)
+            guard block.command == submittedCommands.first else { continue }
+            submittedCommands.removeFirst()
+            guard status == 0, let cwd = block.cwd else { continue }
+            guard let input = try? JSONEncoder().encode(
+                MobileHistoryRecordRequest(command: block.command, cwd: cwd)
+            ) else { continue }
+            Task {
+                _ = try? await client.complete(
+                    operation: .recordHistory,
+                    payload: input,
+                    timeout: 2
+                )
+            }
         }
     }
 
@@ -414,13 +510,14 @@ public final class MobileRemoteModel {
                 showCommandCompletions()
             }
         } else {
-            completionSuggestions = Array(decoded.suggestions.prefix(8))
+            standardSuggestions = decoded.suggestions
+            mergeSuggestions()
             isCompleting = false
         }
     }
 
     private func showCommandCompletions() {
-        completionSuggestions = Array(commandCompletions
+        standardSuggestions = commandCompletions
             .filter {
                 completionPrefix.isEmpty ||
                     $0.displayText.range(
@@ -429,8 +526,50 @@ public final class MobileRemoteModel {
                     ) != nil
             }
             .sorted { $0.displayText.localizedStandardCompare($1.displayText) == .orderedAscending }
-            .prefix(8))
+        mergeSuggestions()
         isCompleting = false
+    }
+
+    private func requestHistory(_ input: String, cwd: String) {
+        guard supportsHistory,
+              let client,
+              let payload = try? JSONEncoder().encode(
+                MobileHistoryQueryRequest(cwd: cwd, prefix: input, limit: 256)
+              )
+        else { return }
+        historyTask?.cancel()
+        historyTask = Task { [weak self] in
+            do {
+                let output = try await client.complete(
+                    operation: .queryHistory,
+                    payload: payload,
+                    timeout: 2
+                )
+                guard !Task.isCancelled,
+                      let decoded = try? JSONDecoder().decode(
+                        MobileCompletionResponse.self,
+                        from: output
+                      ),
+                      self?.completionInput == input
+                else { return }
+                self?.historySuggestions = decoded.suggestions
+                self?.mergeSuggestions()
+                self?.isCompleting = false
+            } catch is CancellationError {
+                return
+            } catch {
+                self?.isCompleting = false
+            }
+        }
+    }
+
+    private func mergeSuggestions() {
+        let exact = historySuggestions.filter { $0.priority == 100 }
+        let elsewhere = historySuggestions.filter { $0.priority != 100 }
+        var seen = Set<String>()
+        completionSuggestions = Array((exact + standardSuggestions + elsewhere)
+            .filter { seen.insert($0.insertText).inserted }
+            .prefix(8))
     }
 
     private func cancelRemoteCompletion() {
@@ -441,8 +580,15 @@ public final class MobileRemoteModel {
 
     private func resetCompletion() {
         cancelRemoteCompletion()
+        historyTask?.cancel()
+        historyTask = nil
         supportsCompletion = false
+        supportsHistory = false
         commandCompletions = []
+        standardSuggestions = []
+        historySuggestions = []
+        submittedCommands = []
+        observedBlockIDs = []
         completionSuggestions = []
         isCompleting = false
     }

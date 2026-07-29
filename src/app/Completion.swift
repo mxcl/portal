@@ -13,6 +13,7 @@ struct CompletionRequest {
     let limit: Int
     let cancellation: CompletionCancellation
     let relayProvider: RelayCompletionProvider?
+    let includesHistory: Bool
 }
 
 struct CompletionResult {
@@ -24,6 +25,7 @@ struct CompletionResult {
 
 struct CompletionSuggestion {
     enum Kind {
+        case history
         case command
         case subcommand
         case option
@@ -38,6 +40,25 @@ struct CompletionSuggestion {
     let kind: Kind
     let priority: Int
     let source: String
+    let replacementRange: NSRange?
+
+    init(
+        displayText: String,
+        insertText: String,
+        description: String?,
+        kind: Kind,
+        priority: Int,
+        source: String,
+        replacementRange: NSRange? = nil
+    ) {
+        self.displayText = displayText
+        self.insertText = insertText
+        self.description = description
+        self.kind = kind
+        self.priority = priority
+        self.source = source
+        self.replacementRange = replacementRange
+    }
 }
 
 private struct BridgePathCompletionRequest: Encodable {
@@ -61,6 +82,17 @@ private struct BridgeGeneratorRequest: Encodable {
     let environment: [EnvironmentPair]
     let timeoutMs: Int
     let outputLimit: Int
+}
+
+private struct BridgeHistoryQueryRequest: Encodable {
+    let cwd: String
+    let prefix: String
+    let limit: Int
+}
+
+private struct BridgeHistoryRecordRequest: Encodable {
+    let command: String
+    let cwd: String
 }
 
 private struct BridgeCompletionResponse: Decodable {
@@ -114,7 +146,8 @@ final class RelayCompletionProvider: @unchecked Sendable {
     private var client: RemoteTerminalSessionClient?
     private var generation = UUID().uuidString
     private var revision = 0
-    private var isSupported = false
+    private var completionSupported = false
+    private var historySupported = false
     private var commandData: Data?
     private var commandTask: Task<Data?, Never>?
 
@@ -128,25 +161,27 @@ final class RelayCompletionProvider: @unchecked Sendable {
             self.client = client
             generation = UUID().uuidString
             revision = 0
-            isSupported = false
+            completionSupported = false
+            historySupported = false
             commandData = nil
             commandTask = nil
         }
     }
 
     func enable(_ capabilities: Set<String>) {
-        guard capabilities.contains(RemoteCapabilities.relayCompletion),
-              let input = try? JSONEncoder().encode(
-                BridgeCommandCompletionRequest(prefix: "")
-              )
-        else { return }
-
         let state: (RemoteTerminalSessionClient, String)? = lock.withLock {
-            guard !isSupported, let client else { return nil }
-            isSupported = true
+            historySupported = capabilities.contains(RemoteCapabilities.relayHistory)
+            guard capabilities.contains(RemoteCapabilities.relayCompletion),
+                  !completionSupported,
+                  let client
+            else { return nil }
+            completionSupported = true
             return (client, generation)
         }
         guard let (client, generation) = state else { return }
+        guard let input = try? JSONEncoder().encode(
+            BridgeCommandCompletionRequest(prefix: "")
+        ) else { return }
         let task = Task {
             try? await client.complete(
                 operation: .completeCommands,
@@ -173,7 +208,8 @@ final class RelayCompletionProvider: @unchecked Sendable {
             client = nil
             generation = UUID().uuidString
             revision = 0
-            isSupported = false
+            completionSupported = false
+            historySupported = false
             commandData = nil
             commandTask = nil
         }
@@ -202,7 +238,12 @@ final class RelayCompletionProvider: @unchecked Sendable {
         }
 
         let client: RemoteTerminalSessionClient? = lock.withLock {
-            isSupported ? self.client : nil
+            let supported = switch operation.requiredCapability {
+            case RemoteCapabilities.relayCompletion: completionSupported
+            case RemoteCapabilities.relayHistory: historySupported
+            default: false
+            }
+            return supported ? self.client : nil
         }
         guard let client else { return nil }
         let task = Task {
@@ -727,6 +768,7 @@ private final class CompletionListView: NSView {
 private extension CompletionSuggestion.Kind {
     var label: String {
         switch self {
+        case .history: return "history"
         case .command: return "cmd"
         case .subcommand: return "subcmd"
         case .option: return "option"
@@ -778,6 +820,65 @@ final class VaulttyCompletionEngine {
     private var commandCache: [String: [CompletionSuggestion]] = [:]
 
     func completions(for request: CompletionRequest) -> CompletionResult {
+        let standard = standardCompletions(for: request)
+        guard request.includesHistory,
+              request.cursorOffset == (request.input as NSString).length
+        else {
+            return standard
+        }
+
+        let history = historySuggestions(for: request)
+        guard !history.isEmpty else { return standard }
+        let exact = history.filter { $0.priority == 100 }
+        let elsewhere = history.filter { $0.priority != 100 }
+        var seen = Set<String>()
+        let suggestions = (exact + standard.suggestions + elsewhere)
+            .filter { seen.insert($0.insertText).inserted }
+            .limited(to: request.limit)
+        return CompletionResult(
+            replacementRange: standard.replacementRange,
+            suggestions: suggestions,
+            commonPrefix: nil,
+            diagnostics: standard.diagnostics
+        )
+    }
+
+    func recordSuccessfulCommand(
+        _ command: String,
+        cwd: String,
+        location: SessionLocation,
+        relayProvider: RelayCompletionProvider?
+    ) {
+        guard let input = try? JSONEncoder().encode(
+            BridgeHistoryRecordRequest(command: command, cwd: cwd)
+        ) else { return }
+        _ = runHostBridge(
+            operation: .recordHistory,
+            input: input,
+            location: location,
+            relayProvider: relayProvider,
+            timeout: 2,
+            cancellation: CompletionCancellation()
+        )
+    }
+
+    @discardableResult
+    func clearHistory(
+        location: SessionLocation,
+        relayProvider: RelayCompletionProvider?
+    ) -> Bool {
+        guard let input = try? JSONEncoder().encode([String: String]()) else { return false }
+        return runHostBridge(
+            operation: .clearHistory,
+            input: input,
+            location: location,
+            relayProvider: relayProvider,
+            timeout: 2,
+            cancellation: CompletionCancellation()
+        ) != nil
+    }
+
+    private func standardCompletions(for request: CompletionRequest) -> CompletionResult {
         let parsed = ShellCompletionParser.parse(input: request.input, cursorOffset: request.cursorOffset)
         var diagnostics: [String] = []
 
@@ -847,6 +948,74 @@ final class VaulttyCompletionEngine {
             commonPrefix: commonPrefix(for: deduped, strippingTrailingSpace: false),
             diagnostics: diagnostics
         )
+    }
+
+    private func historySuggestions(for request: CompletionRequest) -> [CompletionSuggestion] {
+        guard let input = try? JSONEncoder().encode(BridgeHistoryQueryRequest(
+            cwd: request.cwd,
+            prefix: request.input,
+            limit: request.limit
+        )),
+        let output = runHostBridge(
+            operation: .queryHistory,
+            input: input,
+            location: request.location,
+            relayProvider: request.relayProvider,
+            timeout: 2,
+            cancellation: request.cancellation
+        ),
+        let response = try? JSONDecoder().decode(BridgeCompletionResponse.self, from: output)
+        else {
+            return []
+        }
+        let range = NSRange(location: 0, length: (request.input as NSString).length)
+        return response.suggestions.map { bridge in
+            CompletionSuggestion(
+                displayText: bridge.displayText,
+                insertText: bridge.insertText,
+                description: bridge.description,
+                kind: .history,
+                priority: bridge.priority,
+                source: bridge.source,
+                replacementRange: range
+            )
+        }
+    }
+
+    private func runHostBridge(
+        operation: RemoteCompletionOperation,
+        input: Data,
+        location: SessionLocation,
+        relayProvider: RelayCompletionProvider?,
+        timeout: TimeInterval,
+        cancellation: CompletionCancellation
+    ) -> Data? {
+        do {
+            switch location {
+            case .local:
+                return try PtySession.runLocalBridgeSubcommand(
+                    arguments: [operation.rawValue],
+                    input: input,
+                    timeout: timeout
+                )
+            case .sshHost(let hostID):
+                return try PtySession.runSSHBridgeSubcommand(
+                    hostID: hostID,
+                    arguments: [operation.rawValue],
+                    input: input,
+                    timeout: timeout
+                )
+            case .relayMac:
+                return relayProvider?.run(
+                    operation: operation,
+                    input: input,
+                    timeout: timeout,
+                    cancellation: cancellation
+                )
+            }
+        } catch {
+            return nil
+        }
     }
 
     private func emptyResult(range: NSRange) -> CompletionResult {
@@ -1453,6 +1622,8 @@ final class VaulttyCompletionEngine {
 
     private func completionKind(from value: String) -> CompletionSuggestion.Kind {
         switch value {
+        case "history":
+            return .history
         case "command":
             return .command
         case "subcommand":

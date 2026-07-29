@@ -4451,6 +4451,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             updateActiveTabCutoutFrame()
         }
         persistSessionState()
+        configureSessionPickerIfPossible()
         return true
     }
 

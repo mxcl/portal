@@ -1,15 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::OsString;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::Shutdown;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +29,7 @@ fn main() -> io::Result<()> {
         }
         Some("--capabilities") => {
             println!("completion-v1");
+            println!("history-v1");
             println!("git-status-v1");
             println!("{}", session_protocol_capability()?);
             Ok(())
@@ -35,10 +37,13 @@ fn main() -> io::Result<()> {
         Some("complete-path") => complete_path_stdio(),
         Some("complete-commands") => complete_commands_stdio(),
         Some("run-generator") => run_generator_stdio(),
+        Some("history-query") => history_query_stdio(),
+        Some("history-record") => history_record_stdio(),
+        Some("history-clear") => history_clear_stdio(),
         Some("git-status") => git_status_stdio(),
         Some(arg) => {
             eprintln!(
-                "usage: portal-session-bridge [--version|--socket-path|--capabilities|complete-path|complete-commands|run-generator|git-status]"
+                "usage: portal-session-bridge [--version|--socket-path|--capabilities|complete-path|complete-commands|run-generator|history-query|history-record|history-clear|git-status]"
             );
             eprintln!("unexpected argument: {arg}");
             std::process::exit(64);
@@ -124,6 +129,48 @@ struct GitStatusSummary {
     deletions: i32,
 }
 
+const HISTORY_VERSION: u16 = 1;
+const HISTORY_LIMIT: usize = 10_000;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HistoryQueryRequest {
+    cwd: String,
+    prefix: String,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HistoryRecordRequest {
+    command: String,
+    cwd: String,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+struct HistoryStore {
+    #[serde(default = "history_version")]
+    version: u16,
+    #[serde(default)]
+    entries: Vec<HistoryEntry>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HistoryEntry {
+    command: String,
+    cwd: String,
+    use_count: u64,
+    last_used_ms: u64,
+    last_used_day: i32,
+}
+
+#[derive(Serialize)]
+struct EmptyResponse {}
+
+fn history_version() -> u16 {
+    HISTORY_VERSION
+}
+
 fn complete_path_stdio() -> io::Result<()> {
     let request: PathCompletionRequest = read_json_stdin()?;
     write_json_stdout(&CompletionResponse {
@@ -146,6 +193,251 @@ fn run_generator_stdio() -> io::Result<()> {
 fn git_status_stdio() -> io::Result<()> {
     let request: GitStatusRequest = read_json_stdin()?;
     write_json_stdout(&git_status(&request))
+}
+
+fn history_query_stdio() -> io::Result<()> {
+    let request: HistoryQueryRequest = read_json_stdin()?;
+    let path = history_path()?;
+    let _lock = HistoryLock::acquire(&path, libc::LOCK_SH)?;
+    let store = read_history(&path)?;
+    write_json_stdout(&CompletionResponse {
+        suggestions: history_suggestions(&store, &request),
+    })
+}
+
+fn history_record_stdio() -> io::Result<()> {
+    let request: HistoryRecordRequest = read_json_stdin()?;
+    if request.command.is_empty() || request.cwd.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "history command and cwd are required",
+        ));
+    }
+    let path = history_path()?;
+    let _lock = HistoryLock::acquire(&path, libc::LOCK_EX)?;
+    let mut store = read_history(&path)?;
+    record_history(&mut store, request.command, request.cwd, SystemTime::now())?;
+    write_history(&path, &store)?;
+    write_json_stdout(&EmptyResponse {})
+}
+
+fn history_clear_stdio() -> io::Result<()> {
+    let path = history_path()?;
+    let _lock = HistoryLock::acquire(&path, libc::LOCK_EX)?;
+    match fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    write_json_stdout(&EmptyResponse {})
+}
+
+fn history_suggestions(
+    store: &HistoryStore,
+    request: &HistoryQueryRequest,
+) -> Vec<CompletionSuggestion> {
+    let mut entries = store
+        .entries
+        .iter()
+        .filter(|entry| entry.command.starts_with(&request.prefix))
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| {
+        let left_exact = left.cwd == request.cwd;
+        let right_exact = right.cwd == request.cwd;
+        right_exact
+            .cmp(&left_exact)
+            .then_with(|| right.last_used_day.cmp(&left.last_used_day))
+            .then_with(|| right.use_count.cmp(&left.use_count))
+            .then_with(|| right.last_used_ms.cmp(&left.last_used_ms))
+            .then_with(|| left.command.cmp(&right.command))
+    });
+    entries
+        .into_iter()
+        .take(request.limit.unwrap_or(256).clamp(1, 256))
+        .map(|entry| CompletionSuggestion {
+            display_text: entry.command.clone(),
+            insert_text: entry.command.clone(),
+            description: Some(abbreviate_home(&entry.cwd)),
+            kind: "history",
+            priority: if entry.cwd == request.cwd { 100 } else { 10 },
+            source: entry.cwd.clone(),
+            is_executable: false,
+        })
+        .collect()
+}
+
+fn record_history(
+    store: &mut HistoryStore,
+    command: String,
+    cwd: String,
+    now: SystemTime,
+) -> io::Result<()> {
+    let last_used_ms = now
+        .duration_since(UNIX_EPOCH)
+        .map_err(io::Error::other)?
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX);
+    let last_used_day = local_day(last_used_ms)?;
+    if let Some(entry) = store
+        .entries
+        .iter_mut()
+        .find(|entry| entry.command == command && entry.cwd == cwd)
+    {
+        entry.use_count = entry.use_count.saturating_add(1);
+        entry.last_used_ms = last_used_ms;
+        entry.last_used_day = last_used_day;
+    } else {
+        store.entries.push(HistoryEntry {
+            command,
+            cwd,
+            use_count: 1,
+            last_used_ms,
+            last_used_day,
+        });
+    }
+    if store.entries.len() > HISTORY_LIMIT {
+        store.entries.sort_by_key(|entry| entry.last_used_ms);
+        store.entries.drain(..store.entries.len() - HISTORY_LIMIT);
+    }
+    store.version = HISTORY_VERSION;
+    Ok(())
+}
+
+fn local_day(milliseconds: u64) -> io::Result<i32> {
+    let seconds: libc::time_t = (milliseconds / 1_000)
+        .try_into()
+        .map_err(|_| io::Error::other("history timestamp is out of range"))?;
+    let mut local = std::mem::MaybeUninit::<libc::tm>::uninit();
+    let result = unsafe { libc::localtime_r(&seconds, local.as_mut_ptr()) };
+    if result.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    let local = unsafe { local.assume_init() };
+    Ok(local
+        .tm_year
+        .saturating_mul(366)
+        .saturating_add(local.tm_yday))
+}
+
+fn abbreviate_home(path: &str) -> String {
+    let Some(home) = env::var_os("HOME") else {
+        return path.to_owned();
+    };
+    let home = home.to_string_lossy();
+    if path == home {
+        "~".to_owned()
+    } else if let Some(rest) = path.strip_prefix(&format!("{home}/")) {
+        format!("~/{rest}")
+    } else {
+        path.to_owned()
+    }
+}
+
+fn history_path() -> io::Result<PathBuf> {
+    if let Some(path) = env::var_os("VAULTTY_HISTORY_PATH") {
+        return Ok(PathBuf::from(path));
+    }
+    let home = env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME is required for history"))?;
+    #[cfg(target_os = "macos")]
+    {
+        return Ok(home
+            .join("Library")
+            .join("Application Support")
+            .join("Vaultty")
+            .join("history.json"));
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let state_home = env::var_os("XDG_STATE_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".local").join("state"));
+        Ok(state_home.join("vaultty").join("history.json"))
+    }
+}
+
+fn read_history(path: &Path) -> io::Result<HistoryStore> {
+    match fs::read(path) {
+        Ok(data) => {
+            let store: HistoryStore = serde_json::from_slice(&data).map_err(invalid_input)?;
+            if store.version != HISTORY_VERSION {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("unsupported history version {}", store.version),
+                ));
+            }
+            Ok(store)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(HistoryStore {
+            version: HISTORY_VERSION,
+            entries: Vec::new(),
+        }),
+        Err(error) => Err(error),
+    }
+}
+
+fn write_history(path: &Path, store: &HistoryStore) -> io::Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "history path has no parent"))?;
+    fs::create_dir_all(parent)?;
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+    let temp = parent.join(format!(
+        ".history-{}-{}.tmp",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temp)?;
+        serde_json::to_writer(&mut file, store).map_err(io::Error::other)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        fs::rename(&temp, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
+struct HistoryLock(File);
+
+impl HistoryLock {
+    fn acquire(history_path: &Path, operation: libc::c_int) -> io::Result<Self> {
+        let lock_path = history_path.with_extension("lock");
+        let parent = lock_path.parent().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "history lock has no parent")
+        })?;
+        fs::create_dir_all(parent)?;
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .mode(0o600)
+            .open(lock_path)?;
+        if unsafe { libc::flock(file.as_raw_fd(), operation) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self(file))
+    }
+}
+
+impl Drop for HistoryLock {
+    fn drop(&mut self) {
+        unsafe {
+            libc::flock(self.0.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
 }
 
 fn read_json_stdin<T: for<'de> Deserialize<'de>>() -> io::Result<T> {
@@ -1042,6 +1334,72 @@ mod tests {
         let suggestions =
             complete_commands_from_path(Some(OsString::from(temp.path.as_os_str())), "vault-");
         assert_eq!(names(&suggestions), vec!["vault-command"]);
+    }
+
+    #[test]
+    fn history_deduplicates_and_ranks_exact_cwd_by_day_count_and_recency() {
+        let mut store = HistoryStore {
+            version: HISTORY_VERSION,
+            entries: Vec::new(),
+        };
+        let base = UNIX_EPOCH + Duration::from_secs(10 * 24 * 60 * 60);
+        record_history(
+            &mut store,
+            "git status".to_owned(),
+            "/repo".to_owned(),
+            base,
+        )
+        .expect("history should record");
+        record_history(
+            &mut store,
+            "git status".to_owned(),
+            "/repo".to_owned(),
+            base + Duration::from_secs(1),
+        )
+        .expect("history should deduplicate");
+        record_history(
+            &mut store,
+            "git switch main".to_owned(),
+            "/repo".to_owned(),
+            base + Duration::from_secs(2),
+        )
+        .expect("history should record");
+        record_history(
+            &mut store,
+            "git log".to_owned(),
+            "/other".to_owned(),
+            base + Duration::from_secs(3 * 24 * 60 * 60),
+        )
+        .expect("history should record");
+
+        let suggestions = history_suggestions(
+            &store,
+            &HistoryQueryRequest {
+                cwd: "/repo".to_owned(),
+                prefix: "git ".to_owned(),
+                limit: None,
+            },
+        );
+
+        assert_eq!(
+            suggestions
+                .iter()
+                .map(|suggestion| suggestion.display_text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["git status", "git switch main", "git log"]
+        );
+        assert_eq!(store.entries.len(), 3);
+        assert!(
+            history_suggestions(
+                &store,
+                &HistoryQueryRequest {
+                    cwd: "/repo".to_owned(),
+                    prefix: "Git".to_owned(),
+                    limit: None,
+                }
+            )
+            .is_empty()
+        );
     }
 
     #[test]

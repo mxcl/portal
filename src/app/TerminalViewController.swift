@@ -2544,7 +2544,6 @@ private final class PtyPassthroughView: NSView {
     var onInput: ((String) -> Void)?
     var onInterrupt: (() -> Void)?
     var usesApplicationCursorKeys: (() -> Bool)?
-    var usesPagerKeyBindings = false
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -2615,25 +2614,6 @@ private final class PtyPassthroughView: NSView {
             return "\u{3}"
         }
 
-        if usesPagerKeyBindings {
-            switch event.keyCode {
-            case 126:
-                return "k"
-            case 125:
-                return "j"
-            case 115:
-                return "g"
-            case 119:
-                return "G"
-            case 116:
-                return "b"
-            case 121:
-                return " "
-            default:
-                break
-            }
-        }
-
         // Navigation key character payloads can already contain ESC bytes; use hardware key codes.
         switch event.keyCode {
         case 126:
@@ -2702,7 +2682,7 @@ private final class TerminalOutputProcessor {
     private var activeBlockCwd: String?
     private var isReplayingCommand = false
     private var isReplayingHistoryOutput = false
-    private var usesPagerKeyBindings = false
+    private var usesPagerScreenRendering = false
     private var didSeeAlternateScreenSwitch = false
     private var isAlternateScreenActive = false
     private var isApplicationCursorModeActive = false
@@ -2713,7 +2693,7 @@ private final class TerminalOutputProcessor {
         self.flushDelay = flushDelay
     }
 
-    func resetForCommand(blockID: UUID, cwd: String, usesPagerKeyBindings: Bool) {
+    func resetForCommand(blockID: UUID, cwd: String, usesPagerScreenRendering: Bool) {
         queue.async { [weak self] in
             guard let self else { return }
             self.pendingShellOutput.removeAll(keepingCapacity: true)
@@ -2723,7 +2703,7 @@ private final class TerminalOutputProcessor {
             self.activeBlockID = nil
             self.activeBlockCwd = cwd
             self.isReplayingCommand = false
-            self.usesPagerKeyBindings = usesPagerKeyBindings
+            self.usesPagerScreenRendering = usesPagerScreenRendering
             self.didSeeAlternateScreenSwitch = false
             self.isAlternateScreenActive = false
             self.isApplicationCursorModeActive = false
@@ -2829,7 +2809,7 @@ private final class TerminalOutputProcessor {
         activeBlockID = nil
         activeBlockCwd = nil
         isReplayingCommand = false
-        usesPagerKeyBindings = false
+        usesPagerScreenRendering = false
         didSeeAlternateScreenSwitch = false
         isAlternateScreenActive = false
         isApplicationCursorModeActive = false
@@ -2932,9 +2912,11 @@ private final class TerminalOutputProcessor {
         onSnapshot: (Snapshot) -> Void
     ) {
         guard !text.isEmpty else { return }
-        if isAlternateScreenActive || (usesPagerKeyBindings && !didSeeAlternateScreenSwitch) {
+        if isAlternateScreenActive || (usesPagerScreenRendering && !didSeeAlternateScreenSwitch) {
             consumeScreen(text, blockID: blockID, onSnapshot: onSnapshot)
         } else {
+            let state = terminalScreen.process(text)
+            isApplicationCursorModeActive = state.isApplicationCursorModeActive
             let rendered = styledRenderer.process(text, linkBaseDirectory: activeBlockCwd)
             onSnapshot(snapshot(
                 blockID: blockID,
@@ -2952,7 +2934,7 @@ private final class TerminalOutputProcessor {
         let state = terminalScreen.process(text)
         isAlternateScreenActive = state.isAlternateScreenActive
         isApplicationCursorModeActive = state.isApplicationCursorModeActive
-        if state.isAlternateScreenActive || (usesPagerKeyBindings && !didSeeAlternateScreenSwitch) {
+        if state.isAlternateScreenActive || (usesPagerScreenRendering && !didSeeAlternateScreenSwitch) {
             onSnapshot(snapshot(
                 blockID: blockID,
                 plainText: state.text,
@@ -2983,18 +2965,19 @@ private final class TerminalOutputProcessor {
     }
 
     static func alternateScreenTranscriptSelfTest() -> Bool {
-        func finalOutput(for text: String) -> String? {
+        func finalSnapshot(for text: String) -> Snapshot? {
             let processor = TerminalOutputProcessor()
             let blockID = UUID()
             var last: Snapshot?
             processor.consumeVisible(text, blockID: blockID) { snapshot in
                 last = snapshot
             }
-            return last?.plainText
+            return last
         }
 
-        return finalOutput(for: "before\n\u{1B}[?1049heditor text\u{1B}[?1049lafter\n") == "before\nafter\n"
-            && finalOutput(for: "\u{1B}[?1049heditor text\u{1B}[?1049l") == ""
+        return finalSnapshot(for: "before\n\u{1B}[?1049heditor text\u{1B}[?1049lafter\n")?.plainText == "before\nafter\n"
+            && finalSnapshot(for: "\u{1B}[?1049heditor text\u{1B}[?1049l")?.plainText == ""
+            && finalSnapshot(for: "\u{1B}[?1h\u{1B}=\u{1B}[?1049hpager")?.isApplicationCursorModeActive == true
     }
 
     static func terminalSizeProbeSelfTest() -> Bool {
@@ -3638,10 +3621,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(shellEnvironment["PRESERVED"] == "yes")
         assert(inheritedShellEnvironment(["PAGER": "less"])["PAGER"] == "less")
         assert(inheritedShellEnvironment([:])["GIT_PAGER"] == "less")
-        let gitLogPager = pagerBehavior(for: "git log")
-        assert(gitLogPager.keyBindings && !gitLogPager.screenRendering)
-        let lessPager = pagerBehavior(for: "less README.md")
-        assert(lessPager.keyBindings && lessPager.screenRendering)
     }()
 
     private enum TabClickTarget {
@@ -5121,7 +5100,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         resetTranscriptViews(for: tab)
         setCommandBarStatusText("Rejoining session...", in: tab)
         tab.isTerminalControlActive = false
-        tab.ptyPassthroughView.usesPagerKeyBindings = false
         tab.outputProcessor.resetForReplay()
         configureSession(for: tab)
         configureInterruptHandling(for: tab)
@@ -5481,7 +5459,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 self.stopRunningElapsedUpdates(for: tab)
                 self.updateTabTitleForDirectory(tab)
                 self.stopTtyModePolling(for: tab)
-                tab.ptyPassthroughView.usesPagerKeyBindings = false
                 self.setTerminalControl(false, in: tab)
                 self.updateCommandBarVisibility(for: tab)
             }
@@ -6049,15 +6026,14 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
               let block = tab.blocks.first(where: { $0.id == blockID })
         else { return }
         clearCommandInput(in: tab)
-        let pagerBehavior = Self.pagerBehavior(for: command)
-        tab.ptyPassthroughView.usesPagerKeyBindings = pagerBehavior.keyBindings
+        let usesPagerScreenRendering = usesPagerScreenRendering(for: command)
         updateTabTitle(titleForCommand(command), detail: command, in: tab)
 
         persistSessionState()
         tab.outputProcessor.resetForCommand(
             blockID: block.id,
             cwd: block.cwd,
-            usesPagerKeyBindings: pagerBehavior.screenRendering
+            usesPagerScreenRendering: usesPagerScreenRendering
         )
         addBlockView(block, to: tab)
         updateCommandBarVisibility(for: tab)
@@ -6097,7 +6073,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             ensureBlockView(for: blockID, in: tab)
             updateBlockViewNow(for: blockID, in: tab)
         }
-        tab.ptyPassthroughView.usesPagerKeyBindings = false
         stopTtyModePolling(for: tab)
         stopRunningElapsedUpdates(for: tab)
         setTerminalControl(false, in: tab)
@@ -6235,7 +6210,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 updateBlockViewNow(for: blockID, in: tab)
             }
             stopRunningElapsedUpdates(for: tab)
-            tab.ptyPassthroughView.usesPagerKeyBindings = false
             stopTtyModePolling(for: tab)
             setTerminalControl(false, in: tab)
             updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
@@ -6331,17 +6305,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return "/usr/bin/env"
     }
 
-    private static func pagerBehavior(for command: String) -> (keyBindings: Bool, screenRendering: Bool) {
-        guard let name = commandName(from: command) else { return (false, false) }
-        let directPager = ["less", "man", "more", "most"].contains(name)
-        let gitLog = name == "git"
-            && !command.split(whereSeparator: { $0.isWhitespace }).contains("--no-pager")
-            && command
-                .split(whereSeparator: { $0.isWhitespace })
-                .drop(while: { URL(fileURLWithPath: String($0)).lastPathComponent.lowercased() != "git" })
-                .dropFirst()
-                .first(where: { !$0.hasPrefix("-") }) == "log"
-        return (directPager || gitLog, directPager)
+    private func usesPagerScreenRendering(for command: String) -> Bool {
+        guard let name = commandName(from: command) else { return false }
+        return ["less", "man", "more", "most"].contains(name)
     }
 
     private static func inheritedShellEnvironment(_ environment: [String: String]) -> [String: String] {
@@ -6615,7 +6581,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             .joined(separator: " ")
     }
 
-    private static func commandName(from command: String) -> String? {
+    private func commandName(from command: String) -> String? {
         let wrappers = Set(["builtin", "command", "env", "exec", "noglob", "sudo"])
         for part in command.split(whereSeparator: { $0.isWhitespace }) {
             let token = String(part)
@@ -6888,7 +6854,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         guard !tab.isBlockViewUpdateScheduled else { return }
 
         tab.isBlockViewUpdateScheduled = true
-        let delay = tab.isTerminalControlActive || tab.isAlternateScreenActive || tab.ptyPassthroughView.usesPagerKeyBindings
+        let delay = tab.isTerminalControlActive || tab.isAlternateScreenActive
             ? interactiveBlockViewRenderDelay
             : blockViewRenderDelay
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak tab] in

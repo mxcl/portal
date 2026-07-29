@@ -323,7 +323,7 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
     var onSelectionChanged: ((CompletionSuggestion) -> Void)?
     var onAcceptSuggestion: ((CompletionSuggestion) -> Void)?
     var selectedSuggestion: CompletionSuggestion? {
-        guard suggestions.indices.contains(selectedIndex) else { return nil }
+        guard showsSelection, suggestions.indices.contains(selectedIndex) else { return nil }
         return suggestions[selectedIndex]
     }
 
@@ -357,11 +357,12 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
         suggestions: [CompletionSuggestion],
         relativeTo rect: NSRect,
         of view: NSView,
-        resetSelection: Bool = true
+        resetSelection: Bool = true,
+        selectFirstSuggestion: Bool = true
     ) {
         self.suggestions = suggestions
         selectedIndex = suggestions.isEmpty ? 0 : (resetSelection ? 0 : min(selectedIndex, suggestions.count - 1))
-        self.showsSelection = !suggestions.isEmpty
+        self.showsSelection = selectFirstSuggestion && !suggestions.isEmpty
 
         let contentHeight = CompletionListView.contentHeight(forRowCount: suggestions.count)
         let placement = popupPlacement(for: rect, of: view, contentHeight: contentHeight)
@@ -540,6 +541,13 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
     @discardableResult
     func selectNext() -> CompletionSuggestion? {
         guard !suggestions.isEmpty else { return nil }
+        if !showsSelection {
+            showsSelection = true
+            selectedIndex = 0
+            listView.update(suggestions: suggestions, selectedIndex: selectedIndex)
+            scrollRowToVisible(selectedIndex)
+            return selectedSuggestion
+        }
         showsSelection = true
         selectedIndex = (selectedIndex + 1) % suggestions.count
         listView.update(suggestions: suggestions, selectedIndex: selectedIndex)

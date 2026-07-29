@@ -3959,6 +3959,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                     textView.insertNewlineIgnoringFieldEditor(nil)
                     return true
                 }
+                if completionPopup.selectedSuggestion == nil {
+                    dismissCompletion()
+                    submitCommand(in: tab)
+                    return true
+                }
                 acceptSelectedCompletion(in: tab)
                 return true
             }
@@ -5770,11 +5775,16 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
 
         let anchor = completionAnchorRect(for: tab.inputView, in: tab.commandBarView)
+        let selectFirstSuggestion = result.suggestions.first.map { suggestion in
+            if case .history = suggestion.kind { return false }
+            return true
+        } ?? false
         completionPopup.show(
             suggestions: result.suggestions,
             relativeTo: anchor,
             of: tab.commandBarView,
-            resetSelection: mode != .explicit
+            resetSelection: mode != .explicit,
+            selectFirstSuggestion: selectFirstSuggestion
         )
         let shouldRenderPreview = mode == .explicit || mode == .continuation
         if shouldRenderPreview, let suggestion = completionPopup.selectedSuggestion {
@@ -5814,6 +5824,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func completeFromPopup(in tab: TerminalTab, continuingDirectories: Bool = false) {
+        if completionPopup.selectedSuggestion == nil {
+            _ = completionPopup.selectNext()
+        }
         if insertSharedCompletionPrefixIfAvailable(in: tab) {
             return
         }

@@ -3628,9 +3628,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(TerminalOutputProcessor.alternateScreenTranscriptSelfTest())
         assert(TerminalOutputProcessor.terminalSizeProbeSelfTest())
         assert(SessionPickerView.headerButtonHitTestingSelfTest())
-        assert(usesPagerKeyBindings(for: "git log"))
-        assert(!usesPagerKeyBindings(for: "git status"))
-        assert(!usesPagerKeyBindings(for: "git --no-pager log"))
         let shellEnvironment = inheritedShellEnvironment([
             "PAGER": "cat",
             "GIT_PAGER": "cat",
@@ -6048,7 +6045,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
               let block = tab.blocks.first(where: { $0.id == blockID })
         else { return }
         clearCommandInput(in: tab)
-        let usesPagerKeyBindings = Self.usesPagerKeyBindings(for: command)
+        let usesPagerKeyBindings = usesPagerKeyBindings(for: command)
         tab.ptyPassthroughView.usesPagerKeyBindings = usesPagerKeyBindings
         updateTabTitle(titleForCommand(command), detail: command, in: tab)
 
@@ -6330,19 +6327,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return "/usr/bin/env"
     }
 
-    private static func usesPagerKeyBindings(for command: String) -> Bool {
+    private func usesPagerKeyBindings(for command: String) -> Bool {
         guard let name = commandName(from: command) else { return false }
-        if ["less", "man", "more", "most"].contains(name) {
-            return true
-        }
-        guard name == "git", !command.split(whereSeparator: { $0.isWhitespace }).contains("--no-pager") else {
-            return false
-        }
-        return command
-            .split(whereSeparator: { $0.isWhitespace })
-            .drop(while: { URL(fileURLWithPath: String($0)).lastPathComponent.lowercased() != "git" })
-            .dropFirst()
-            .first(where: { !$0.hasPrefix("-") }) == "log"
+        return ["less", "man", "more", "most"].contains(name)
     }
 
     private static func inheritedShellEnvironment(_ environment: [String: String]) -> [String: String] {
@@ -6616,7 +6603,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             .joined(separator: " ")
     }
 
-    private static func commandName(from command: String) -> String? {
+    private func commandName(from command: String) -> String? {
         let wrappers = Set(["builtin", "command", "env", "exec", "noglob", "sudo"])
         for part in command.split(whereSeparator: { $0.isWhitespace }) {
             let token = String(part)

@@ -482,15 +482,7 @@ impl Session {
     }
 
     fn interrupt(&self) {
-        let mut foreground_process_group: pid_t = 0;
-        let signaled = unsafe {
-            libc::ioctl(self.master_fd, TIOCGPGRP, &mut foreground_process_group) == 0
-                && foreground_process_group > 0
-                && libc::kill(-foreground_process_group, libc::SIGINT) == 0
-        };
-        if !signaled {
-            self.write_input(&[0x03]);
-        }
+        self.write_input(&[0x03]);
     }
 
     fn kill(&self) {
@@ -1205,6 +1197,28 @@ mod tests {
         BASE64.encode(value)
     }
 
+    fn wait_for_history(session: &Session, needle: &[u8], occurrences: usize) -> bool {
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
+            let history = session
+                .terminal
+                .lock()
+                .expect("terminal lock poisoned")
+                .snapshot(MAX_SCROLLBACK_LINES)
+                .history;
+            if history
+                .windows(needle.len())
+                .filter(|bytes| *bytes == needle)
+                .count()
+                >= occurrences
+            {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
     #[test]
     fn parse_attach_accepts_expected_wire_shape() {
         let line = format!(
@@ -1475,26 +1489,46 @@ mod tests {
         );
 
         let expected = format!("__VAULTTY_CHILD__ready:{}", cwd.display());
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        let mut output = Vec::new();
-        while std::time::Instant::now() < deadline {
-            output = session
-                .terminal
-                .lock()
-                .expect("terminal lock poisoned")
-                .snapshot(MAX_SCROLLBACK_LINES)
-                .history;
-            if String::from_utf8_lossy(&output).contains(&expected) {
-                break;
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-
         assert!(
-            String::from_utf8_lossy(&output).contains(&expected),
-            "child did not inherit the prepared cwd and environment: {}",
-            String::from_utf8_lossy(&output)
+            wait_for_history(&session, expected.as_bytes(), 1),
+            "child did not inherit the prepared cwd and environment"
         );
+    }
+
+    #[test]
+    fn interrupt_reaches_raw_mode_programs_as_ctrl_c_input() {
+        let request = AttachRequest {
+            session_id: "interrupt-test".to_owned(),
+            cwd: env::temp_dir(),
+            shell: "/bin/zsh".to_owned(),
+            environment: Vec::new(),
+            protocol_version: CURRENT_PROTOCOL_VERSION,
+            client_role: ClientRole::Mac,
+            allows_creation: true,
+        };
+        let state = Arc::new(DaemonState {
+            sessions: Mutex::new(HashMap::new()),
+        });
+        let session =
+            Session::new(&request, Arc::downgrade(&state)).expect("test session should start");
+        session.write_input(b"unsetopt zle; stty -echo; printf '__VAULTTY_SETUP__\\n'\n");
+        let setup_complete = wait_for_history(&session, b"__VAULTTY_SETUP__", 2);
+        if setup_complete {
+            session.write_input(
+                b"/usr/bin/perl -e '$SIG{INT}=sub {}; system q(stty raw -echo); print qq(__VAULTTY_RAW_READY__\\n); while (!defined sysread(STDIN, $c, 1)) { next if $!{EINTR}; die $! } print qq(__VAULTTY_CTRL_C_RECEIVED__\\n)'\n",
+            );
+        }
+        let ready = setup_complete && wait_for_history(&session, b"__VAULTTY_RAW_READY__", 1);
+        if ready {
+            session.interrupt();
+        }
+        let received_ctrl_c =
+            ready && wait_for_history(&session, b"__VAULTTY_CTRL_C_RECEIVED__", 1);
+        session.kill();
+
+        assert!(setup_complete, "test shell did not finish setup");
+        assert!(ready, "raw-mode test program did not start");
+        assert!(received_ctrl_c, "Ctrl-C was not delivered through the PTY");
     }
 
     #[test]

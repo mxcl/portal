@@ -63,8 +63,8 @@ struct CommandLifecycleTests {
         #expect(!lifecycle.state.isReplayingHistory)
     }
 
-    @Test("interrupt finishes the run and resets terminal modes")
-    func interruptResetsRun() throws {
+    @Test("interrupt waits for the shell to report completion")
+    func interruptWaitsForShellCompletion() throws {
         let lifecycle = CommandLifecycle(cwd: "/repo")
         let submission = lifecycle.apply(.submit(command: "less file", cwd: "/repo", at: .now))
         let blockID = try #require(submission.addedBlockIDs.first)
@@ -77,13 +77,14 @@ struct CommandLifecycleTests {
             isApplicationCursorModeActive: true
         ))
 
-        let change = lifecycle.apply(.interrupt(status: 130, at: .now))
+        let change = lifecycle.apply(.interruptRequested)
 
-        #expect(change.finishedBlockIDs == [blockID])
-        #expect(change.didChangeTerminalMode)
-        #expect(!lifecycle.state.isAlternateScreenActive)
-        #expect(!lifecycle.state.isApplicationCursorModeActive)
-        #expect(lifecycle.state.isShellReady)
+        #expect(change.finishedBlockIDs.isEmpty)
+        #expect(lifecycle.state.activeBlockID == blockID)
+        #expect(lifecycle.state.isCommandRunning)
+        #expect(!lifecycle.state.isShellReady)
+        #expect(lifecycle.state.isAlternateScreenActive)
+        #expect(lifecycle.state.isApplicationCursorModeActive)
     }
 
     @Test("shell exit wins over replay and readiness")

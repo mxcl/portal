@@ -2734,12 +2734,6 @@ private final class TerminalOutputProcessor {
         }
     }
 
-    func appendVisibleImmediately(_ text: String) {
-        queue.async { [weak self] in
-            self?.flushVisible(text)
-        }
-    }
-
     func flushAndFinish(_ completion: (() -> Void)? = nil) {
         queue.async { [weak self] in
             guard let self else { return }
@@ -2749,13 +2743,6 @@ private final class TerminalOutputProcessor {
             DispatchQueue.main.async {
                 completion?()
             }
-        }
-    }
-
-    func finishCommand() {
-        queue.async { [weak self] in
-            self?.activeBlockID = nil
-            self?.activeBlockCwd = nil
         }
     }
 
@@ -6158,32 +6145,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func interruptCommand(in tab: TerminalTab) {
         guard isCommandRunning(in: tab) else { return }
-        renderInterruptEcho(in: tab)
+        tab.commandLifecycle.apply(.interruptRequested)
         tab.session.sendInterrupt()
-        tab.outputProcessor.finishCommand()
-        let change = tab.commandLifecycle.apply(.interrupt(status: 130, at: Date()))
-        for blockID in change.finishedBlockIDs {
-            tab.hostHistoryOptOutBlockIDs.remove(blockID)
-            ensureBlockView(for: blockID, in: tab)
-            updateBlockViewNow(for: blockID, in: tab)
-        }
-        stopTtyModePolling(for: tab)
-        stopRunningElapsedUpdates(for: tab)
-        setTerminalControl(false, in: tab)
-        clearCommandInput(in: tab)
-        updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
-        updateCommandBarVisibility(for: tab)
-        updateTabTitleForDirectory(tab)
-        focusInput(for: tab)
-    }
-
-    private func renderInterruptEcho(in tab: TerminalTab) {
-        guard let activeBlockID = tab.activeBlockID,
-              tab.blocks.contains(where: { $0.id == activeBlockID })
-        else {
-            return
-        }
-        tab.outputProcessor.appendVisibleImmediately("^C\n")
     }
 
     private func showPreviousCommand(in tab: TerminalTab) -> Bool {

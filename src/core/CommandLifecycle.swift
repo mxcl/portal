@@ -60,7 +60,7 @@ final class CommandLifecycle {
         case consumeShellInputReset
         case submit(command: String, cwd: String, at: Date)
         case submitEmpty(cwd: String, at: Date)
-        case interrupt(status: Int32, at: Date)
+        case interruptRequested
         case replayCommandStarted(blockID: UUID, command: String, at: Date)
         case output(
             blockID: UUID,
@@ -210,10 +210,8 @@ final class CommandLifecycle {
             state.blocks.append(block)
             change.addedBlockIDs = [block.id]
 
-        case .interrupt(let status, let timestamp):
-            change.finishedBlockIDs = finishRunningBlocks(status: status, at: timestamp)
-            resetTerminalModes(change: &change)
-            state.isShellReady = !state.hasExited
+        case .interruptRequested:
+            break
 
         case .replayCommandStarted(let blockID, let command, let timestamp):
             guard !state.blocks.contains(where: { $0.id == blockID }) else { break }

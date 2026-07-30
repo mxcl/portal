@@ -26,6 +26,16 @@ public struct MobileCompletionSuggestion: Decodable, Identifiable, Sendable {
     public let kind: String
     public let priority: Int
     public let source: String
+    public let lastUsedMs: UInt64?
+
+    public var trailingLabel: String {
+        guard kind == "history", let lastUsedMs else { return kind }
+        let date = Date(timeIntervalSince1970: TimeInterval(lastUsedMs) / 1_000)
+        if Calendar.current.isDateInToday(date) {
+            return date.formatted(date: .omitted, time: .shortened)
+        }
+        return date.formatted(date: .numeric, time: .omitted)
+    }
 }
 
 private struct MobileCompletionResponse: Decodable {

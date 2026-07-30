@@ -98,6 +98,8 @@ struct CompletionSuggestion {
     priority: i32,
     source: String,
     is_executable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_used_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -262,6 +264,7 @@ fn history_suggestions(
             priority: if entry.cwd == request.cwd { 100 } else { 10 },
             source: entry.cwd.clone(),
             is_executable: false,
+            last_used_ms: Some(entry.last_used_ms),
         })
         .collect()
 }
@@ -497,6 +500,7 @@ fn complete_path(request: &PathCompletionRequest) -> io::Result<Vec<CompletionSu
             priority: if is_directory { 60 } else { 55 },
             source: directory.to_string_lossy().into_owned(),
             is_executable: is_directory || metadata.permissions().mode() & 0o111 != 0,
+            last_used_ms: None,
         });
         if suggestions.len() >= 512 {
             break;
@@ -540,6 +544,7 @@ fn complete_commands_from_path(path: Option<OsString>, prefix: &str) -> Vec<Comp
             priority: 50,
             source,
             is_executable: true,
+            last_used_ms: None,
         })
         .collect()
 }
@@ -1388,6 +1393,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["git status", "git switch main", "git log"]
         );
+        assert_eq!(suggestions[0].last_used_ms, Some(864_001_000));
         assert_eq!(store.entries.len(), 3);
         assert!(
             history_suggestions(

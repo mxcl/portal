@@ -563,7 +563,7 @@ private struct MobileCompletionPopover: View {
                                         }
                                     }
                                     Spacer()
-                                    Text(suggestion.kind)
+                                    Text(suggestion.trailingLabel)
                                         .font(.caption2.monospaced())
                                         .foregroundStyle(.tertiary)
                                 }

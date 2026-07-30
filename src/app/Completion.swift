@@ -41,6 +41,7 @@ struct CompletionSuggestion {
     let kind: Kind
     let priority: Int
     let source: String
+    let lastUsedAt: Date?
     let replacementRange: NSRange?
 
     init(
@@ -50,6 +51,7 @@ struct CompletionSuggestion {
         kind: Kind,
         priority: Int,
         source: String,
+        lastUsedAt: Date? = nil,
         replacementRange: NSRange? = nil
     ) {
         self.displayText = displayText
@@ -58,6 +60,7 @@ struct CompletionSuggestion {
         self.kind = kind
         self.priority = priority
         self.source = source
+        self.lastUsedAt = lastUsedAt
         self.replacementRange = replacementRange
     }
 }
@@ -108,6 +111,7 @@ private struct BridgeCompletionSuggestion: Decodable {
     let priority: Int
     let source: String
     let isExecutable: Bool
+    let lastUsedMs: UInt64?
 }
 
 private struct BridgeGeneratorOutput: Decodable {
@@ -714,7 +718,7 @@ private final class CompletionListView: NSView {
         let secondaryColor = isSelected ? NSColor.white.withAlphaComponent(0.78) : NSColor.secondaryLabelColor
         let tertiaryColor = isSelected ? NSColor.white.withAlphaComponent(0.70) : NSColor.tertiaryLabelColor
         let detail = suggestion.description ?? (suggestion.isFilesystemResult ? "" : suggestion.source)
-        let kind = suggestion.isFilesystemResult ? "" : suggestion.kind.label
+        let kind = suggestion.isFilesystemResult ? "" : suggestion.trailingLabel
 
         let contentRect = rowRect.insetBy(dx: Self.rowContentPadding, dy: 0)
         let kindWidth: CGFloat = kind.isEmpty ? 0 : 64
@@ -791,6 +795,14 @@ private extension CompletionSuggestion.Kind {
 private extension CompletionSuggestion {
     var isFilesystemResult: Bool {
         kind == .file || kind == .folder
+    }
+
+    var trailingLabel: String {
+        guard kind == .history, let lastUsedAt else { return kind.label }
+        if Calendar.current.isDateInToday(lastUsedAt) {
+            return lastUsedAt.formatted(date: .omitted, time: .shortened)
+        }
+        return lastUsedAt.formatted(date: .numeric, time: .omitted)
     }
 }
 
@@ -996,6 +1008,7 @@ final class VaulttyCompletionEngine {
                 kind: .history,
                 priority: bridge.priority,
                 source: bridge.source,
+                lastUsedAt: bridge.lastUsedMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1_000) },
                 replacementRange: range
             )
         }
@@ -1635,7 +1648,8 @@ final class VaulttyCompletionEngine {
             description: bridge.description,
             kind: completionKind(from: bridge.kind),
             priority: bridge.priority,
-            source: bridge.source
+            source: bridge.source,
+            lastUsedAt: bridge.lastUsedMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1_000) }
         )
     }
 

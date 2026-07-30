@@ -42,6 +42,7 @@ final class SessionCatalog {
     struct Restoration {
         var windowID: String
         var tabs: [Record]
+        var activeSessionID: String?
     }
 
     private struct Storage: Codable {
@@ -78,18 +79,9 @@ final class SessionCatalog {
         }
 
         let activeSessionID = storage.activeSessionIDs?[windowID] ?? storage.activeSessionID
-        let newestFirst = persistedVisibleTabs
+        let tabs = persistedVisibleTabs
             .filter { $0.windowID == nil || $0.windowID == windowID }
-            .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
-        guard let activeSessionID,
-              let activeIndex = newestFirst.firstIndex(where: { $0.sessionID == activeSessionID })
-        else {
-            return Restoration(windowID: windowID, tabs: newestFirst)
-        }
-        var ordered = newestFirst
-        let active = ordered.remove(at: activeIndex)
-        ordered.insert(active, at: 0)
-        return Restoration(windowID: windowID, tabs: ordered)
+        return Restoration(windowID: windowID, tabs: tabs, activeSessionID: activeSessionID)
     }
 
     func persist(visibleTabs: [Record], activeSessionRef: SessionRef?) throws {

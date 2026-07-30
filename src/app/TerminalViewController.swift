@@ -4500,12 +4500,24 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         let firstRef = sessionRef(from: firstTab)
         let remainingTabs = tabsToRestore.filter { sessionRef(from: $0) != firstRef }
-        restoreSessionTabs(remainingTabs, startingAt: 0)
+        restoreSessionTabs(
+            remainingTabs,
+            startingAt: 0,
+            activeSessionID: restoration.activeSessionID
+        )
     }
 
-    private func restoreSessionTabs(_ storedTabs: [StoredTab], startingAt index: Int) {
+    private func restoreSessionTabs(
+        _ storedTabs: [StoredTab],
+        startingAt index: Int,
+        activeSessionID: String?
+    ) {
         let batchSize = 2
         guard index < storedTabs.count else {
+            if let activeSessionID,
+               let activeTab = tabs.first(where: { $0.sessionID == activeSessionID }) {
+                activateTab(activeTab.id, persists: false)
+            }
             persistSessionState()
             return
         }
@@ -4516,7 +4528,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.restoreSessionTabs(storedTabs, startingAt: end)
+            self?.restoreSessionTabs(
+                storedTabs,
+                startingAt: end,
+                activeSessionID: activeSessionID
+            )
         }
     }
 

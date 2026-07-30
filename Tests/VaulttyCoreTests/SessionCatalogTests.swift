@@ -22,7 +22,7 @@ private struct TestCatalogStorage: Codable {
 
 @Suite("Session catalog")
 struct SessionCatalogTests {
-    @Test("restore migrates legacy local identity and places the active tab first")
+    @Test("restore preserves tab order and selected tab")
     func restoreLegacyState() throws {
         let older = record(id: "older", windowID: "window", createdAt: 10)
         var active = record(id: "active", windowID: "window", createdAt: 20)
@@ -37,8 +37,9 @@ struct SessionCatalogTests {
 
         let restoration = catalog.restore(restoresPersistedWindow: true)
 
-        #expect(restoration.tabs.map(\.sessionID) == ["active", "older"])
-        #expect(restoration.tabs[0].resolvedRef == .local("active"))
+        #expect(restoration.tabs.map(\.sessionID) == ["older", "active"])
+        #expect(restoration.tabs[1].resolvedRef == .local("active"))
+        #expect(restoration.activeSessionID == "active")
         #expect(catalog.closedTabs.map(\.sessionID) == ["closed"])
     }
 

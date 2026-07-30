@@ -242,6 +242,9 @@ fn history_suggestions(
         .entries
         .iter()
         .filter(|entry| entry.command.starts_with(&request.prefix))
+        .filter(|entry| {
+            entry.command.split_whitespace().next() != Some("cd") || entry.cwd == request.cwd
+        })
         .collect::<Vec<_>>();
     entries.sort_by(|left, right| {
         let left_exact = left.cwd == request.cwd;
@@ -1406,6 +1409,47 @@ mod tests {
             )
             .is_empty()
         );
+    }
+
+    #[test]
+    fn history_keeps_cd_commands_in_their_recorded_directory() {
+        let store = HistoryStore {
+            version: HISTORY_VERSION,
+            entries: vec![
+                HistoryEntry {
+                    command: "cd local".to_owned(),
+                    cwd: "/repo".to_owned(),
+                    use_count: 1,
+                    last_used_ms: 3,
+                    last_used_day: 0,
+                },
+                HistoryEntry {
+                    command: "cd elsewhere".to_owned(),
+                    cwd: "/other".to_owned(),
+                    use_count: 1,
+                    last_used_ms: 2,
+                    last_used_day: 0,
+                },
+                HistoryEntry {
+                    command: "cdx".to_owned(),
+                    cwd: "/other".to_owned(),
+                    use_count: 1,
+                    last_used_ms: 1,
+                    last_used_day: 0,
+                },
+            ],
+        };
+
+        let suggestions = history_suggestions(
+            &store,
+            &HistoryQueryRequest {
+                cwd: "/repo".to_owned(),
+                prefix: "cd".to_owned(),
+                limit: None,
+            },
+        );
+
+        assert_eq!(names(&suggestions), vec!["cd local", "cdx"]);
     }
 
     #[test]

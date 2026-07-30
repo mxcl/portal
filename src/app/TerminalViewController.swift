@@ -3582,6 +3582,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var activeCompletionRange: NSRange?
     private var activeCompletionCommonPrefix: String?
     private var activeCompletionMode: CompletionRequestMode?
+    private var canInsertCommandSeparator = false
     private var isApplyingCompletion = false
     private var isCompletionInteractionArmed = false
     private var isShowingResizeTooltip = false
@@ -3924,6 +3925,16 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             if commandSelector == #selector(NSResponder.insertTab(_:)) {
                 isCompletionInteractionArmed = true
                 if deferCompletionAcceptanceUntilPendingRequestCompletes(in: tab) {
+                    return true
+                }
+                if completionPopup.selectedSuggestion == nil {
+                    if canInsertCommandSeparator {
+                        let cursor = tab.inputView.selectedRange().location
+                        replace(range: NSRange(location: cursor, length: 0), with: " ", in: tab)
+                        requestCompletion(in: tab, mode: .continuation)
+                    } else if let suggestion = completionPopup.selectNext() {
+                        renderCompletionPreview(suggestion, in: tab)
+                    }
                     return true
                 }
                 completeFromPopup(in: tab, continuingDirectories: true)
@@ -5750,6 +5761,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         activeCompletionRange = result.replacementRange
         activeCompletionCommonPrefix = result.commonPrefix
         activeCompletionMode = mode
+        canInsertCommandSeparator = result.canInsertCommandSeparator
         if mode == .explicit,
            let prefix = result.commonPrefix,
            let existing = substring(in: tab.inputView.string, range: result.replacementRange),
@@ -5968,6 +5980,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         activeCompletionRange = nil
         activeCompletionCommonPrefix = nil
         activeCompletionMode = nil
+        canInsertCommandSeparator = false
         deferredCompletionAcceptanceSerial = nil
         isCompletionInteractionArmed = false
         completionPopup.dismiss()

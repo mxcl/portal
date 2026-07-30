@@ -22,6 +22,21 @@ struct CompletionResult {
     let suggestions: [CompletionSuggestion]
     let commonPrefix: String?
     let diagnostics: [String]
+    let canInsertCommandSeparator: Bool
+
+    init(
+        replacementRange: NSRange,
+        suggestions: [CompletionSuggestion],
+        commonPrefix: String?,
+        diagnostics: [String],
+        canInsertCommandSeparator: Bool = false
+    ) {
+        self.replacementRange = replacementRange
+        self.suggestions = suggestions
+        self.commonPrefix = commonPrefix
+        self.diagnostics = diagnostics
+        self.canInsertCommandSeparator = canInsertCommandSeparator
+    }
 }
 
 struct CompletionSuggestion {
@@ -868,7 +883,8 @@ final class VaulttyCompletionEngine {
             replacementRange: standard.replacementRange,
             suggestions: suggestions,
             commonPrefix: nil,
-            diagnostics: standard.diagnostics
+            diagnostics: standard.diagnostics,
+            canInsertCommandSeparator: standard.canInsertCommandSeparator
         )
     }
 
@@ -912,13 +928,19 @@ final class VaulttyCompletionEngine {
         var diagnostics: [String] = []
 
         if parsed.commandTokenIndex == nil || parsed.isCompletingCommand {
-            let suggestions = commandSuggestions(prefix: parsed.currentTokenText, request: request)
+            let commandSuggestions = commandSuggestions(prefix: parsed.currentTokenText, request: request)
+            let canInsertCommandSeparator = commandSuggestions.contains {
+                $0.kind == .command && $0.displayText == parsed.currentTokenText
+            }
+            let suggestions = commandSuggestions
+                .filter { parsed.currentTokenText != "cd" || $0.displayText != "cd" }
                 .limited(to: request.limit)
             return CompletionResult(
                 replacementRange: parsed.currentTokenRange,
                 suggestions: suggestions,
                 commonPrefix: commonPrefix(for: suggestions, strippingTrailingSpace: true),
-                diagnostics: diagnostics
+                diagnostics: diagnostics,
+                canInsertCommandSeparator: canInsertCommandSeparator
             )
         }
 
@@ -1800,9 +1822,6 @@ final class VaulttyCompletionEngine {
     }
 
     private func matches(prefix: String, suggestion: CompletionSuggestion) -> Bool {
-        if prefix == "cd", suggestion.kind == .command, suggestion.displayText == "cd" {
-            return false
-        }
         if matches(prefix: prefix, candidate: suggestion.displayText) {
             return true
         }

@@ -5818,6 +5818,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         replace(range: range, with: prefix, in: tab)
         activeCompletionRange = NSRange(location: range.location, length: prefix.utf16.count)
         updateCompletionAnchor(for: tab)
+        if prefix.hasSuffix("/") {
+            completionPopup.clearSelection()
+            requestCompletion(in: tab, mode: .continuation)
+        }
         if let suggestion = completionPopup.selectedSuggestion {
             renderCompletionPreview(suggestion, in: tab)
         }

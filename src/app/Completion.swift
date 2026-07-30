@@ -1393,10 +1393,8 @@ final class VaulttyCompletionEngine {
             return rankedSuggestions(cached, prefix: prefix, limit: request.limit)
         }
 
-        var names = Set<String>()
         let executableSources = executableCommandSources(for: request)
-        names.formUnion(specLoader.commandNames())
-        names.formUnion(executableSources.keys)
+        let names = Set(executableSources.keys)
 
         let suggestions = names.map { name in
             let hasSpec = specLoader.hasSpec(command: name)
@@ -2079,10 +2077,6 @@ private final class FigSpecLoader {
                 .appendingPathComponent("fig", isDirectory: true)
                 .appendingPathComponent("build", isDirectory: true)
         }
-    }
-
-    func commandNames() -> [String] {
-        Array(specIndex().keys)
     }
 
     func hasSpec(command: String) -> Bool {

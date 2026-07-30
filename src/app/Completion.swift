@@ -1421,7 +1421,7 @@ final class VaulttyCompletionEngine {
             return CompletionSuggestion(
                 displayText: name,
                 insertText: name + " ",
-                description: commandDescriptions.description(for: name),
+                description: executableSources[name] == "shell" ? nil : commandDescriptions.description(for: name),
                 kind: .command,
                 priority: hasSpec ? 70 : 50,
                 source: hasSpec ? "Fig" : (executableSources[name] ?? "PATH")
@@ -1445,24 +1445,22 @@ final class VaulttyCompletionEngine {
     private func executableCommandSources(for request: CompletionRequest) -> [String: String] {
         switch request.location {
         case .local:
-            var sources: [String: String] = [:]
-            let loginPath = ShellCommandRunner.loginPath(
-                shellPath: request.shellPath,
-                environment: request.environment
+            let bridgeRequest = BridgeCommandCompletionRequest(prefix: "")
+            guard let input = try? JSONEncoder().encode(bridgeRequest),
+                  let output = runHostBridge(
+                      operation: .completeCommands,
+                      input: input,
+                      location: request.location,
+                      relayProvider: request.relayProvider,
+                      timeout: 2,
+                      cancellation: request.cancellation
+                  ),
+                  let response = try? JSONDecoder().decode(BridgeCompletionResponse.self, from: output)
+            else { return [:] }
+            return Dictionary(
+                response.suggestions.map { ($0.displayText, $0.source) },
+                uniquingKeysWith: { first, _ in first }
             )
-            let path = [loginPath, request.environment["PATH"]]
-                .compactMap { $0 }
-                .joined(separator: ":")
-            for directory in path.split(separator: ":").map(String.init) {
-                guard let contents = try? fileManager.contentsOfDirectory(atPath: directory) else { continue }
-                for name in contents {
-                    let path = (directory as NSString).appendingPathComponent(name)
-                    if sources[name] == nil && fileManager.isExecutableFile(atPath: path) {
-                        sources[name] = path
-                    }
-                }
-            }
-            return sources
         case .sshHost(let hostID):
             let request = BridgeCommandCompletionRequest(prefix: "")
             guard let response: BridgeCompletionResponse = runBridgeJSON(
@@ -2423,21 +2421,6 @@ private enum ShellCommandRunner {
         let status: Int32
     }
 
-    static func loginPath(shellPath: String, environment: [String: String]) -> String? {
-        var environment = environment
-        environment.removeValue(forKey: "PATH")
-        let interactive = ["bash", "zsh"].contains(URL(fileURLWithPath: shellPath).lastPathComponent)
-        return runLocalShell(
-            commandLine: "printf '%s' \"$PATH\"",
-            cwd: environment["HOME"] ?? "/",
-            environment: environment,
-            timeout: 2,
-            outputLimit: 64 * 1024,
-            shellPath: shellPath,
-            interactive: interactive
-        )?.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     static func runShell(
         commandLine: String,
         cwd: String,
@@ -2484,13 +2467,11 @@ private enum ShellCommandRunner {
         cwd: String,
         environment: [String: String],
         timeout: TimeInterval,
-        outputLimit: Int,
-        shellPath: String = "/bin/zsh",
-        interactive: Bool = false
+        outputLimit: Int
     ) -> Output? {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: shellPath)
-        process.arguments = [interactive ? "-lic" : "-lc", shellPrelude(environment: environment) + commandLine]
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", shellPrelude(environment: environment) + commandLine]
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)
         process.environment = environment
         process.standardInput = FileHandle.nullDevice

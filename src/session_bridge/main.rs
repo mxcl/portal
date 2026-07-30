@@ -133,6 +133,12 @@ struct GitStatusSummary {
 
 const HISTORY_VERSION: u16 = 1;
 const HISTORY_LIMIT: usize = 10_000;
+const SHELL_BUILTINS: &[&str] = &[
+    ".", ":", "alias", "bg", "break", "cd", "command", "continue", "eval", "exec", "exit",
+    "export", "false", "fc", "fg", "getopts", "hash", "jobs", "kill", "printf", "pwd",
+    "read", "readonly", "return", "set", "shift", "test", "times", "trap", "true", "type",
+    "ulimit", "umask", "unalias", "unset", "wait",
+];
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -515,25 +521,28 @@ fn complete_path(request: &PathCompletionRequest) -> io::Result<Vec<CompletionSu
 }
 
 fn complete_commands_from_path(path: Option<OsString>, prefix: &str) -> Vec<CompletionSuggestion> {
-    let mut sources = HashMap::new();
-    let Some(path) = path else {
-        return Vec::new();
-    };
+    let mut sources = SHELL_BUILTINS
+        .iter()
+        .filter(|name| prefix.is_empty() || has_case_insensitive_prefix(name, prefix))
+        .map(|name| ((*name).to_owned(), "shell".to_owned()))
+        .collect::<HashMap<_, _>>();
 
-    for directory in env::split_paths(&path) {
-        let Ok(entries) = fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if !prefix.is_empty() && !has_case_insensitive_prefix(&name, prefix) {
+    if let Some(path) = path {
+        for directory in env::split_paths(&path) {
+            let Ok(entries) = fs::read_dir(&directory) else {
                 continue;
-            }
-            let path = entry.path();
-            if is_executable(&path) {
-                sources
-                    .entry(name)
-                    .or_insert_with(|| path.to_string_lossy().into_owned());
+            };
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if !prefix.is_empty() && !has_case_insensitive_prefix(&name, prefix) {
+                    continue;
+                }
+                let path = entry.path();
+                if is_executable(&path) {
+                    sources
+                        .entry(name)
+                        .or_insert_with(|| path.to_string_lossy().into_owned());
+                }
             }
         }
     }
@@ -1343,6 +1352,13 @@ mod tests {
         let suggestions =
             complete_commands_from_path(Some(OsString::from(temp.path.as_os_str())), "vault-");
         assert_eq!(names(&suggestions), vec!["vault-command"]);
+        assert_eq!(
+            names(&complete_commands_from_path(
+                Some(OsString::from(temp.path.as_os_str())),
+                "exi"
+            )),
+            vec!["exit"]
+        );
     }
 
     #[test]

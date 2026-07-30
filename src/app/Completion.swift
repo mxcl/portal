@@ -1800,6 +1800,9 @@ final class VaulttyCompletionEngine {
     }
 
     private func matches(prefix: String, suggestion: CompletionSuggestion) -> Bool {
+        if prefix == "cd", suggestion.kind == .command, suggestion.displayText == "cd" {
+            return false
+        }
         if matches(prefix: prefix, candidate: suggestion.displayText) {
             return true
         }

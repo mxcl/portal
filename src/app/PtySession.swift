@@ -836,7 +836,7 @@ final class PtySession {
             throw NSError(
                 domain: NSPOSIXErrorDomain,
                 code: Int(ENOENT),
-                userInfo: [NSLocalizedDescriptionKey: "Vaultty session bridge was not found"]
+                userInfo: [NSLocalizedDescriptionKey: "Portal session bridge was not found"]
             )
         }
         process.arguments = arguments

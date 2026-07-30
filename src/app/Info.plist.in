@@ -6,7 +6,7 @@
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>Vaultty</string>
+  <string>Portal</string>
   <key>CFBundleIdentifier</key>
   <string>com.automicvault.vaultty</string>
   <key>CFBundleIconFile</key>

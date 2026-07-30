@@ -967,7 +967,7 @@ fn tolerate_broken_pipe(result: io::Result<()>) -> io::Result<()> {
 
 fn ensure_daemon_is_running() -> io::Result<()> {
     let socket_path = socket_path()?;
-    let require_existing = env::var_os("VAULTTY_SESSIOND_REQUIRE_EXISTING").is_some();
+    let require_existing = env::var_os("PORTAL_SESSIOND_REQUIRE_EXISTING").is_some();
     ensure_daemon_is_running_at(&socket_path, require_existing)
 }
 
@@ -992,7 +992,7 @@ fn ensure_daemon_is_running_at(socket_path: &Path, require_existing: bool) -> io
     }
     Command::new(daemon)
         .arg("serve")
-        .env("VAULTTY_SESSIOND_SOCKET", socket_path)
+        .env("PORTAL_SESSIOND_SOCKET", socket_path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -1114,7 +1114,7 @@ fn connect_to_daemon_at(socket_path: &Path) -> io::Result<UnixStream> {
 }
 
 fn sessiond_path() -> io::Result<PathBuf> {
-    if let Some(path) = env::var_os("VAULTTY_SESSIOND") {
+    if let Some(path) = env::var_os("PORTAL_SESSIOND") {
         let path = PathBuf::from(path);
         if is_executable(&path) {
             return Ok(path);
@@ -1124,19 +1124,19 @@ fn sessiond_path() -> io::Result<PathBuf> {
     if let Ok(current_exe) = env::current_exe()
         && let Some(dir) = current_exe.parent()
     {
-        let sibling = dir.join("vaultty-sessiond");
+        let sibling = dir.join("portal-sessiond");
         if is_executable(&sibling) {
             return Ok(sibling);
         }
     }
 
-    if let Some(path) = find_on_path("vaultty-sessiond") {
+    if let Some(path) = find_on_path("portal-sessiond") {
         return Ok(path);
     }
 
     Err(io::Error::new(
         io::ErrorKind::NotFound,
-        "vaultty-sessiond was not found next to the bridge or on PATH",
+        "portal-sessiond was not found next to the bridge or on PATH",
     ))
 }
 
@@ -1154,7 +1154,7 @@ fn is_executable(path: &Path) -> bool {
 }
 
 fn socket_path() -> io::Result<PathBuf> {
-    if let Some(path) = env::var_os("VAULTTY_SESSIOND_SOCKET") {
+    if let Some(path) = env::var_os("PORTAL_SESSIOND_SOCKET") {
         return Ok(PathBuf::from(path));
     }
 

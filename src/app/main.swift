@@ -513,7 +513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         let remoteTarget = "\(host.user)@\(host.hostname)"
         let remoteDirectory = (host.remoteHelperPath as NSString).deletingLastPathComponent
         let bridge = bundledHelperPath(named: "vaultty-session-bridge") ?? "target/debug/portal-session-bridge"
-        let sessiond = bundledHelperPath(named: "vaultty-sessiond") ?? "target/debug/portal-sessiond"
+        let sessiond = bundledHelperPath(named: "portal-sessiond") ?? "target/debug/portal-sessiond"
         let scpTarget = remoteTarget + ":" + remoteDirectory + "/"
         return "ssh \(shellQuote(remoteTarget)) 'mkdir -p \(PtySession.shellPathExpression(remoteDirectory))' && scp -P \(host.port) \(shellQuote(bridge)) \(shellQuote(sessiond)) \(shellQuote(scpTarget))"
     }

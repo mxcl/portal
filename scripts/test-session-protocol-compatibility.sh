@@ -53,7 +53,7 @@ assert_current_bridge_previous_daemon() {
   local socket_path="$2"
   ruby -rbase64 -e '
     command = ["ATTACH", *ARGV[2, 4].map { |value| Base64.strict_encode64(value) }].join(" ")
-    IO.popen({"VAULTTY_SESSIOND_SOCKET" => ARGV.fetch(1)}, [ARGV.fetch(0)], "r+") do |bridge|
+    IO.popen({"PORTAL_SESSIOND_SOCKET" => ARGV.fetch(1)}, [ARGV.fetch(0)], "r+") do |bridge|
       bridge.puts(command)
       response = bridge.gets&.strip
       abort "current bridge to previous daemon failed: #{response.inspect}" unless response&.start_with?("READY ")
@@ -90,8 +90,8 @@ assert_current_bridge_previous_daemon \
   "$previous_socket"
 
 current_socket="$TEMP_DIR/current.sock"
-VAULTTY_SESSIOND_SOCKET="$current_socket" \
-VAULTTY_SESSIOND_DISABLE_PEER_VALIDATION=1 \
+PORTAL_SESSIOND_SOCKET="$current_socket" \
+PORTAL_SESSIOND_DISABLE_PEER_VALIDATION=1 \
   "$ROOT_DIR/target/debug/portal-sessiond" serve \
   >"$TEMP_DIR/current.log" 2>&1 &
 PIDS+=("$!")

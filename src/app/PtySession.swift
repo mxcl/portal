@@ -804,8 +804,8 @@ final class PtySession {
         process.executableURL = URL(fileURLWithPath: path)
         if namespace == .portalDevelopment {
             var environment = ProcessInfo.processInfo.environment
-            environment["VAULTTY_SESSIOND_SOCKET"] = socketPath(namespace: namespace)
-            environment["VAULTTY_SESSIOND_REQUIRE_EXISTING"] = "1"
+            environment["PORTAL_SESSIOND_SOCKET"] = socketPath(namespace: namespace)
+            environment["PORTAL_SESSIOND_REQUIRE_EXISTING"] = "1"
             process.environment = environment
         }
         return process
@@ -1004,9 +1004,9 @@ final class PtySession {
         process.executableURL = URL(fileURLWithPath: helper)
         process.arguments = ["serve"]
         var env = ProcessInfo.processInfo.environment
-        env["VAULTTY_SESSIOND_SOCKET"] = socketPath(namespace: .canonical)
+        env["PORTAL_SESSIOND_SOCKET"] = socketPath(namespace: .canonical)
         if helper.contains("/target/debug/") || helper.contains("/target/app/debug/") {
-            env["VAULTTY_SESSIOND_ALLOW_DEBUG_CLIENT"] = "1"
+            env["PORTAL_SESSIOND_ALLOW_DEBUG_CLIENT"] = "1"
         }
         process.environment = env
         try process.run()
@@ -1041,7 +1041,7 @@ final class PtySession {
     }
 
     private static func sessiondHelperPath() throws -> String {
-        if let override = ProcessInfo.processInfo.environment["VAULTTY_SESSIOND"],
+        if let override = ProcessInfo.processInfo.environment["PORTAL_SESSIOND"],
            FileManager.default.isExecutableFile(atPath: override) {
             return override
         }
@@ -1049,7 +1049,7 @@ final class PtySession {
         let bundled = Bundle.main.bundleURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Helpers", isDirectory: true)
-            .appendingPathComponent("vaultty-sessiond", isDirectory: false)
+            .appendingPathComponent("portal-sessiond", isDirectory: false)
             .path
         if FileManager.default.isExecutableFile(atPath: bundled) {
             return bundled
@@ -1070,7 +1070,7 @@ final class PtySession {
         throw NSError(
             domain: NSPOSIXErrorDomain,
             code: Int(ENOENT),
-            userInfo: [NSLocalizedDescriptionKey: "vaultty-sessiond helper was not found"]
+            userInfo: [NSLocalizedDescriptionKey: "portal-sessiond helper was not found"]
         )
     }
 
@@ -1194,7 +1194,7 @@ final class PtySession {
 
     private static func socketPath(namespace: SessionDaemonNamespace) -> String {
         if namespace == .canonical,
-           let override = ProcessInfo.processInfo.environment["VAULTTY_SESSIOND_SOCKET"],
+           let override = ProcessInfo.processInfo.environment["PORTAL_SESSIOND_SOCKET"],
            !override.isEmpty {
             return override
         }

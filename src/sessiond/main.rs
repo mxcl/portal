@@ -1076,7 +1076,7 @@ fn default_title_for_cwd(cwd: &Path) -> String {
 }
 
 fn socket_path() -> io::Result<PathBuf> {
-    if let Some(path) = env::var_os("VAULTTY_SESSIOND_SOCKET") {
+    if let Some(path) = env::var_os("PORTAL_SESSIOND_SOCKET") {
         return Ok(PathBuf::from(path));
     }
     let home = env::var_os("HOME").ok_or_else(|| {
@@ -1091,7 +1091,7 @@ fn socket_path() -> io::Result<PathBuf> {
 }
 
 fn validate_peer(stream: &UnixStream) -> io::Result<()> {
-    if env::var_os("VAULTTY_SESSIOND_DISABLE_PEER_VALIDATION").is_some() {
+    if env::var_os("PORTAL_SESSIOND_DISABLE_PEER_VALIDATION").is_some() {
         return Ok(());
     }
 

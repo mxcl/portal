@@ -3062,8 +3062,8 @@ private final class SessionCandidateButton: NSControl {
 
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             iconView.topAnchor.constraint(equalTo: titleLabel.topAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 24),
-            iconView.heightAnchor.constraint(equalToConstant: 24),
+            iconView.widthAnchor.constraint(equalToConstant: 36),
+            iconView.heightAnchor.constraint(equalToConstant: 36),
 
             titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),

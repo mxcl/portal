@@ -346,6 +346,21 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
         return suggestions[selectedIndex]
     }
 
+    static func selectionClearingSelfTest() -> Bool {
+        let popup = CompletionPopupController()
+        popup.suggestions = [CompletionSuggestion(
+            displayText: "test",
+            insertText: "test",
+            description: nil,
+            kind: .command,
+            priority: 0,
+            source: "self-test"
+        )]
+        popup.showsSelection = true
+        popup.clearSelection()
+        return popup.selectedSuggestion == nil
+    }
+
     override init() {
         super.init()
 
@@ -543,6 +558,11 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
         DispatchQueue.main.async { [weak self] in
             self?.suppressCloseNotification = false
         }
+    }
+
+    func clearSelection() {
+        showsSelection = false
+        listView.update(suggestions: suggestions, selectedIndex: nil)
     }
 
     func popoverDidClose(_ notification: Notification) {

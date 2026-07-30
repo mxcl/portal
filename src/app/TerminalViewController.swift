@@ -3598,6 +3598,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(TerminalOutputProcessor.alternateScreenTranscriptSelfTest())
         assert(TerminalOutputProcessor.terminalSizeProbeSelfTest())
         assert(SessionPickerView.headerButtonHitTestingSelfTest())
+        assert(CompletionPopupController.selectionClearingSelfTest())
         let shellEnvironment = inheritedShellEnvironment([
             "PAGER": "cat",
             "GIT_PAGER": "cat",
@@ -3908,6 +3909,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
 
         if completionPopup.isShown {
+            if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
+                isCompletionInteractionArmed = false
+                completionPopup.clearSelection()
+                tab.inputView.clearMutedCompletionPreview()
+                return false
+            }
             if commandSelector == #selector(NSResponder.moveUp(_:)) {
                 isCompletionInteractionArmed = true
                 if let suggestion = completionPopup.selectPrevious() {
@@ -5796,7 +5803,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             relativeTo: anchor,
             of: tab.commandBarView,
             resetSelection: mode != .explicit,
-            selectFirstSuggestion: selectFirstSuggestion
+            selectFirstSuggestion: isCompletionInteractionArmed && selectFirstSuggestion
         )
         let shouldRenderPreview = mode == .explicit || mode == .continuation
         if shouldRenderPreview, let suggestion = completionPopup.selectedSuggestion {

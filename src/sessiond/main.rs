@@ -1145,6 +1145,7 @@ fn is_supported_peer_signature(text: &str) -> bool {
                 line,
                 "Identifier=com.automicvault.vaultty"
                     | "Identifier=com.automicvault.portal.session-bridge"
+                    | "Identifier=com.automicvault.vaultty.session-bridge"
                     | "Identifier=com.automicvault.vaultty.remote-agent"
             )
         })
@@ -1657,6 +1658,9 @@ mod tests {
         ));
         assert!(is_supported_peer_signature(
             "Identifier=com.automicvault.portal.session-bridge\nTeamIdentifier=ZU76A67LGU"
+        ));
+        assert!(is_supported_peer_signature(
+            "Identifier=com.automicvault.vaultty.session-bridge\nTeamIdentifier=ZU76A67LGU"
         ));
         assert!(!is_supported_peer_signature(
             "Identifier=com.apple.Terminal\nTeamIdentifier=ZU76A67LGU"

@@ -250,7 +250,9 @@ enum SessionWireProtocol {
         } else {
             return []
         }
-        return [directory.appendingPathComponent("portal-session-bridge").path]
+        return ["vaultty-session-bridge", "portal-session-bridge"].map {
+            directory.appendingPathComponent($0).path
+        }
     }
 
     private static func base64(_ value: String) -> String {

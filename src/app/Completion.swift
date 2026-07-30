@@ -799,7 +799,8 @@ private extension CompletionSuggestion {
 
     var trailingLabel: String {
         guard kind == .history, let lastUsedAt else { return kind.label }
-        return lastUsedAt.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated))
+        return Duration.seconds(max(0, Date.now.timeIntervalSince(lastUsedAt)))
+            .formatted(.units(allowed: [.days, .hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1))
     }
 }
 

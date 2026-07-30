@@ -31,7 +31,8 @@ public struct MobileCompletionSuggestion: Decodable, Identifiable, Sendable {
     public var trailingLabel: String {
         guard kind == "history", let lastUsedMs else { return kind }
         let date = Date(timeIntervalSince1970: TimeInterval(lastUsedMs) / 1_000)
-        return date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated))
+        return Duration.seconds(max(0, Date.now.timeIntervalSince(date)))
+            .formatted(.units(allowed: [.days, .hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1))
     }
 }
 

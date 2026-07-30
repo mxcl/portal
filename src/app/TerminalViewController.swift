@@ -3940,6 +3940,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                         let cursor = tab.inputView.selectedRange().location
                         replace(range: NSRange(location: cursor, length: 0), with: " ", in: tab)
                         requestCompletion(in: tab, mode: .continuation)
+                    } else if insertSharedCompletionPrefixIfAvailable(in: tab) {
+                        return true
                     } else if let suggestion = completionPopup.selectNext() {
                         renderCompletionPreview(suggestion, in: tab)
                     }

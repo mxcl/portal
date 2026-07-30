@@ -39,5 +39,9 @@ let package = Package(
             name: "VaulttyCoreTests",
             dependencies: ["VaulttyCore"]
         ),
+        .testTarget(
+            name: "VaulttyMobileTests",
+            dependencies: ["VaulttyMobile"]
+        ),
     ]
 )

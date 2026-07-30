@@ -1,3 +1,12 @@
+func mobileSelectedCompletion<Element>(
+    _ suggestions: [Element],
+    selectedIndex: Int?,
+    isPresented: Bool
+) -> Element? {
+    guard isPresented, let selectedIndex, suggestions.indices.contains(selectedIndex) else { return nil }
+    return suggestions[selectedIndex]
+}
+
 #if os(iOS)
 import SwiftUI
 import SwiftTerm
@@ -275,7 +284,7 @@ private struct MobileSessionView: View {
     @State private var command = ""
     @State private var showsCompletions = false
     @State private var isApplyingCompletion = false
-    @State private var completionSelection = 0
+    @State private var completionSelection: Int?
     @State private var isHistorySearch = false
     @State private var showsClearHistoryConfirmation = false
     @State private var showsClearHistoryError = false
@@ -372,7 +381,7 @@ private struct MobileSessionView: View {
                             model.cancelCompletion()
                             return
                         }
-                        completionSelection = 0
+                        completionSelection = nil
                         showsCompletions = isHistorySearch || !value.isEmpty
                         if isHistorySearch {
                             model.searchHistory(value, cwd: currentCwd)
@@ -395,11 +404,12 @@ private struct MobileSessionView: View {
                         if isHistorySearch,
                            showsCompletions,
                            !model.completionSuggestions.isEmpty {
-                            completionSelection = (completionSelection + 1)
-                                % model.completionSuggestions.count
+                            completionSelection = completionSelection.map {
+                                ($0 + 1) % model.completionSuggestions.count
+                            } ?? 0
                             return .handled
                         }
-                        completionSelection = 0
+                        completionSelection = nil
                         isHistorySearch = true
                         showsCompletions = true
                         model.searchHistory(command, cwd: currentCwd)
@@ -422,6 +432,7 @@ private struct MobileSessionView: View {
                     .onChange(of: showsCompletions) { _, isShown in
                         if !isShown {
                             isHistorySearch = false
+                            completionSelection = nil
                         }
                     }
             }
@@ -512,8 +523,11 @@ private struct MobileSessionView: View {
     }
 
     private var selectedCompletion: MobileCompletionSuggestion? {
-        guard model.completionSuggestions.indices.contains(completionSelection) else { return nil }
-        return model.completionSuggestions[completionSelection]
+        mobileSelectedCompletion(
+            model.completionSuggestions,
+            selectedIndex: completionSelection,
+            isPresented: showsCompletions
+        )
     }
 
     private func apply(_ suggestion: MobileCompletionSuggestion) {
@@ -533,7 +547,7 @@ private struct MobileSessionView: View {
 private struct MobileCompletionPopover: View {
     let suggestions: [MobileCompletionSuggestion]
     let isLoading: Bool
-    let selectedIndex: Int
+    let selectedIndex: Int?
     let onSelect: (MobileCompletionSuggestion) -> Void
 
     var body: some View {

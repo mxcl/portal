@@ -9,7 +9,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{FileTypeExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -643,22 +643,56 @@ fn claim_daemon_socket_with_wait(
         }
         wait_for_adjacent_daemon();
     }
-    // v0.22 can create this socket without taking the ownership lock. During
-    // that compatibility window, bind is the only atomic arbiter: never unlink
-    // a path that could have become a live adjacent daemon's socket.
-    let listener = UnixListener::bind(socket_path).map_err(|error| {
-        if error.kind() == io::ErrorKind::AddrInUse {
-            io::Error::new(
-                io::ErrorKind::AddrInUse,
-                format!(
-                    "session daemon socket {} exists but did not answer; retry, and if this persists confirm no compatible daemon is running before removing it",
-                    socket_path.display()
-                ),
-            )
-        } else {
-            error
+    let listener = match UnixListener::bind(socket_path) {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == io::ErrorKind::AddrInUse => {
+            if let Ok(metadata) = fs::symlink_metadata(socket_path) {
+                if !metadata.file_type().is_socket() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AddrInUse,
+                        format!(
+                            "refusing to replace non-socket path {}",
+                            socket_path.display()
+                        ),
+                    ));
+                }
+            }
+
+            // Bind before publishing so a crashed daemon's socket is replaced
+            // atomically, without a gap where an adjacent daemon can bind it.
+            let replacement_path = socket_path.with_extension("replacement");
+            if let Ok(metadata) = fs::symlink_metadata(&replacement_path) {
+                if !metadata.file_type().is_socket() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AddrInUse,
+                        format!(
+                            "refusing to replace non-socket path {}",
+                            replacement_path.display()
+                        ),
+                    ));
+                }
+                fs::remove_file(&replacement_path)?;
+            }
+            let replacement = UnixListener::bind(&replacement_path)?;
+            fs::set_permissions(&replacement_path, fs::Permissions::from_mode(0o600))?;
+
+            if UnixStream::connect(socket_path).is_ok() {
+                drop(replacement);
+                fs::remove_file(&replacement_path)?;
+                return Err(io::Error::new(
+                    io::ErrorKind::AddrInUse,
+                    "session daemon is already running",
+                ));
+            }
+            if let Err(error) = fs::rename(&replacement_path, socket_path) {
+                drop(replacement);
+                let _ = fs::remove_file(&replacement_path);
+                return Err(error);
+            }
+            replacement
         }
-    })?;
+        Err(error) => return Err(error),
+    };
     fs::set_permissions(socket_path, fs::Permissions::from_mode(0o600))?;
     Ok((listener, ownership))
 }
@@ -1405,7 +1439,7 @@ mod tests {
     }
 
     #[test]
-    fn daemon_socket_preserves_unresponsive_existing_path() {
+    fn daemon_socket_reclaims_unresponsive_existing_path() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock should be valid")
@@ -1423,18 +1457,19 @@ mod tests {
             .expect("stale socket should remain")
             .ino();
 
-        let error = claim_daemon_socket_with_wait(&socket_path, || {})
-            .expect_err("stale path must require explicit recovery during compatibility rollout");
+        let (listener, ownership) = claim_daemon_socket_with_wait(&socket_path, || {})
+            .expect("stale socket should be replaced");
 
-        assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
-        assert_eq!(
+        assert_ne!(
             fs::metadata(&socket_path)
-                .expect("stale socket must not be removed")
+                .expect("replacement socket should exist")
                 .ino(),
             original_inode
         );
+        UnixStream::connect(&socket_path).expect("replacement socket should be connectable");
 
-        fs::remove_file(&socket_path).expect("test socket should be removed");
+        drop(listener);
+        drop(ownership);
         fs::remove_dir_all(directory).expect("temporary directory should be removed");
     }
 

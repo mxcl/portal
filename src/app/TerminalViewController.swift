@@ -3599,6 +3599,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(TerminalOutputProcessor.terminalSizeProbeSelfTest())
         assert(SessionPickerView.headerButtonHitTestingSelfTest())
         assert(CompletionPopupController.selectionClearingSelfTest())
+        assert(VaulttyCompletionEngine.historyMergePrefixSelfTest())
         let shellEnvironment = inheritedShellEnvironment([
             "PAGER": "cat",
             "GIT_PAGER": "cat",

@@ -902,10 +902,32 @@ final class VaulttyCompletionEngine {
         return CompletionResult(
             replacementRange: standard.replacementRange,
             suggestions: suggestions,
-            commonPrefix: nil,
+            commonPrefix: Self.historyMergePrefix(for: standard),
             diagnostics: standard.diagnostics,
             canInsertCommandSeparator: standard.canInsertCommandSeparator
         )
+    }
+
+    static func historyMergePrefixSelfTest() -> Bool {
+        let suggestion = CompletionSuggestion(
+            displayText: "src/",
+            insertText: "src/",
+            description: nil,
+            kind: .folder,
+            priority: 0,
+            source: "self-test"
+        )
+        let standard = CompletionResult(
+            replacementRange: NSRange(location: 3, length: 2),
+            suggestions: [suggestion],
+            commonPrefix: nil,
+            diagnostics: []
+        )
+        return historyMergePrefix(for: standard) == "src/"
+    }
+
+    private static func historyMergePrefix(for standard: CompletionResult) -> String? {
+        standard.commonPrefix ?? (standard.suggestions.count == 1 ? standard.suggestions[0].insertText : nil)
     }
 
     func recordSuccessfulCommand(

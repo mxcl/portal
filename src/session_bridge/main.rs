@@ -242,6 +242,7 @@ fn history_suggestions(
         .entries
         .iter()
         .filter(|entry| entry.command.starts_with(&request.prefix))
+        .filter(|entry| entry.command != request.prefix)
         .filter(|entry| {
             entry.command.split_whitespace().next() != Some("cd") || entry.cwd == request.cwd
         })
@@ -1450,6 +1451,16 @@ mod tests {
         );
 
         assert_eq!(names(&suggestions), vec!["cd local", "cdx"]);
+
+        assert!(history_suggestions(
+            &store,
+            &HistoryQueryRequest {
+                cwd: "/repo".to_owned(),
+                prefix: "cd local".to_owned(),
+                limit: None,
+            }
+        )
+        .is_empty());
     }
 
     #[test]

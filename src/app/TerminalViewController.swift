@@ -3017,11 +3017,8 @@ private final class SessionCandidateButton: NSControl {
         layer?.backgroundColor = NSColor.clear.cgColor
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        iconView.image = NSImage(
-            systemSymbolName: "terminal",
-            accessibilityDescription: "Session"
-        )
-        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        iconView.image = Bundle.main.image(forResource: NSImage.Name("session-icon"))
+        iconView.image?.isTemplate = true
         iconView.contentTintColor = TahoeGlassPalette.titleTextActive
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)

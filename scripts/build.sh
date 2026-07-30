@@ -134,6 +134,7 @@ GHOSTTY_DYLIB="$FRAMEWORKS_DIR/libghostty-vt.dylib"
 GHOSTTY_BRIDGE_OBJECT="$BUILD_DIR/GhosttyOscBridge.o"
 ICON_BUNDLE="$ROOT_DIR/assets/AppIcon.icon"
 ICON_SOURCE="$ICON_BUNDLE/Assets/Vaultty.png"
+SESSION_ICON_SOURCE="$ROOT_DIR/assets/session-icon.png"
 ICONSET_DIR="$BUILD_DIR/$APP_NAME.iconset"
 COMMAND_DESCRIPTIONS_FILE="$ROOT_DIR/src/app/command-descriptions.json"
 SWIFT_DEPS_BUILD_PATH="$ROOT_DIR/target/swift-deps/$CONFIGURATION"
@@ -840,6 +841,7 @@ if [[ -n "$MAIN_APP_PROVISIONING_PROFILE" ]]; then
   cp "$MAIN_APP_PROVISIONING_PROFILE" "$CONTENTS_DIR/embedded.provisionprofile"
 fi
 bundle_icon
+cp "$SESSION_ICON_SOURCE" "$RESOURCES_DIR/session-icon.png"
 bundle_completions
 
 GHOSTTY_SWIFT_LINK_ARGS=()

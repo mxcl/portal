@@ -66,8 +66,13 @@ mkdir -p "$TEMP_DIR/previous"
 git -C "$ROOT_DIR" archive "$BASE_REF" | tar -x -C "$TEMP_DIR/previous"
 
 echo "Building released daemon fixture from $BASE_REF"
+if grep -q 'name = "portal-sessiond"' "$TEMP_DIR/previous/Cargo.toml"; then
+  previous_daemon_bin="portal-sessiond"
+else
+  previous_daemon_bin="vaultty-sessiond"
+fi
 CARGO_TARGET_DIR="$TEMP_DIR/previous-target" \
-  cargo build --quiet --manifest-path "$TEMP_DIR/previous/Cargo.toml" --bin vaultty-sessiond
+  cargo build --quiet --manifest-path "$TEMP_DIR/previous/Cargo.toml" --bin "$previous_daemon_bin"
 
 echo "Building current daemon fixture"
 cargo build --quiet --manifest-path "$ROOT_DIR/Cargo.toml" \
@@ -76,13 +81,19 @@ cargo build --quiet --manifest-path "$ROOT_DIR/Cargo.toml" \
 previous_socket="$TEMP_DIR/previous.sock"
 VAULTTY_SESSIOND_SOCKET="$previous_socket" \
 VAULTTY_SESSIOND_DISABLE_PEER_VALIDATION=1 \
-  "$TEMP_DIR/previous-target/debug/vaultty-sessiond" serve \
+PORTAL_SESSIOND_SOCKET="$previous_socket" \
+PORTAL_SESSIOND_DISABLE_PEER_VALIDATION=1 \
+  "$TEMP_DIR/previous-target/debug/$previous_daemon_bin" serve \
   >"$TEMP_DIR/previous.log" 2>&1 &
 PIDS+=("$!")
 wait_for_socket "$previous_socket"
 
 echo "Testing current client fallback against previous daemon"
-assert_probe "$previous_socket" LEGACY_EOF
+if grep -q 'CURRENT_PROTOCOL_VERSION: u16 = 2' "$TEMP_DIR/previous/src/sessiond/main.rs"; then
+  assert_probe "$previous_socket" "PROTOCOLS 1 2"
+else
+  assert_probe "$previous_socket" LEGACY_EOF
+fi
 assert_v1_attach "$previous_socket" current-client-previous-daemon
 assert_v1_attach "$previous_socket" current-empty-environment-client VAULTTY=
 assert_current_bridge_previous_daemon \

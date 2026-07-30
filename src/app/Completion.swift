@@ -799,10 +799,7 @@ private extension CompletionSuggestion {
 
     var trailingLabel: String {
         guard kind == .history, let lastUsedAt else { return kind.label }
-        if Calendar.current.isDateInToday(lastUsedAt) {
-            return lastUsedAt.formatted(date: .omitted, time: .shortened)
-        }
-        return lastUsedAt.formatted(date: .numeric, time: .omitted)
+        return lastUsedAt.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated))
     }
 }
 

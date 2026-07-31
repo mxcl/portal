@@ -3347,9 +3347,6 @@ private final class SessionHeaderAddButton: NSButton {
     init(sessionRef: SessionRef, hostName: String) {
         self.sessionRef = sessionRef
         super.init(frame: .zero)
-        image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
-        symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
-        imagePosition = .imageOnly
         isBordered = false
         focusRingType = .none
         wantsLayer = true
@@ -3390,6 +3387,19 @@ private final class SessionHeaderAddButton: NSButton {
         isHovering = false
     }
 
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        (contentTintColor ?? .controlTextColor).setStroke()
+        let path = NSBezierPath()
+        path.lineWidth = 1.5
+        path.lineCapStyle = .round
+        path.move(to: NSPoint(x: bounds.midX - 3, y: bounds.midY))
+        path.line(to: NSPoint(x: bounds.midX + 3, y: bounds.midY))
+        path.move(to: NSPoint(x: bounds.midX, y: bounds.midY - 3))
+        path.line(to: NSPoint(x: bounds.midX, y: bounds.midY + 3))
+        path.stroke()
+    }
+
     private func updateAppearance() {
         layer?.backgroundColor = isHovering || isKeyboardSelected
             ? TahoeGlassPalette.titleSegmentHoverFill.cgColor
@@ -3399,6 +3409,7 @@ private final class SessionHeaderAddButton: NSButton {
         contentTintColor = isHovering || isKeyboardSelected
             ? TahoeGlassPalette.titleTextActive
             : TahoeGlassPalette.titleTextActive.withAlphaComponent(0.5)
+        needsDisplay = true
     }
 }
 

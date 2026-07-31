@@ -3347,6 +3347,7 @@ private final class SessionHeaderAddButton: NSButton {
     init(sessionRef: SessionRef, hostName: String) {
         self.sessionRef = sessionRef
         super.init(frame: .zero)
+        title = ""
         isBordered = false
         focusRingType = .none
         wantsLayer = true

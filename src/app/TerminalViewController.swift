@@ -4120,8 +4120,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 tab.inputView.clearMutedCompletionPreview()
                 return false
             }
-            if commandSelector == #selector(NSResponder.moveRight(_:)),
-               completionPopup.selectedSuggestion == nil {
+            if commandSelector == #selector(NSResponder.moveRight(_:)) {
+                if completionPopup.selectedSuggestion != nil {
+                    acceptSelectedCompletion(in: tab)
+                    return true
+                }
                 isCompletionInteractionArmed = true
                 if let suggestion = completionPopup.selectNext() {
                     renderCompletionPreview(suggestion, in: tab)

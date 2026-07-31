@@ -122,7 +122,12 @@ private final class NonHitTestingVisualEffectView: NSVisualEffectView {
 }
 
 private final class SessionPickerView: NSView {
+    private enum Direction: Equatable {
+        case up, down, left, right
+    }
+
     weak var sessionPickerStack: NSStackView?
+    private var selectedSessionRef: SessionRef?
 
     static func headerButtonHitTestingSelfTest() -> Bool {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
@@ -140,6 +145,21 @@ private final class SessionPickerView: NSView {
         stack.addArrangedSubview(header)
         header.addSubview(button)
         return container.hitTest(NSPoint(x: 40, y: 40)) === button
+    }
+
+    static func keyboardNavigationSelfTest() -> Bool {
+        let frames = [
+            NSRect(x: 0, y: 0, width: 80, height: 80),
+            NSRect(x: 100, y: 0, width: 80, height: 80),
+            NSRect(x: 0, y: 100, width: 80, height: 80),
+            NSRect(x: 100, y: 100, width: 80, height: 80),
+            NSRect(x: 0, y: 200, width: 20, height: 20),
+        ]
+        return destination(from: 0, moving: .right, in: frames) == 1
+            && destination(from: 1, moving: .up, in: frames) == 3
+            && destination(from: 3, moving: .left, in: frames) == 2
+            && destination(from: 2, moving: .up, in: frames) == 4
+            && destination(from: 4, moving: .up, in: frames) == nil
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
@@ -175,6 +195,151 @@ private final class SessionPickerView: NSView {
         }
         return nil
     }
+    func handleKeyEvent(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection([.command, .control, .option])
+        guard flags.isEmpty else { return false }
+
+        let direction: Direction?
+        switch event.keyCode {
+        case 126: direction = .up
+        case 125: direction = .down
+        case 123: direction = .left
+        case 124: direction = .right
+        default: direction = nil
+        }
+
+        if let direction {
+            if selectedSessionRef == nil {
+                guard direction == .up, let first = initialButton() else { return false }
+                select(first)
+                return true
+            }
+            moveSelection(direction)
+            return true
+        }
+
+        guard let selected = selectedButton() else { return false }
+        switch event.keyCode {
+        case 36, 49, 76:
+            guard let action = selected.action else { return false }
+            selected.sendAction(action, to: selected.target)
+            return true
+        case 53:
+            clearSelection()
+            return false
+        default:
+            return false
+        }
+    }
+
+    func clearSelection() {
+        if let selected = selectedButton() {
+            setKeyboardSelected(false, on: selected)
+        }
+        selectedSessionRef = nil
+    }
+
+    func restoreSelection() {
+        guard selectedSessionRef != nil else { return }
+        guard let selected = selectedButton() else {
+            selectedSessionRef = nil
+            return
+        }
+        setKeyboardSelected(true, on: selected)
+    }
+
+    private func initialButton() -> NSControl? {
+        layoutSubtreeIfNeeded()
+        let buttons = selectableButtons()
+        let existing = buttons.compactMap { $0 as? SessionCandidateButton }
+        return (existing.isEmpty ? buttons : existing).min {
+            let lhs = $0.convert($0.bounds, to: self).midpoint
+            let rhs = $1.convert($1.bounds, to: self).midpoint
+            return lhs.y == rhs.y ? lhs.x < rhs.x : lhs.y < rhs.y
+        }
+    }
+
+    private func moveSelection(_ direction: Direction) {
+        layoutSubtreeIfNeeded()
+        let buttons = selectableButtons()
+        guard let selected = selectedButton(),
+              let current = buttons.firstIndex(where: { $0 === selected })
+        else {
+            clearSelection()
+            return
+        }
+        let frames = buttons.map { $0.convert($0.bounds, to: self) }
+        guard let destination = Self.destination(from: current, moving: direction, in: frames)
+        else { return }
+        select(buttons[destination])
+    }
+
+    private func select(_ button: NSControl) {
+        if let selected = selectedButton() {
+            setKeyboardSelected(false, on: selected)
+        }
+        selectedSessionRef = sessionRef(for: button)
+        setKeyboardSelected(true, on: button)
+        window?.makeFirstResponder(button)
+    }
+
+    private func selectedButton() -> NSControl? {
+        guard let selectedSessionRef else { return nil }
+        return selectableButtons().first { sessionRef(for: $0) == selectedSessionRef }
+    }
+
+    private func selectableButtons() -> [NSControl] {
+        sessionPickerStack?.arrangedSubviews.flatMap { row in
+            row.subviews.compactMap { view in
+                if let button = view as? SessionCandidateButton { return button }
+                if let button = view as? SessionHeaderAddButton { return button }
+                return nil
+            }
+        } ?? []
+    }
+
+    private func sessionRef(for button: NSControl) -> SessionRef? {
+        if let button = button as? SessionCandidateButton { return button.sessionRef }
+        return (button as? SessionHeaderAddButton)?.sessionRef
+    }
+
+    private func setKeyboardSelected(_ selected: Bool, on button: NSControl) {
+        (button as? SessionCandidateButton)?.isKeyboardSelected = selected
+        (button as? SessionHeaderAddButton)?.isKeyboardSelected = selected
+    }
+
+    private static func destination(
+        from current: Int,
+        moving direction: Direction,
+        in frames: [NSRect]
+    ) -> Int? {
+        let origin = frames[current].midpoint
+        return frames.indices.filter { index in
+            guard index != current else { return false }
+            let point = frames[index].midpoint
+            switch direction {
+            case .up: return point.y > origin.y
+            case .down: return point.y < origin.y
+            case .left: return point.x < origin.x
+            case .right: return point.x > origin.x
+            }
+        }.min { lhs, rhs in
+            score(frames[lhs].midpoint, from: origin, moving: direction)
+                < score(frames[rhs].midpoint, from: origin, moving: direction)
+        }
+    }
+
+    private static func score(_ point: NSPoint, from origin: NSPoint, moving direction: Direction) -> CGFloat {
+        let dx = abs(point.x - origin.x)
+        let dy = abs(point.y - origin.y)
+        let primary = direction == .left || direction == .right ? dx : dy
+        let orthogonal = direction == .left || direction == .right ? dy : dx
+        return primary + orthogonal * 2
+    }
+}
+
+private extension NSRect {
+    var midpoint: NSPoint { NSPoint(x: midX, y: midY) }
 }
 
 private final class CommandInputTextView: NSTextView {
@@ -3007,6 +3172,9 @@ private final class SessionCandidateButton: NSControl {
     private var isHovering = false {
         didSet { updateAppearance() }
     }
+    var isKeyboardSelected = false {
+        didSet { updateAppearance() }
+    }
 
     init(sessionRef: SessionRef, title: String, subtitle: String?, metadata: String) {
         self.sessionRef = sessionRef
@@ -3080,6 +3248,7 @@ private final class SessionCandidateButton: NSControl {
 
         setAccessibilityValue(metadata)
         let subtitleText = subtitle ?? ""
+        setAccessibilityRole(.button)
         setAccessibilityLabel(title)
 
         titleLabel.stringValue = title
@@ -3115,6 +3284,7 @@ private final class SessionCandidateButton: NSControl {
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
+    override var acceptsFirstResponder: Bool { true }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
@@ -3140,10 +3310,12 @@ private final class SessionCandidateButton: NSControl {
     }
 
     private func updateAppearance() {
-        layer?.backgroundColor = isHovering
+        layer?.backgroundColor = isHovering || isKeyboardSelected
             ? TahoeGlassPalette.titleSegmentHoverFill.cgColor
             : NSColor.clear.cgColor
-        iconView.contentTintColor = isHovering
+        layer?.borderWidth = isKeyboardSelected ? 2 : 0
+        layer?.borderColor = NSColor.keyboardFocusIndicatorColor.cgColor
+        iconView.contentTintColor = isHovering || isKeyboardSelected
             ? NSColor.labelColor
             : TahoeGlassPalette.titleTextActive
     }
@@ -3153,6 +3325,9 @@ private final class SessionHeaderAddButton: NSButton {
     let sessionRef: SessionRef
     private var hoverTrackingArea: NSTrackingArea?
     private var isHovering = false {
+        didSet { updateAppearance() }
+    }
+    var isKeyboardSelected = false {
         didSet { updateAppearance() }
     }
 
@@ -3202,10 +3377,12 @@ private final class SessionHeaderAddButton: NSButton {
     }
 
     private func updateAppearance() {
-        layer?.backgroundColor = isHovering
+        layer?.backgroundColor = isHovering || isKeyboardSelected
             ? TahoeGlassPalette.titleSegmentHoverFill.cgColor
             : NSColor.clear.cgColor
-        contentTintColor = isHovering
+        layer?.borderWidth = isKeyboardSelected ? 2 : 0
+        layer?.borderColor = NSColor.keyboardFocusIndicatorColor.cgColor
+        contentTintColor = isHovering || isKeyboardSelected
             ? TahoeGlassPalette.titleTextActive
             : TahoeGlassPalette.titleTextActive.withAlphaComponent(0.5)
     }
@@ -3598,6 +3775,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(TerminalOutputProcessor.alternateScreenTranscriptSelfTest())
         assert(TerminalOutputProcessor.terminalSizeProbeSelfTest())
         assert(SessionPickerView.headerButtonHitTestingSelfTest())
+        assert(SessionPickerView.keyboardNavigationSelfTest())
         assert(CompletionPopupController.selectionClearingSelfTest())
         assert(VaulttyCompletionEngine.historyMergePrefixSelfTest())
         let shellEnvironment = inheritedShellEnvironment([
@@ -4725,6 +4903,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private func renderSessionPicker(_ snapshot: SessionPickerSnapshot, for tab: TerminalTab) {
         guard !snapshot.sections.isEmpty else {
             tab.canReplaceFreshSession = true
+            tab.sessionPickerView.clearSelection()
             sessionPickerCandidatesByTab[tab.id] = [:]
             tab.sessionPickerView.isHidden = true
             tab.sessionPickerHeightConstraint?.constant = 0
@@ -4825,6 +5004,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
 
         tab.sessionPickerView.isHidden = false
+        tab.sessionPickerView.restoreSelection()
         let arrangedViewCount = rowCount + emptyRowCount + snapshot.sections.count
         let spacing = max(0, arrangedViewCount - 1) * 10
         tab.sessionPickerHeightConstraint?.constant = CGFloat(
@@ -4835,6 +5015,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func hideSessionPicker(for tab: TerminalTab) {
         tab.canReplaceFreshSession = false
+        tab.sessionPickerView.clearSelection()
         sessionPickerModelsByTab.removeValue(forKey: tab.id)?.invalidate()
         sessionPickerCandidatesByTab.removeValue(forKey: tab.id)
         tab.sessionPickerView.isHidden = true
@@ -5271,6 +5452,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
             switch event.type {
             case .keyDown:
+                if self.activeTab?.sessionPickerView.handleKeyEvent(event) == true {
+                    return nil
+                }
+                self.activeTab?.sessionPickerView.clearSelection()
                 if self.handleHistoryKeyEvent(event) {
                     return nil
                 }

@@ -4201,6 +4201,15 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             requestCompletion(in: tab, mode: .explicit)
             return true
         }
+        if commandSelector == #selector(NSResponder.moveRight(_:)) {
+            let selection = textView.selectedRange()
+            if selection.length == 0,
+               selection.location == (textView.string as NSString).length {
+                isCompletionInteractionArmed = true
+                requestCompletion(in: tab, mode: .rightArrow)
+                return true
+            }
+        }
         if commandSelector == #selector(NSResponder.insertNewline(_:)) {
             if NSApp.currentEvent?.modifierFlags.contains(.shift) == true ||
                 shouldInsertLineContinuationNewline(in: textView) {
@@ -5874,6 +5883,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private enum CompletionRequestMode {
         case explicit
+        case rightArrow
         case automatic
         case filtering
         case continuation
@@ -5966,7 +5976,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private func handleCompletionResult(_ result: CompletionResult, in tab: TerminalTab, mode: CompletionRequestMode) {
         guard !result.suggestions.isEmpty else {
             dismissCompletion()
-            if mode == .explicit {
+            if mode == .explicit || mode == .rightArrow {
                 NSSound.beep()
             }
             return
@@ -6012,7 +6022,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             resetSelection: mode != .explicit,
             selectFirstSuggestion: isCompletionInteractionArmed && selectFirstSuggestion
         )
-        let shouldRenderPreview = mode == .explicit || mode == .continuation
+        let shouldRenderPreview = mode == .explicit || mode == .rightArrow || mode == .continuation
         if shouldRenderPreview, let suggestion = completionPopup.selectedSuggestion {
             renderCompletionPreview(suggestion, in: tab)
         }

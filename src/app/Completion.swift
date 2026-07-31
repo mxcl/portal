@@ -346,19 +346,21 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
         return suggestions[selectedIndex]
     }
 
-    static func selectionClearingSelfTest() -> Bool {
+    static func selectionSelfTest() -> Bool {
         let popup = CompletionPopupController()
-        popup.suggestions = [CompletionSuggestion(
+        let suggestion = CompletionSuggestion(
             displayText: "test",
             insertText: "test",
             description: nil,
             kind: .command,
             priority: 0,
             source: "self-test"
-        )]
+        )
+        popup.suggestions = [suggestion]
         popup.showsSelection = true
         popup.clearSelection()
-        return popup.selectedSuggestion == nil
+        guard popup.selectedSuggestion == nil else { return false }
+        return popup.selectNext()?.insertText == suggestion.insertText
     }
 
     override init() {

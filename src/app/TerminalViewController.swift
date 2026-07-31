@@ -3802,7 +3802,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(TerminalOutputProcessor.terminalSizeProbeSelfTest())
         assert(SessionPickerView.headerButtonHitTestingSelfTest())
         assert(SessionPickerView.keyboardNavigationSelfTest())
-        assert(CompletionPopupController.selectionClearingSelfTest())
+        assert(CompletionPopupController.selectionSelfTest())
         assert(VaulttyCompletionEngine.historyMergePrefixSelfTest())
         let shellEnvironment = inheritedShellEnvironment([
             "PAGER": "cat",
@@ -4119,6 +4119,14 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 completionPopup.clearSelection()
                 tab.inputView.clearMutedCompletionPreview()
                 return false
+            }
+            if commandSelector == #selector(NSResponder.moveRight(_:)),
+               completionPopup.selectedSuggestion == nil {
+                isCompletionInteractionArmed = true
+                if let suggestion = completionPopup.selectNext() {
+                    renderCompletionPreview(suggestion, in: tab)
+                }
+                return true
             }
             if commandSelector == #selector(NSResponder.moveUp(_:)) {
                 isCompletionInteractionArmed = true

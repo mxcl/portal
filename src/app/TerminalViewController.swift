@@ -126,8 +126,13 @@ private final class SessionPickerView: NSView {
         case up, down, left, right
     }
 
+    private enum Selection: Equatable {
+        case existing(SessionRef)
+        case newSession(SessionLocation)
+    }
+
     weak var sessionPickerStack: NSStackView?
-    private var selectedSessionRef: SessionRef?
+    private var selection: Selection?
 
     static func headerButtonHitTestingSelfTest() -> Bool {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
@@ -135,7 +140,11 @@ private final class SessionPickerView: NSView {
         let stack = NSStackView(frame: picker.bounds)
         let header = NSView(frame: picker.bounds)
         let button = SessionHeaderAddButton(
-            sessionRef: .local("hit-test"),
+            sessionRef: SessionRef(location: .relayMac("test"), sessionID: "first"),
+            hostName: "test"
+        )
+        let replacement = SessionHeaderAddButton(
+            sessionRef: SessionRef(location: .relayMac("test"), sessionID: "second"),
             hostName: "test"
         )
         button.frame = NSRect(x: 10, y: 10, width: 20, height: 20)
@@ -145,6 +154,7 @@ private final class SessionPickerView: NSView {
         stack.addArrangedSubview(header)
         header.addSubview(button)
         return container.hitTest(NSPoint(x: 40, y: 40)) === button
+            && picker.selection(for: button) == picker.selection(for: replacement)
     }
 
     static func keyboardNavigationSelfTest() -> Bool {
@@ -209,7 +219,7 @@ private final class SessionPickerView: NSView {
         }
 
         if let direction {
-            if selectedSessionRef == nil {
+            if selection == nil {
                 guard direction == .up, let first = initialButton() else { return false }
                 select(first)
                 return true
@@ -236,13 +246,13 @@ private final class SessionPickerView: NSView {
         if let selected = selectedButton() {
             setKeyboardSelected(false, on: selected)
         }
-        selectedSessionRef = nil
+        selection = nil
     }
 
     func restoreSelection() {
-        guard selectedSessionRef != nil else { return }
+        guard selection != nil else { return }
         guard let selected = selectedButton() else {
-            selectedSessionRef = nil
+            selection = nil
             return
         }
         setKeyboardSelected(true, on: selected)
@@ -278,14 +288,14 @@ private final class SessionPickerView: NSView {
         if let selected = selectedButton() {
             setKeyboardSelected(false, on: selected)
         }
-        selectedSessionRef = sessionRef(for: button)
+        selection = selection(for: button)
         setKeyboardSelected(true, on: button)
         window?.makeFirstResponder(button)
     }
 
     private func selectedButton() -> NSControl? {
-        guard let selectedSessionRef else { return nil }
-        return selectableButtons().first { sessionRef(for: $0) == selectedSessionRef }
+        guard let selection else { return nil }
+        return selectableButtons().first { self.selection(for: $0) == selection }
     }
 
     private func selectableButtons() -> [NSControl] {
@@ -298,9 +308,10 @@ private final class SessionPickerView: NSView {
         } ?? []
     }
 
-    private func sessionRef(for button: NSControl) -> SessionRef? {
-        if let button = button as? SessionCandidateButton { return button.sessionRef }
-        return (button as? SessionHeaderAddButton)?.sessionRef
+    private func selection(for button: NSControl) -> Selection? {
+        if let button = button as? SessionCandidateButton { return .existing(button.sessionRef) }
+        if let button = button as? SessionHeaderAddButton { return .newSession(button.sessionRef.location) }
+        return nil
     }
 
     private func setKeyboardSelected(_ selected: Bool, on button: NSControl) {

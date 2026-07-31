@@ -3349,6 +3349,7 @@ private final class SessionHeaderAddButton: NSButton {
         symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
         imagePosition = .imageOnly
         isBordered = false
+        focusRingType = .none
         wantsLayer = true
         layer?.cornerRadius = 5
         toolTip = "New session on \(hostName)"

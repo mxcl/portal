@@ -3342,6 +3342,8 @@ private final class SessionHeaderAddButton: NSButton {
         didSet { updateAppearance() }
     }
 
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets() }
+
     init(sessionRef: SessionRef, hostName: String) {
         self.sessionRef = sessionRef
         super.init(frame: .zero)

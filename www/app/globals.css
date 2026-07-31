@@ -1194,30 +1194,67 @@ footer {
   }
 
   .hero {
-    min-height: 850px;
-  }
-
-  .hero-copy {
+    display: grid;
+    min-height: auto;
+    grid-template-columns: minmax(0, 1fr);
     padding-top: 140px;
   }
 
-  .eyebrow {
-    max-width: 260px;
-    line-height: 1.5;
+  .hero-copy {
+    display: contents;
   }
 
-  h1 {
+  .hero-copy .eyebrow,
+  .hero-copy h1,
+  .hero-copy .lede,
+  .hero-copy .primary-action {
+    position: relative;
+    z-index: 4;
+    margin-right: 22px;
+    margin-left: 22px;
+  }
+
+  .hero-copy .eyebrow {
+    grid-row: 1;
+    font-size: clamp(8px, 2.4vw, 11px);
+    letter-spacing: 0.14em;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+
+  .hero-copy h1 {
+    grid-row: 2;
     font-size: 16vw;
     line-height: 0.85;
   }
 
-  .lede {
-    margin-top: 32px;
+  .portal-stage {
+    position: relative;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    grid-row: 3;
+    width: min(128vw, 640px);
+    justify-self: center;
+    transform: none;
+    opacity: 1;
   }
 
-  .portal-stage {
-    bottom: 12px;
-    width: 125vw;
+  .hero-copy .lede {
+    grid-row: 4;
+    width: auto;
+    margin-top: 0;
+    padding: 0;
+    background: none;
+    text-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .hero-copy .primary-action {
+    grid-row: 5;
+    justify-self: start;
+    margin-bottom: 110px;
   }
 
   .statement-copy {

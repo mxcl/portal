@@ -77,6 +77,7 @@ export default function Home() {
           </div>
           <video
             src="/portal-terminal-natural-loop.webm"
+            poster="/portal-terminal-natural-loop.jpg"
             aria-label="Portal showing terminal sessions ready to rejoin"
             autoPlay
             loop

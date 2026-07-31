@@ -33,6 +33,7 @@ test("server-renders the Portal landing page", async () => {
   assert.match(html, /Linux is through the next portal\./);
   assert.match(html, /portal-icon\.png/);
   assert.match(html, /portal-electric/);
+  assert.match(html, /poster="\/portal-terminal-natural-loop\.jpg"/);
   assert.doesNotMatch(
     html,
     /codex-preview|Your site is taking shape|never leaves|still running/i,

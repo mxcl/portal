@@ -22,6 +22,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const COMMAND_STARTED_MARKER: &[u8] = b"\x1b]133;C;";
 const COMMAND_FINISHED_MARKER: &[u8] = b"\x1b]133;D;";
 const SYNTHETIC_COMMAND_FINISHED_MARKER: &[u8] = b"\x1b]133;D;0\x07";
+const INTERRUPTED_COMMAND_FINISHED_MARKER: &[u8] = b"\x1b]133;D;130\x07";
 const CURRENT_PROTOCOL_VERSION: u16 = 2;
 const PREVIOUS_PROTOCOL_VERSION: u16 = 1;
 const MAX_SCROLLBACK_LINES: usize = 10_000;
@@ -481,8 +482,34 @@ impl Session {
             .retain(|client| client.send(event.clone()).is_ok());
     }
 
-    fn interrupt(&self) {
+    fn interrupt(self: &Arc<Self>) {
         self.write_input(&[0x03]);
+        let session = self.clone();
+        thread::spawn(move || {
+            for _ in 0..200 {
+                thread::sleep(std::time::Duration::from_millis(10));
+                if session.exited.load(Ordering::SeqCst) {
+                    return;
+                }
+                if shell_is_foreground(&session) {
+                    session.report_interrupted_command_completion();
+                    return;
+                }
+            }
+        });
+    }
+
+    fn report_interrupted_command_completion(&self) {
+        let bytes = INTERRUPTED_COMMAND_FINISHED_MARKER.to_vec();
+        let mut terminal = self.terminal.lock().expect("terminal lock poisoned");
+        let history = terminal.snapshot(MAX_SCROLLBACK_LINES).history;
+        if !history_has_unfinished_command(&history) {
+            return;
+        }
+        let sequence = terminal.record(bytes.clone());
+        drop(terminal);
+        self.clear_running_command();
+        self.broadcast(SessionEvent::Output { sequence, bytes });
     }
 
     fn kill(&self) {
@@ -1565,6 +1592,58 @@ mod tests {
         assert!(setup_complete, "test shell did not finish setup");
         assert!(ready, "raw-mode test program did not start");
         assert!(received_ctrl_c, "Ctrl-C was not delivered through the PTY");
+    }
+
+    #[test]
+    fn interrupt_reports_completion_after_shell_discards_wrapper_tail() {
+        let request = AttachRequest {
+            session_id: "interrupt-completion-test".to_owned(),
+            cwd: env::temp_dir(),
+            shell: "/bin/zsh".to_owned(),
+            environment: Vec::new(),
+            protocol_version: CURRENT_PROTOCOL_VERSION,
+            client_role: ClientRole::Mac,
+            allows_creation: true,
+        };
+        let state = Arc::new(DaemonState {
+            sessions: Mutex::new(HashMap::new()),
+        });
+        let session =
+            Session::new(&request, Arc::downgrade(&state)).expect("test session should start");
+        let (client, events) = mpsc::channel();
+        session.attach_client(client);
+        session.write_input(b"unsetopt zle; stty -echo; printf '__VAULTTY_SETUP__\\n'\n");
+        let setup_complete = wait_for_history(&session, b"__VAULTTY_SETUP__", 2);
+        if setup_complete {
+            session.write_input(
+                b"printf '\\033]133;C;test\\a'; sleep 30; printf '\\033]133;D;0\\a'\n",
+            );
+        }
+        let command_started =
+            setup_complete && wait_for_history(&session, COMMAND_STARTED_MARKER, 1);
+        if command_started {
+            session.interrupt();
+        }
+        let completion_reported = command_started
+            && loop {
+                match events.recv_timeout(Duration::from_secs(2)) {
+                    Ok(SessionEvent::Output { bytes, .. })
+                        if bytes == INTERRUPTED_COMMAND_FINISHED_MARKER =>
+                    {
+                        break true;
+                    }
+                    Ok(_) => continue,
+                    Err(_) => break false,
+                }
+            };
+        session.kill();
+
+        assert!(setup_complete, "test shell did not finish setup");
+        assert!(command_started, "test command did not start");
+        assert!(
+            completion_reported,
+            "shell became idle without reporting the interrupted command's completion"
+        );
     }
 
     #[test]

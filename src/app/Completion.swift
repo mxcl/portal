@@ -756,9 +756,13 @@ private final class CompletionListView: NSView {
         let tertiaryColor = isSelected ? NSColor.white.withAlphaComponent(0.70) : NSColor.tertiaryLabelColor
         let detail = suggestion.description ?? (suggestion.isFilesystemResult ? "" : suggestion.source)
         let kind = suggestion.isFilesystemResult ? "" : suggestion.trailingLabel
+        let kindFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .medium)
 
         let contentRect = rowRect.insetBy(dx: Self.rowContentPadding, dy: 0)
-        let kindWidth: CGFloat = kind.isEmpty ? 0 : 64
+        let kindWidth = kind.isEmpty ? 0 : min(
+            180,
+            ceil((kind as NSString).size(withAttributes: [.font: kindFont]).width)
+        )
         let kindRect = NSRect(
             x: contentRect.maxX - kindWidth,
             y: rowRect.minY + 10,
@@ -802,11 +806,11 @@ private final class CompletionListView: NSView {
         if !kind.isEmpty {
             let kindParagraph = NSMutableParagraphStyle()
             kindParagraph.alignment = .right
-            kindParagraph.lineBreakMode = .byTruncatingTail
+            kindParagraph.lineBreakMode = suggestion.kind == .command ? .byTruncatingHead : .byTruncatingTail
             (kind as NSString).draw(
                 in: kindRect,
                 withAttributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
+                    .font: kindFont,
                     .foregroundColor: tertiaryColor,
                     .paragraphStyle: kindParagraph
                 ]
@@ -835,9 +839,18 @@ private extension CompletionSuggestion {
     }
 
     var trailingLabel: String {
-        guard kind == .history, let lastUsedAt else { return kind.label }
-        return Duration.seconds(max(0, Date.now.timeIntervalSince(lastUsedAt)))
-            .formatted(.units(allowed: [.days, .hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1))
+        switch kind {
+        case .command:
+            guard source != "shell" else { return "builtin" }
+            let directory = (source as NSString).deletingLastPathComponent
+            return directory.isEmpty ? source : directory
+        case .history:
+            guard let lastUsedAt else { return kind.label }
+            return Duration.seconds(max(0, Date.now.timeIntervalSince(lastUsedAt)))
+                .formatted(.units(allowed: [.days, .hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1))
+        default:
+            return kind.label
+        }
     }
 }
 
@@ -1468,7 +1481,7 @@ final class VaulttyCompletionEngine {
                 description: executableSources[name] == "shell" ? nil : commandDescriptions.description(for: name),
                 kind: .command,
                 priority: hasSpec ? 70 : 50,
-                source: hasSpec ? "Fig" : (executableSources[name] ?? "PATH")
+                source: executableSources[name] ?? "PATH"
             )
         }
         commandCache[cacheKey] = suggestions

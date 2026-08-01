@@ -1364,6 +1364,7 @@ mod tests {
         let suggestions =
             complete_commands_from_path(Some(OsString::from(temp.path.as_os_str())), "vault-");
         assert_eq!(names(&suggestions), vec!["vault-command"]);
+        assert_eq!(suggestions[0].source, executable.to_string_lossy());
         assert_eq!(
             names(&complete_commands_from_path(
                 Some(OsString::from(temp.path.as_os_str())),

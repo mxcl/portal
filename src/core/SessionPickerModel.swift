@@ -249,7 +249,8 @@ final class SessionPickerModel {
             let formatter = RelativeDateTimeFormatter()
             formatter.unitsStyle = .full
             formatter.dateTimeStyle = .named
-            return formatter.localizedString(for: $0, relativeTo: Date())
+            return formatter.localizedString(for: $0, relativeTo: Date.now)
+                .replacingOccurrences(of: " ago", with: " old")
         } ?? "earlier"
         let metadata = candidate.commandCount == 0
             ? created

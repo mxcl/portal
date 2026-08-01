@@ -170,6 +170,7 @@ struct SessionPickerModelTests {
         #expect(final.sections.flatMap(\.items).filter {
             $0.candidate.sessionRef.sessionID == "old"
         }.count == 1)
+        #expect(final.sections.flatMap(\.items).allSatisfy { $0.metadata.contains(" old · ") })
         model.invalidate()
     }
 

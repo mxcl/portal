@@ -132,6 +132,7 @@ private final class SessionPickerView: NSView {
     }
 
     weak var sessionPickerStack: NSStackView?
+    weak var commandInputView: NSTextView?
     private var selection: Selection?
 
     static func headerButtonHitTestingSelfTest() -> Bool {
@@ -166,6 +167,8 @@ private final class SessionPickerView: NSView {
             NSRect(x: 0, y: 200, width: 20, height: 20),
         ]
         return destination(from: 0, moving: .right, in: frames) == 1
+            && destination(from: 0, moving: .left, in: frames) == nil
+            && destination(from: 0, moving: .down, in: frames) == nil
             && destination(from: 1, moving: .up, in: frames) == 3
             && destination(from: 3, moving: .left, in: frames) == 2
             && destination(from: 2, moving: .up, in: frames) == 4
@@ -224,7 +227,10 @@ private final class SessionPickerView: NSView {
                 select(first)
                 return true
             }
-            moveSelection(direction)
+            if !moveSelection(direction), direction == .down {
+                clearSelection()
+                window?.makeFirstResponder(commandInputView)
+            }
             return true
         }
 
@@ -269,19 +275,20 @@ private final class SessionPickerView: NSView {
         }
     }
 
-    private func moveSelection(_ direction: Direction) {
+    private func moveSelection(_ direction: Direction) -> Bool {
         layoutSubtreeIfNeeded()
         let buttons = selectableButtons()
         guard let selected = selectedButton(),
               let current = buttons.firstIndex(where: { $0 === selected })
         else {
             clearSelection()
-            return
+            return false
         }
         let frames = buttons.map { $0.convert($0.bounds, to: self) }
         guard let destination = Self.destination(from: current, moving: direction, in: frames)
-        else { return }
+        else { return false }
         select(buttons[destination])
+        return true
     }
 
     private func select(_ button: NSControl) {
@@ -331,8 +338,8 @@ private final class SessionPickerView: NSView {
             switch direction {
             case .up: return point.y > origin.y
             case .down: return point.y < origin.y
-            case .left: return point.x < origin.x
-            case .right: return point.x > origin.x
+            case .left: return point.x < origin.x && point.y == origin.y
+            case .right: return point.x > origin.x && point.y == origin.y
             }
         }.min { lhs, rhs in
             score(frames[lhs].midpoint, from: origin, moving: direction)
@@ -3571,6 +3578,7 @@ private final class TerminalTab {
 
         sessionPickerView.isHidden = true
         sessionPickerView.sessionPickerStack = sessionPickerStack
+        sessionPickerView.commandInputView = inputView
         sessionPickerView.translatesAutoresizingMaskIntoConstraints = false
 
         sessionPickerStack.orientation = .vertical

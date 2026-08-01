@@ -252,6 +252,7 @@ fn history_suggestions(
         .filter(|entry| {
             entry.command.split_whitespace().next() != Some("cd") || entry.cwd == request.cwd
         })
+        .filter(|entry| history_command_exists(&entry.command, &request.cwd))
         .collect::<Vec<_>>();
     entries.sort_by(|left, right| {
         let left_exact = left.cwd == request.cwd;
@@ -277,6 +278,17 @@ fn history_suggestions(
             last_used_ms: Some(entry.last_used_ms),
         })
         .collect()
+}
+
+fn history_command_exists(command: &str, cwd: &str) -> bool {
+    let Some(executable) = command.split_whitespace().next() else {
+        return false;
+    };
+    if !executable.contains('/') || executable.starts_with('/') {
+        return true;
+    }
+    fs::metadata(Path::new(cwd).join(executable))
+        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
 
 fn record_history(
@@ -1477,6 +1489,42 @@ mod tests {
             }
         )
         .is_empty());
+    }
+
+    #[test]
+    fn history_hides_relative_executables_missing_from_current_directory() {
+        let recorded = TempDir::new("history-recorded");
+        let current = TempDir::new("history-current");
+        let command = "./scripts/publish.sh --release";
+        let store = HistoryStore {
+            version: HISTORY_VERSION,
+            entries: vec![HistoryEntry {
+                command: command.to_owned(),
+                cwd: recorded.path.to_string_lossy().into_owned(),
+                use_count: 1,
+                last_used_ms: 1,
+                last_used_day: 0,
+            }],
+        };
+        let request = |cwd: &Path| HistoryQueryRequest {
+            cwd: cwd.to_string_lossy().into_owned(),
+            prefix: "./scripts/p".to_owned(),
+            limit: None,
+        };
+
+        assert!(history_suggestions(&store, &request(&current.path)).is_empty());
+
+        let script = current.path.join("scripts/publish.sh");
+        fs::create_dir(script.parent().expect("script should have a parent"))
+            .expect("script directory should be created");
+        fs::write(&script, b"#!/bin/sh\n").expect("script should be created");
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755))
+            .expect("script should be executable");
+
+        assert_eq!(
+            names(&history_suggestions(&store, &request(&current.path))),
+            vec![command]
+        );
     }
 
     #[test]

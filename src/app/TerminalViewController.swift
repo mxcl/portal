@@ -6110,8 +6110,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             relativeTo: anchor,
             of: tab.commandBarView,
             resetSelection: mode != .explicit,
-            selectFirstSuggestion: isCompletionInteractionArmed && selectFirstSuggestion
+            selectFirstSuggestion: mode != .continuation && isCompletionInteractionArmed && selectFirstSuggestion
         )
+        assert(mode != .continuation || completionPopup.selectedSuggestion == nil)
         let shouldRenderPreview = mode == .explicit || mode == .rightArrow || mode == .continuation
         if shouldRenderPreview, let suggestion = completionPopup.selectedSuggestion {
             renderCompletionPreview(suggestion, in: tab)

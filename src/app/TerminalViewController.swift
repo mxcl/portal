@@ -438,6 +438,45 @@ private final class CommandInputTextView: NSTextView {
         needsDisplay = true
     }
 
+    func renderCompletionPreview(_ suggestion: CompletionSuggestion, replacementRange: NSRange) {
+        let input = string as NSString
+        guard replacementRange.location >= 0,
+              replacementRange.location + replacementRange.length <= input.length
+        else {
+            clearMutedCompletionPreview()
+            return
+        }
+
+        let existing = input.substring(with: replacementRange)
+        let insertText = suggestion.insertText as NSString
+        let typedPrefixLength = Self.commonPrefixLength(existing, suggestion.insertText)
+        let mutedText = typedPrefixLength < insertText.length
+            ? insertText.substring(from: typedPrefixLength)
+            : ""
+        renderMutedCompletionPreview(
+            mutedText,
+            afterCharacterLocation: replacementRange.location + typedPrefixLength
+        )
+    }
+
+    static func completionPreviewPreservesCaretSelfTest() -> Bool {
+        let view = CommandInputTextView(frame: .zero)
+        view.string = "exi"
+        view.setSelectedRange(NSRange(location: 3, length: 0))
+        view.renderCompletionPreview(
+            CompletionSuggestion(
+                displayText: "exit",
+                insertText: "exit",
+                description: nil,
+                kind: .command,
+                priority: 0,
+                source: "self-test"
+            ),
+            replacementRange: NSRange(location: 0, length: 2)
+        )
+        return view.selectedRange() == NSRange(location: 3, length: 0)
+    }
+
     func clearMutedCompletionPreview() {
         guard mutedCompletionPreview != nil else { return }
         mutedCompletionPreview = nil
@@ -449,6 +488,20 @@ private final class CommandInputTextView: NSTextView {
             .font: font ?? NSFont.monospacedSystemFont(ofSize: 14, weight: .regular),
             .foregroundColor: textColor ?? NSColor.labelColor
         ]
+    }
+
+    private static func commonPrefixLength(_ lhs: String, _ rhs: String) -> Int {
+        var length = 0
+        var lhsIndex = lhs.startIndex
+        var rhsIndex = rhs.startIndex
+        while lhsIndex < lhs.endIndex,
+              rhsIndex < rhs.endIndex,
+              lhs[lhsIndex] == rhs[rhsIndex] {
+            length += String(lhs[lhsIndex]).utf16.count
+            lhsIndex = lhs.index(after: lhsIndex)
+            rhsIndex = rhs.index(after: rhsIndex)
+        }
+        return length
     }
 
     private var mutedCompletionTextColor: NSColor {
@@ -3811,6 +3864,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(SessionPickerView.headerButtonHitTestingSelfTest())
         assert(SessionPickerView.keyboardNavigationSelfTest())
         assert(CompletionPopupController.selectionSelfTest())
+        assert(CommandInputTextView.completionPreviewPreservesCaretSelfTest())
         assert(VaulttyCompletionEngine.historyMergePrefixSelfTest())
         let shellEnvironment = inheritedShellEnvironment([
             "PAGER": "cat",
@@ -6166,28 +6220,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func renderCompletionPreview(_ suggestion: CompletionSuggestion, in tab: TerminalTab) {
-        guard let replacementRange = suggestion.replacementRange ?? activeCompletionRange,
-              let existing = substring(in: tab.inputView.string, range: replacementRange)
-        else {
+        guard let replacementRange = suggestion.replacementRange ?? activeCompletionRange else {
             tab.inputView.clearMutedCompletionPreview()
             return
         }
-
-        let insertText = suggestion.insertText as NSString
-        let typedPrefixLength = commonPrefixLength(existing, suggestion.insertText)
-        let mutedText: String
-        if typedPrefixLength < insertText.length {
-            mutedText = insertText.substring(from: typedPrefixLength)
-        } else {
-            mutedText = ""
-        }
-        let cursor = replacementRange.location + replacementRange.length
-        tab.inputView.renderMutedCompletionPreview(
-            mutedText,
-            afterCharacterLocation: replacementRange.location + typedPrefixLength
-        )
-        tab.inputView.setSelectedRange(NSRange(location: cursor, length: 0))
-        tab.inputView.scrollRangeToVisible(NSRange(location: cursor, length: 0))
+        tab.inputView.renderCompletionPreview(suggestion, replacementRange: replacementRange)
     }
 
     private func shouldContinueCompletion(afterApplying suggestion: CompletionSuggestion) -> Bool {
@@ -6263,20 +6300,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         guard let tabID = pendingCompletionIndicatorTabID else { return }
         tabs.first { $0.id == tabID }?.completionPendingLine.isHidden = true
         pendingCompletionIndicatorTabID = nil
-    }
-
-    private func commonPrefixLength(_ lhs: String, _ rhs: String) -> Int {
-        var length = 0
-        var lhsIndex = lhs.startIndex
-        var rhsIndex = rhs.startIndex
-        while lhsIndex < lhs.endIndex,
-              rhsIndex < rhs.endIndex,
-              lhs[lhsIndex] == rhs[rhsIndex] {
-            length += String(lhs[lhsIndex]).utf16.count
-            lhsIndex = lhs.index(after: lhsIndex)
-            rhsIndex = rhs.index(after: rhsIndex)
-        }
-        return length
     }
 
     private func substring(in value: String, range: NSRange) -> String? {

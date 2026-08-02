@@ -787,6 +787,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         let sessionsItem = NSMenuItem()
         let sessionsMenu = NSMenu(title: "Sessions")
 
+        let newTabItem = sessionsMenu.addItem(
+            withTitle: "New Tab",
+            action: #selector(newTab(_:)),
+            keyEquivalent: "t"
+        )
+        newTabItem.target = self
+        let reopenClosedTabItem = sessionsMenu.addItem(
+            withTitle: "Reopen Closed Tab",
+            action: #selector(reopenClosedTab(_:)),
+            keyEquivalent: "T"
+        )
+        reopenClosedTabItem.keyEquivalentModifierMask = [.command, .shift]
+        reopenClosedTabItem.target = self
+        sessionsMenu.addItem(.separator())
+
+        let previousTabItem = sessionsMenu.addItem(
+            withTitle: "Select Previous Tab",
+            action: #selector(selectPreviousTab(_:)),
+            keyEquivalent: "["
+        )
+        previousTabItem.keyEquivalentModifierMask = [.command, .shift]
+        previousTabItem.target = self
+
+        let nextTabItem = sessionsMenu.addItem(
+            withTitle: "Select Next Tab",
+            action: #selector(selectNextTab(_:)),
+            keyEquivalent: "]"
+        )
+        nextTabItem.keyEquivalentModifierMask = [.command, .shift]
+        nextTabItem.target = self
+        sessionsMenu.addItem(.separator())
+
         let killClosedTabsItem = sessionsMenu.addItem(
             withTitle: "Exit Closed Tabs...",
             action: #selector(killClosedTabs(_:)),
@@ -880,38 +912,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private func makeWindowMenuItem() -> NSMenuItem {
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
-
-        let newTabItem = windowMenu.addItem(
-            withTitle: "New Tab",
-            action: #selector(newTab(_:)),
-            keyEquivalent: "t"
-        )
-        newTabItem.target = self
-        let reopenClosedTabItem = windowMenu.addItem(
-            withTitle: "Reopen Closed Tab",
-            action: #selector(reopenClosedTab(_:)),
-            keyEquivalent: "T"
-        )
-        reopenClosedTabItem.keyEquivalentModifierMask = [.command, .shift]
-        reopenClosedTabItem.target = self
-        windowMenu.addItem(.separator())
-
-        let previousTabItem = windowMenu.addItem(
-            withTitle: "Select Previous Tab",
-            action: #selector(selectPreviousTab(_:)),
-            keyEquivalent: "["
-        )
-        previousTabItem.keyEquivalentModifierMask = [.command, .shift]
-        previousTabItem.target = self
-
-        let nextTabItem = windowMenu.addItem(
-            withTitle: "Select Next Tab",
-            action: #selector(selectNextTab(_:)),
-            keyEquivalent: "]"
-        )
-        nextTabItem.keyEquivalentModifierMask = [.command, .shift]
-        nextTabItem.target = self
-        windowMenu.addItem(.separator())
 
         let closeItem = windowMenu.addItem(
             withTitle: "Close",

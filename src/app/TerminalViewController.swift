@@ -2912,6 +2912,7 @@ private final class TerminalOutputProcessor {
     private let styledRenderer = Ansi.StyledTextRenderer(rows: 30)
     private var pendingShellOutput = ""
     private var isShellOutputFlushScheduled = false
+    private var isInputFeedbackPending = false
     private var markerParser = VaulttyMarkerParser()
     private var pendingBlockID: UUID?
     private var activeBlockID: UUID?
@@ -2934,6 +2935,7 @@ private final class TerminalOutputProcessor {
             guard let self else { return }
             self.pendingShellOutput.removeAll(keepingCapacity: true)
             self.isShellOutputFlushScheduled = false
+            self.isInputFeedbackPending = false
             self.markerParser.reset()
             self.pendingBlockID = blockID
             self.activeBlockID = nil
@@ -2970,6 +2972,12 @@ private final class TerminalOutputProcessor {
         }
     }
 
+    func prioritizeNextOutputForInput() {
+        queue.async { [weak self] in
+            self?.isInputFeedbackPending = true
+        }
+    }
+
     func flushAndFinish(_ completion: (() -> Void)? = nil) {
         queue.async { [weak self] in
             guard let self else { return }
@@ -2998,12 +3006,22 @@ private final class TerminalOutputProcessor {
         }
 
         pendingShellOutput += text
+        if consumeInputFeedbackPriority() {
+            flushPendingShellOutputOnQueue()
+            return
+        }
         guard !isShellOutputFlushScheduled else { return }
 
         isShellOutputFlushScheduled = true
         queue.asyncAfter(deadline: .now() + flushDelay) { [weak self] in
             self?.flushPendingShellOutputOnQueue()
         }
+    }
+
+    private func consumeInputFeedbackPriority() -> Bool {
+        guard isInputFeedbackPending else { return false }
+        isInputFeedbackPending = false
+        return true
     }
 
     private func replayShellOutputChunk(_ text: String, startingAt index: String.Index, completion: (() -> Void)?) {
@@ -3027,6 +3045,7 @@ private final class TerminalOutputProcessor {
     private func resetForReplayOnQueue() {
         pendingShellOutput.removeAll(keepingCapacity: true)
         isShellOutputFlushScheduled = false
+        isInputFeedbackPending = false
         markerParser.reset()
         pendingBlockID = nil
         activeBlockID = nil
@@ -3206,6 +3225,18 @@ private final class TerminalOutputProcessor {
     static func terminalSizeProbeSelfTest() -> Bool {
         TerminalOutputProcessor().terminalResponses(in: "\u{1B}[999;999f\u{1B}[6n")
             .contains("\u{1B}[30;100R")
+    }
+
+    static func inputFeedbackPrioritySelfTest() -> Bool {
+        let processor = TerminalOutputProcessor()
+        guard processor.queue.sync(execute: { !processor.consumeInputFeedbackPriority() }) else {
+            return false
+        }
+        processor.prioritizeNextOutputForInput()
+        return processor.queue.sync {
+            processor.consumeInputFeedbackPriority()
+                && !processor.consumeInputFeedbackPriority()
+        }
     }
 
     private func emit(_ event: Event) {
@@ -3692,6 +3723,7 @@ private final class TerminalTab {
         ptyPassthroughView.translatesAutoresizingMaskIntoConstraints = false
         ptyPassthroughView.isHidden = true
         ptyPassthroughView.onInput = { [weak self] sequence in
+            self?.outputProcessor.prioritizeNextOutputForInput()
             self?.session.write(sequence)
         }
         ptyPassthroughView.usesApplicationCursorKeys = { [weak self] in
@@ -3855,12 +3887,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var commandFocusMonitor: Any?
     private var updateButtonWidthConstraint: NSLayoutConstraint?
     private let blockViewRenderDelay: TimeInterval = 1.0 / 12.0
-    private let interactiveBlockViewRenderDelay: TimeInterval = 1.0 / 30.0
+    private let interactiveBlockViewRenderDelay: TimeInterval = 1.0 / 60.0
     private let fallbackDisplayRefreshRate = 60
     private static let didRunPassthroughRoutingSelfTest: Void = {
         assert(PtyPassthroughView.passthroughRoutingSelfTest())
         assert(TerminalOutputProcessor.alternateScreenTranscriptSelfTest())
         assert(TerminalOutputProcessor.terminalSizeProbeSelfTest())
+        assert(TerminalOutputProcessor.inputFeedbackPrioritySelfTest())
         assert(SessionPickerView.headerButtonHitTestingSelfTest())
         assert(SessionPickerView.keyboardNavigationSelfTest())
         assert(CompletionPopupController.selectionSelfTest())
@@ -5883,6 +5916,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private func configureInterruptHandling(for tab: TerminalTab) {
         tab.ptyPassthroughView.onInterrupt = { [weak self, weak tab] in
             guard let self, let tab else { return }
+            tab.outputProcessor.prioritizeNextOutputForInput()
             self.interruptCommand(in: tab)
         }
     }

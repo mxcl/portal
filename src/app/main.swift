@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var updateCheckTask: Task<Void, Never>?
     private weak var defaultTerminalMenuItem: NSMenuItem?
     private weak var remoteAccessMenuItem: NSMenuItem?
+    private weak var remoteTabsMenu: NSMenu?
     private let remoteAccessController = MacRemoteAccessController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -220,6 +221,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
     @objc private func newTab(_ sender: Any?) {
         controller?.newTab(sender)
+    }
+
+    @objc private func newRemoteTab(_ sender: NSMenuItem) {
+        guard let hostID = sender.representedObject as? String,
+              let host = loadSSHHosts().hosts.first(where: { $0.id == hostID })
+        else {
+            NSSound.beep()
+            return
+        }
+        controller?.newRemoteTab(host: host)
     }
 
     @objc private func clearActiveTab(_ sender: Any?) {
@@ -616,7 +627,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private func makeMainMenu() -> NSMenu {
         let menu = NSMenu(title: "Main Menu")
         menu.addItem(makeAppMenuItem())
-        menu.addItem(makeSessionsMenuItem())
+        menu.addItem(makeTabsMenuItem())
         menu.addItem(makeEditMenuItem())
         menu.addItem(makeWindowMenuItem())
         return menu
@@ -701,8 +712,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        guard menu === defaultTerminalMenuItem?.menu else { return }
-        updateDefaultTerminalMenuItem()
+        if menu === defaultTerminalMenuItem?.menu {
+            updateDefaultTerminalMenuItem()
+        } else if menu === remoteTabsMenu {
+            populateRemoteTabsMenu(menu)
+        }
     }
 
     @objc private func toggleDefaultTerminal(_ sender: NSMenuItem) {
@@ -783,26 +797,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         }
     }
 
-    private func makeSessionsMenuItem() -> NSMenuItem {
-        let sessionsItem = NSMenuItem()
-        let sessionsMenu = NSMenu(title: "Sessions")
+    private func makeTabsMenuItem() -> NSMenuItem {
+        let tabsItem = NSMenuItem()
+        let tabsMenu = NSMenu(title: "Tabs")
 
-        let newTabItem = sessionsMenu.addItem(
+        let newTabItem = tabsMenu.addItem(
             withTitle: "New Tab",
             action: #selector(newTab(_:)),
             keyEquivalent: "t"
         )
         newTabItem.target = self
-        let reopenClosedTabItem = sessionsMenu.addItem(
+
+        let newRemoteTabItem = NSMenuItem(title: "New Remote Tab", action: nil, keyEquivalent: "")
+        let remoteTabsMenu = NSMenu(title: "New Remote Tab")
+        remoteTabsMenu.delegate = self
+        newRemoteTabItem.submenu = remoteTabsMenu
+        tabsMenu.addItem(newRemoteTabItem)
+        self.remoteTabsMenu = remoteTabsMenu
+        populateRemoteTabsMenu(remoteTabsMenu)
+
+        let reopenClosedTabItem = tabsMenu.addItem(
             withTitle: "Reopen Closed Tab",
             action: #selector(reopenClosedTab(_:)),
             keyEquivalent: "T"
         )
         reopenClosedTabItem.keyEquivalentModifierMask = [.command, .shift]
         reopenClosedTabItem.target = self
-        sessionsMenu.addItem(.separator())
+        tabsMenu.addItem(.separator())
 
-        let previousTabItem = sessionsMenu.addItem(
+        let previousTabItem = tabsMenu.addItem(
             withTitle: "Select Previous Tab",
             action: #selector(selectPreviousTab(_:)),
             keyEquivalent: "["
@@ -810,24 +833,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         previousTabItem.keyEquivalentModifierMask = [.command, .shift]
         previousTabItem.target = self
 
-        let nextTabItem = sessionsMenu.addItem(
+        let nextTabItem = tabsMenu.addItem(
             withTitle: "Select Next Tab",
             action: #selector(selectNextTab(_:)),
             keyEquivalent: "]"
         )
         nextTabItem.keyEquivalentModifierMask = [.command, .shift]
         nextTabItem.target = self
-        sessionsMenu.addItem(.separator())
+        tabsMenu.addItem(.separator())
 
-        let killClosedTabsItem = sessionsMenu.addItem(
+        let killClosedTabsItem = tabsMenu.addItem(
             withTitle: "Exit Closed Tabs...",
             action: #selector(killClosedTabs(_:)),
             keyEquivalent: ""
         )
         killClosedTabsItem.target = self
 
-        sessionsItem.submenu = sessionsMenu
-        return sessionsItem
+        tabsItem.submenu = tabsMenu
+        return tabsItem
+    }
+
+    private func populateRemoteTabsMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let hosts = loadSSHHosts().hosts
+        if hosts.isEmpty {
+            let emptyItem = menu.addItem(withTitle: "No Remote Hosts Configured", action: nil, keyEquivalent: "")
+            emptyItem.isEnabled = false
+        } else {
+            for host in hosts {
+                let item = menu.addItem(
+                    withTitle: host.alias,
+                    action: #selector(newRemoteTab(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = host.id
+            }
+        }
+        menu.addItem(.separator())
+        let manageItem = menu.addItem(
+            withTitle: "Manage Hosts...",
+            action: #selector(manageSSHHosts(_:)),
+            keyEquivalent: ""
+        )
+        manageItem.target = self
     }
 
     private func makeEditMenuItem() -> NSMenuItem {

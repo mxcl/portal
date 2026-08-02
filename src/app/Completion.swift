@@ -1968,6 +1968,13 @@ enum ShellCompletionParser {
         let isCompletingCommand: Bool
     }
 
+    static func midTokenReplacementRangeSelfTest() -> Bool {
+        let input = "./scripts/publish.sh"
+        let parsed = parse(input: input, cursorOffset: "./scripts/p".utf16.count)
+        return parsed.currentTokenText == "./scripts/p" &&
+            parsed.currentTokenRange == NSRange(location: 0, length: input.utf16.count)
+    }
+
     static func parse(input: String, cursorOffset: Int) -> ParsedCommand {
         let nsInput = input as NSString
         let clampedCursor = max(0, min(cursorOffset, nsInput.length))
@@ -1978,10 +1985,14 @@ enum ShellCompletionParser {
         let current = currentToken(tokens: tokens, cursorOffset: clampedCursor)
         let commandIndex = commandTokenIndex(in: tokens)
         let isCompletingCommand = commandIndex == nil || current.index == commandIndex
+        let currentRange = current.token.flatMap { prefixToken in
+            tokenize(segment: nsInput.substring(from: segmentOffset), segmentOffset: segmentOffset)
+                .first { $0.range.location == prefixToken.range.location }?.range
+        } ?? NSRange(location: clampedCursor, length: 0)
         return ParsedCommand(
             tokens: tokens,
             currentTokenText: current.token?.text ?? "",
-            currentTokenRange: current.token?.range ?? NSRange(location: clampedCursor, length: 0),
+            currentTokenRange: currentRange,
             commandTokenIndex: commandIndex,
             isCompletingCommand: isCompletingCommand
         )
@@ -2068,7 +2079,7 @@ enum ShellCompletionParser {
                 utf16Offset += width
                 continue
             }
-            if character.isWhitespace {
+            if character.isWhitespace || character == ";" || character == "|" {
                 flush(at: utf16Offset)
                 utf16Offset += width
                 continue

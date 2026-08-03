@@ -4219,6 +4219,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                     acceptSelectedCompletion(in: tab, continuingDirectories: true)
                     return true
                 }
+                if consumeOnlyCompletion(in: tab) {
+                    return true
+                }
                 if let suggestion = completionPopup.selectNext() {
                     renderCompletionPreview(suggestion, in: tab)
                 }
@@ -4241,6 +4244,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                     return true
                 }
                 if completionPopup.selectedSuggestion == nil {
+                    if consumeOnlyCompletion(in: tab) {
+                        return true
+                    }
                     if canInsertCommandSeparator {
                         let cursor = tab.inputView.selectedRange().location
                         replace(range: NSRange(location: cursor, length: 0), with: " ", in: tab)
@@ -6173,6 +6179,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func completeFromPopup(in tab: TerminalTab, continuingDirectories: Bool = false) {
+        if consumeOnlyCompletion(in: tab) {
+            return
+        }
         if completionPopup.selectedSuggestion == nil {
             _ = completionPopup.selectNext()
         }
@@ -6180,6 +6189,17 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             return
         }
         acceptSelectedCompletion(in: tab, continuingDirectories: continuingDirectories)
+    }
+
+    private func consumeOnlyCompletion(in tab: TerminalTab) -> Bool {
+        guard completionPopup.selectedSuggestion == nil,
+              completionPopup.hasSingleSuggestion
+        else {
+            return false
+        }
+        _ = completionPopup.selectNext()
+        acceptSelectedCompletion(in: tab, continuingDirectories: true)
+        return true
     }
 
     private func acceptSelectedCompletion(in tab: TerminalTab, continuingDirectories: Bool = false) {

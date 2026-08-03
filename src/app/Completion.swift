@@ -338,6 +338,7 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
     private var currentDocumentHeight: CGFloat = 0
 
     var isShown: Bool { popover.isShown }
+    var hasSingleSuggestion: Bool { suggestions.count == 1 }
     var onExternalDismiss: (() -> Void)?
     var onSelectionChanged: ((CompletionSuggestion) -> Void)?
     var onAcceptSuggestion: ((CompletionSuggestion) -> Void)?
@@ -359,7 +360,7 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
         popup.suggestions = [suggestion]
         popup.showsSelection = true
         popup.clearSelection()
-        guard popup.selectedSuggestion == nil else { return false }
+        guard popup.hasSingleSuggestion, popup.selectedSuggestion == nil else { return false }
         return popup.selectNext()?.insertText == suggestion.insertText
     }
 

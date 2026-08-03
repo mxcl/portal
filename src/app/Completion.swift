@@ -703,10 +703,6 @@ private final class CompletionListView: NSView {
         onHoverRow?(row)
     }
 
-    override func mouseEntered(with event: NSEvent) {
-        mouseMoved(with: event)
-    }
-
     override func mouseDown(with event: NSEvent) {
         guard let row = rowIndex(at: convert(event.locationInWindow, from: nil)) else {
             super.mouseDown(with: event)

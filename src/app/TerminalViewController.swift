@@ -3621,12 +3621,16 @@ private final class TerminalTab {
         sessionRef: SessionRef = .local(UUID().uuidString),
         createdAt: Date = Date(),
         commandCount: Int = 0,
-        commandHistory: [String] = []
+        commandHistory: [String] = [],
+        createsRelaySession: Bool = false
     ) {
         self.sessionRef = sessionRef
         switch sessionRef.location {
         case .relayMac:
-            self.session = RelayTerminalSession(sessionRef: sessionRef)
+            self.session = RelayTerminalSession(
+                sessionRef: sessionRef,
+                createsSession: createsRelaySession
+            )
         case .local, .sshHost:
             self.session = PtySession(sessionRef: sessionRef)
         }
@@ -4422,6 +4426,20 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         createTab()
     }
 
+    func newRelayTab(on mac: RemoteMac) {
+        createTab(
+            workingDirectory: URL(fileURLWithPath: mac.homeDirectory ?? "/"),
+            sessionRef: SessionRef(
+                location: .relayMac(mac.id),
+                sessionID: UUID().uuidString,
+                hostName: mac.name
+            ),
+            title: "New session",
+            showsSessionPicker: false,
+            createsRelaySession: true
+        )
+    }
+
     @objc private func installStagedUpdate(_ sender: Any?) {
         onInstallStagedUpdate?()
     }
@@ -4955,7 +4973,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         shellPath: String? = nil,
         showsSessionPicker: Bool = true,
         activates: Bool = true,
-        persists: Bool = true
+        persists: Bool = true,
+        createsRelaySession: Bool = false
     ) {
         let directoryURL = workingDirectory.standardizedFileURL.resolvingSymlinksInPath()
         let directoryPath = directoryURL.path
@@ -4965,7 +4984,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             sessionRef: sessionRef,
             createdAt: createdAt,
             commandCount: commandCount,
-            commandHistory: commandHistory
+            commandHistory: commandHistory,
+            createsRelaySession: createsRelaySession
         )
         tab.commandLifecycle.apply(.cwdChanged(directoryPath))
         tab.findCloseButton.target = self
@@ -5235,7 +5255,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    private func relaySessionCandidates() async -> [SessionPickerCandidate]? {
+    func availableRelayMacs() async -> [RemoteMac]? {
         guard let endpoint = try? MacRemoteAccessController.relayEndpoint(),
               let key = try? ICloudKeychainRootKey().loadOrCreate(),
               let client = try? RelayCatalogClient(endpoint: endpoint, rootKeyData: key),
@@ -5245,14 +5265,19 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             return nil
         }
         let now = Date()
+        let localMacID = MacRemoteAccessController.macID()
+        return catalog.macs.filter {
+            $0.id != localMacID &&
+                $0.online &&
+                now.timeIntervalSince($0.lastSeen) < 10
+        }
+    }
+
+    private func relaySessionCandidates() async -> [SessionPickerCandidate]? {
+        guard let macs = await availableRelayMacs() else { return nil }
         var candidates: [SessionPickerCandidate] = []
         var seenSessionRefs = Set<SessionRef>()
-        let localMacID = MacRemoteAccessController.macID()
-        for mac in catalog.macs where
-            mac.id != localMacID &&
-            mac.online &&
-            now.timeIntervalSince(mac.lastSeen) < 10
-        {
+        for mac in macs {
             let location = SessionLocation.relayMac(mac.id)
             let newSessionRef = SessionRef(
                 location: location,

@@ -5615,7 +5615,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
             switch event.type {
             case .keyDown:
-                if self.activeTab?.sessionPickerView.handleKeyEvent(event) == true {
+                if !self.completionPopup.isShown,
+                   self.activeTab?.sessionPickerView.handleKeyEvent(event) == true {
                     return nil
                 }
                 self.activeTab?.sessionPickerView.clearSelection()

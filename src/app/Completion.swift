@@ -392,13 +392,11 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
     func show(
         suggestions: [CompletionSuggestion],
         relativeTo rect: NSRect,
-        of view: NSView,
-        resetSelection: Bool = true,
-        selectFirstSuggestion: Bool = true
+        of view: NSView
     ) {
         self.suggestions = suggestions
-        selectedIndex = suggestions.isEmpty ? 0 : (resetSelection ? 0 : min(selectedIndex, suggestions.count - 1))
-        self.showsSelection = selectFirstSuggestion && !suggestions.isEmpty
+        selectedIndex = 0
+        showsSelection = false
 
         let contentHeight = CompletionListView.contentHeight(forRowCount: suggestions.count)
         let placement = popupPlacement(for: rect, of: view, contentHeight: contentHeight)

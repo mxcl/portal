@@ -4422,30 +4422,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         createTab()
     }
 
-    func newRemoteTab(host: SSHHostRecord) {
-        Task {
-            do {
-                let defaults = try await Task.detached {
-                    try PtySession.remoteSessionDefaults(host: host)
-                }.value
-                createTab(
-                    workingDirectory: URL(fileURLWithPath: defaults.homeDirectory),
-                    sessionRef: SessionRef(
-                        location: .sshHost(host.id),
-                        sessionID: UUID().uuidString,
-                        hostName: host.alias
-                    ),
-                    shellPath: defaults.shellPath,
-                    showsSessionPicker: false
-                )
-            } catch {
-                let alert = NSAlert(error: error)
-                alert.messageText = "Could not open a tab on \(host.alias)"
-                alert.runModal()
-            }
-        }
-    }
-
     @objc private func installStagedUpdate(_ sender: Any?) {
         onInstallStagedUpdate?()
     }

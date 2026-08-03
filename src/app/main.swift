@@ -23,7 +23,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var updateCheckTask: Task<Void, Never>?
     private weak var defaultTerminalMenuItem: NSMenuItem?
     private weak var remoteAccessMenuItem: NSMenuItem?
-    private weak var remoteTabsMenu: NSMenu?
     private let remoteAccessController = MacRemoteAccessController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -223,16 +222,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         controller?.newTab(sender)
     }
 
-    @objc private func newRemoteTab(_ sender: NSMenuItem) {
-        guard let hostID = sender.representedObject as? String,
-              let host = loadSSHHosts().hosts.first(where: { $0.id == hostID })
-        else {
-            NSSound.beep()
-            return
-        }
-        controller?.newRemoteTab(host: host)
-    }
-
     @objc private func clearActiveTab(_ sender: Any?) {
         controller?.clearActiveTab(sender)
     }
@@ -261,6 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         controller?.findPreviousInHistory(sender)
     }
 
+    #if DIRECT_SSH_UI
     @objc private func manageSSHHosts(_ sender: Any?) {
         let stored = loadSSHHosts()
         let form = makeSSHHostPanel(hosts: stored.hosts)
@@ -569,6 +559,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             alert.runModal()
         }
     }
+    #endif
+
+    private func shellQuote(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
 
     @objc private func selectPreviousTab(_ sender: Any?) {
         controller?.selectPreviousTab(sender)
@@ -712,11 +707,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        if menu === defaultTerminalMenuItem?.menu {
-            updateDefaultTerminalMenuItem()
-        } else if menu === remoteTabsMenu {
-            populateRemoteTabsMenu(menu)
-        }
+        guard menu === defaultTerminalMenuItem?.menu else { return }
+        updateDefaultTerminalMenuItem()
     }
 
     @objc private func toggleDefaultTerminal(_ sender: NSMenuItem) {
@@ -808,14 +800,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         )
         newTabItem.target = self
 
-        let newRemoteTabItem = NSMenuItem(title: "New Remote Tab", action: nil, keyEquivalent: "")
-        let remoteTabsMenu = NSMenu(title: "New Remote Tab")
-        remoteTabsMenu.delegate = self
-        newRemoteTabItem.submenu = remoteTabsMenu
-        tabsMenu.addItem(newRemoteTabItem)
-        self.remoteTabsMenu = remoteTabsMenu
-        populateRemoteTabsMenu(remoteTabsMenu)
-
         let reopenClosedTabItem = tabsMenu.addItem(
             withTitle: "Reopen Closed Tab",
             action: #selector(reopenClosedTab(_:)),
@@ -851,32 +835,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
         tabsItem.submenu = tabsMenu
         return tabsItem
-    }
-
-    private func populateRemoteTabsMenu(_ menu: NSMenu) {
-        menu.removeAllItems()
-        let hosts = loadSSHHosts().hosts
-        if hosts.isEmpty {
-            let emptyItem = menu.addItem(withTitle: "No Remote Hosts Configured", action: nil, keyEquivalent: "")
-            emptyItem.isEnabled = false
-        } else {
-            for host in hosts {
-                let item = menu.addItem(
-                    withTitle: host.alias,
-                    action: #selector(newRemoteTab(_:)),
-                    keyEquivalent: ""
-                )
-                item.target = self
-                item.representedObject = host.id
-            }
-        }
-        menu.addItem(.separator())
-        let manageItem = menu.addItem(
-            withTitle: "Manage Hosts...",
-            action: #selector(manageSSHHosts(_:)),
-            keyEquivalent: ""
-        )
-        manageItem.target = self
     }
 
     private func makeEditMenuItem() -> NSMenuItem {

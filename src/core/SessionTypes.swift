@@ -14,11 +14,6 @@ struct StoredSSHHosts: Codable, Sendable {
     var hosts: [SSHHostRecord]
 }
 
-struct RemoteSessionDefaults: Equatable, Sendable {
-    var homeDirectory: String
-    var shellPath: String
-}
-
 enum SessionLocation: Codable, Hashable, Sendable {
     case local
     case sshHost(String)

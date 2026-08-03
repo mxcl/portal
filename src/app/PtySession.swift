@@ -489,51 +489,6 @@ final class PtySession {
         return try JSONDecoder().decode([SessionMetadata].self, from: data)
     }
 
-    static func remoteStoredSessionMetadata(host: SSHHostRecord) throws -> [SessionMetadata] {
-        let data = try runSSHCommand(
-            host: host,
-            command: "cat \"$HOME/Library/Application Support/Vaultty/sessions.json\" 2>/dev/null || true",
-            batchMode: true
-        )
-        guard !data.isEmpty else { return [] }
-        let stored = try JSONDecoder().decode(RemoteStoredSessions.self, from: data)
-        return (stored.visibleTabs + stored.closedTabs)
-            .filter { ($0.commandCount ?? 0) > 0 }
-            .map { tab in
-                SessionMetadata(
-                    sessionID: tab.sessionID,
-                    title: tab.title,
-                    cwd: tab.cwd,
-                    createdAt: tab.createdAt ?? Date.distantPast,
-                    commandCount: tab.commandCount ?? 0,
-                    runningCommand: tab.runningCommand,
-                    commandHistory: tab.commandHistory ?? []
-                )
-            }
-    }
-
-    static func remoteSessionDefaults(host: SSHHostRecord) throws -> RemoteSessionDefaults {
-        let data = try runSSHCommand(
-            host: host,
-            command: "printf '%s\\000%s\\000' \"$HOME\" \"${SHELL:-/bin/sh}\"",
-            batchMode: true
-        )
-        let fields = data.split(separator: 0, omittingEmptySubsequences: false)
-        guard fields.count >= 2,
-              let homeDirectory = String(data: fields[0], encoding: .utf8),
-              let shellPath = String(data: fields[1], encoding: .utf8),
-              !homeDirectory.isEmpty,
-              !shellPath.isEmpty
-        else {
-            throw NSError(
-                domain: NSPOSIXErrorDomain,
-                code: Int(EPROTO),
-                userInfo: [NSLocalizedDescriptionKey: "SSH host returned invalid session defaults"]
-            )
-        }
-        return RemoteSessionDefaults(homeDirectory: homeDirectory, shellPath: shellPath)
-    }
-
     private struct SessionStatePayload: Encodable {
         var title: String
         var cwd: String
@@ -541,21 +496,6 @@ final class PtySession {
         var commandCount: Int
         var runningCommand: String?
         var commandHistory: [String]
-    }
-
-    private struct RemoteStoredSessions: Decodable {
-        var visibleTabs: [RemoteStoredTab]
-        var closedTabs: [RemoteStoredTab]
-    }
-
-    private struct RemoteStoredTab: Decodable {
-        var sessionID: String
-        var title: String
-        var cwd: String
-        var createdAt: Date?
-        var commandCount: Int?
-        var runningCommand: String?
-        var commandHistory: [String]?
     }
 
     private func connect() throws {
@@ -848,12 +788,6 @@ final class PtySession {
         return try output()
     }
 
-    private static func runSSHCommand(host: SSHHostRecord, command: String, batchMode: Bool) throws -> Data {
-        let process = makeSSHProcess(host: host, command: command, batchMode: batchMode)
-        let output = try runProcess(process)
-        return try output()
-    }
-
     private static func runProcess(_ process: Process, timeout: TimeInterval = 5) throws -> () throws -> Data {
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -1094,16 +1028,6 @@ final class PtySession {
             return StoredSSHHosts(hosts: [])
         }
         return stored
-    }
-
-    static func saveSSHHosts(_ hosts: StoredSSHHosts) throws {
-        let url = sshHostsURL()
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let data = try JSONEncoder().encode(hosts)
-        try data.write(to: url, options: .atomic)
     }
 
     private static func makeSSHBridgeProcess(

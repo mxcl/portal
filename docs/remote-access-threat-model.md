@@ -1,4 +1,4 @@
-# Vaultty remote access threat model
+# Portal remote access threat model
 
 Remote access extends a live terminal from a Mac to Apple devices signed into the same iCloud Keychain account. The relay is a delivery service, not a trusted terminal endpoint.
 

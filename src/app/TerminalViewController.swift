@@ -4110,7 +4110,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Clear command history on this host?"
-        alert.informativeText = "This permanently removes successful Vaultty commands stored on the active host. Session Up/Down history is unchanged."
+        alert.informativeText = "This permanently removes successful commands stored on the active host. Session Up/Down history is unchanged."
         alert.addButton(withTitle: "Clear History")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }

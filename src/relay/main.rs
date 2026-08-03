@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = RelayState::new(catalog_directory).await?;
     let app = router(state);
     let listener = tokio::net::TcpListener::bind(&bind_address).await?;
-    eprintln!("vaultty-relay listening on {bind_address}");
+    eprintln!("Portal relay listening on {bind_address}");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;

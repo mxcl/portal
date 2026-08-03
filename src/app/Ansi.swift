@@ -461,7 +461,7 @@ enum Ansi {
             )
 
             if droppedLineCount > 0 {
-                let notice = "[Vaultty trimmed \(droppedLineCount) earlier output lines]\n"
+                let notice = "[Trimmed \(droppedLineCount) earlier output lines]\n"
                 plain.append(notice)
                 Ansi.appendAttributed(
                     notice,

@@ -472,7 +472,7 @@ private struct MobileSessionView: View {
                 }
             }
         } message: {
-            Text("This permanently removes successful Vaultty commands. Session Up/Down history is unchanged.")
+            Text("This permanently removes successful commands. Session Up/Down history is unchanged.")
         }
         .alert("Command history could not be cleared", isPresented: $showsClearHistoryError) {
             Button("OK") {}

@@ -84,7 +84,7 @@ unit_file="$(mktemp)"
 trap 'rm -f "$unit_file"' EXIT
 cat >"$unit_file" <<UNIT
 [Unit]
-Description=Vaultty encrypted session relay
+Description=Portal encrypted session relay
 After=network-online.target
 Wants=network-online.target
 

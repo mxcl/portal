@@ -1102,13 +1102,8 @@ final class VaulttyCompletionEngine {
                     input: input,
                     timeout: timeout
                 )
-            case .sshHost(let hostID):
-                return try PtySession.runSSHBridgeSubcommand(
-                    hostID: hostID,
-                    arguments: [operation.rawValue],
-                    input: input,
-                    timeout: timeout
-                )
+            case .sshHost:
+                return nil
             case .relayMac:
                 return relayProvider?.run(
                     operation: operation,
@@ -1487,8 +1482,8 @@ final class VaulttyCompletionEngine {
         switch request.location {
         case .local:
             return "local:\(request.shellPath):\(request.environment["PATH"] ?? "")"
-        case .sshHost(let hostID):
-            return "ssh:\(hostID)"
+        case .sshHost:
+            return "unsupported"
         case .relayMac(let macID):
             return "relay:\(macID):\(request.relayProvider?.cacheIdentity ?? "none")"
         }
@@ -1513,21 +1508,8 @@ final class VaulttyCompletionEngine {
                 response.suggestions.map { ($0.displayText, $0.source) },
                 uniquingKeysWith: { first, _ in first }
             )
-        case .sshHost(let hostID):
-            let request = BridgeCommandCompletionRequest(prefix: "")
-            guard let response: BridgeCompletionResponse = runBridgeJSON(
-                hostID: hostID,
-                subcommand: "complete-commands",
-                request: request,
-                timeout: 2
-            ) else {
-                return [:]
-            }
-            var sources: [String: String] = [:]
-            for suggestion in response.suggestions where sources[suggestion.displayText] == nil {
-                sources[suggestion.displayText] = suggestion.source
-            }
-            return sources
+        case .sshHost:
+            return [:]
         case .relayMac:
             let bridgeRequest = BridgeCommandCompletionRequest(prefix: "")
             guard let response: BridgeCompletionResponse = runRelayBridgeJSON(
@@ -1564,15 +1546,8 @@ final class VaulttyCompletionEngine {
                     return false
                 }
             }
-        case .sshHost(let hostID):
-            return remotePathSuggestionPayloads(
-                hostID: hostID,
-                prefix: prefix,
-                cwd: request.cwd,
-                foldersOnly: false
-            )
-            .filter { $0.kind == "folder" || $0.isExecutable }
-            .map(completionSuggestion)
+        case .sshHost:
+            return []
         case .relayMac:
             return relayPathSuggestionPayloads(
                 prefix: prefix,
@@ -1589,14 +1564,8 @@ final class VaulttyCompletionEngine {
         switch request.location {
         case .local:
             return localPathSuggestions(prefix: prefix, cwd: request.cwd, foldersOnly: foldersOnly)
-        case .sshHost(let hostID):
-            return remotePathSuggestionPayloads(
-                hostID: hostID,
-                prefix: prefix,
-                cwd: request.cwd,
-                foldersOnly: foldersOnly
-            )
-            .map(completionSuggestion)
+        case .sshHost:
+            return []
         case .relayMac:
             return relayPathSuggestionPayloads(
                 prefix: prefix,
@@ -1666,28 +1635,6 @@ final class VaulttyCompletionEngine {
         return suggestions
     }
 
-    private func remotePathSuggestionPayloads(
-        hostID: String,
-        prefix: String,
-        cwd: String,
-        foldersOnly: Bool
-    ) -> [BridgeCompletionSuggestion] {
-        guard !isRemotePathPrefix(prefix) else {
-            return []
-        }
-
-        let request = BridgePathCompletionRequest(cwd: cwd, prefix: prefix, foldersOnly: foldersOnly)
-        guard let response: BridgeCompletionResponse = runBridgeJSON(
-            hostID: hostID,
-            subcommand: "complete-path",
-            request: request,
-            timeout: 2
-        ) else {
-            return []
-        }
-        return response.suggestions
-    }
-
     private func relayPathSuggestionPayloads(
         prefix: String,
         cwd: String,
@@ -1737,26 +1684,6 @@ final class VaulttyCompletionEngine {
             return .file
         default:
             return .argument
-        }
-    }
-
-    private func runBridgeJSON<Request: Encodable, Response: Decodable>(
-        hostID: String,
-        subcommand: String,
-        request: Request,
-        timeout: TimeInterval
-    ) -> Response? {
-        do {
-            let input = try JSONEncoder().encode(request)
-            let output = try PtySession.runSSHBridgeSubcommand(
-                hostID: hostID,
-                arguments: [subcommand],
-                input: input,
-                timeout: timeout
-            )
-            return try JSONDecoder().decode(Response.self, from: output)
-        } catch {
-            return nil
         }
     }
 
@@ -2503,15 +2430,8 @@ private enum ShellCommandRunner {
                 timeout: timeout,
                 outputLimit: outputLimit
             )
-        case .sshHost(let hostID):
-            return runRemoteShell(
-                hostID: hostID,
-                commandLine: commandLine,
-                cwd: cwd,
-                environment: environment,
-                timeout: timeout,
-                outputLimit: outputLimit
-            )
+        case .sshHost:
+            return nil
         case .relayMac:
             return runRelayShell(
                 provider: relayProvider,
@@ -2568,38 +2488,6 @@ private enum ShellCommandRunner {
             stderr: stderrCapture.finish(),
             status: process.terminationStatus
         )
-    }
-
-    private static func runRemoteShell(
-        hostID: String,
-        commandLine: String,
-        cwd: String,
-        environment: [String: String],
-        timeout: TimeInterval,
-        outputLimit: Int
-    ) -> Output? {
-        let request = BridgeGeneratorRequest(
-            commandLine: commandLine,
-            cwd: cwd,
-            environment: environment
-                .sorted { $0.key < $1.key }
-                .map { BridgeGeneratorRequest.EnvironmentPair(key: $0.key, value: $0.value) },
-            timeoutMs: Int((timeout * 1000).rounded()),
-            outputLimit: outputLimit
-        )
-        do {
-            let input = try JSONEncoder().encode(request)
-            let output = try PtySession.runSSHBridgeSubcommand(
-                hostID: hostID,
-                arguments: ["run-generator"],
-                input: input,
-                timeout: min(max(timeout + 1, 2), 16)
-            )
-            let decoded = try JSONDecoder().decode(BridgeGeneratorOutput.self, from: output)
-            return Output(stdout: decoded.stdout, stderr: decoded.stderr, status: decoded.status)
-        } catch {
-            return nil
-        }
     }
 
     private static func runRelayShell(

@@ -1,24 +1,5 @@
 import Foundation
 
-struct SSHHostRecord: Codable, Equatable, Sendable {
-    var id: String
-    var alias: String
-    var hostname: String
-    var user: String
-    var port: Int
-    var remoteHelperPath: String
-    var enrolled: Bool
-}
-
-struct StoredSSHHosts: Codable, Sendable {
-    var hosts: [SSHHostRecord]
-}
-
-struct RemoteSessionDefaults: Equatable, Sendable {
-    var homeDirectory: String
-    var shellPath: String
-}
-
 enum SessionLocation: Codable, Hashable, Sendable {
     case local
     case sshHost(String)

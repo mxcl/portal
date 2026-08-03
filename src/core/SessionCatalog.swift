@@ -95,7 +95,8 @@ final class SessionCatalog {
                 && SessionDaemonIdentity(externalSessionID: sessionID).isPersistable
         }
         let persistableActiveSessionRef = activeSessionRef.flatMap { sessionRef in
-            SessionDaemonIdentity(externalSessionID: sessionRef.sessionID).isPersistable
+            isSupported(sessionRef)
+                && SessionDaemonIdentity(externalSessionID: sessionRef.sessionID).isPersistable
                 ? sessionRef
                 : nil
         }
@@ -166,12 +167,16 @@ final class SessionCatalog {
     func shouldPersist(_ record: Record) -> Bool {
         (record.commandCount ?? 0) > 0
             && !isExited(record.resolvedRef)
+            && isSupported(record.resolvedRef)
             && SessionDaemonIdentity(externalSessionID: record.sessionID).isPersistable
     }
 
     private func shouldRestore(_ record: Record) -> Bool {
-        guard shouldPersist(record) else { return false }
-        if case .sshHost = record.resolvedRef.location { return false }
+        shouldPersist(record)
+    }
+
+    private func isSupported(_ sessionRef: SessionRef) -> Bool {
+        if case .sshHost = sessionRef.location { return false }
         return true
     }
 

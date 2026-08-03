@@ -19,22 +19,6 @@ final class GitDirectoryStateProvider {
         let gitDirectoryPath: String
     }
 
-    private struct RemoteGitStatusRequest: Encodable {
-        let cwd: String
-    }
-
-    private struct RemoteGitStatusResponse: Decodable {
-        let summary: RemoteGitSummary?
-    }
-
-    private struct RemoteGitSummary: Decodable {
-        let worktreePath: String
-        let branch: String
-        let isDirty: Bool
-        let insertions: Int
-        let deletions: Int
-    }
-
     private let fileManager = FileManager.default
     private let lock = NSLock()
     private let cacheTTL: TimeInterval
@@ -57,9 +41,7 @@ final class GitDirectoryStateProvider {
         switch location {
         case .local:
             return summary(forDirectory: url, forceRefresh: forceRefresh)
-        case .sshHost(let hostID):
-            return remoteSummary(forDirectory: url, hostID: hostID, forceRefresh: forceRefresh)
-        case .relayMac:
+        case .sshHost, .relayMac:
             // ponytail: relay Git status waits for a typed query message.
             return nil
         }
@@ -87,57 +69,6 @@ final class GitDirectoryStateProvider {
         )
         lock.unlock()
         return summary
-    }
-
-    private func remoteSummary(forDirectory url: URL, hostID: String, forceRefresh: Bool) -> Summary? {
-        let path = url.standardizedFileURL.path
-        let now = Date()
-        let key = remoteCacheKey(hostID: hostID, path: path)
-        if !forceRefresh {
-            lock.lock()
-            if let entry = cache[key], entry.expiresAt > now {
-                lock.unlock()
-                return entry.summary
-            }
-            lock.unlock()
-        }
-
-        let remote = loadRemoteSummary(hostID: hostID, cwd: path)
-        let summary = remote.map {
-            Summary(
-                branch: $0.branch,
-                isDirty: $0.isDirty,
-                insertions: $0.insertions,
-                deletions: $0.deletions
-            )
-        }
-        let entry = CacheEntry(expiresAt: now.addingTimeInterval(cacheTTL), summary: summary)
-        lock.lock()
-        cache[key] = entry
-        if let worktreePath = remote?.worktreePath {
-            cache[remoteCacheKey(hostID: hostID, path: worktreePath)] = entry
-        }
-        lock.unlock()
-        return summary
-    }
-
-    private func loadRemoteSummary(hostID: String, cwd: String) -> RemoteGitSummary? {
-        do {
-            let input = try JSONEncoder().encode(RemoteGitStatusRequest(cwd: cwd))
-            let output = try PtySession.runSSHBridgeSubcommand(
-                hostID: hostID,
-                arguments: ["git-status"],
-                input: input,
-                timeout: 2
-            )
-            return try JSONDecoder().decode(RemoteGitStatusResponse.self, from: output).summary
-        } catch {
-            return nil
-        }
-    }
-
-    private func remoteCacheKey(hostID: String, path: String) -> String {
-        "ssh:\(hostID):\(path)"
     }
 
     private func repositoryLocation(containing path: String) -> RepositoryLocation? {

@@ -112,8 +112,6 @@ if [[ "$CLOBBER_RELEASE" == true && "$PUBLISH_RELEASE" != true ]]; then
   exit 1
 fi
 
-"$ROOT_DIR/scripts/validate-relay-only-remote-access.sh"
-
 if [[ "$NOTARIZE_DMG" == true &&
   ( -z "${APPLE_PASSWORD:-}" || -z "${APPLE_USERNAME:-}" ) &&
   -x /usr/local/bin/av &&
@@ -954,9 +952,6 @@ SWIFTC_COMMAND+=(
   -o "$EXECUTABLE"
 )
 "${SWIFTC_COMMAND[@]}"
-
-"$ROOT_DIR/scripts/validate-relay-only-remote-access.sh" \
-  "$EXECUTABLE" "$HELPERS_DIR/portal-remote-agent"
 
 echo "Signing with $IDENTITY"
 if [[ -f "$GHOSTTY_DYLIB" ]]; then

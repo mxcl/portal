@@ -102,7 +102,7 @@ private final class LocalSessionTransport: SessionTransport {
     }
 }
 
-private final class ProcessSessionTransport: SessionTransport {
+private final class SSHSessionTransport: SessionTransport {
     var onText: ((String) -> Void)?
     var onExit: ((Int32) -> Void)?
     var onDiagnostic: ((String) -> Void)?
@@ -163,7 +163,7 @@ private final class ProcessSessionTransport: SessionTransport {
                 let message = String(data: self.errorOutput, encoding: .utf8)?
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if process.terminationStatus != 0, !message.isEmpty {
-                    self.onDiagnostic?("\nSession bridge failed: \(message)\n")
+                    self.onDiagnostic?("\nSSH bridge failed: \(message)\n")
                 }
                 self.onExit?(process.terminationStatus)
             }
@@ -438,14 +438,16 @@ final class PtySession {
                 namespace: identity.namespace,
                 startsDaemon: false
             )
-        case .sshHost, .relayMac:
+        case .sshHost:
+            let command = SessionWireProtocol.ClientCommand.kill(sessionID: sessionRef.sessionID)
+            try sendCommandNoResponse(command, location: sessionRef.location)
+        case .relayMac:
             throw unsupportedProtocolError()
         }
     }
 
     static func listSessions(location: SessionLocation = .local) throws -> [SessionMetadata] {
-        switch location {
-        case .local:
+        if case .local = location {
             let canonical = try listLocalSessions(namespace: .canonical, startsDaemon: true)
             let portalDevelopment = (try? listLocalSessions(
                 namespace: .portalDevelopment,
@@ -455,9 +457,16 @@ final class PtySession {
                 canonical: canonical,
                 portalDevelopment: portalDevelopment
             )
-        case .sshHost, .relayMac:
-            throw unsupportedProtocolError()
         }
+        let event = try sendSingleResponseCommand(.list, location: location)
+        guard case .sessions(let data) = event else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(EPROTO),
+                userInfo: [NSLocalizedDescriptionKey: "session daemon returned an invalid LIST response"]
+            )
+        }
+        return try JSONDecoder().decode([SessionMetadata].self, from: data)
     }
 
     private static func listLocalSessions(
@@ -480,6 +489,51 @@ final class PtySession {
         return try JSONDecoder().decode([SessionMetadata].self, from: data)
     }
 
+    static func remoteStoredSessionMetadata(host: SSHHostRecord) throws -> [SessionMetadata] {
+        let data = try runSSHCommand(
+            host: host,
+            command: "cat \"$HOME/Library/Application Support/Vaultty/sessions.json\" 2>/dev/null || true",
+            batchMode: true
+        )
+        guard !data.isEmpty else { return [] }
+        let stored = try JSONDecoder().decode(RemoteStoredSessions.self, from: data)
+        return (stored.visibleTabs + stored.closedTabs)
+            .filter { ($0.commandCount ?? 0) > 0 }
+            .map { tab in
+                SessionMetadata(
+                    sessionID: tab.sessionID,
+                    title: tab.title,
+                    cwd: tab.cwd,
+                    createdAt: tab.createdAt ?? Date.distantPast,
+                    commandCount: tab.commandCount ?? 0,
+                    runningCommand: tab.runningCommand,
+                    commandHistory: tab.commandHistory ?? []
+                )
+            }
+    }
+
+    static func remoteSessionDefaults(host: SSHHostRecord) throws -> RemoteSessionDefaults {
+        let data = try runSSHCommand(
+            host: host,
+            command: "printf '%s\\000%s\\000' \"$HOME\" \"${SHELL:-/bin/sh}\"",
+            batchMode: true
+        )
+        let fields = data.split(separator: 0, omittingEmptySubsequences: false)
+        guard fields.count >= 2,
+              let homeDirectory = String(data: fields[0], encoding: .utf8),
+              let shellPath = String(data: fields[1], encoding: .utf8),
+              !homeDirectory.isEmpty,
+              !shellPath.isEmpty
+        else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(EPROTO),
+                userInfo: [NSLocalizedDescriptionKey: "SSH host returned invalid session defaults"]
+            )
+        }
+        return RemoteSessionDefaults(homeDirectory: homeDirectory, shellPath: shellPath)
+    }
+
     private struct SessionStatePayload: Encodable {
         var title: String
         var cwd: String
@@ -489,13 +543,28 @@ final class PtySession {
         var commandHistory: [String]
     }
 
+    private struct RemoteStoredSessions: Decodable {
+        var visibleTabs: [RemoteStoredTab]
+        var closedTabs: [RemoteStoredTab]
+    }
+
+    private struct RemoteStoredTab: Decodable {
+        var sessionID: String
+        var title: String
+        var cwd: String
+        var createdAt: Date?
+        var commandCount: Int?
+        var runningCommand: String?
+        var commandHistory: [String]?
+    }
+
     private func connect() throws {
         let transport: any SessionTransport
         switch sessionRef.location {
         case .local:
             let namespace = daemonIdentity.namespace
             if let process = Self.makeLocalBridgeProcess(namespace: namespace) {
-                transport = ProcessSessionTransport(
+                transport = SSHSessionTransport(
                     queue: queue,
                     process: process,
                     write: Self.writeAll
@@ -510,7 +579,14 @@ final class PtySession {
                     write: Self.writeAll
                 )
             }
-        case .sshHost, .relayMac:
+        case .sshHost(let hostID):
+            let host = try Self.sshHostRecord(id: hostID)
+            transport = SSHSessionTransport(
+                queue: queue,
+                process: Self.makeSSHBridgeProcess(host: host),
+                write: Self.writeAll
+            )
+        case .relayMac:
             throw Self.unsupportedProtocolError()
         }
         transport.onText = { [weak self] text in self?.consumeProtocolText(text) }
@@ -606,7 +682,15 @@ final class PtySession {
             defer { close(fd) }
             try writeAll(line + "\n", to: fd)
             return SessionWireProtocol.Decoder.decode(try readLine(from: fd))
-        case .sshHost, .relayMac:
+        case .sshHost(let hostID):
+            let host = try sshHostRecord(id: hostID)
+            let output = try runSSHBridgeCommand(host: host, command: line)
+            let response = String(decoding: output, as: UTF8.self)
+                .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
+                .first
+                .map(String.init) ?? ""
+            return SessionWireProtocol.Decoder.decode(response)
+        case .relayMac:
             throw unsupportedProtocolError()
         }
     }
@@ -644,7 +728,22 @@ final class PtySession {
         switch location {
         case .local:
             try sendLocalCommandNoResponse(line, namespace: .canonical, startsDaemon: true)
-        case .sshHost, .relayMac:
+        case .sshHost(let hostID):
+            let host = try sshHostRecord(id: hostID)
+            let process = makeSSHBridgeProcess(host: host, batchMode: true)
+            let inputPipe = Pipe()
+            process.standardInput = inputPipe
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            try process.run()
+            try writeAll(line + "\n", to: inputPipe.fileHandleForWriting.fileDescriptor)
+            try inputPipe.fileHandleForWriting.close()
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) {
+                if process.isRunning {
+                    process.terminate()
+                }
+            }
+        case .relayMac:
             throw unsupportedProtocolError()
         }
     }
@@ -678,6 +777,16 @@ final class PtySession {
         return nsError.code == Int(ENOENT) || nsError.code == Int(ECONNREFUSED)
     }
 
+    private static func runSSHBridgeCommand(host: SSHHostRecord, command: String) throws -> Data {
+        let process = makeSSHBridgeProcess(host: host, batchMode: true)
+        let inputPipe = Pipe()
+        process.standardInput = inputPipe
+        let output = try runProcess(process)
+        try writeAll(command + "\n", to: inputPipe.fileHandleForWriting.fileDescriptor)
+        try inputPipe.fileHandleForWriting.close()
+        return try output()
+    }
+
     private static func runLocalBridgeCommand(_ process: Process, command: String) throws -> Data {
         let inputPipe = Pipe()
         process.standardInput = inputPipe
@@ -702,6 +811,22 @@ final class PtySession {
         return process
     }
 
+    static func runSSHBridgeSubcommand(
+        hostID: String,
+        arguments: [String],
+        input: Data,
+        timeout: TimeInterval = 5
+    ) throws -> Data {
+        let host = try sshHostRecord(id: hostID)
+        let process = makeSSHBridgeProcess(host: host, batchMode: true, arguments: arguments)
+        let inputPipe = Pipe()
+        process.standardInput = inputPipe
+        let output = try runProcess(process, timeout: timeout)
+        try writeAll(input, to: inputPipe.fileHandleForWriting.fileDescriptor)
+        try inputPipe.fileHandleForWriting.close()
+        return try output()
+    }
+
     static func runLocalBridgeSubcommand(
         arguments: [String],
         input: Data,
@@ -720,6 +845,12 @@ final class PtySession {
         let output = try runProcess(process, timeout: timeout)
         try writeAll(input, to: inputPipe.fileHandleForWriting.fileDescriptor)
         try inputPipe.fileHandleForWriting.close()
+        return try output()
+    }
+
+    private static func runSSHCommand(host: SSHHostRecord, command: String, batchMode: Bool) throws -> Data {
+        let process = makeSSHProcess(host: host, command: command, batchMode: batchMode)
+        let output = try runProcess(process)
         return try output()
     }
 
@@ -743,7 +874,7 @@ final class PtySession {
                 throw NSError(
                     domain: NSPOSIXErrorDomain,
                     code: Int(ETIMEDOUT),
-                    userInfo: [NSLocalizedDescriptionKey: "session bridge timed out"]
+                    userInfo: [NSLocalizedDescriptionKey: "SSH command timed out"]
                 )
             }
             if process.terminationStatus != 0 {
@@ -751,7 +882,7 @@ final class PtySession {
                 throw NSError(
                     domain: NSPOSIXErrorDomain,
                     code: Int(process.terminationStatus),
-                    userInfo: [NSLocalizedDescriptionKey: errorText.isEmpty ? "session bridge failed" : errorText]
+                    userInfo: [NSLocalizedDescriptionKey: errorText.isEmpty ? "SSH command failed" : errorText]
                 )
             }
             return output
@@ -943,6 +1074,124 @@ final class PtySession {
         )
     }
 
+    private static func sshHostRecord(id: String) throws -> SSHHostRecord {
+        let stored = loadSSHHosts()
+        if let host = stored.hosts.first(where: { $0.id == id }) {
+            return host
+        }
+        throw NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(ENOENT),
+            userInfo: [NSLocalizedDescriptionKey: "SSH host is not configured"]
+        )
+    }
+
+    static func loadSSHHosts() -> StoredSSHHosts {
+        let url = sshHostsURL()
+        guard let data = try? Data(contentsOf: url),
+              let stored = try? JSONDecoder().decode(StoredSSHHosts.self, from: data)
+        else {
+            return StoredSSHHosts(hosts: [])
+        }
+        return stored
+    }
+
+    static func saveSSHHosts(_ hosts: StoredSSHHosts) throws {
+        let url = sshHostsURL()
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let data = try JSONEncoder().encode(hosts)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private static func makeSSHBridgeProcess(
+        host: SSHHostRecord,
+        batchMode: Bool = false,
+        arguments: [String] = []
+    ) -> Process {
+        makeSSHProcess(
+            host: host,
+            command: shellCommand(execPath: host.remoteHelperPath, arguments: arguments),
+            batchMode: batchMode
+        )
+    }
+
+    private static func makeSSHProcess(host: SSHHostRecord, command: String, batchMode: Bool = false) -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        var arguments = ["-T"]
+        try? FileManager.default.createDirectory(
+            at: sshControlDirectory(),
+            withIntermediateDirectories: true
+        )
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: sshControlDirectory().path
+        )
+        arguments += [
+            "-o", "ControlMaster=auto",
+            "-o", "ControlPersist=30s",
+            "-o", "ControlPath=\(sshControlPath(for: host).path)"
+        ]
+        if batchMode {
+            arguments += [
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=2"
+            ]
+        }
+        if host.port != 22 {
+            arguments += ["-p", String(host.port)]
+        }
+        arguments.append("\(host.user)@\(host.hostname)")
+        arguments.append(command)
+        process.arguments = arguments
+        return process
+    }
+
+    private static func sshControlDirectory() -> URL {
+        URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("vaultty-\(getuid())", isDirectory: true)
+    }
+
+    private static func sshControlPath(for host: SSHHostRecord) -> URL {
+        let name = host.id
+            .unicodeScalars
+            .map { CharacterSet.alphanumerics.contains($0) ? Character($0) : "-" }
+            .map(String.init)
+            .joined()
+        return sshControlDirectory().appendingPathComponent(name, isDirectory: false)
+    }
+
+    private static func shellCommand(execPath: String, arguments: [String] = []) -> String {
+        let argumentText = arguments.map(shellQuote).joined(separator: " ")
+        if argumentText.isEmpty {
+            return "exec \(shellPathExpression(execPath))"
+        }
+        return "exec \(shellPathExpression(execPath)) \(argumentText)"
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    static func shellPathExpression(_ path: String) -> String {
+        if path.hasPrefix("~/") {
+            let relativePath = String(path.dropFirst(2))
+            return "\"$HOME/\(doubleQuoteEscaped(relativePath))\""
+        }
+        return shellQuote(path)
+    }
+
+    private static func doubleQuoteEscaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "`", with: "\\`")
+    }
+
     private static func socketPath(namespace: SessionDaemonNamespace) -> String {
         if namespace == .canonical,
            let override = ProcessInfo.processInfo.environment["PORTAL_SESSIOND_SOCKET"],
@@ -957,6 +1206,14 @@ final class PtySession {
             .appendingPathComponent("runtime", isDirectory: true)
             .appendingPathComponent("sessiond.sock", isDirectory: false)
             .path
+    }
+
+    private static func sshHostsURL() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("Vaultty", isDirectory: true)
+            .appendingPathComponent("hosts.json", isDirectory: false)
     }
 
     private static func posixError(_ operation: String) -> NSError {

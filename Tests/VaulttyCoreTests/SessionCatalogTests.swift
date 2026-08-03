@@ -80,22 +80,6 @@ struct SessionCatalogTests {
         #expect(catalog.closedTabs.isEmpty)
     }
 
-    @Test("persist never writes direct SSH sessions")
-    func persistIgnoresDirectSSH() throws {
-        let store = MemorySessionCatalogStore()
-        let catalog = SessionCatalog(store: store, windowID: "window")
-        var ssh = record(id: "ssh", windowID: nil, createdAt: 1)
-        ssh.sessionRef = SessionRef(location: .sshHost("host"), sessionID: ssh.sessionID)
-
-        catalog.appendClosed(ssh)
-        try catalog.persist(visibleTabs: [ssh], activeSessionRef: ssh.resolvedRef)
-
-        let stored = try JSONDecoder().decode(TestCatalogStorage.self, from: try #require(store.data))
-        #expect(stored.visibleTabs.isEmpty)
-        #expect(stored.closedTabs.isEmpty)
-        #expect(stored.activeSessionIDs?.isEmpty == true)
-    }
-
     @Test("persist replaces only the current window and preserves other windows")
     func persistMergesWindows() throws {
         let other = record(id: "other", windowID: "other-window", createdAt: 1)

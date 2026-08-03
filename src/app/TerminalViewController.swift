@@ -4422,6 +4422,30 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         createTab()
     }
 
+    func newRemoteTab(host: SSHHostRecord) {
+        Task {
+            do {
+                let defaults = try await Task.detached {
+                    try PtySession.remoteSessionDefaults(host: host)
+                }.value
+                createTab(
+                    workingDirectory: URL(fileURLWithPath: defaults.homeDirectory),
+                    sessionRef: SessionRef(
+                        location: .sshHost(host.id),
+                        sessionID: UUID().uuidString,
+                        hostName: host.alias
+                    ),
+                    shellPath: defaults.shellPath,
+                    showsSessionPicker: false
+                )
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.messageText = "Could not open a tab on \(host.alias)"
+                alert.runModal()
+            }
+        }
+    }
+
     @objc private func installStagedUpdate(_ sender: Any?) {
         onInstallStagedUpdate?()
     }
@@ -5300,8 +5324,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         switch sessionRef.location {
         case .local:
             return nil
-        case .sshHost:
-            return sessionRef.hostName
+        case .sshHost(let hostID):
+            guard let host = PtySession.loadSSHHosts().hosts.first(where: { $0.id == hostID })
+            else { return nil }
+            return host.hostname.isEmpty ? host.alias : host.hostname
         case .relayMac(let macID):
             return sessionRef.hostName ?? macID
         }
@@ -5896,6 +5922,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         shellPath: String? = nil
     ) {
         let isRemoteSession = tab.sessionRef.location != .local
+        let isSSHSession: Bool
+        if case .sshHost = tab.sessionRef.location {
+            isSSHSession = true
+        } else {
+            isSSHSession = false
+        }
+
         let shell = shellPath ?? (isRemoteSession
             ? "/bin/bash"
             : ProcessInfo.processInfo.environment["SHELL"].flatMap {
@@ -5925,6 +5958,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             export LC_TERMINAL=Portal
             export LC_TERMINAL_VERSION=\(shellQuote(appVersion))
             export __CFBundleIdentifier=\(shellQuote(bundleIdentifier))
+            \(isSSHSession ? remoteCodeFunctionScript : "")
             cd \(shellQuote(workingDirectory.path))
             stty -echo
             PROMPT=''
@@ -6568,8 +6602,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 tab.commandLifecycle.apply(.cwdChanged(cwd))
             }
             persistSessionState()
-        case .openRemoteCode:
-            break
+        case .openRemoteCode(let payload):
+            if !isReplay {
+                openRemoteCode(payload: payload, in: tab)
+            }
         case .commandFinished(let status):
             let finishedBlock = (tab.activeBlockID ?? tab.pendingBlockID).flatMap { blockID in
                 tab.blocks.first(where: { $0.id == blockID })
@@ -6617,6 +6653,87 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 relayProvider: relayProvider
             )
         }
+    }
+
+    private var remoteCodeFunctionScript: String {
+        """
+        code() {
+          if [ "$#" -eq 0 ]; then
+            printf 'usage: code PATH\\n' >&2
+            return 2
+          fi
+          local __vaultty_target="$1" __vaultty_kind __vaultty_dir __vaultty_name __vaultty_abs
+          if [ -d "$__vaultty_target" ]; then
+            __vaultty_kind=folder
+            __vaultty_abs="$(cd "$__vaultty_target" 2>/dev/null && pwd -P)" || return 1
+          else
+            __vaultty_kind=file
+            case "$__vaultty_target" in
+              */*) __vaultty_dir="${__vaultty_target%/*}"; __vaultty_name="${__vaultty_target##*/}" ;;
+              *) __vaultty_dir=.; __vaultty_name="$__vaultty_target" ;;
+            esac
+            [ -n "$__vaultty_dir" ] || __vaultty_dir=/
+            __vaultty_abs="$(cd "$__vaultty_dir" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$__vaultty_name")" || return 1
+          fi
+          printf '\\033]133;O;%s;%s\\a' "$__vaultty_kind" "$(printf '%s' "$__vaultty_abs" | base64 | tr -d '\\n')"
+        }
+        """
+    }
+
+    private func openRemoteCode(payload: String, in tab: TerminalTab) {
+        let parts = payload.split(separator: ";", maxSplits: 1).map(String.init)
+        guard parts.count == 2,
+              let remotePath = decodeBase64(parts[1]).map(cleanRemoteCodePath),
+              let host = sshHost(for: tab.sessionRef.location),
+              let uri = vscodeRemoteURI(kind: parts[0], host: host, path: remotePath)
+        else {
+            return
+        }
+
+        let process = Process()
+        let codePath = codeExecutablePath()
+        process.executableURL = URL(fileURLWithPath: codePath)
+        let arguments = [parts[0] == "file" ? "--file-uri" : "--folder-uri", uri]
+        process.arguments = codePath == "/usr/bin/env" ? ["code"] + arguments : arguments
+        try? process.run()
+    }
+
+    private func cleanRemoteCodePath(_ path: String) -> String {
+        var path = path
+        while path.hasPrefix("\u{1B}]133;"),
+              let end = path.firstIndex(of: "\u{7}") {
+            path.removeSubrange(...end)
+        }
+        return path
+    }
+
+    private func sshHost(for location: SessionLocation) -> SSHHostRecord? {
+        guard case .sshHost(let hostID) = location else { return nil }
+        return PtySession.loadSSHHosts().hosts.first { $0.id == hostID }
+    }
+
+    private func vscodeRemoteURI(kind: String, host: SSHHostRecord, path: String) -> String? {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "%?#")
+        guard kind == "file" || kind == "folder",
+              let encodedPath = path.addingPercentEncoding(withAllowedCharacters: allowed)
+        else {
+            return nil
+        }
+        let absolutePath = encodedPath.hasPrefix("/") ? encodedPath : "/" + encodedPath
+        let hostname = host.hostname.isEmpty ? host.alias : host.hostname
+        return "vscode-remote://ssh-remote+\(hostname)\(absolutePath)"
+    }
+
+    private func codeExecutablePath() -> String {
+        for path in [
+            "/usr/local/bin/code",
+            "/opt/homebrew/bin/code",
+            "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+        ] where FileManager.default.isExecutableFile(atPath: path) {
+            return path
+        }
+        return "/usr/bin/env"
     }
 
     private func usesPagerScreenRendering(for command: String) -> Bool {

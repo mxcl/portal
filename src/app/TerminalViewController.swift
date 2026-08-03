@@ -6101,7 +6101,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private func handleCompletionResult(_ result: CompletionResult, in tab: TerminalTab, mode: CompletionRequestMode) {
         guard !result.suggestions.isEmpty else {
             dismissCompletion()
-            if mode == .explicit || mode == .rightArrow {
+            guard mode == .explicit || mode == .rightArrow else { return }
+            if result.canInsertCommandSeparator {
+                let cursor = tab.inputView.selectedRange().location
+                replace(range: NSRange(location: cursor, length: 0), with: " ", in: tab)
+                requestCompletion(in: tab, mode: .continuation)
+            } else {
                 NSSound.beep()
             }
             return

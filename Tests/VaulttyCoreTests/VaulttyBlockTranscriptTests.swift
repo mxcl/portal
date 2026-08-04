@@ -63,6 +63,26 @@ struct VaulttyBlockTranscriptTests {
         #expect(!transcript.isAlternateScreenActive)
     }
 
+    @Test("carriage returns replace progress output instead of accumulating it")
+    func carriageReturnProgress() throws {
+        var transcript = VaulttyBlockTranscript()
+        let command = Data("git pull".utf8).base64EncodedString()
+
+        transcript.consume("\u{1B}]133;C;\(command)\u{7}")
+        transcript.consume("remote: Counting objects\r\n")
+        #expect(transcript.blocks.only?.output == "remote: Counting objects\n")
+        transcript.consume("Receiving objects: 10%\r")
+        #expect(
+            transcript.blocks.only?.output ==
+                "remote: Counting objects\nReceiving objects: 10%"
+        )
+        transcript.consume("\u{1B}[2KReceiving objects: 50%\rReceiving objects: 100%\nDone\n")
+        transcript.consume("\u{1B}]133;D;0\u{7}")
+
+        let block = try #require(transcript.blocks.only)
+        #expect(block.output == "remote: Counting objects\nReceiving objects: 100%\nDone\n")
+    }
+
     @Test("a subsequent command closes an incomplete historical block")
     func incompleteHistory() throws {
         var transcript = VaulttyBlockTranscript()

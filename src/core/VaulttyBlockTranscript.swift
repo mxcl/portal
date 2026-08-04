@@ -37,6 +37,7 @@ public struct VaulttyBlockTranscript: Sendable {
     private var renderer = PlainTerminalRenderer()
     public private(set) var currentCwd: String?
     private var activeBlockIndex: Int?
+    private var pendingCarriageReturn = false
 
     public init() {}
 
@@ -51,8 +52,9 @@ public struct VaulttyBlockTranscript: Sendable {
                 let rendered = renderer.consume(visible)
                 isAlternateScreenActive = renderer.isAlternateScreenActive
                 guard let activeBlockIndex, !rendered.isEmpty else { continue }
-                blocks[activeBlockIndex].output += rendered
-                revision &+= 1
+                if apply(rendered, to: activeBlockIndex) {
+                    revision &+= 1
+                }
             case .marker(let marker):
                 consume(marker)
             }
@@ -71,6 +73,7 @@ public struct VaulttyBlockTranscript: Sendable {
                 blocks[activeBlockIndex].state = .completed(-1)
             }
             renderer.resetOutputState()
+            pendingCarriageReturn = false
             blocks.append(VaulttyBlock(command: command, cwd: currentCwd))
             activeBlockIndex = blocks.indices.last
             revision &+= 1
@@ -78,10 +81,48 @@ public struct VaulttyBlockTranscript: Sendable {
             guard let activeBlockIndex else { return }
             blocks[activeBlockIndex].state = .completed(status)
             self.activeBlockIndex = nil
+            pendingCarriageReturn = false
             revision &+= 1
         case .openRemoteCode, .unknown:
             break
         }
+    }
+
+    private mutating func apply(_ rendered: String, to blockIndex: Int) -> Bool {
+        let containsCarriageReturn = rendered.unicodeScalars.contains { $0.value == 0x0D }
+        guard pendingCarriageReturn || containsCarriageReturn else {
+            blocks[blockIndex].output += rendered
+            return !rendered.isEmpty
+        }
+        var changed = false
+        for scalar in rendered.unicodeScalars {
+            if pendingCarriageReturn {
+                if scalar.value == 0x0D { continue }
+                pendingCarriageReturn = false
+                if scalar.value == 0x0A {
+                    blocks[blockIndex].output.unicodeScalars.append(scalar)
+                    changed = true
+                    continue
+                }
+                let lineStart: String.Index
+                if let newline = blocks[blockIndex].output.lastIndex(of: "\n") {
+                    lineStart = blocks[blockIndex].output.index(after: newline)
+                } else {
+                    lineStart = blocks[blockIndex].output.startIndex
+                }
+                if lineStart != blocks[blockIndex].output.endIndex {
+                    blocks[blockIndex].output.removeSubrange(lineStart...)
+                    changed = true
+                }
+            }
+            if scalar.value == 0x0D {
+                pendingCarriageReturn = true
+            } else {
+                blocks[blockIndex].output.unicodeScalars.append(scalar)
+                changed = true
+            }
+        }
+        return changed
     }
 }
 
@@ -212,6 +253,7 @@ private struct PlainTerminalRenderer: Sendable {
                 switch scalar.value {
                 case 0x1B: state = .escape
                 case 0x0A where !isAlternateScreenActive,
+                     0x0D where !isAlternateScreenActive,
                      0x09 where !isAlternateScreenActive:
                     output.unicodeScalars.append(scalar)
                 case 0x20...0x7E where !isAlternateScreenActive,

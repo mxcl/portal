@@ -75,6 +75,7 @@ public final class MobileRemoteModel {
     public private(set) var creatingMacID: String?
     public private(set) var sessionCreationError: String?
     public private(set) var isRefreshingCatalog = false
+    public private(set) var isLoadingCommands = false
     public private(set) var completionSuggestions: [MobileCompletionSuggestion] = []
     public private(set) var isCompleting = false
     public var showsPaywall = false
@@ -137,6 +138,7 @@ public final class MobileRemoteModel {
             showsPaywall = true
             return
         }
+        isLoadingCommands = true
         targetSession = session
         targetMac = mac
         receiveTask?.cancel()
@@ -148,8 +150,10 @@ public final class MobileRemoteModel {
                 try await connect(session: session, mac: mac)
             } catch is CancellationError {
                 connectionState = .idle
+                isLoadingCommands = false
             } catch {
                 connectionState = .failed(error.localizedDescription)
+                isLoadingCommands = false
             }
         }
     }
@@ -200,6 +204,7 @@ public final class MobileRemoteModel {
         if let client { Task { await client.disconnect() } }
         client = nil
         connectionState = .idle
+        isLoadingCommands = false
         if clearTarget {
             targetSession = nil
             targetMac = nil
@@ -325,8 +330,10 @@ public final class MobileRemoteModel {
                     try await connect(session: targetSession, mac: targetMac)
                 } catch is CancellationError {
                     connectionState = .idle
+                    isLoadingCommands = false
                 } catch {
                     connectionState = .failed(error.localizedDescription)
+                    isLoadingCommands = false
                 }
             }
         }
@@ -344,6 +351,7 @@ public final class MobileRemoteModel {
                 }
             } catch {
                 connectionState = .failed(error.localizedDescription)
+                isLoadingCommands = false
             }
         }
     }
@@ -382,6 +390,7 @@ public final class MobileRemoteModel {
                 recordCompletedSubmissionIfNeeded()
             }
         case .history(let data):
+            isLoadingCommands = false
             appendChunk(data)
             if let text = String(data: data, encoding: .utf8) {
                 transcript.consume(text)
@@ -421,6 +430,7 @@ public final class MobileRemoteModel {
     }
 
     private func resetTerminalStream() {
+        isLoadingCommands = true
         chunks.removeAll(keepingCapacity: true)
         terminalSize = nil
         transcript.reset()

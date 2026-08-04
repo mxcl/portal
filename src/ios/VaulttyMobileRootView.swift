@@ -323,12 +323,19 @@ private struct MobileSessionView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if model.transcript.blocks.isEmpty {
-                        ContentUnavailableView(
-                            "No commands yet",
-                            systemImage: "terminal",
-                            description: Text("Run a command here or on a connected Mac.")
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 320)
+                        if model.isLoadingCommands {
+                            ProgressView()
+                                .controlSize(.large)
+                                .accessibilityLabel("Loading commands")
+                                .frame(maxWidth: .infinity, minHeight: 320)
+                        } else {
+                            ContentUnavailableView(
+                                "No commands yet",
+                                systemImage: "terminal",
+                                description: Text("Run a command here or on a connected Mac.")
+                            )
+                            .frame(maxWidth: .infinity, minHeight: 320)
+                        }
                     }
                     ForEach(model.transcript.blocks) { block in
                         MobileBlockView(block: block)

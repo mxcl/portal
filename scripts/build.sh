@@ -960,6 +960,7 @@ swiftc \
   "$ROOT_DIR/src/core/RemoteProtocol.swift" \
   "$ROOT_DIR/src/core/RemoteSessionCreationClient.swift" \
   "$ROOT_DIR/src/core/VaulttyCommandEnvelope.swift" \
+  "$ROOT_DIR/src/core/VaulttyBlockTranscript.swift" \
   "$ROOT_DIR/src/core/RelayCrypto.swift" \
   "$ROOT_DIR/src/core/ICloudKeychainRootKey.swift" \
   "$ROOT_DIR/src/core/RelayClient.swift" \

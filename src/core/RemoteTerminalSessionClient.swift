@@ -11,6 +11,7 @@ public enum RemoteTerminalEvent: Equatable, Sendable {
     case streamReset
     case output(Data)
     case history(Data)
+    case historySnapshot(RemoteTerminalHistory)
     case snapshot(RemoteTerminalSnapshot)
     case size(RemoteTerminalSize)
     case presence(Int)
@@ -264,7 +265,13 @@ public actor RemoteTerminalSessionClient {
         sequenceTracker.reset(to: nil)
         capabilities.removeAll()
         try await transport.connect(peerID: peerID)
-        try await sendMessage(.attach, clientRole: role)
+        try await sendMessage(
+            .attach,
+            clientRole: role,
+            clientCapabilities: role == .phone
+                ? [RemoteCapabilities.relayTerminalHistory]
+                : nil
+        )
     }
 
     private func receiveEvent() async throws -> RemoteTerminalEvent? {
@@ -296,6 +303,14 @@ public actor RemoteTerminalSessionClient {
                       )
                 else { throw RemoteTerminalSessionError.invalidResponse }
                 return .snapshot(snapshot)
+            case .terminalHistory:
+                guard let payload = message.payload,
+                      let history = try? JSONDecoder().decode(
+                        RemoteTerminalHistory.self,
+                        from: payload
+                      )
+                else { throw RemoteTerminalSessionError.invalidResponse }
+                return .historySnapshot(history)
             case .resize:
                 guard let payload = message.payload,
                       let size = try? JSONDecoder().decode(RemoteTerminalSize.self, from: payload)
@@ -427,7 +442,8 @@ public actor RemoteTerminalSessionClient {
     private func sendMessage(
         _ kind: RemoteMessageKind,
         payload: Data? = nil,
-        clientRole: RemoteClientRole? = nil
+        clientRole: RemoteClientRole? = nil,
+        clientCapabilities: [String]? = nil
     ) async throws {
         try await transport.send(JSONEncoder().encode(RemoteMessage(
             kind: kind,
@@ -435,7 +451,8 @@ public actor RemoteTerminalSessionClient {
             macID: macID,
             sessionID: sessionID,
             payload: payload,
-            clientRole: clientRole
+            clientRole: clientRole,
+            clientCapabilities: clientCapabilities
         )))
     }
 

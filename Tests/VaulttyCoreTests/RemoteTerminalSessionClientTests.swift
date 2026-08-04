@@ -13,6 +13,7 @@ struct RemoteTerminalSessionClientTests {
         #expect(await events.next() == .connection(.connecting))
         let attach = try await transport.waitForMessage(kind: .attach)
         #expect(attach.clientRole == .mac)
+        #expect(attach.clientCapabilities == nil)
         #expect(await events.next() == .connection(.attached))
 
         try await transport.enqueue(RemoteMessage(
@@ -39,6 +40,7 @@ struct RemoteTerminalSessionClientTests {
         _ = await events.next()
         let attach = try await transport.waitForMessage(kind: .attach)
         #expect(attach.clientRole == .phone)
+        #expect(attach.clientCapabilities == [RemoteCapabilities.relayTerminalHistory])
         _ = await events.next()
 
         let snapshot = RemoteTerminalSnapshot(
@@ -64,6 +66,33 @@ struct RemoteTerminalSessionClientTests {
         #expect(await events.next() == .snapshot(snapshot))
         #expect(await events.next() == .size(RemoteTerminalSize(rows: 30, cols: 100)))
 
+        await client.disconnect()
+        try await running.task.value
+    }
+
+    @Test("phone receives finalized semantic history without raw replay")
+    func phoneSemanticHistory() async throws {
+        let (client, transport) = makeClient(role: .phone)
+        let running = run(client)
+        var events = running.events.makeAsyncIterator()
+        _ = await events.next()
+        _ = try await transport.waitForMessage(kind: .attach)
+        _ = await events.next()
+        let history = RemoteTerminalHistory(
+            blocks: [.init(command: "git pull", cwd: "/repo", output: "done\n", exitStatus: 0)],
+            currentCwd: "/repo",
+            isAlternateScreenActive: false
+        )
+
+        try await transport.enqueue(RemoteMessage(
+            kind: .terminalHistory,
+            requestID: "request",
+            macID: "mac",
+            sessionID: "session",
+            payload: try JSONEncoder().encode(history)
+        ))
+
+        #expect(await events.next() == .historySnapshot(history))
         await client.disconnect()
         try await running.task.value
     }

@@ -50,6 +50,35 @@ struct RemoteProtocolTests {
         ) == snapshot)
     }
 
+    @Test("semantic terminal history round-trips as an additive relay message")
+    func semanticTerminalHistoryRoundTrip() throws {
+        let history = RemoteTerminalHistory(
+            blocks: [
+                .init(command: "git pull", cwd: "/repo", output: "Already up to date.\n", exitStatus: 0)
+            ],
+            currentCwd: "/repo",
+            isAlternateScreenActive: false
+        )
+        let message = RemoteMessage(
+            kind: .terminalHistory,
+            requestID: "request",
+            macID: "mac",
+            sessionID: "session",
+            payload: try JSONEncoder().encode(history)
+        )
+
+        let decoded = try JSONDecoder().decode(
+            RemoteMessage.self,
+            from: JSONEncoder().encode(message)
+        )
+
+        #expect(decoded.kind == .terminalHistory)
+        #expect(try JSONDecoder().decode(
+            RemoteTerminalHistory.self,
+            from: #require(decoded.payload)
+        ) == history)
+    }
+
     @Test("semantic command submissions preserve their encrypted payload")
     func submitRoundTrip() throws {
         let message = RemoteMessage(
@@ -136,7 +165,38 @@ struct RemoteProtocolTests {
         let decoded = try JSONDecoder().decode(RemoteMessage.self, from: fixture)
 
         #expect(decoded.clientRole == nil)
+        #expect(decoded.clientCapabilities == nil)
         #expect(decoded.isHistory != true)
+        #expect(!decoded.requestsSemanticTerminalHistory)
+    }
+
+    @Test("current phone attach remains decodable by the previous Mac")
+    func currentPhonePreviousMacHistoryCompatibility() throws {
+        let message = RemoteMessage(
+            kind: .attach,
+            requestID: "request",
+            clientRole: .phone,
+            clientCapabilities: [RemoteCapabilities.relayTerminalHistory]
+        )
+
+        let decoded = try JSONDecoder().decode(
+            PreviousRemoteMessage.self,
+            from: JSONEncoder().encode(message)
+        )
+
+        #expect(decoded.kind == "attach")
+        #expect(decoded.clientRole == "phone")
+    }
+
+    @Test("current Mac uses raw history for the previous phone")
+    func previousPhoneCurrentMacHistoryFallback() throws {
+        let fixture = Data(
+            #"{"version":1,"kind":"attach","requestID":"request","clientRole":"phone"}"#.utf8
+        )
+
+        let decoded = try JSONDecoder().decode(RemoteMessage.self, from: fixture)
+
+        #expect(!decoded.requestsSemanticTerminalHistory)
     }
 
     @Test("session creation messages preserve their session identity")
@@ -299,4 +359,9 @@ struct RemoteProtocolTests {
         #expect(tracker.accept(8) == .accepted)
         #expect(tracker.lastSequence == 8)
     }
+}
+
+private struct PreviousRemoteMessage: Decodable {
+    let kind: String
+    let clientRole: String?
 }

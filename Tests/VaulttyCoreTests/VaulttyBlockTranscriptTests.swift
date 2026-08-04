@@ -96,6 +96,40 @@ struct VaulttyBlockTranscriptTests {
         #expect(transcript.blocks[0].state == .completed(-1))
         #expect(transcript.blocks[1].state == .running)
     }
+
+    @Test("semantic history restores final output and parser continuation")
+    func semanticHistoryContinuation() throws {
+        var transcript = VaulttyBlockTranscript()
+        let command = Data("git pull".utf8).base64EncodedString()
+
+        transcript.consume("\u{1B}]133;C;\(command)\u{7}Receiving: 10%\r")
+        transcript.consume("\u{1B}[")
+        let history = RemoteTerminalHistory(transcript: transcript, maximumTextBytes: 1024)
+
+        var restored = VaulttyBlockTranscript()
+        restored.restore(history)
+        restored.consume("2KReceiving: 100%\nDone\n\u{1B}]133;D;0\u{7}")
+
+        let block = try #require(restored.blocks.only)
+        #expect(block.output == "Receiving: 100%\nDone\n")
+        #expect(block.state == .completed(0))
+    }
+
+    @Test("semantic history bounds text while preserving newest commands")
+    func semanticHistoryLimit() throws {
+        var transcript = VaulttyBlockTranscript()
+        let first = Data("first".utf8).base64EncodedString()
+        let second = Data("second".utf8).base64EncodedString()
+
+        transcript.consume("\u{1B}]133;C;\(first)\u{7}\(String(repeating: "a", count: 128))\u{1B}]133;D;0\u{7}")
+        transcript.consume("\u{1B}]133;C;\(second)\u{7}newest\n\u{1B}]133;D;0\u{7}")
+
+        let history = RemoteTerminalHistory(transcript: transcript, maximumTextBytes: 32)
+
+        #expect(history.blocks.last?.command == "second")
+        #expect(history.blocks.last?.output == "newest\n")
+        #expect(history.blocks.reduce(0) { $0 + $1.output.utf8.count } <= 32)
+    }
 }
 
 private extension Collection {

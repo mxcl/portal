@@ -179,6 +179,8 @@ final class RelayTerminalSession: TerminalSession {
             onOutput?(String(decoding: data, as: UTF8.self))
         case .history(let data):
             onHistoryOutput?(String(decoding: data, as: UTF8.self))
+        case .historySnapshot:
+            break
         case .presence(let count):
             onPresence?(count)
         case .capabilitiesChanged(let capabilities):

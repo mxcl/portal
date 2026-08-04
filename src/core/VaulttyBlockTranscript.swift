@@ -27,22 +27,137 @@ public struct VaulttyBlock: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct RemoteTerminalHistory: Codable, Equatable, Sendable {
+    public static let maximumTextBytes = 256 * 1024
+
+    public struct Block: Codable, Equatable, Sendable {
+        public var command: String
+        public var cwd: String?
+        public var output: String
+        public var exitStatus: Int32?
+
+        public init(command: String, cwd: String?, output: String, exitStatus: Int32?) {
+            self.command = command
+            self.cwd = cwd
+            self.output = output
+            self.exitStatus = exitStatus
+        }
+    }
+
+    public var blocks: [Block]
+    public var currentCwd: String?
+    public var isAlternateScreenActive: Bool
+    fileprivate var markerBuffer: String
+    fileprivate var rendererState: String
+    fileprivate var rendererBody: String?
+    fileprivate var pendingCarriageReturn: Bool
+
+    public init(
+        blocks: [Block],
+        currentCwd: String?,
+        isAlternateScreenActive: Bool
+    ) {
+        self.blocks = blocks
+        self.currentCwd = currentCwd
+        self.isAlternateScreenActive = isAlternateScreenActive
+        markerBuffer = ""
+        rendererState = "text"
+        rendererBody = nil
+        pendingCarriageReturn = false
+    }
+
+    public init(
+        transcript: VaulttyBlockTranscript,
+        maximumTextBytes: Int = Self.maximumTextBytes
+    ) {
+        var remaining = max(0, maximumTextBytes)
+        var retained: [Block] = []
+        for block in transcript.blocks.reversed() where remaining > 0 {
+            let command = Self.suffix(block.command, fitting: &remaining)
+            let cwd = block.cwd.map { Self.suffix($0, fitting: &remaining) }
+            let output = Self.suffix(block.output, fitting: &remaining)
+            let exitStatus: Int32? = switch block.state {
+            case .running: nil
+            case .completed(let status): status
+            }
+            retained.append(Block(
+                command: command,
+                cwd: cwd,
+                output: output,
+                exitStatus: exitStatus
+            ))
+        }
+        blocks = retained.reversed()
+        currentCwd = transcript.currentCwd.map { Self.suffix($0, maximumBytes: 8 * 1024) }
+        isAlternateScreenActive = transcript.isAlternateScreenActive
+        markerBuffer = transcript.parser.continuation.utf8.count <= 8 * 1024
+            ? transcript.parser.continuation
+            : ""
+        (rendererState, rendererBody) = transcript.renderer.continuation
+        if rendererBody?.utf8.count ?? 0 > 8 * 1024 {
+            rendererState = "text"
+            rendererBody = nil
+        }
+        pendingCarriageReturn = transcript.pendingCarriageReturn
+    }
+
+    private static func suffix(_ text: String, fitting remaining: inout Int) -> String {
+        guard remaining > 0 else { return "" }
+        let utf8 = text.utf8
+        let count = min(remaining, utf8.count)
+        remaining -= count
+        guard count < utf8.count else { return text }
+        var start = utf8.index(utf8.endIndex, offsetBy: -count)
+        while start < utf8.endIndex, (utf8[start] & 0xC0) == 0x80 {
+            start = utf8.index(after: start)
+        }
+        return String(decoding: utf8[start...], as: UTF8.self)
+    }
+
+    private static func suffix(_ text: String, maximumBytes: Int) -> String {
+        var remaining = maximumBytes
+        return suffix(text, fitting: &remaining)
+    }
+}
+
 /// Reconstructs Vaultty's command blocks from the OSC 133 stream retained by a session.
 public struct VaulttyBlockTranscript: Sendable {
     public private(set) var blocks: [VaulttyBlock] = []
     public private(set) var isAlternateScreenActive = false
     public private(set) var revision: UInt64 = 0
 
-    private var parser = VaulttyMarkerParser()
-    private var renderer = PlainTerminalRenderer()
+    fileprivate var parser = VaulttyMarkerParser()
+    fileprivate var renderer = PlainTerminalRenderer()
     public private(set) var currentCwd: String?
     private var activeBlockIndex: Int?
-    private var pendingCarriageReturn = false
+    fileprivate var pendingCarriageReturn = false
 
     public init() {}
 
     public mutating func reset() {
         self = Self()
+    }
+
+    public mutating func restore(_ history: RemoteTerminalHistory) {
+        blocks = history.blocks.map {
+            VaulttyBlock(
+                command: $0.command,
+                cwd: $0.cwd,
+                output: $0.output,
+                state: $0.exitStatus.map(VaulttyBlock.State.completed) ?? .running
+            )
+        }
+        currentCwd = history.currentCwd
+        activeBlockIndex = blocks.lastIndex { $0.state == .running }
+        parser.restoreContinuation(history.markerBuffer)
+        renderer.restoreContinuation(
+            state: history.rendererState,
+            body: history.rendererBody,
+            isAlternateScreenActive: history.isAlternateScreenActive
+        )
+        isAlternateScreenActive = history.isAlternateScreenActive
+        pendingCarriageReturn = history.pendingCarriageReturn
+        revision &+= 1
     }
 
     public mutating func consume(_ text: String) {
@@ -179,10 +294,16 @@ public struct VaulttyMarkerParser: Sendable {
     private static let prefix = "\u{1B}]133;"
     private var buffer = ""
 
+    fileprivate var continuation: String { buffer }
+
     public init() {}
 
     public mutating func reset() {
         buffer.removeAll(keepingCapacity: true)
+    }
+
+    fileprivate mutating func restoreContinuation(_ continuation: String) {
+        buffer = continuation
     }
 
     public mutating func consume(_ text: String) -> [Event] {
@@ -240,9 +361,34 @@ private struct PlainTerminalRenderer: Sendable {
     private var state: State = .text
     private(set) var isAlternateScreenActive = false
 
+    var continuation: (String, String?) {
+        switch state {
+        case .text: ("text", nil)
+        case .escape: ("escape", nil)
+        case .csi(let body): ("csi", body)
+        case .osc: ("osc", nil)
+        case .oscEscape: ("oscEscape", nil)
+        }
+    }
+
     mutating func resetOutputState() {
         state = .text
         isAlternateScreenActive = false
+    }
+
+    mutating func restoreContinuation(
+        state: String,
+        body: String?,
+        isAlternateScreenActive: Bool
+    ) {
+        self.state = switch state {
+        case "escape": .escape
+        case "csi": .csi(body ?? "")
+        case "osc": .osc
+        case "oscEscape": .oscEscape
+        default: .text
+        }
+        self.isAlternateScreenActive = isAlternateScreenActive
     }
 
     mutating func consume(_ text: String) -> String {

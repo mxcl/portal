@@ -396,6 +396,10 @@ public final class MobileRemoteModel {
                 transcript.consume(text)
                 observedBlockIDs.formUnion(transcript.blocks.map(\.id))
             }
+        case .historySnapshot(let history):
+            isLoadingCommands = false
+            transcript.restore(history)
+            observedBlockIDs.formUnion(transcript.blocks.map(\.id))
         case .snapshot(let snapshot):
             terminalSize = RemoteTerminalSize(rows: snapshot.rows, cols: snapshot.cols)
             appendChunk(snapshot.contents)

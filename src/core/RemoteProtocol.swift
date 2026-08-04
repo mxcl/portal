@@ -71,6 +71,7 @@ public enum RemoteClientRole: String, Codable, Equatable, Sendable {
 public struct RemoteCapabilities: Codable, Equatable, Sendable {
     public static let relayCompletion = "relay-completion-v1"
     public static let relayHistory = "relay-history-v1"
+    public static let relayTerminalHistory = "relay-terminal-history-v1"
 
     public var values: [String]
 
@@ -216,6 +217,7 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
     case kill
     case historyPage
     case terminalSnapshot
+    case terminalHistory
     case terminalEvent
     case presence
     case capabilities
@@ -242,6 +244,7 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
         case "kill": .kill
         case "historyPage": .historyPage
         case "terminalSnapshot": .terminalSnapshot
+        case "terminalHistory": .terminalHistory
         case "terminalEvent": .terminalEvent
         case "presence": .presence
         case "capabilities": .capabilities
@@ -269,6 +272,7 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
         case .kill: "kill"
         case .historyPage: "historyPage"
         case .terminalSnapshot: "terminalSnapshot"
+        case .terminalHistory: "terminalHistory"
         case .terminalEvent: "terminalEvent"
         case .presence: "presence"
         case .capabilities: "capabilities"
@@ -294,6 +298,7 @@ public struct RemoteMessage: Codable, Equatable, Sendable {
     public var sequence: UInt64?
     public var payload: Data?
     public var clientRole: RemoteClientRole?
+    public var clientCapabilities: [String]?
     public var isHistory: Bool?
 
     public init(
@@ -305,6 +310,7 @@ public struct RemoteMessage: Codable, Equatable, Sendable {
         sequence: UInt64? = nil,
         payload: Data? = nil,
         clientRole: RemoteClientRole? = nil,
+        clientCapabilities: [String]? = nil,
         isHistory: Bool? = nil
     ) {
         self.version = version
@@ -315,7 +321,12 @@ public struct RemoteMessage: Codable, Equatable, Sendable {
         self.sequence = sequence
         self.payload = payload
         self.clientRole = clientRole
+        self.clientCapabilities = clientCapabilities
         self.isHistory = isHistory
+    }
+
+    public var requestsSemanticTerminalHistory: Bool {
+        clientCapabilities?.contains(RemoteCapabilities.relayTerminalHistory) == true
     }
 }
 

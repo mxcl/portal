@@ -132,6 +132,7 @@ EXECUTABLE="$MACOS_DIR/$EXECUTABLE_NAME"
 SESSIOND_APP="$HELPERS_DIR/Portal Session Helper.app"
 SESSIOND_CONTENTS="$SESSIOND_APP/Contents"
 SESSIOND_MACOS_DIR="$SESSIOND_CONTENTS/MacOS"
+SESSIOND_RESOURCES_DIR="$SESSIOND_CONTENTS/Resources"
 SESSIOND_HELPER="$SESSIOND_MACOS_DIR/portal-sessiond"
 SESSION_BRIDGE_HELPER="$HELPERS_DIR/portal-session-bridge"
 LEGACY_SESSION_BRIDGE_HELPER="$HELPERS_DIR/vaultty-session-bridge"
@@ -849,6 +850,7 @@ mkdir -p \
   "$RESOURCES_DIR" \
   "$HELPERS_DIR" \
   "$SESSIOND_MACOS_DIR" \
+  "$SESSIOND_RESOURCES_DIR" \
   "$FRAMEWORKS_DIR"
 render_info_plist
 cp "$RUST_BIN_DIR/portal-sessiond" "$SESSIOND_HELPER"
@@ -858,6 +860,9 @@ if [[ -n "$MAIN_APP_PROVISIONING_PROFILE" ]]; then
   cp "$MAIN_APP_PROVISIONING_PROFILE" "$CONTENTS_DIR/embedded.provisionprofile"
 fi
 bundle_icon
+APP_ICON_FILE="$(plist_value CFBundleIconFile "$CONTENTS_DIR/Info.plist")"
+[[ "$APP_ICON_FILE" == *.icns ]] || APP_ICON_FILE="$APP_ICON_FILE.icns"
+ln "$RESOURCES_DIR/$APP_ICON_FILE" "$SESSIOND_RESOURCES_DIR/Portal.icns"
 cp "$SESSION_ICON_SOURCE" "$RESOURCES_DIR/session-icon.png"
 bundle_completions
 
@@ -983,6 +988,10 @@ verify_signature "$SESSIOND_APP"
   die "session helper bundle identifier is invalid"
 [[ "$(plist_value CFBundlePackageType "$SESSIOND_CONTENTS/Info.plist")" == "APPL" ]] ||
   die "session helper package type is invalid"
+[[ "$(plist_value CFBundleIconFile "$SESSIOND_CONTENTS/Info.plist")" == "Portal" ]] ||
+  die "session helper icon metadata is invalid"
+[[ "$(stat -f %i "$RESOURCES_DIR/$APP_ICON_FILE")" == "$(stat -f %i "$SESSIOND_RESOURCES_DIR/Portal.icns")" ]] ||
+  die "session helper icon is not hard-linked to the app icon"
 [[ "$(plist_value LSBackgroundOnly "$SESSIOND_CONTENTS/Info.plist")" == "true" ]] ||
   die "session helper must be background-only"
 codesign_runtime \

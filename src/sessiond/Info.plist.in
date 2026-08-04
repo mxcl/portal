@@ -8,6 +8,8 @@
   <string>portal-sessiond</string>
   <key>CFBundleIdentifier</key>
   <string>com.automicvault.portal.sessiond</string>
+  <key>CFBundleIconFile</key>
+  <string>Portal</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>

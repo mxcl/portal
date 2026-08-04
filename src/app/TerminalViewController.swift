@@ -1323,62 +1323,6 @@ private final class BlockOutputTextView: NSTextView {
     }
 }
 
-private final class HoverMenuButton: NSButton {
-    private var hoverTrackingArea: NSTrackingArea?
-    private var isHovering = false {
-        didSet { updateHoverAppearance() }
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        title = "..."
-        isBordered = false
-        bezelStyle = .regularSquare
-        controlSize = .regular
-        font = .systemFont(ofSize: 15, weight: .semibold)
-        wantsLayer = true
-        layer?.cornerRadius = 6
-        layer?.cornerCurve = .continuous
-        layer?.backgroundColor = NSColor.clear.cgColor
-        contentTintColor = TahoeGlassPalette.titleText
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea {
-            removeTrackingArea(hoverTrackingArea)
-        }
-        let trackingArea = NSTrackingArea(
-            rect: .zero,
-            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-        hoverTrackingArea = trackingArea
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovering = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovering = false
-    }
-
-    private func updateHoverAppearance() {
-        layer?.backgroundColor = (isHovering
-            ? NSColor.white.withAlphaComponent(0.10)
-            : NSColor.clear
-        ).cgColor
-        contentTintColor = isHovering ? .labelColor : .secondaryLabelColor
-    }
-}
-
 private final class HoverCopyMarkdownButton: NSButton {
     private var hoverTrackingArea: NSTrackingArea?
     private var isHovering = false {
@@ -1520,7 +1464,6 @@ private final class BlockView: NSView {
     private let metaLabel = SelectableBlockTextField()
     private let outputView = BlockOutputTextView(frame: .zero)
     private let copyMarkdownButton = HoverCopyMarkdownButton(frame: .zero)
-    private let menuButton = HoverMenuButton(frame: .zero)
     private let findReticuleLayer = CALayer()
     private var outputHeightConstraint: NSLayoutConstraint?
     private var minimumHeightConstraint: NSLayoutConstraint?
@@ -1533,8 +1476,6 @@ private final class BlockView: NSView {
     private var findSelectionTarget: FindResultTarget?
     private var findSelectionRange: NSRange?
 
-    var onCopyCommand: (() -> Void)?
-    var onCopyOutput: (() -> Void)?
     var onCopyMarkdown: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
@@ -1579,10 +1520,6 @@ private final class BlockView: NSView {
             height: CGFloat.greatestFiniteMagnitude
         )
 
-        menuButton.target = self
-        menuButton.action = #selector(showMenu)
-        menuButton.setButtonType(.momentaryPushIn)
-        menuButton.translatesAutoresizingMaskIntoConstraints = false
         copyMarkdownButton.target = self
         copyMarkdownButton.action = #selector(copyMarkdown)
         copyMarkdownButton.setButtonType(.momentaryPushIn)
@@ -1592,7 +1529,6 @@ private final class BlockView: NSView {
         header.translatesAutoresizingMaskIntoConstraints = false
         header.addSubview(metaLabel)
         header.addSubview(copyMarkdownButton)
-        header.addSubview(menuButton)
         metaLabel.translatesAutoresizingMaskIntoConstraints = false
         metaLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         commandLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1623,17 +1559,13 @@ private final class BlockView: NSView {
             metaLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor),
             metaLabel.topAnchor.constraint(equalTo: header.topAnchor),
             metaLabel.trailingAnchor.constraint(lessThanOrEqualTo: copyMarkdownButton.leadingAnchor, constant: -8),
-            copyMarkdownButton.centerYAnchor.constraint(equalTo: menuButton.centerYAnchor),
-            copyMarkdownButton.trailingAnchor.constraint(equalTo: menuButton.leadingAnchor, constant: -4),
-            copyMarkdownButton.widthAnchor.constraint(equalTo: menuButton.widthAnchor),
-            copyMarkdownButton.heightAnchor.constraint(equalTo: menuButton.heightAnchor),
-            menuButton.topAnchor.constraint(equalTo: header.topAnchor),
-            menuButton.trailingAnchor.constraint(equalTo: header.trailingAnchor),
-            menuButton.bottomAnchor.constraint(lessThanOrEqualTo: header.bottomAnchor),
+            copyMarkdownButton.topAnchor.constraint(equalTo: header.topAnchor),
+            copyMarkdownButton.trailingAnchor.constraint(equalTo: header.trailingAnchor),
+            copyMarkdownButton.bottomAnchor.constraint(lessThanOrEqualTo: header.bottomAnchor),
             commandLabel.widthAnchor.constraint(equalTo: content.widthAnchor),
             outputView.widthAnchor.constraint(equalTo: content.widthAnchor),
-            menuButton.widthAnchor.constraint(equalToConstant: 36),
-            menuButton.heightAnchor.constraint(equalToConstant: 28),
+            copyMarkdownButton.widthAnchor.constraint(equalToConstant: 36),
+            copyMarkdownButton.heightAnchor.constraint(equalToConstant: 28),
             outputHeightConstraint,
             minimumHeightConstraint
         ])
@@ -1733,23 +1665,6 @@ private final class BlockView: NSView {
             updateOutputHeight()
         }
     }
-
-    @objc private func showMenu() {
-        let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Copy Command", action: #selector(copyCommand), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Copy Output", action: #selector(copyOutput), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Copy Markdown", action: #selector(copyMarkdown), keyEquivalent: ""))
-        menu.items.forEach { $0.target = self }
-        menu.popUp(
-            positioning: nil,
-            at: NSPoint(x: menuButton.bounds.minX, y: menuButton.bounds.minY),
-            in: menuButton
-        )
-    }
-
-    @objc private func copyCommand() { onCopyCommand?() }
-
-    @objc private func copyOutput() { onCopyOutput?() }
 
     @objc private func copyMarkdown() { onCopyMarkdown?() }
 
@@ -7235,13 +7150,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         let blockView = BlockView()
         blockView.update(with: block)
-        blockView.onCopyCommand = { [weak self] in
-            self?.copy(block.command)
-        }
-        blockView.onCopyOutput = { [weak self, weak tab] in
-            let latest = tab?.blocks.first(where: { $0.id == block.id })
-            self?.copy(latest?.output ?? "")
-        }
         blockView.onCopyMarkdown = { [weak self, weak tab] in
             guard let self else { return }
             let latest = tab?.blocks.first(where: { $0.id == block.id }) ?? block

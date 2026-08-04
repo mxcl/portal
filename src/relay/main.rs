@@ -4,7 +4,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, get};
+use axum::routing::{any, get, post};
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::env;
@@ -13,7 +13,7 @@ use std::path::{Path as FilePath, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
-use tokio::sync::{Mutex as AsyncMutex, broadcast};
+use tokio::sync::{Mutex as AsyncMutex, broadcast, mpsc};
 
 const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 const CATALOG_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -57,6 +57,7 @@ fn router(state: RelayState) -> Router {
     Router::new()
         .route("/health", get(|| async { StatusCode::NO_CONTENT }))
         .route("/v1/connect/{room}/{peer}", any(connect))
+        .route("/v1/send/{room}/{peer}", post(send))
         .route("/v1/catalog/{room}", get(get_catalog).put(put_catalog))
         .layer(DefaultBodyLimit::max(MAX_MESSAGE_BYTES))
         .with_state(state)
@@ -121,35 +122,75 @@ async fn connect(
 async fn relay_socket(socket: WebSocket, sender: broadcast::Sender<RoomMessage>, peer_id: String) {
     let mut receiver = sender.subscribe();
     let (mut websocket_sender, mut websocket_receiver) = socket.split();
-    loop {
-        tokio::select! {
-            incoming = websocket_receiver.next() => match incoming {
-                Some(Ok(Message::Binary(bytes))) if bytes.len() <= MAX_MESSAGE_BYTES => {
-                    let _ = sender.send(RoomMessage {
-                        sender_id: peer_id.clone(),
+    let (control_sender, mut control_receiver) = mpsc::unbounded_channel();
+    let incoming_sender = sender.clone();
+    let incoming_peer_id = peer_id.clone();
+
+    let incoming = async move {
+        while let Some(message) = websocket_receiver.next().await {
+            match message {
+                Ok(Message::Binary(bytes)) if bytes.len() <= MAX_MESSAGE_BYTES => {
+                    let _ = incoming_sender.send(RoomMessage {
+                        sender_id: incoming_peer_id.clone(),
                         bytes,
                     });
                 }
-                Some(Ok(Message::Ping(bytes))) => {
-                    if websocket_sender.send(Message::Pong(bytes)).await.is_err() {
+                Ok(Message::Ping(bytes)) => {
+                    if control_sender.send(Message::Pong(bytes)).is_err() {
                         break;
                     }
                 }
-                Some(Ok(Message::Pong(_))) => {}
-                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
-                Some(Ok(Message::Text(_) | Message::Binary(_))) => break,
-            },
-            outgoing = receiver.recv() => match outgoing {
-                Ok(message) if message.sender_id != peer_id => {
-                    if websocket_sender.send(Message::Binary(message.bytes)).await.is_err() {
-                        break;
-                    }
-                }
-                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-                Err(broadcast::error::RecvError::Closed) => break,
+                Ok(Message::Pong(_)) => {}
+                Ok(Message::Close(_)) | Err(_) => break,
+                Ok(Message::Text(_) | Message::Binary(_)) => break,
             }
         }
+    };
+
+    let outgoing = async move {
+        loop {
+            let message = tokio::select! {
+                biased;
+                message = control_receiver.recv() => match message {
+                    Some(message) => message,
+                    None => break,
+                },
+                message = receiver.recv() => match message {
+                    Ok(message) if message.sender_id != peer_id => Message::Binary(message.bytes),
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                },
+            };
+            if websocket_sender.send(message).await.is_err() {
+                break;
+            }
+        }
+    };
+
+    tokio::select! {
+        _ = incoming => {}
+        _ = outgoing => {}
     }
+}
+
+async fn send(
+    Path((room_id, peer_id)): Path<(String, String)>,
+    State(state): State<RelayState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<StatusCode, StatusCode> {
+    if !valid_peer_id(&peer_id) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let sender = state.authorize(&room_id, &headers)?;
+    if body.is_empty() || body.len() > MAX_MESSAGE_BYTES {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+    }
+    let _ = sender.send(RoomMessage {
+        sender_id: peer_id,
+        bytes: body,
+    });
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn put_catalog(
@@ -442,6 +483,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn urgent_send_broadcasts_opaque_bytes() {
+        let directory = env::temp_dir().join(format!(
+            "vaultty-relay-urgent-test-{}",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        let state = RelayState::new(directory.clone())
+            .await
+            .expect("test relay state");
+        let room = "r".repeat(43);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", "c".repeat(43))
+                .parse()
+                .expect("valid header"),
+        );
+        let sender = state
+            .authorize(&room, &headers)
+            .expect("authorize receiver");
+        let mut receiver = sender.subscribe();
+        let payload = Bytes::from_static(b"opaque interrupt ciphertext");
+
+        assert_eq!(
+            send(
+                Path((room, "phone".to_owned())),
+                State(state),
+                headers,
+                payload.clone()
+            )
+            .await,
+            Ok(StatusCode::NO_CONTENT)
+        );
+        let message = receiver.recv().await.expect("urgent broadcast");
+        assert_eq!(message.sender_id, "phone");
+        assert_eq!(message.bytes, payload);
+
+        std::fs::remove_dir_all(directory).expect("remove isolated test directory");
+    }
+
+    #[tokio::test]
     async fn websocket_fanout_is_byte_exact_and_does_not_echo() {
         let directory = env::temp_dir().join(format!(
             "vaultty-relay-ws-test-{}",
@@ -534,7 +618,9 @@ mod tests {
         let (mut socket, _) = connect_async(request).await.expect("websocket");
         let payload = Bytes::from_static(b"keepalive");
         socket
-            .send(tokio_tungstenite::tungstenite::Message::Ping(payload.clone()))
+            .send(tokio_tungstenite::tungstenite::Message::Ping(
+                payload.clone(),
+            ))
             .await
             .expect("send ping");
 

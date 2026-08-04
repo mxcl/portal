@@ -605,21 +605,27 @@ struct DaemonState {
 fn main() -> io::Result<()> {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
-        Some("serve") => serve(),
-        _ => {
-            eprintln!("usage: portal-sessiond serve");
-            std::process::exit(64);
-        }
+        Some("serve") => match args.next().as_deref() {
+            None => serve(false),
+            Some("--replace-socket") if args.next().is_none() => serve(true),
+            _ => usage(),
+        },
+        _ => usage(),
     }
 }
 
-fn serve() -> io::Result<()> {
+fn usage() -> io::Result<()> {
+    eprintln!("usage: portal-sessiond serve [--replace-socket]");
+    std::process::exit(64);
+}
+
+fn serve(replace_socket: bool) -> io::Result<()> {
     let socket_path = socket_path()?;
     if let Some(parent) = socket_path.parent() {
         fs::create_dir_all(parent)?;
         fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
     }
-    let (listener, _ownership) = claim_daemon_socket(&socket_path)?;
+    let (listener, _ownership) = claim_daemon_socket(&socket_path, replace_socket)?;
     let state = Arc::new(DaemonState {
         sessions: Mutex::new(HashMap::new()),
     });
@@ -640,8 +646,11 @@ fn serve() -> io::Result<()> {
     Ok(())
 }
 
-fn claim_daemon_socket(socket_path: &Path) -> io::Result<(UnixListener, File)> {
-    claim_daemon_socket_with_wait(socket_path, || {
+fn claim_daemon_socket(
+    socket_path: &Path,
+    replace_socket: bool,
+) -> io::Result<(UnixListener, File)> {
+    claim_daemon_socket_with_wait(socket_path, replace_socket, || {
         // v0.22 does not participate in the ownership lock. Give an adjacent
         // daemon already being spawned time to bind before reclaiming a stale path.
         thread::sleep(std::time::Duration::from_millis(25));
@@ -650,6 +659,7 @@ fn claim_daemon_socket(socket_path: &Path) -> io::Result<(UnixListener, File)> {
 
 fn claim_daemon_socket_with_wait(
     socket_path: &Path,
+    replace_socket: bool,
     mut wait_for_adjacent_daemon: impl FnMut(),
 ) -> io::Result<(UnixListener, File)> {
     let ownership_path = socket_path.with_extension("lock");
@@ -661,6 +671,19 @@ fn claim_daemon_socket_with_wait(
         .open(ownership_path)?;
     if unsafe { libc::flock(ownership.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
         return Err(io::Error::last_os_error());
+    }
+
+    if replace_socket {
+        if let Ok(metadata) = fs::symlink_metadata(socket_path)
+            && !metadata.file_type().is_socket()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                format!("refusing to replace non-socket path {}", socket_path.display()),
+            ));
+        }
+        let listener = publish_replacement_socket(socket_path)?;
+        return Ok((listener, ownership));
     }
 
     for _ in 0..DAEMON_STARTUP_PROBES {
@@ -687,43 +710,44 @@ fn claim_daemon_socket_with_wait(
                 }
             }
 
-            // Bind before publishing so a crashed daemon's socket is replaced
-            // atomically, without a gap where an adjacent daemon can bind it.
-            let replacement_path = socket_path.with_extension("replacement");
-            if let Ok(metadata) = fs::symlink_metadata(&replacement_path) {
-                if !metadata.file_type().is_socket() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::AddrInUse,
-                        format!(
-                            "refusing to replace non-socket path {}",
-                            replacement_path.display()
-                        ),
-                    ));
-                }
-                fs::remove_file(&replacement_path)?;
-            }
-            let replacement = UnixListener::bind(&replacement_path)?;
-            fs::set_permissions(&replacement_path, fs::Permissions::from_mode(0o600))?;
-
             if UnixStream::connect(socket_path).is_ok() {
-                drop(replacement);
-                fs::remove_file(&replacement_path)?;
                 return Err(io::Error::new(
                     io::ErrorKind::AddrInUse,
                     "session daemon is already running",
                 ));
             }
-            if let Err(error) = fs::rename(&replacement_path, socket_path) {
-                drop(replacement);
-                let _ = fs::remove_file(&replacement_path);
-                return Err(error);
-            }
-            replacement
+            publish_replacement_socket(socket_path)?
         }
         Err(error) => return Err(error),
     };
     fs::set_permissions(socket_path, fs::Permissions::from_mode(0o600))?;
     Ok((listener, ownership))
+}
+
+fn publish_replacement_socket(socket_path: &Path) -> io::Result<UnixListener> {
+    // Bind before publishing so replacement is atomic and there is never an
+    // unbound canonical socket path.
+    let replacement_path = socket_path.with_extension("replacement");
+    if let Ok(metadata) = fs::symlink_metadata(&replacement_path) {
+        if !metadata.file_type().is_socket() {
+            return Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                format!(
+                    "refusing to replace non-socket path {}",
+                    replacement_path.display()
+                ),
+            ));
+        }
+        fs::remove_file(&replacement_path)?;
+    }
+    let replacement = UnixListener::bind(&replacement_path)?;
+    fs::set_permissions(&replacement_path, fs::Permissions::from_mode(0o600))?;
+    if let Err(error) = fs::rename(&replacement_path, socket_path) {
+        drop(replacement);
+        let _ = fs::remove_file(&replacement_path);
+        return Err(error);
+    }
+    Ok(replacement)
 }
 
 fn handle_client(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<()> {
@@ -1322,13 +1346,13 @@ mod tests {
         ));
         fs::create_dir_all(&directory).expect("temporary directory should be created");
         let socket_path = directory.join("sessiond.sock");
-        let (listener, ownership) =
-            claim_daemon_socket(&socket_path).expect("first daemon should own socket");
+        let (listener, ownership) = claim_daemon_socket(&socket_path, false)
+            .expect("first daemon should own socket");
         let original_inode = fs::metadata(&socket_path)
             .expect("owned socket should exist")
             .ino();
 
-        let error = claim_daemon_socket(&socket_path)
+        let error = claim_daemon_socket(&socket_path, false)
             .expect_err("second daemon must not claim or unlink the socket");
 
         assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
@@ -1360,7 +1384,7 @@ mod tests {
         let mut adjacent_listener = None;
         let mut waits = 0;
 
-        let error = claim_daemon_socket_with_wait(&socket_path, || {
+        let error = claim_daemon_socket_with_wait(&socket_path, false, || {
             waits += 1;
             if waits == DAEMON_STARTUP_PROBES {
                 adjacent_listener = Some(
@@ -1397,7 +1421,7 @@ mod tests {
             .expect("stale socket should remain")
             .ino();
 
-        let (listener, ownership) = claim_daemon_socket_with_wait(&socket_path, || {})
+        let (listener, ownership) = claim_daemon_socket_with_wait(&socket_path, false, || {})
             .expect("stale socket should be replaced");
 
         assert_ne!(
@@ -1410,6 +1434,51 @@ mod tests {
 
         drop(listener);
         drop(ownership);
+        fs::remove_dir_all(directory).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn explicit_socket_replacement_keeps_existing_connections_alive() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be valid")
+            .as_nanos();
+        let directory = PathBuf::from("/tmp").join(format!(
+            "portal-live-daemon-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("temporary directory should be created");
+        let socket_path = directory.join("sessiond.sock");
+        let old_listener = UnixListener::bind(&socket_path).expect("old daemon should bind");
+        let mut old_client = UnixStream::connect(&socket_path).expect("old client should connect");
+        let (mut old_server, _) = old_listener.accept().expect("old daemon should accept");
+        let old_inode = fs::metadata(&socket_path)
+            .expect("old socket should exist")
+            .ino();
+
+        let (new_listener, ownership) = claim_daemon_socket(&socket_path, true)
+            .expect("explicit replacement should publish a new listener");
+        assert_ne!(
+            fs::metadata(&socket_path)
+                .expect("new socket should exist")
+                .ino(),
+            old_inode
+        );
+        let _new_client = UnixStream::connect(&socket_path).expect("new client should connect");
+        let (_new_server, _) = new_listener.accept().expect("new daemon should accept");
+
+        old_client
+            .write_all(b"x")
+            .expect("old connection should remain writable");
+        let mut byte = [0_u8; 1];
+        use std::io::Read;
+        old_server
+            .read_exact(&mut byte)
+            .expect("old connection should remain readable");
+        assert_eq!(byte, *b"x");
+
+        drop(ownership);
+        drop(old_listener);
         fs::remove_dir_all(directory).expect("temporary directory should be removed");
     }
 

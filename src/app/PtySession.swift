@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import Security
 
 @MainActor
 protocol TerminalSession: AnyObject {
@@ -193,6 +194,13 @@ private final class SSHSessionTransport: SessionTransport {
 }
 
 final class PtySession {
+    enum LocalDaemonPreparation {
+        case ready
+        case previous
+        case incompatible
+        case untrusted
+    }
+
     var onOutput: ((String) -> Void)?
     var onHistoryOutput: ((String) -> Void)?
     var onSnapshot: ((UInt16, UInt16, String) -> Void)?
@@ -220,6 +228,22 @@ final class PtySession {
     private var isStopped = false
     private var didReportExit = false
     private static let daemonStartupLock = NSLock()
+    private static let daemonPolicyLock = NSLock()
+    private static var legacyDaemonAllowed = false
+    private static let currentDaemonRequirement = """
+        anchor apple generic and \
+        certificate 1[field.1.2.840.113635.100.6.2.6] exists and \
+        certificate leaf[field.1.2.840.113635.100.6.1.13] exists and \
+        certificate leaf[subject.OU] = "ZU76A67LGU" and \
+        identifier "com.automicvault.portal.sessiond"
+        """
+    private static let previousDaemonRequirement = """
+        anchor apple generic and \
+        certificate 1[field.1.2.840.113635.100.6.2.6] exists and \
+        certificate leaf[field.1.2.840.113635.100.6.1.13] exists and \
+        certificate leaf[subject.OU] = "ZU76A67LGU" and \
+        identifier "com.automicvault.vaultty.sessiond"
+        """
     private static let ignoreSIGPIPEOnce: Void = {
         _ = Darwin.signal(SIGPIPE, SIG_IGN)
     }()
@@ -428,6 +452,102 @@ final class PtySession {
         try killDetachedSession(sessionRef: .local(sessionID))
     }
 
+    static func prepareLocalDaemon() throws -> LocalDaemonPreparation {
+        _ = try sessiondHelperPath()
+        let fd: Int32
+        do {
+            fd = try connectSocketToDaemon()
+        } catch {
+            if isMissingDaemonConnectionError(error) {
+                return .ready
+            }
+            throw error
+        }
+        defer { close(fd) }
+
+        switch try daemonPeerIdentity(fd: fd) {
+        case .current:
+            do {
+                try setReadTimeout(fd: fd, microseconds: 500_000)
+                try writeAll("PROTOCOLS\n", to: fd)
+                let event = SessionWireProtocol.Decoder.decode(try readLine(from: fd))
+                guard case .supportedProtocols(let versions) = event,
+                      SessionWireProtocol.highestMutualVersion(peerVersions: versions) != nil else {
+                    return .incompatible
+                }
+            } catch {
+                return .incompatible
+            }
+            return .ready
+        case .previous:
+            return .previous
+        case .untrusted:
+            return .untrusted
+        }
+    }
+
+    static func allowPreviousDaemonForThisLaunch() {
+        daemonPolicyLock.lock()
+        legacyDaemonAllowed = true
+        daemonPolicyLock.unlock()
+    }
+
+    static func replaceLocalDaemon() throws {
+        daemonPolicyLock.lock()
+        legacyDaemonAllowed = false
+        daemonPolicyLock.unlock()
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try sessiondHelperPath())
+        process.arguments = ["serve", "--replace-socket"]
+        var environment = ProcessInfo.processInfo.environment
+        environment["PORTAL_SESSIOND_SOCKET"] = socketPath(namespace: .canonical)
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+        try process.run()
+
+        let deadline = Date().addingTimeInterval(2)
+        var lastError: Error?
+        while Date() < deadline {
+            do {
+                let fd = try connectSocketToDaemon()
+                defer { close(fd) }
+                guard try daemonPeerIdentity(fd: fd) == .current else {
+                    throw NSError(
+                        domain: NSOSStatusErrorDomain,
+                        code: Int(errSecCSReqFailed),
+                        userInfo: [NSLocalizedDescriptionKey: "replacement daemon is not trusted"]
+                    )
+                }
+                return
+            } catch {
+                lastError = error
+                if !process.isRunning { break }
+                usleep(50_000)
+            }
+        }
+
+        if process.isRunning {
+            process.terminate()
+        }
+        process.waitUntilExit()
+        let diagnostic = String(
+            data: errorPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let diagnostic, !diagnostic.isEmpty {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: diagnostic]
+            )
+        }
+        throw lastError ?? posixError("replace session daemon")
+    }
+
     static func killDetachedSession(sessionRef: SessionRef) throws {
         switch sessionRef.location {
         case .local:
@@ -503,7 +623,7 @@ final class PtySession {
         switch sessionRef.location {
         case .local:
             let namespace = daemonIdentity.namespace
-            if let process = Self.makeLocalBridgeProcess(namespace: namespace) {
+            if let process = try Self.makeLocalBridgeProcess(namespace: namespace) {
                 transport = SSHSessionTransport(
                     queue: queue,
                     process: process,
@@ -607,7 +727,7 @@ final class PtySession {
         let line = SessionWireProtocol.encode(command)
         switch location {
         case .local:
-            if let process = makeLocalBridgeProcess(namespace: localNamespace) {
+            if let process = try makeLocalBridgeProcess(namespace: localNamespace) {
                 let output = try runLocalBridgeCommand(process, command: line)
                 let response = String(decoding: output, as: UTF8.self)
                     .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
@@ -736,18 +856,24 @@ final class PtySession {
         return try output()
     }
 
-    private static func makeLocalBridgeProcess(namespace: SessionDaemonNamespace) -> Process? {
+    private static func makeLocalBridgeProcess(namespace: SessionDaemonNamespace) throws -> Process? {
         guard let path = SessionWireProtocol.localBridgeCandidates(
             forExecutable: CommandLine.arguments[0]
         ).first(where: FileManager.default.isExecutableFile(atPath:)) else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
-        if namespace == .portalDevelopment {
-            var environment = ProcessInfo.processInfo.environment
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "PORTAL_SESSIOND_ALLOW_LEGACY_SERVER")
+        if namespace == .canonical {
+            environment["PORTAL_SESSIOND"] = try sessiondHelperPath()
+            if allowsLegacyDaemon() {
+                environment["PORTAL_SESSIOND_ALLOW_LEGACY_SERVER"] = "1"
+            }
+        } else {
             environment["PORTAL_SESSIOND_SOCKET"] = socketPath(namespace: namespace)
             environment["PORTAL_SESSIOND_REQUIRE_EXISTING"] = "1"
-            process.environment = environment
         }
+        process.environment = environment
         return process
     }
 
@@ -772,7 +898,7 @@ final class PtySession {
         input: Data,
         timeout: TimeInterval = 5
     ) throws -> Data {
-        guard let process = makeLocalBridgeProcess(namespace: .canonical) else {
+        guard let process = try makeLocalBridgeProcess(namespace: .canonical) else {
             throw NSError(
                 domain: NSPOSIXErrorDomain,
                 code: Int(ENOENT),
@@ -874,7 +1000,42 @@ final class PtySession {
         return String(decoding: bytes, as: UTF8.self)
     }
 
+    private static func setReadTimeout(fd: Int32, microseconds: Int32) throws {
+        var timeout = timeval(tv_sec: 0, tv_usec: microseconds)
+        let timeoutSize = socklen_t(MemoryLayout.size(ofValue: timeout))
+        let result = withUnsafePointer(to: &timeout) { pointer in
+            setsockopt(
+                fd,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                pointer,
+                timeoutSize
+            )
+        }
+        guard result == 0 else { throw posixError("setsockopt") }
+    }
+
     private static func connectToDaemon(namespace: SessionDaemonNamespace = .canonical) throws -> Int32 {
+        let fd = try connectSocketToDaemon(namespace: namespace)
+        do {
+            let identity = try daemonPeerIdentity(fd: fd)
+            guard identity == .current || identity == .previous && allowsLegacyDaemon() else {
+                throw NSError(
+                    domain: NSOSStatusErrorDomain,
+                    code: Int(errSecCSReqFailed),
+                    userInfo: [NSLocalizedDescriptionKey: "session daemon is not trusted by Portal"]
+                )
+            }
+            return fd
+        } catch {
+            close(fd)
+            throw error
+        }
+    }
+
+    private static func connectSocketToDaemon(
+        namespace: SessionDaemonNamespace = .canonical
+    ) throws -> Int32 {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw posixError("socket")
@@ -887,6 +1048,46 @@ final class PtySession {
             close(fd)
             throw error
         }
+    }
+
+    private enum DaemonPeerIdentity {
+        case current
+        case previous
+        case untrusted
+    }
+
+    private static func daemonPeerIdentity(fd: Int32) throws -> DaemonPeerIdentity {
+        var uid: uid_t = 0
+        var gid: gid_t = 0
+        guard getpeereid(fd, &uid, &gid) == 0 else {
+            throw posixError("getpeereid")
+        }
+        guard uid == geteuid() else { return .untrusted }
+
+        var token = audit_token_t()
+        var tokenLength = socklen_t(MemoryLayout<audit_token_t>.size)
+        let tokenStatus = withUnsafeMutablePointer(to: &token) { pointer in
+            getsockopt(fd, SOL_LOCAL, 0x006, pointer, &tokenLength)
+        }
+        guard tokenStatus == 0,
+              tokenLength == socklen_t(MemoryLayout<audit_token_t>.size) else {
+            throw posixError("LOCAL_PEERTOKEN")
+        }
+
+        let tokenData = withUnsafeBytes(of: &token) { Data($0) }
+        let attributes = [kSecGuestAttributeAudit: tokenData] as CFDictionary
+        var code: SecCode?
+        let status = SecCodeCopyGuestWithAttributes(nil, attributes, [], &code)
+        guard status == errSecSuccess, let code else {
+            return .untrusted
+        }
+        if SecCodeCheckValidity(code, [], try codeRequirement(currentDaemonRequirement)) == errSecSuccess {
+            return .current
+        }
+        if SecCodeCheckValidity(code, [], try codeRequirement(previousDaemonRequirement)) == errSecSuccess {
+            return .previous
+        }
+        return .untrusted
     }
 
     private static func connect(fd: Int32, path: String) throws {
@@ -939,9 +1140,6 @@ final class PtySession {
         process.arguments = ["serve"]
         var env = ProcessInfo.processInfo.environment
         env["PORTAL_SESSIOND_SOCKET"] = socketPath(namespace: .canonical)
-        if helper.contains("/target/debug/") || helper.contains("/target/app/debug/") {
-            env["PORTAL_SESSIOND_ALLOW_DEBUG_CLIENT"] = "1"
-        }
         process.environment = env
         try process.run()
 
@@ -975,18 +1173,8 @@ final class PtySession {
     }
 
     private static func sessiondHelperPath() throws -> String {
-        if let override = ProcessInfo.processInfo.environment["PORTAL_SESSIOND"],
-           FileManager.default.isExecutableFile(atPath: override) {
-            return override
-        }
-
-        let bundled = Bundle.main.bundleURL
-            .appendingPathComponent("Contents", isDirectory: true)
-            .appendingPathComponent("Helpers", isDirectory: true)
-            .appendingPathComponent("portal-sessiond", isDirectory: false)
-            .path
-        if FileManager.default.isExecutableFile(atPath: bundled) {
-            return bundled
+        if let bundled = bundledSessiondAppURL() {
+            return try stageSessiondApp(bundled)
         }
 
         for candidate in [
@@ -1006,6 +1194,147 @@ final class PtySession {
             code: Int(ENOENT),
             userInfo: [NSLocalizedDescriptionKey: "portal-sessiond helper was not found"]
         )
+    }
+
+    private static func bundledSessiondAppURL() -> URL? {
+        let name = "Portal Session Helper.app"
+        let executableDirectory = URL(fileURLWithPath: CommandLine.arguments[0])
+            .standardizedFileURL
+            .deletingLastPathComponent()
+        var candidates = [
+            Bundle.main.bundleURL
+                .appendingPathComponent("Contents", isDirectory: true)
+                .appendingPathComponent("Helpers", isDirectory: true)
+                .appendingPathComponent(name, isDirectory: true)
+        ]
+        if executableDirectory.lastPathComponent == "MacOS" {
+            candidates.append(
+                executableDirectory.deletingLastPathComponent()
+                    .appendingPathComponent("Helpers", isDirectory: true)
+                    .appendingPathComponent(name, isDirectory: true)
+            )
+        } else if executableDirectory.lastPathComponent == "Helpers" {
+            candidates.append(executableDirectory.appendingPathComponent(name, isDirectory: true))
+        }
+        return candidates.first { url in
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+                && isDirectory.boolValue
+        }
+    }
+
+    private static func stageSessiondApp(_ source: URL) throws -> String {
+        let codeHash = try verifiedCodeHash(of: source)
+        let fileManager = FileManager.default
+        let base = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Vaultty/helpers/sessiond", isDirectory: true)
+        try fileManager.createDirectory(at: base, withIntermediateDirectories: true)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: base.path)
+
+        let destinationDirectory = base.appendingPathComponent(codeHash, isDirectory: true)
+        let destination = destinationDirectory
+            .appendingPathComponent("Portal Session Helper.app", isDirectory: true)
+        if fileManager.fileExists(atPath: destination.path) {
+            guard try verifiedCodeHash(of: destination) == codeHash else {
+                throw stagedHelperIdentityError()
+            }
+            return sessiondExecutable(in: destination).path
+        }
+
+        let temporaryDirectory = base
+            .appendingPathComponent(".\(UUID().uuidString).staging", isDirectory: true)
+        let temporaryApp = temporaryDirectory
+            .appendingPathComponent("Portal Session Helper.app", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: temporaryDirectory, withIntermediateDirectories: false)
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: temporaryDirectory.path
+            )
+            try fileManager.copyItem(at: source, to: temporaryApp)
+            guard try verifiedCodeHash(of: temporaryApp) == codeHash else {
+                throw stagedHelperIdentityError()
+            }
+            do {
+                try fileManager.moveItem(at: temporaryDirectory, to: destinationDirectory)
+            } catch where fileManager.fileExists(atPath: destination.path) {
+                try fileManager.removeItem(at: temporaryDirectory)
+                guard try verifiedCodeHash(of: destination) == codeHash else {
+                    throw stagedHelperIdentityError()
+                }
+            }
+        } catch {
+            try? fileManager.removeItem(at: temporaryDirectory)
+            throw error
+        }
+        return sessiondExecutable(in: destination).path
+    }
+
+    private static func sessiondExecutable(in app: URL) -> URL {
+        app.appendingPathComponent("Contents/MacOS/portal-sessiond", isDirectory: false)
+    }
+
+    private static func verifiedCodeHash(of app: URL) throws -> String {
+        var staticCode: SecStaticCode?
+        var status = SecStaticCodeCreateWithPath(app as CFURL, [], &staticCode)
+        guard status == errSecSuccess, let staticCode else {
+            throw securityError("load session helper signature", status: status)
+        }
+        let requirement = try codeRequirement(currentDaemonRequirement)
+        let validationFlags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
+        status = SecStaticCodeCheckValidity(staticCode, validationFlags, requirement)
+        guard status == errSecSuccess else {
+            throw securityError("validate session helper signature", status: status)
+        }
+
+        var signingInformation: CFDictionary?
+        status = SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: kSecCSSigningInformation),
+            &signingInformation
+        )
+        guard status == errSecSuccess,
+              let information = signingInformation as? [CFString: Any],
+              let data = information[kSecCodeInfoUnique] as? Data,
+              !data.isEmpty else {
+            if status != errSecSuccess {
+                throw securityError("read session helper code hash", status: status)
+            }
+            throw stagedHelperIdentityError()
+        }
+        return data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func codeRequirement(_ text: String) throws -> SecRequirement {
+        var requirement: SecRequirement?
+        let status = SecRequirementCreateWithString(text as CFString, [], &requirement)
+        guard status == errSecSuccess, let requirement else {
+            throw securityError("create code-signing requirement", status: status)
+        }
+        return requirement
+    }
+
+    private static func securityError(_ operation: String, status: OSStatus) -> NSError {
+        let detail = SecCopyErrorMessageString(status, nil) as String? ?? "OSStatus \(status)"
+        return NSError(
+            domain: NSOSStatusErrorDomain,
+            code: Int(status),
+            userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(detail)"]
+        )
+    }
+
+    private static func stagedHelperIdentityError() -> NSError {
+        NSError(
+            domain: NSOSStatusErrorDomain,
+            code: Int(errSecCSBadObjectFormat),
+            userInfo: [NSLocalizedDescriptionKey: "staged session helper identity changed"]
+        )
+    }
+
+    private static func allowsLegacyDaemon() -> Bool {
+        daemonPolicyLock.lock()
+        defer { daemonPolicyLock.unlock() }
+        return legacyDaemonAllowed
     }
 
     private static func sshHostRecord(id: String) throws -> SSHHostRecord {

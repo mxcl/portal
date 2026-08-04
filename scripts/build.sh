@@ -6,7 +6,6 @@ CONFIGURATION="${CONFIGURATION:-release}"
 APP_NAME="Portal"
 EXECUTABLE_NAME="Portal"
 APP_BUNDLE_ID="com.automicvault.vaultty"
-SESSIOND_HELPER_ID="com.automicvault.portal.sessiond"
 SESSION_BRIDGE_ID="com.automicvault.portal.session-bridge"
 LEGACY_SESSION_BRIDGE_ID="com.automicvault.vaultty.session-bridge"
 REMOTE_AGENT_ID="com.automicvault.vaultty.remote-agent"
@@ -130,7 +129,10 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 HELPERS_DIR="$CONTENTS_DIR/Helpers"
 FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 EXECUTABLE="$MACOS_DIR/$EXECUTABLE_NAME"
-SESSIOND_HELPER="$HELPERS_DIR/portal-sessiond"
+SESSIOND_APP="$HELPERS_DIR/Portal Session Helper.app"
+SESSIOND_CONTENTS="$SESSIOND_APP/Contents"
+SESSIOND_MACOS_DIR="$SESSIOND_CONTENTS/MacOS"
+SESSIOND_HELPER="$SESSIOND_MACOS_DIR/portal-sessiond"
 SESSION_BRIDGE_HELPER="$HELPERS_DIR/portal-session-bridge"
 LEGACY_SESSION_BRIDGE_HELPER="$HELPERS_DIR/vaultty-session-bridge"
 GHOSTTY_PROBE="$HELPERS_DIR/portal-ghostty-probe"
@@ -278,6 +280,10 @@ render_info_plist() {
     -e "s/@APP_VERSION@/$escaped_version/g" \
     -e "s/@APP_BUILD_NUMBER@/$escaped_build_number/g" \
     "$ROOT_DIR/src/app/Info.plist.in" >"$CONTENTS_DIR/Info.plist"
+  sed \
+    -e "s/@APP_VERSION@/$escaped_version/g" \
+    -e "s/@APP_BUILD_NUMBER@/$escaped_build_number/g" \
+    "$ROOT_DIR/src/sessiond/Info.plist.in" >"$SESSIOND_CONTENTS/Info.plist"
 }
 
 codesign_identity() {
@@ -807,6 +813,11 @@ esac
 echo "Building Rust helpers"
 export MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS_VERSION"
 cargo build ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} --bin portal-sessiond --bin portal-session-bridge
+for helper in portal-sessiond portal-session-bridge; do
+  if strings "$RUST_BIN_DIR/$helper" | grep -q PORTAL_SESSIOND_DISABLE_PEER_VALIDATION; then
+    die "$helper contains the test-only peer-validation bypass"
+  fi
+done
 
 echo "Building Swift package dependencies"
 swift build \
@@ -837,6 +848,7 @@ mkdir -p \
   "$MACOS_DIR" \
   "$RESOURCES_DIR" \
   "$HELPERS_DIR" \
+  "$SESSIOND_MACOS_DIR" \
   "$FRAMEWORKS_DIR"
 render_info_plist
 cp "$RUST_BIN_DIR/portal-sessiond" "$SESSIOND_HELPER"
@@ -906,6 +918,7 @@ SWIFTC_COMMAND=(
   -target "arm64-apple-macosx$MIN_MACOS_VERSION" \
   -framework AppKit \
   -framework JavaScriptCore \
+  -framework Security \
   "${SWIFT_DEPS_LINK_ARGS[@]}" \
   "$ROOT_DIR/src/app/main.swift" \
   "$ROOT_DIR/src/core/SessionTypes.swift" \
@@ -935,6 +948,7 @@ swiftc \
   "${SWIFT_FLAGS[@]}" \
   -parse-as-library \
   -target "arm64-apple-macosx$MIN_MACOS_VERSION" \
+  -framework Security \
   "$ROOT_DIR/src/remote_agent/main.swift" \
   "$ROOT_DIR/src/core/SessionTypes.swift" \
   "$ROOT_DIR/src/core/SessionWireProtocol.swift" \
@@ -963,10 +977,14 @@ if [[ -f "$GHOSTTY_DYLIB" ]]; then
   codesign_runtime "$GHOSTTY_DYLIB"
   verify_signature "$GHOSTTY_DYLIB"
 fi
-codesign_runtime \
-  --identifier "$SESSIOND_HELPER_ID" \
-  "$SESSIOND_HELPER"
-verify_signature "$SESSIOND_HELPER"
+codesign_runtime "$SESSIOND_APP"
+verify_signature "$SESSIOND_APP"
+[[ "$(plist_value CFBundleIdentifier "$SESSIOND_CONTENTS/Info.plist")" == "com.automicvault.portal.sessiond" ]] ||
+  die "session helper bundle identifier is invalid"
+[[ "$(plist_value CFBundlePackageType "$SESSIOND_CONTENTS/Info.plist")" == "APPL" ]] ||
+  die "session helper package type is invalid"
+[[ "$(plist_value LSBackgroundOnly "$SESSIOND_CONTENTS/Info.plist")" == "true" ]] ||
+  die "session helper must be background-only"
 codesign_runtime \
   --identifier "$SESSION_BRIDGE_ID" \
   "$SESSION_BRIDGE_HELPER"
@@ -992,6 +1010,7 @@ codesign_runtime \
 verify_signature "$APP_DIR"
 verify_main_app_entitlement
 codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+"$ROOT_DIR/scripts/test-session-peer-authentication.sh" "$APP_DIR"
 
 FINAL_APP="$APP_DIR"
 BUILT_VERSION="$(plist_value CFBundleShortVersionString "$APP_DIR/Contents/Info.plist")"

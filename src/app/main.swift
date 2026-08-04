@@ -28,6 +28,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = makeMainMenu()
+        guard prepareSessionService() else {
+            NSApp.terminate(nil)
+            return
+        }
 
         let args = ProcessInfo.processInfo.arguments
         let selfTestCommand = args.enumerated().first { $0.element == "--self-test" }
@@ -91,6 +95,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             checkForUpdates()
             remoteAccessController.startIfEnabled()
         }
+    }
+
+    private func prepareSessionService() -> Bool {
+        do {
+            switch try PtySession.prepareLocalDaemon() {
+            case .ready:
+                return true
+            case .previous:
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Secure Session Service Update Required"
+                alert.informativeText = """
+                    Portal found a previous session service that cannot enforce the current security policy. Switching secures new connections, but detached sessions held by the previous service will no longer be reachable.
+                    """
+                alert.addButton(withTitle: "Switch Securely")
+                alert.addButton(withTitle: "Keep Existing Sessions")
+                alert.addButton(withTitle: "Quit Portal")
+                switch alert.runModal() {
+                case .alertFirstButtonReturn:
+                    return switchToSecureSessionService()
+                case .alertSecondButtonReturn:
+                    PtySession.allowPreviousDaemonForThisLaunch()
+                    return true
+                default:
+                    return false
+                }
+            case .incompatible:
+                return requireSecureSessionServiceSwitch(
+                    message: "The running Portal session service is not protocol-compatible with this version."
+                )
+            case .untrusted:
+                return requireSecureSessionServiceSwitch(
+                    message: "The process listening on Portal’s private session socket cannot be verified as a signed Portal session service."
+                )
+            }
+        } catch {
+            showSessionServiceError(
+                title: "Portal Could Not Prepare Its Session Service",
+                error: error
+            )
+            return false
+        }
+    }
+
+    private func requireSecureSessionServiceSwitch(message: String) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "Session Service Cannot Be Used"
+        alert.informativeText = """
+            \(message)
+
+            Portal can atomically switch the socket to its signed session service. Detached sessions held by the existing process will no longer be reachable.
+            """
+        alert.addButton(withTitle: "Switch Securely")
+        alert.addButton(withTitle: "Quit Portal")
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        return switchToSecureSessionService()
+    }
+
+    private func switchToSecureSessionService() -> Bool {
+        do {
+            try PtySession.replaceLocalDaemon()
+            return true
+        } catch {
+            showSessionServiceError(
+                title: "Portal Could Not Switch Session Services",
+                error: error
+            )
+            return false
+        }
+    }
+
+    private func showSessionServiceError(title: String, error: Error) {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = title
+        alert.informativeText = """
+            \(error.localizedDescription)
+
+            Portal did not kill or unlink the existing service. Quit Portal, finish any sessions you need to preserve, and try again.
+            """
+        alert.addButton(withTitle: "Quit Portal")
+        alert.runModal()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

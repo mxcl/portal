@@ -12,12 +12,14 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::{FileTypeExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[path = "../macos_peer.rs"]
+mod macos_peer;
 
 const COMMAND_STARTED_MARKER: &[u8] = b"\x1b]133;C;";
 const COMMAND_FINISHED_MARKER: &[u8] = b"\x1b]133;D;";
@@ -1118,97 +1120,7 @@ fn socket_path() -> io::Result<PathBuf> {
 }
 
 fn validate_peer(stream: &UnixStream) -> io::Result<()> {
-    if env::var_os("PORTAL_SESSIOND_DISABLE_PEER_VALIDATION").is_some() {
-        return Ok(());
-    }
-
-    let mut uid: libc::uid_t = 0;
-    let mut gid: libc::gid_t = 0;
-    let rc = unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) };
-    if rc != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if uid != unsafe { libc::geteuid() } {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "peer uid does not match daemon uid",
-        ));
-    }
-
-    #[cfg(target_os = "macos")]
-    validate_peer_signature(stream)?;
-
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn validate_peer_signature(stream: &UnixStream) -> io::Result<()> {
-    let pid = peer_pid(stream.as_raw_fd())?;
-    let path = process_path(pid)?;
-    let output = Command::new("/usr/bin/codesign")
-        .args(["-dv", "--verbose=4"])
-        .arg(&path)
-        .output()?;
-    let text = String::from_utf8_lossy(&output.stderr);
-
-    if output.status.success() && is_supported_peer_signature(&text) {
-        return Ok(());
-    }
-
-    Err(io::Error::new(
-        io::ErrorKind::PermissionDenied,
-        format!(
-            "peer process is not signed Portal Terminal: {}",
-            path.display()
-        ),
-    ))
-}
-
-#[cfg(target_os = "macos")]
-fn is_supported_peer_signature(text: &str) -> bool {
-    text.lines().any(|line| line == "TeamIdentifier=ZU76A67LGU")
-        && text.lines().any(|line| {
-            matches!(
-                line,
-                "Identifier=com.automicvault.vaultty"
-                    | "Identifier=com.automicvault.portal.session-bridge"
-                    | "Identifier=com.automicvault.vaultty.session-bridge"
-                    | "Identifier=com.automicvault.vaultty.remote-agent"
-            )
-        })
-}
-
-#[cfg(target_os = "macos")]
-fn peer_pid(fd: RawFd) -> io::Result<pid_t> {
-    const LOCAL_PEERPID: c_int = 2;
-    let mut pid: pid_t = 0;
-    let mut len = std::mem::size_of::<pid_t>() as libc::socklen_t;
-    let rc = unsafe {
-        libc::getsockopt(
-            fd,
-            libc::SOL_LOCAL,
-            LOCAL_PEERPID,
-            &mut pid as *mut _ as *mut c_void,
-            &mut len,
-        )
-    };
-    if rc == 0 {
-        Ok(pid)
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn process_path(pid: pid_t) -> io::Result<PathBuf> {
-    let mut buffer = vec![0_u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
-    let count =
-        unsafe { libc::proc_pidpath(pid, buffer.as_mut_ptr() as *mut c_void, buffer.len() as u32) };
-    if count <= 0 {
-        return Err(io::Error::last_os_error());
-    }
-    buffer.truncate(count as usize);
-    Ok(PathBuf::from(std::ffi::OsString::from_vec(buffer)))
+    macos_peer::validate_client(stream)
 }
 
 fn reap_child(pid: pid_t) -> i32 {
@@ -1726,26 +1638,6 @@ mod tests {
         ));
         assert!(history_has_unfinished_command(
             b"\x1b]133;C;MQ==\x07\x1b]133;D;0\x07\x1b]133;C;Mg==\x07"
-        ));
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn peer_signature_accepts_app_and_helpers() {
-        assert!(is_supported_peer_signature(
-            "Identifier=com.automicvault.vaultty\nTeamIdentifier=ZU76A67LGU"
-        ));
-        assert!(is_supported_peer_signature(
-            "Identifier=com.automicvault.portal.session-bridge\nTeamIdentifier=ZU76A67LGU"
-        ));
-        assert!(is_supported_peer_signature(
-            "Identifier=com.automicvault.vaultty.session-bridge\nTeamIdentifier=ZU76A67LGU"
-        ));
-        assert!(!is_supported_peer_signature(
-            "Identifier=com.apple.Terminal\nTeamIdentifier=ZU76A67LGU"
-        ));
-        assert!(!is_supported_peer_signature(
-            "Identifier=com.automicvault.vaultty\nTeamIdentifier=OTHERTEAM"
         ));
     }
 }

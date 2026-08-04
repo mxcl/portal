@@ -14,6 +14,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+#[path = "../macos_peer.rs"]
+mod macos_peer;
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() -> io::Result<()> {
@@ -1140,7 +1143,12 @@ fn connect_to_daemon() -> io::Result<UnixStream> {
 }
 
 fn connect_to_daemon_at(socket_path: &Path) -> io::Result<UnixStream> {
-    UnixStream::connect(socket_path)
+    let stream = UnixStream::connect(socket_path)?;
+    macos_peer::validate_server(
+        &stream,
+        env::var_os("PORTAL_SESSIOND_ALLOW_LEGACY_SERVER").is_some(),
+    )?;
+    Ok(stream)
 }
 
 fn sessiond_path() -> io::Result<PathBuf> {

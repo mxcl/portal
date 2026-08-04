@@ -202,6 +202,9 @@ final class MacRemoteAccessController {
         let process = Process()
         process.executableURL = helper
         process.arguments = ["--mac-id", macID, "--endpoint", endpoint.absoluteString]
+        if PtySession.allowsPreviousDaemonForThisLaunch() {
+            process.arguments?.append("--allow-previous-session-daemon")
+        }
         let keyPipe = Pipe()
         process.standardInput = keyPipe
         process.standardOutput = FileHandle.nullDevice

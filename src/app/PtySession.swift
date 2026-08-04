@@ -492,6 +492,12 @@ final class PtySession {
         daemonPolicyLock.unlock()
     }
 
+    static func allowsPreviousDaemonForThisLaunch() -> Bool {
+        daemonPolicyLock.lock()
+        defer { daemonPolicyLock.unlock() }
+        return legacyDaemonAllowed
+    }
+
     static func replaceLocalDaemon() throws {
         daemonPolicyLock.lock()
         legacyDaemonAllowed = false

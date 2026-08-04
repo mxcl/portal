@@ -288,7 +288,6 @@ private struct MobileSessionView: View {
     @State private var isHistorySearch = false
     @State private var showsClearHistoryConfirmation = false
     @State private var showsClearHistoryError = false
-    @State private var transcriptScrollPosition = ScrollPosition(edge: .bottom)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -320,36 +319,37 @@ private struct MobileSessionView: View {
     }
 
     private var blockTranscript: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
-                if model.transcript.blocks.isEmpty {
-                    if model.isLoadingCommands {
-                        ProgressView()
-                            .controlSize(.large)
-                            .accessibilityLabel("Loading commands")
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    if model.transcript.blocks.isEmpty {
+                        if model.isLoadingCommands {
+                            ProgressView()
+                                .controlSize(.large)
+                                .accessibilityLabel("Loading commands")
+                                .frame(maxWidth: .infinity, minHeight: 320)
+                        } else {
+                            ContentUnavailableView(
+                                "No commands yet",
+                                systemImage: "terminal",
+                                description: Text("Run a command here or on a connected Mac.")
+                            )
                             .frame(maxWidth: .infinity, minHeight: 320)
-                    } else {
-                        ContentUnavailableView(
-                            "No commands yet",
-                            systemImage: "terminal",
-                            description: Text("Run a command here or on a connected Mac.")
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 320)
+                        }
+                    }
+                    ForEach(model.transcript.blocks) { block in
+                        MobileBlockView(block: block)
+                            .id(block.id)
                     }
                 }
-                ForEach(model.transcript.blocks) { block in
-                    MobileBlockView(block: block)
-                        .id(block.id)
-                }
+                .padding(12)
             }
-            .padding(12)
-        }
-        .scrollPosition($transcriptScrollPosition)
-        .defaultScrollAnchor(.bottom, for: .sizeChanges)
-        .scrollIndicatorsFlash(trigger: model.transcript.revision)
-        .background(.black)
-        .onChange(of: model.transcript.revision) { _, _ in
-            transcriptScrollPosition.scrollTo(edge: .bottom)
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            .background(.black)
+            .onChange(of: model.transcript.revision) { _, _ in
+                guard let id = model.transcript.blocks.last?.id else { return }
+                withAnimation { proxy.scrollTo(id, anchor: .bottom) }
+            }
         }
     }
 

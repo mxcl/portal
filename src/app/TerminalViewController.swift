@@ -3901,6 +3901,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(SessionPickerView.keyboardNavigationSelfTest())
         assert(CompletionPopupController.selectionSelfTest())
         assert(CommandInputTextView.completionPreviewPreservesCaretSelfTest())
+        assert(TerminalViewController.historyCompletionReplacementRangeSelfTest())
         assert(VaulttyCompletionEngine.historyMergePrefixSelfTest())
         assert(ShellCompletionParser.midTokenReplacementRangeSelfTest())
         let shellEnvironment = inheritedShellEnvironment([
@@ -6249,7 +6250,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         dismissAfterApplying: Bool = true
     ) {
         tab.inputView.clearMutedCompletionPreview()
-        guard let range = suggestion.replacementRange ?? activeCompletionRange else { return }
+        guard let range = Self.completionReplacementRange(
+            for: suggestion,
+            inputLength: (tab.inputView.string as NSString).length,
+            fallback: activeCompletionRange
+        ) else { return }
         replace(range: range, with: suggestion.insertText, in: tab)
         if dismissAfterApplying {
             dismissCompletion()
@@ -6259,11 +6264,44 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func renderCompletionPreview(_ suggestion: CompletionSuggestion, in tab: TerminalTab) {
-        guard let replacementRange = suggestion.replacementRange ?? activeCompletionRange else {
+        guard let replacementRange = Self.completionReplacementRange(
+            for: suggestion,
+            inputLength: (tab.inputView.string as NSString).length,
+            fallback: activeCompletionRange
+        ) else {
             tab.inputView.clearMutedCompletionPreview()
             return
         }
         tab.inputView.renderCompletionPreview(suggestion, replacementRange: replacementRange)
+    }
+
+    private static func completionReplacementRange(
+        for suggestion: CompletionSuggestion,
+        inputLength: Int,
+        fallback: NSRange?
+    ) -> NSRange? {
+        suggestion.kind == .history
+            ? NSRange(location: 0, length: inputLength)
+            : suggestion.replacementRange ?? fallback
+    }
+
+    static func historyCompletionReplacementRangeSelfTest() -> Bool {
+        let original = "./scripts/de"
+        let expanded = "./scripts/deploy-www.sh "
+        let suggestion = CompletionSuggestion(
+            displayText: "./scripts/deploy-www.sh --static-only",
+            insertText: "./scripts/deploy-www.sh --static-only",
+            description: nil,
+            kind: .history,
+            priority: 0,
+            source: "self-test",
+            replacementRange: NSRange(location: 0, length: original.utf16.count)
+        )
+        return completionReplacementRange(
+            for: suggestion,
+            inputLength: expanded.utf16.count,
+            fallback: suggestion.replacementRange
+        ) == NSRange(location: 0, length: expanded.utf16.count)
     }
 
     private func shouldContinueCompletion(afterApplying suggestion: CompletionSuggestion) -> Bool {

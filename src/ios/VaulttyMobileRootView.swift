@@ -293,7 +293,11 @@ private struct MobileSessionView: View {
         VStack(spacing: 0) {
             statusBar
             if showsTerminal {
-                VaulttyTerminalView(chunks: model.chunks, size: model.terminalSize) {
+                VaulttyTerminalView(
+                    chunks: model.chunks,
+                    size: model.terminalSize,
+                    generation: model.terminalGeneration
+                ) {
                     model.sendInput($0)
                 }
                     .background(.black)
@@ -668,6 +672,7 @@ private struct TerminalKey: View {
 private struct VaulttyTerminalView: UIViewRepresentable {
     let chunks: [TerminalChunk]
     let size: RemoteTerminalSize?
+    let generation: UInt64
     let onInput: (Data) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -691,6 +696,11 @@ private struct VaulttyTerminalView: UIViewRepresentable {
     func updateUIView(_ view: TerminalView, context: Context) {
         context.coordinator.onInput = onInput
         context.coordinator.size = size
+        if context.coordinator.generation != generation {
+            view.getTerminal().resetToInitialState()
+            context.coordinator.generation = generation
+            context.coordinator.lastChunkID = 0
+        }
         context.coordinator.applySize()
         for chunk in chunks where chunk.id > context.coordinator.lastChunkID {
             view.feed(byteArray: Array(chunk.data)[...])
@@ -701,6 +711,7 @@ private struct VaulttyTerminalView: UIViewRepresentable {
     @MainActor final class Coordinator: NSObject, @preconcurrency TerminalViewDelegate {
         var onInput: (Data) -> Void
         var size: RemoteTerminalSize?
+        var generation: UInt64 = 0
         var lastChunkID: UInt64 = 0
         weak var terminalView: TerminalView?
 

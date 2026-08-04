@@ -8,6 +8,7 @@ public enum RemoteTerminalConnectionState: Equatable, Sendable {
 
 public enum RemoteTerminalEvent: Equatable, Sendable {
     case connection(RemoteTerminalConnectionState)
+    case streamReset
     case output(Data)
     case history(Data)
     case snapshot(RemoteTerminalSnapshot)
@@ -76,6 +77,7 @@ public actor RemoteTerminalSessionClient {
     private var state = State.idle
     private var isRunning = false
     private var shouldStop = false
+    private var resetsStreamOnRecovery = false
     private var sequenceTracker = RemoteSequenceTracker()
     private var capabilities = Set<String>()
     private var completionWaiters: [
@@ -128,23 +130,21 @@ public actor RemoteTerminalSessionClient {
                 } catch let error as RemoteTerminalSessionError {
                     if case .remote = error { throw error }
                     guard !shouldStop else { break }
-                    await recover(
+                    let resetStream = await recover(
                         handle: handle,
                         retryDelayNanoseconds: retryDelayNanoseconds
                     )
-                    retryDelayNanoseconds = min(
-                        retryDelayNanoseconds * 2,
-                        30_000_000_000
+                    retryDelayNanoseconds = resetStream ? 1_000_000_000 : min(
+                        retryDelayNanoseconds * 2, 30_000_000_000
                     )
                 } catch {
                     guard !shouldStop else { break }
-                    await recover(
+                    let resetStream = await recover(
                         handle: handle,
                         retryDelayNanoseconds: retryDelayNanoseconds
                     )
-                    retryDelayNanoseconds = min(
-                        retryDelayNanoseconds * 2,
-                        30_000_000_000
+                    retryDelayNanoseconds = resetStream ? 1_000_000_000 : min(
+                        retryDelayNanoseconds * 2, 30_000_000_000
                     )
                 }
             }
@@ -164,7 +164,12 @@ public actor RemoteTerminalSessionClient {
             case .submit(let command):
                 try await sendMessage(.submit, payload: Data(command.utf8))
             case .interrupt:
-                try await sendMessage(.interrupt)
+                if try await sendMessageUrgently(.interrupt) {
+                    resetsStreamOnRecovery = true
+                    state = .reconnecting
+                    failAllCompletions()
+                    await transport.disconnect()
+                }
             case .resize(let size):
                 try await sendMessage(.resize, payload: JSONEncoder().encode(size))
             case .clearHistory:
@@ -334,7 +339,9 @@ public actor RemoteTerminalSessionClient {
     private func recover(
         handle: @escaping @Sendable (RemoteTerminalEvent) async -> Void,
         retryDelayNanoseconds: UInt64
-    ) async {
+    ) async -> Bool {
+        let resetsStream = resetsStreamOnRecovery
+        resetsStreamOnRecovery = false
         state = .reconnecting
         let previousCapabilities = capabilities
         capabilities.removeAll()
@@ -343,8 +350,14 @@ public actor RemoteTerminalSessionClient {
         if !previousCapabilities.isEmpty {
             await handle(.capabilitiesChanged([]))
         }
+        if resetsStream {
+            await handle(.streamReset)
+        }
         await handle(.connection(.reconnecting))
-        try? await Task.sleep(nanoseconds: retryDelayNanoseconds)
+        if !resetsStream {
+            try? await Task.sleep(nanoseconds: retryDelayNanoseconds)
+        }
+        return resetsStream
     }
 
     private func deliveryFailed() async {
@@ -423,6 +436,15 @@ public actor RemoteTerminalSessionClient {
             sessionID: sessionID,
             payload: payload,
             clientRole: clientRole
+        )))
+    }
+
+    private func sendMessageUrgently(_ kind: RemoteMessageKind) async throws -> Bool {
+        try await transport.sendUrgently(JSONEncoder().encode(RemoteMessage(
+            kind: kind,
+            requestID: requestID,
+            macID: macID,
+            sessionID: sessionID
         )))
     }
 }

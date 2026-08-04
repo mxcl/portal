@@ -115,6 +115,46 @@ struct RemoteTerminalSessionClientTests {
         }
     }
 
+    @Test("out-of-band interrupt drops stale output and immediately reattaches")
+    func urgentInterruptResetsStream() async throws {
+        let (client, transport) = makeClient(role: .phone, urgentDeliveryIsOutOfBand: true)
+        let running = run(client)
+        var events = running.events.makeAsyncIterator()
+        _ = await events.next()
+        _ = try await transport.waitForMessage(kind: .attach)
+        _ = await events.next()
+
+        try await client.send(.interrupt)
+
+        _ = try await transport.waitForUrgentMessage(kind: .interrupt)
+        #expect(await events.next() == .streamReset)
+        #expect(await events.next() == .connection(.reconnecting))
+        _ = try await transport.waitForMessage(kind: .attach, occurrence: 2)
+        #expect(await events.next() == .connection(.attached))
+
+        await client.disconnect()
+        try await running.task.value
+    }
+
+    @Test("interrupt stays in-band when the relay lacks urgent delivery")
+    func previousRelayInterruptFallback() async throws {
+        let (client, transport) = makeClient(role: .phone)
+        let running = run(client)
+        var events = running.events.makeAsyncIterator()
+        _ = await events.next()
+        _ = try await transport.waitForMessage(kind: .attach)
+        _ = await events.next()
+
+        try await client.send(.interrupt)
+
+        _ = try await transport.waitForUrgentMessage(kind: .interrupt)
+        #expect(await transport.disconnectCount() == 0)
+        #expect(await transport.messageCount(kind: .attach) == 1)
+
+        await client.disconnect()
+        try await running.task.value
+    }
+
     @Test("kill is delivered before the client disconnects")
     func killDelivery() async throws {
         let (client, transport) = makeClient(role: .mac)
@@ -265,9 +305,12 @@ struct RemoteTerminalSessionClientTests {
     }
 
     private func makeClient(
-        role: RemoteClientRole
+        role: RemoteClientRole,
+        urgentDeliveryIsOutOfBand: Bool = false
     ) -> (RemoteTerminalSessionClient, FakeTerminalTransport) {
-        let transport = FakeTerminalTransport()
+        let transport = FakeTerminalTransport(
+            urgentDeliveryIsOutOfBand: urgentDeliveryIsOutOfBand
+        )
         return (
             RemoteTerminalSessionClient(
                 peerID: "peer",
@@ -294,9 +337,16 @@ struct RemoteTerminalSessionClientTests {
 }
 
 private actor FakeTerminalTransport: RemoteRelayTransport {
+    private let urgentDeliveryIsOutOfBand: Bool
     private var responses: [Data] = []
     private var isConnected = false
+    private var disconnections = 0
     private(set) var sentMessages: [RemoteMessage] = []
+    private(set) var urgentMessages: [RemoteMessage] = []
+
+    init(urgentDeliveryIsOutOfBand: Bool = false) {
+        self.urgentDeliveryIsOutOfBand = urgentDeliveryIsOutOfBand
+    }
 
     func connect(peerID: String) async throws {
         isConnected = true
@@ -305,6 +355,16 @@ private actor FakeTerminalTransport: RemoteRelayTransport {
     func send(_ plaintext: Data) async throws {
         guard isConnected else { throw FakeTransportError.disconnected }
         sentMessages.append(try JSONDecoder().decode(RemoteMessage.self, from: plaintext))
+    }
+
+    func sendUrgently(_ plaintext: Data) async throws -> Bool {
+        guard isConnected else { throw FakeTransportError.disconnected }
+        let message = try JSONDecoder().decode(RemoteMessage.self, from: plaintext)
+        urgentMessages.append(message)
+        if !urgentDeliveryIsOutOfBand {
+            sentMessages.append(message)
+        }
+        return urgentDeliveryIsOutOfBand
     }
 
     func receive() async throws -> Data {
@@ -317,6 +377,7 @@ private actor FakeTerminalTransport: RemoteRelayTransport {
     }
 
     func disconnect() async {
+        disconnections += 1
         isConnected = false
     }
 
@@ -338,12 +399,26 @@ private actor FakeTerminalTransport: RemoteRelayTransport {
         }
     }
 
+    func waitForUrgentMessage(kind: RemoteMessageKind) async throws -> RemoteMessage {
+        while true {
+            if let message = urgentMessages.first(where: { $0.kind == kind }) {
+                return message
+            }
+            try Task.checkCancellation()
+            await Task.yield()
+        }
+    }
+
     func messageCount(kind: RemoteMessageKind) -> Int {
         sentMessages.count { $0.kind == kind }
     }
 
     func messageKinds() -> [RemoteMessageKind] {
         sentMessages.map(\.kind)
+    }
+
+    func disconnectCount() -> Int {
+        disconnections
     }
 }
 

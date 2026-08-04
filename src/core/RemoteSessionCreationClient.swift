@@ -3,8 +3,16 @@ import Foundation
 public protocol RemoteRelayTransport: Sendable {
     func connect(peerID: String) async throws
     func send(_ plaintext: Data) async throws
+    func sendUrgently(_ plaintext: Data) async throws -> Bool
     func receive() async throws -> Data
     func disconnect() async
+}
+
+public extension RemoteRelayTransport {
+    func sendUrgently(_ plaintext: Data) async throws -> Bool {
+        try await send(plaintext)
+        return false
+    }
 }
 
 extension RelayClient: RemoteRelayTransport {}

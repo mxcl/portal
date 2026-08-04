@@ -67,6 +67,7 @@ public final class MobileRemoteModel {
     public private(set) var catalog: RemoteCatalog?
     public private(set) var connectionState: MobileConnectionState = .idle
     public private(set) var chunks: [TerminalChunk] = []
+    public private(set) var terminalGeneration: UInt64 = 0
     public private(set) var terminalSize: RemoteTerminalSize?
     public private(set) var transcript = VaulttyBlockTranscript()
     public private(set) var presenceCount = 1
@@ -358,9 +359,7 @@ public final class MobileRemoteModel {
             transport: try RelayClient(endpoint: endpoint, rootKeyData: key)
         )
         self.client = client
-        chunks.removeAll(keepingCapacity: true)
-        terminalSize = nil
-        transcript.reset()
+        resetTerminalStream()
         try await client.run { [weak self] event in
             await self?.handle(event)
         }
@@ -374,6 +373,8 @@ public final class MobileRemoteModel {
             connectionState = .attached
         case .connection(.reconnecting):
             connectionState = .reconnecting
+        case .streamReset:
+            resetTerminalStream()
         case .output(let data):
             appendChunk(data)
             if let text = String(data: data, encoding: .utf8) {
@@ -417,6 +418,14 @@ public final class MobileRemoteModel {
                 )
             }
         }
+    }
+
+    private func resetTerminalStream() {
+        chunks.removeAll(keepingCapacity: true)
+        terminalSize = nil
+        transcript.reset()
+        observedBlockIDs.removeAll()
+        terminalGeneration &+= 1
     }
 
     private func appendChunk(_ data: Data) {

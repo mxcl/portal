@@ -173,6 +173,8 @@ final class RelayTerminalSession: TerminalSession {
             }
         case .connection(.connecting):
             break
+        case .streamReset:
+            break
         case .output(let data):
             onOutput?(String(decoding: data, as: UTF8.self))
         case .history(let data):

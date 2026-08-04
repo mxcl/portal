@@ -26,6 +26,7 @@ public actor RelayClient {
     private let crypto: RelayCrypto
     private var session: URLSession?
     private var socket: URLSessionWebSocketTask?
+    private var peerID: String?
     private var heartbeatTask: Task<Void, Never>?
 
     public init(endpoint: URL, rootKeyData: Data) throws {
@@ -48,6 +49,7 @@ public actor RelayClient {
         let socket = session.webSocketTask(with: request)
         self.session = session
         self.socket = socket
+        self.peerID = peerID
         socket.resume()
         heartbeatTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -68,6 +70,33 @@ public actor RelayClient {
         try await socket.send(.data(JSONEncoder().encode(envelope)))
     }
 
+    public func sendUrgently(_ plaintext: Data) async throws -> Bool {
+        guard let peerID else { throw RelayClientError.invalidEndpoint }
+        let envelope = try crypto.seal(plaintext, purpose: "transport")
+        let url = endpoint
+            .appendingPathComponent("v1")
+            .appendingPathComponent("send")
+            .appendingPathComponent(address.room)
+            .appendingPathComponent(peerID)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(address.credential)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(envelope)
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let response = response as? HTTPURLResponse else {
+            throw RelayClientError.invalidResponse(-1)
+        }
+        if response.statusCode == 404 || response.statusCode == 405 {
+            try await send(plaintext)
+            return false
+        }
+        guard response.statusCode == 204 else {
+            throw RelayClientError.invalidResponse(response.statusCode)
+        }
+        return true
+    }
+
     public func receive() async throws -> Data {
         guard let socket else { throw RelayClientError.invalidEndpoint }
         let message = try await socket.receive()
@@ -83,6 +112,7 @@ public actor RelayClient {
         heartbeatTask = nil
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
+        peerID = nil
         session?.invalidateAndCancel()
         session = nil
     }

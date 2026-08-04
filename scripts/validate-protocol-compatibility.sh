@@ -77,8 +77,10 @@ require_fixture "adjacentVersionNegotiation" "$ROOT_DIR/Tests/VaulttyCoreTests/S
 require_fixture "remoteAgentBridgeRouting" "$ROOT_DIR/Tests/VaulttyCoreTests/SessionWireProtocolTests.swift"
 require_fixture "unknownMessageKindsDecode" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
 require_fixture "previousRelayMessagesDecode" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
+require_fixture "previousRelayInterruptFallback" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteTerminalSessionClientTests.swift"
 require_fixture "terminalSnapshotRoundTrip" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
 require_fixture "publishedVector" "$ROOT_DIR/Tests/VaulttyCoreTests/RelayCryptoTests.swift"
+require_fixture "urgent_send_broadcasts_opaque_bytes" "$ROOT_DIR/src/relay/main.rs"
 
 echo "Running Rust protocol tests"
 cargo test --manifest-path "$ROOT_DIR/Cargo.toml"

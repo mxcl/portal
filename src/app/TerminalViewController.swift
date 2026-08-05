@@ -3088,7 +3088,7 @@ private final class TerminalOutputProcessor {
         blockID: UUID,
         onSnapshot: (Snapshot) -> Void
     ) {
-        let state = terminalScreen.process(text)
+        let state = terminalScreen.process(text, preservesAllRows: true)
         isAlternateScreenActive = state.isAlternateScreenActive
         isApplicationCursorModeActive = state.isApplicationCursorModeActive
         if state.isAlternateScreenActive || (usesPagerScreenRendering && !didSeeAlternateScreenSwitch) {
@@ -3813,6 +3813,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(TerminalOutputProcessor.terminalSizeProbeSelfTest())
         assert(TerminalOutputProcessor.inputFeedbackPrioritySelfTest())
         assert(Ansi.terminalScreenScrollRegionSelfTest())
+        assert(Ansi.terminalScreenFixedHeightSelfTest())
         assert(SessionPickerView.headerButtonHitTestingSelfTest())
         assert(SessionPickerView.keyboardNavigationSelfTest())
         assert(CompletionPopupController.selectionSelfTest())

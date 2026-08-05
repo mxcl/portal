@@ -598,7 +598,7 @@ enum Ansi {
         }
 
         @discardableResult
-        func process(_ text: String) -> TerminalScreenState {
+        func process(_ text: String, preservesAllRows: Bool = false) -> TerminalScreenState {
             let scalars = Array((pending + text).unicodeScalars)
             pending.removeAll()
 
@@ -634,7 +634,7 @@ enum Ansi {
                 }
             }
 
-            return state
+            return renderedState(preservesAllRows: preservesAllRows)
         }
 
         var state: TerminalScreenState {
@@ -964,8 +964,8 @@ enum Ansi {
             cursorCol = min(savedCursorCol, cols - 1)
         }
 
-        private func renderedState() -> TerminalScreenState {
-            let rows = renderedRows()
+        private func renderedState(preservesAllRows: Bool = false) -> TerminalScreenState {
+            let rows = renderedRows(preservesAllRows: preservesAllRows)
             guard !rows.isEmpty else {
                 return TerminalScreenState(
                     text: " ",
@@ -1018,7 +1018,7 @@ enum Ansi {
             )
         }
 
-        private func renderedRows() -> [RenderedRow] {
+        private func renderedRows(preservesAllRows: Bool) -> [RenderedRow] {
             var rows = [RenderedRow]()
             rows.reserveCapacity(self.rows)
 
@@ -1026,11 +1026,13 @@ enum Ansi {
                 rows.append(RenderedRow(row: row, columnCount: renderedColumnCount(in: cells[row], row: row)))
             }
 
-            while rows.first?.columnCount == 0 {
-                rows.removeFirst()
-            }
-            while rows.last?.columnCount == 0 {
-                rows.removeLast()
+            if !preservesAllRows {
+                while rows.first?.columnCount == 0 {
+                    rows.removeFirst()
+                }
+                while rows.last?.columnCount == 0 {
+                    rows.removeLast()
+                }
             }
             return rows
         }
@@ -1072,6 +1074,14 @@ enum Ansi {
                 + "\u{1B}[1;3r\u{1B}[3;1H\nnew\u{1B}[3;1H"
         )
         return state.text == "two\nthree\nnew\nstatus"
+    }
+
+    static func terminalScreenFixedHeightSelfTest() -> Bool {
+        let screen = TerminalScreen(rows: 4, cols: 8)
+        let upper = screen.process("\u{1B}[2J\u{1B}[1;1Htop", preservesAllRows: true)
+        let lower = screen.process("\u{1B}[2J\u{1B}[3;1Hlower", preservesAllRows: true)
+        return upper.text.components(separatedBy: "\n").count == 4
+            && lower.text.components(separatedBy: "\n").count == 4
     }
 
     static func alternateScreenSwitches(in text: String) -> [Bool] {

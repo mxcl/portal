@@ -541,6 +541,8 @@ enum Ansi {
         private var isAlternateScreenActive = false
         private var isApplicationCursorModeActive = false
         private var wrapsAtRightMargin = true
+        private var scrollTop = 0
+        private var scrollBottom = 0
         private var style = TextStyle()
         private var attributeCache: AttributeCache = [:]
 
@@ -551,6 +553,7 @@ enum Ansi {
                 repeating: Array(repeating: Cell(), count: self.cols),
                 count: self.rows
             )
+            scrollBottom = self.rows - 1
         }
 
         func resize(rows newRows: Int, cols newCols: Int) {
@@ -574,6 +577,8 @@ enum Ansi {
             cursorCol = min(cursorCol, cols - 1)
             savedCursorRow = min(savedCursorRow, rows - 1)
             savedCursorCol = min(savedCursorCol, cols - 1)
+            scrollTop = 0
+            scrollBottom = rows - 1
         }
 
         func resetForCommand() {
@@ -587,6 +592,8 @@ enum Ansi {
             isAlternateScreenActive = false
             isApplicationCursorModeActive = false
             wrapsAtRightMargin = true
+            scrollTop = 0
+            scrollBottom = rows - 1
             attributeCache.removeAll(keepingCapacity: true)
         }
 
@@ -759,6 +766,8 @@ enum Ansi {
                 saveCursor()
             case "u":
                 restoreCursor()
+            case "r":
+                setScrollRegion(body)
             default:
                 break
             }
@@ -798,19 +807,34 @@ enum Ansi {
         }
 
         private func lineFeed() {
-            if cursorRow == rows - 1 {
+            if cursorRow == scrollBottom {
                 scrollUp(1)
             } else {
-                cursorRow += 1
+                cursorRow = min(rows - 1, cursorRow + 1)
             }
         }
 
         private func reverseIndex() {
-            if cursorRow == 0 {
+            if cursorRow == scrollTop {
                 scrollDown(1)
             } else {
-                cursorRow -= 1
+                cursorRow = max(0, cursorRow - 1)
             }
+        }
+
+        private func setScrollRegion<C: Collection>(_ body: C) where C.Element == Unicode.Scalar {
+            let parameters = parseParameters(body)
+            let top = parameter(parameters, at: 0, defaultValue: 1) - 1
+            let bottom = parameter(parameters, at: 1, defaultValue: rows) - 1
+            if top >= 0, bottom < rows, top < bottom {
+                scrollTop = top
+                scrollBottom = bottom
+            } else {
+                scrollTop = 0
+                scrollBottom = rows - 1
+            }
+            cursorRow = 0
+            cursorCol = 0
         }
 
         private func clear() {
@@ -893,38 +917,40 @@ enum Ansi {
         }
 
         private func insertLines(_ count: Int) {
-            let count = min(max(0, count), rows - cursorRow)
+            guard (scrollTop...scrollBottom).contains(cursorRow) else { return }
+            let count = min(max(0, count), scrollBottom - cursorRow + 1)
             guard count > 0 else { return }
             for _ in 0..<count {
                 cells.insert(blankLine(style: style), at: cursorRow)
-                _ = cells.popLast()
+                cells.remove(at: scrollBottom + 1)
             }
         }
 
         private func deleteLines(_ count: Int) {
-            let count = min(max(0, count), rows - cursorRow)
+            guard (scrollTop...scrollBottom).contains(cursorRow) else { return }
+            let count = min(max(0, count), scrollBottom - cursorRow + 1)
             guard count > 0 else { return }
             for _ in 0..<count {
                 cells.remove(at: cursorRow)
-                cells.append(blankLine(style: style))
+                cells.insert(blankLine(style: style), at: scrollBottom)
             }
         }
 
         private func scrollUp(_ count: Int) {
-            let count = min(max(0, count), rows)
+            let count = min(max(0, count), scrollBottom - scrollTop + 1)
             guard count > 0 else { return }
             for _ in 0..<count {
-                cells.removeFirst()
-                cells.append(blankLine(style: style))
+                cells.remove(at: scrollTop)
+                cells.insert(blankLine(style: style), at: scrollBottom)
             }
         }
 
         private func scrollDown(_ count: Int) {
-            let count = min(max(0, count), rows)
+            let count = min(max(0, count), scrollBottom - scrollTop + 1)
             guard count > 0 else { return }
             for _ in 0..<count {
-                cells.removeLast()
-                cells.insert(blankLine(style: style), at: 0)
+                cells.remove(at: scrollBottom)
+                cells.insert(blankLine(style: style), at: scrollTop)
             }
         }
 
@@ -1034,6 +1060,18 @@ enum Ansi {
         private func clamp(_ value: Int, max maxValue: Int) -> Int {
             min(max(0, value), maxValue)
         }
+    }
+
+    static func terminalScreenScrollRegionSelfTest() -> Bool {
+        let screen = TerminalScreen(rows: 4, cols: 8)
+        let state = screen.process(
+            "\u{1B}[1;1Hone"
+                + "\u{1B}[2;1Htwo"
+                + "\u{1B}[3;1Hthree"
+                + "\u{1B}[4;1Hstatus"
+                + "\u{1B}[1;3r\u{1B}[3;1H\nnew\u{1B}[3;1H"
+        )
+        return state.text == "two\nthree\nnew\nstatus"
     }
 
     static func alternateScreenSwitches(in text: String) -> [Bool] {

@@ -3812,6 +3812,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(TerminalOutputProcessor.alternateScreenTranscriptSelfTest())
         assert(TerminalOutputProcessor.terminalSizeProbeSelfTest())
         assert(TerminalOutputProcessor.inputFeedbackPrioritySelfTest())
+        assert(Ansi.terminalScreenScrollRegionSelfTest())
         assert(SessionPickerView.headerButtonHitTestingSelfTest())
         assert(SessionPickerView.keyboardNavigationSelfTest())
         assert(CompletionPopupController.selectionSelfTest())

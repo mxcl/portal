@@ -382,7 +382,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         case .executable(let url):
             controller.newTab(
                 at: url.deletingLastPathComponent(),
-                running: shellQuote(url.path)
+                running: shellQuote(url.path),
+                exitsShellAfterCompletion: url.pathExtension.caseInsensitiveCompare("cmd") == .orderedSame
             )
         }
     }

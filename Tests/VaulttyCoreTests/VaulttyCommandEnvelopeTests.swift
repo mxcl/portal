@@ -16,4 +16,14 @@ struct VaulttyCommandEnvelopeTests {
         #expect(script.contains("133;D"))
         #expect(script.hasSuffix("\n"))
     }
+
+    @Test("can exit the shell with the command status after lifecycle markers")
+    func exitingEnvelope() {
+        let script = VaulttyCommandEnvelope.shellScript(
+            for: "./example.cmd",
+            exitsShellAfterCompletion: true
+        )
+
+        #expect(script.hasSuffix("printf '\\033]133;D;%s\\a' \"$__vaultty_status\"; exit \"$__vaultty_status\"\n"))
+    }
 }

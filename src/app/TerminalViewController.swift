@@ -3751,6 +3751,11 @@ private final class TerminalTab {
 final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private typealias StoredTab = SessionCatalog.Record
 
+    private struct InitialCommand {
+        let command: String
+        let exitsShellAfterCompletion: Bool
+    }
+
     private struct TerminalGridSize {
         let rows: UInt16
         let cols: UInt16
@@ -3761,7 +3766,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var windowID: String { sessionCatalog.windowID }
     private let restoresPersistedWindow: Bool
     private var didRunSelfTest = false
-    private var initialCommands: [UUID: String] = [:]
+    private var initialCommands: [UUID: InitialCommand] = [:]
     private var tabs: [TerminalTab] = []
     private var closedTabs: [StoredTab] { sessionCatalog.closedTabs }
     private var isKillingClosedTabs = false
@@ -4366,8 +4371,18 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         createTab(workingDirectory: directoryURL)
     }
 
-    func newTab(at directoryURL: URL, running command: String) {
-        createTab(workingDirectory: directoryURL, initialCommand: command)
+    func newTab(
+        at directoryURL: URL,
+        running command: String,
+        exitsShellAfterCompletion: Bool = false
+    ) {
+        createTab(
+            workingDirectory: directoryURL,
+            initialCommand: InitialCommand(
+                command: command,
+                exitsShellAfterCompletion: exitsShellAfterCompletion
+            )
+        )
     }
 
     @objc func findInHistory(_ sender: Any?) {
@@ -4887,7 +4902,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         createdAt: Date = Date(),
         commandCount: Int = 0,
         commandHistory: [String] = [],
-        initialCommand: String? = nil,
+        initialCommand: InitialCommand? = nil,
         shellPath: String? = nil,
         showsSessionPicker: Bool = true,
         activates: Bool = true,
@@ -6390,7 +6405,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return boundedAnchorRect(textView.convert(textCaretRect, to: containerView))
     }
 
-    private func submitCommand(in tab: TerminalTab) {
+    private func submitCommand(
+        in tab: TerminalTab,
+        exitsShellAfterCompletion: Bool = false
+    ) {
         guard tab.isShellReady, !tab.isReplayingHistory else { return }
         dismissCompletion()
         hideSessionPicker(for: tab)
@@ -6428,8 +6446,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         startTtyModePolling(for: tab)
         startRunningElapsedUpdates(for: tab)
 
-        let encodedCommand = command.data(using: .utf8)?.base64EncodedString() ?? ""
-        let script = shellLineResetSequence + shellInputResetPrefixIfNeeded(in: tab) + "__vaultty_cmd=\(shellQuote(command)); __vaultty_command_b64=\(shellQuote(encodedCommand)); printf '\\033]133;C;%s\\a' \"$__vaultty_command_b64\"; eval \"$__vaultty_cmd\"; __vaultty_status=$?; printf '\\033]133;P;%s\\a' \"$(pwd | base64)\"; printf '\\033]133;D;%s\\a' \"$__vaultty_status\"\n"
+        let script = shellInputResetPrefixIfNeeded(in: tab) + VaulttyCommandEnvelope.shellScript(
+            for: command,
+            exitsShellAfterCompletion: exitsShellAfterCompletion
+        )
         tab.session.write(script, suppressEcho: true)
         updatePassthroughVisibility(for: tab)
         focusInput(for: tab)
@@ -7197,8 +7217,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         guard tab.isShellReady else { return }
         if tab.blocks.isEmpty,
            let initialCommand = initialCommands.removeValue(forKey: tab.id) {
-            tab.inputView.string = initialCommand
-            submitCommand(in: tab)
+            tab.inputView.string = initialCommand.command
+            submitCommand(
+                in: tab,
+                exitsShellAfterCompletion: initialCommand.exitsShellAfterCompletion
+            )
             return
         }
         guard !didRunSelfTest, let selfTestCommand, tab.blocks.isEmpty else { return }

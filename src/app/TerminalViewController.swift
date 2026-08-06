@@ -5991,7 +5991,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             limit: 256,
             cancellation: cancellation,
             relayProvider: (tab.session as? RelayTerminalSession)?.completionProvider,
-            includesHistory: mode == .history || (tab.inputView.string as NSString).length >= 2,
+            includesHistory: mode == .history ||
+                (mode == .explicit && tab.inputView.string.isEmpty) ||
+                (tab.inputView.string as NSString).length >= 2,
             historyOnly: mode == .history
         )
 

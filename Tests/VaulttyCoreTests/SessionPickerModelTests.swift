@@ -165,6 +165,49 @@ struct SessionPickerModelTests {
     }
 
     @MainActor
+    @Test("keeps command recency when a previous daemon omits it")
+    func previousDaemonKeepsClientCommandRecency() async throws {
+        let model = SessionPickerModel()
+        var snapshots: [SessionPickerSnapshot] = []
+        let recentClientSession = candidate(
+            id: "av",
+            host: "This Mac",
+            date: 1,
+            lastCommandAt: 100,
+            location: .local
+        )
+        let previousDaemonSession = candidate(
+            id: "av",
+            host: "This Mac",
+            date: 1,
+            location: .local
+        )
+        let otherSession = candidate(
+            id: "other",
+            host: "This Mac",
+            date: 50,
+            location: .local
+        )
+
+        model.refresh(
+            initial: [recentClientSession],
+            excluding: [],
+            homeDirectory: "/Users/test",
+            loadLocal: { [previousDaemonSession, otherSession] },
+            loadRelay: { [] },
+            isAvailable: { _ in true },
+            onUpdate: { snapshots.append($0) }
+        )
+
+        try await Task.sleep(nanoseconds: 10_000_000)
+
+        let items = try #require(snapshots.last?.sections.first?.items)
+        #expect(items.map(\.candidate.sessionRef.sessionID) == ["av", "other"])
+        #expect(items.first?.metadata.hasPrefix("Last command ") == true)
+        model.invalidate()
+    }
+
+    @MainActor
     @Test("deduplicates, groups, sorts, and rejects stale loads")
     func progressiveSnapshots() async throws {
         let model = SessionPickerModel()

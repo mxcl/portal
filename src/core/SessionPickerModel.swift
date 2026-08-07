@@ -70,6 +70,21 @@ final class SessionPickerModel {
         invalidate()
         let generation = generation
         var unconfirmedInitialCandidates = initial
+        let initialCommandRecency = initial.reduce(into: [SessionRef: Date]()) { result, candidate in
+            if let lastCommandAt = candidate.lastCommandAt {
+                result[candidate.sessionRef] = lastCommandAt
+            }
+        }
+        func preservingInitialCommandRecency(
+            _ candidates: [SessionPickerCandidate]
+        ) -> [SessionPickerCandidate] {
+            candidates.map { candidate in
+                var candidate = candidate
+                candidate.lastCommandAt = candidate.lastCommandAt
+                    ?? initialCommandRecency[candidate.sessionRef]
+                return candidate
+            }
+        }
         let failureDelays = relayFailureDelays.isEmpty ? [5_000_000_000] : relayFailureDelays
         onUpdate(snapshot(
             from: combinedCandidates(
@@ -106,7 +121,7 @@ final class SessionPickerModel {
                             if case .local = $0.sessionRef.location { return true }
                             return false
                         }
-                        localCandidates = additions
+                        localCandidates = preservingInitialCommandRecency(additions)
                         onUpdate(self.snapshot(
                             from: self.combinedCandidates(
                                 initial: unconfirmedInitialCandidates,
@@ -124,7 +139,7 @@ final class SessionPickerModel {
                                 if case .relayMac = $0.sessionRef.location { return true }
                                 return false
                             }
-                            relayCandidates = result
+                            relayCandidates = preservingInitialCommandRecency(result)
                             relayFailureAttempt = 0
                             retryDelay = relaySuccessDelay
                             onUpdate(self.snapshot(

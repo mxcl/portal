@@ -79,6 +79,7 @@ require_fixture "remoteAgentBridgeRouting" "$ROOT_DIR/Tests/VaulttyCoreTests/Ses
 require_fixture "unknownMessageKindsDecode" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
 require_fixture "previousRelayMessagesDecode" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
 require_fixture "previousCommandRecencyFieldsDecode" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
+require_fixture "previousDaemonKeepsClientCommandRecency" "$ROOT_DIR/Tests/VaulttyCoreTests/SessionPickerModelTests.swift"
 require_fixture "currentPhonePreviousMacHistoryCompatibility" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
 require_fixture "previousPhoneCurrentMacHistoryFallback" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
 require_fixture "phoneSemanticHistory" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteTerminalSessionClientTests.swift"

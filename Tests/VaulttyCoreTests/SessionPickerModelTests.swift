@@ -160,7 +160,13 @@ struct SessionPickerModelTests {
 
         let items = try #require(snapshots.last?.sections.first?.items)
         #expect(items.map(\.candidate.sessionRef.sessionID) == ["recent-command", "older-command"])
-        #expect(items.allSatisfy { $0.metadata.hasPrefix("Last command ") })
+        #expect(items.allSatisfy {
+            let fields = $0.metadata.components(separatedBy: " · ")
+            return fields.count == 3
+                && fields[0].hasPrefix("Last command ")
+                && fields[1] == "1 command"
+                && fields[2].hasSuffix(" old")
+        })
         model.invalidate()
     }
 
@@ -249,7 +255,10 @@ struct SessionPickerModelTests {
         #expect(final.sections.flatMap(\.items).filter {
             $0.candidate.sessionRef.sessionID == "old"
         }.count == 1)
-        #expect(final.sections.flatMap(\.items).allSatisfy { $0.metadata.contains(" old · ") })
+        #expect(final.sections.flatMap(\.items).allSatisfy {
+            $0.metadata.hasPrefix("Last command unknown · 1 command · ")
+                && $0.metadata.hasSuffix(" old")
+        })
         model.invalidate()
     }
 

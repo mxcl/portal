@@ -261,19 +261,20 @@ final class SessionPickerModel {
         let subtitle = hasRunningCommand
             ? display(cwd: candidate.cwd, homeDirectory: homeDirectory)
             : nil
-        let metadataDate = candidate.lastCommandAt ?? candidate.createdAt
-        let relativeDate = metadataDate.map {
-            let formatter = RelativeDateTimeFormatter()
-            formatter.unitsStyle = .full
-            formatter.dateTimeStyle = .named
-            return formatter.localizedString(for: $0, relativeTo: Date.now)
-        } ?? "earlier"
-        let recency = candidate.lastCommandAt == nil
-            ? relativeDate.replacingOccurrences(of: " ago", with: " old")
-            : "Last command \(relativeDate)"
-        let metadata = candidate.commandCount == 0
-            ? recency
-            : "\(recency) · \(candidate.commandCount == 1 ? "1 command" : "\(candidate.commandCount) commands")"
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        formatter.dateTimeStyle = .numeric
+        let lastCommand = candidate.lastCommandAt.map {
+            "Last command \(formatter.localizedString(for: $0, relativeTo: Date.now))"
+        } ?? "Last command unknown"
+        let commandCount = candidate.commandCount == 1
+            ? "1 command"
+            : "\(candidate.commandCount) commands"
+        let sessionAge = candidate.createdAt.map {
+            formatter.localizedString(for: $0, relativeTo: Date.now)
+                .replacingOccurrences(of: " ago", with: " old")
+        } ?? "Session age unknown"
+        let metadata = "\(lastCommand) · \(commandCount) · \(sessionAge)"
         return SessionPickerItem(
             candidate: candidate,
             title: title,

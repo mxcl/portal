@@ -13,6 +13,7 @@ struct SessionPickerCandidate: Equatable, Sendable {
     var isClosed: Bool
     var createdAt: Date?
     var commandCount: Int
+    var lastCommandAt: Date? = nil
     var runningCommand: String?
     var commandHistory: [String]
     var action: Action
@@ -198,8 +199,8 @@ final class SessionPickerModel {
         homeDirectory: String
     ) -> SessionPickerSnapshot {
         let ordered = candidates.sorted {
-            let lhsDate = $0.createdAt ?? .distantPast
-            let rhsDate = $1.createdAt ?? .distantPast
+            let lhsDate = $0.lastCommandAt ?? $0.createdAt ?? .distantPast
+            let rhsDate = $1.lastCommandAt ?? $1.createdAt ?? .distantPast
             return lhsDate == rhsDate
                 ? $0.sessionRef.sessionID < $1.sessionRef.sessionID
                 : lhsDate > rhsDate
@@ -245,16 +246,19 @@ final class SessionPickerModel {
         let subtitle = hasRunningCommand
             ? display(cwd: candidate.cwd, homeDirectory: homeDirectory)
             : nil
-        let created = candidate.createdAt.map {
+        let metadataDate = candidate.lastCommandAt ?? candidate.createdAt
+        let relativeDate = metadataDate.map {
             let formatter = RelativeDateTimeFormatter()
             formatter.unitsStyle = .full
             formatter.dateTimeStyle = .named
             return formatter.localizedString(for: $0, relativeTo: Date.now)
-                .replacingOccurrences(of: " ago", with: " old")
         } ?? "earlier"
+        let recency = candidate.lastCommandAt == nil
+            ? relativeDate.replacingOccurrences(of: " ago", with: " old")
+            : "Last command \(relativeDate)"
         let metadata = candidate.commandCount == 0
-            ? created
-            : "\(created) · \(candidate.commandCount == 1 ? "1 command" : "\(candidate.commandCount) commands")"
+            ? recency
+            : "\(recency) · \(candidate.commandCount == 1 ? "1 command" : "\(candidate.commandCount) commands")"
         return SessionPickerItem(
             candidate: candidate,
             title: title,

@@ -129,6 +129,42 @@ struct SessionPickerModelTests {
     }
 
     @MainActor
+    @Test("sorts and labels sessions by their latest command")
+    func latestCommandFirst() async throws {
+        let model = SessionPickerModel()
+        var snapshots: [SessionPickerSnapshot] = []
+        let olderSession = candidate(
+            id: "recent-command",
+            host: "Pangolin",
+            date: 1,
+            lastCommandAt: 100
+        )
+        let newerSession = candidate(
+            id: "older-command",
+            host: "Pangolin",
+            date: 2,
+            lastCommandAt: 90
+        )
+
+        model.refresh(
+            initial: [],
+            excluding: [],
+            homeDirectory: "/Users/test",
+            loadLocal: { [] },
+            loadRelay: { [newerSession, olderSession] },
+            isAvailable: { _ in true },
+            onUpdate: { snapshots.append($0) }
+        )
+
+        try await Task.sleep(nanoseconds: 10_000_000)
+
+        let items = try #require(snapshots.last?.sections.first?.items)
+        #expect(items.map(\.candidate.sessionRef.sessionID) == ["recent-command", "older-command"])
+        #expect(items.allSatisfy { $0.metadata.hasPrefix("Last command ") })
+        model.invalidate()
+    }
+
+    @MainActor
     @Test("deduplicates, groups, sorts, and rejects stale loads")
     func progressiveSnapshots() async throws {
         let model = SessionPickerModel()
@@ -378,6 +414,7 @@ struct SessionPickerModelTests {
         id: String,
         host: String,
         date: TimeInterval,
+        lastCommandAt: TimeInterval? = nil,
         location: SessionLocation? = nil,
         action: SessionPickerCandidate.Action = .attach
     ) -> SessionPickerCandidate {
@@ -389,6 +426,7 @@ struct SessionPickerModelTests {
             isClosed: false,
             createdAt: Date(timeIntervalSince1970: date),
             commandCount: 1,
+            lastCommandAt: lastCommandAt.map(Date.init(timeIntervalSince1970:)),
             runningCommand: nil,
             commandHistory: [],
             action: action

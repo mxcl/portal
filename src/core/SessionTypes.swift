@@ -89,6 +89,7 @@ struct SessionMetadata: Decodable, Sendable {
     var cwd: String
     var createdAt: Date
     var commandCount: Int
+    var lastCommandAt: Date?
     var runningCommand: String?
     var commandHistory: [String]
     var attachedClientCount: Int
@@ -99,6 +100,7 @@ struct SessionMetadata: Decodable, Sendable {
         cwd: String,
         createdAt: Date,
         commandCount: Int,
+        lastCommandAt: Date? = nil,
         runningCommand: String?,
         commandHistory: [String],
         attachedClientCount: Int = 0
@@ -108,6 +110,7 @@ struct SessionMetadata: Decodable, Sendable {
         self.cwd = cwd
         self.createdAt = createdAt
         self.commandCount = commandCount
+        self.lastCommandAt = lastCommandAt
         self.runningCommand = runningCommand
         self.commandHistory = commandHistory
         self.attachedClientCount = attachedClientCount
@@ -119,6 +122,7 @@ struct SessionMetadata: Decodable, Sendable {
         case cwd
         case createdAt
         case commandCount
+        case lastCommandAt
         case runningCommand
         case commandHistory
         case attachedClientCount
@@ -131,6 +135,8 @@ struct SessionMetadata: Decodable, Sendable {
         cwd = try container.decode(String.self, forKey: .cwd)
         createdAt = Date(timeIntervalSince1970: try container.decode(Double.self, forKey: .createdAt))
         commandCount = try container.decode(Int.self, forKey: .commandCount)
+        lastCommandAt = try container.decodeIfPresent(Double.self, forKey: .lastCommandAt)
+            .map(Date.init(timeIntervalSince1970:))
         runningCommand = try container.decodeIfPresent(String.self, forKey: .runningCommand)
         commandHistory = try container.decodeIfPresent([String].self, forKey: .commandHistory) ?? []
         attachedClientCount = try container.decodeIfPresent(Int.self, forKey: .attachedClientCount) ?? 0

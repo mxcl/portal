@@ -232,6 +232,7 @@ struct RemoteProtocolTests {
             cwd: "/Users/test",
             createdAt: Date(timeIntervalSince1970: 42),
             commandCount: 0,
+            lastCommandAt: Date(timeIntervalSince1970: 43),
             runningCommand: nil,
             attachedClientCount: 0
         )
@@ -253,6 +254,15 @@ struct RemoteProtocolTests {
             RemoteCatalogSession.self,
             from: #require(decoded.payload)
         ) == session)
+    }
+
+    @Test("current peers decode previous state and catalog entries without command recency")
+    func previousCommandRecencyFieldsDecode() throws {
+        let previousState = Data(#"{"title":"build","cwd":"/repo","createdAt":42,"commandCount":1,"runningCommand":null,"commandHistory":[]}"#.utf8)
+        let previousCatalogSession = Data(#"{"sessionID":"session-1","title":"build","cwd":"/repo","createdAt":42,"commandCount":1,"runningCommand":null,"attachedClientCount":0}"#.utf8)
+
+        #expect(try JSONDecoder().decode(RemoteSessionState.self, from: previousState).lastCommandAt == nil)
+        #expect(try JSONDecoder().decode(RemoteCatalogSession.self, from: previousCatalogSession).lastCommandAt == nil)
     }
 
     @Test("a created session is immediately visible in its Mac catalog")

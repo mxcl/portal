@@ -11,6 +11,16 @@ struct SessionTypesTests {
         let sessions = try JSONDecoder().decode([SessionMetadata].self, from: data)
 
         #expect(sessions.map(\.sessionID) == ["session-1"])
+        #expect(sessions.first?.lastCommandAt == nil)
+    }
+
+    @Test("decodes additive command recency from the current daemon")
+    func decodesLastCommandAt() throws {
+        let data = Data(#"[{"sessionId":"session-1","title":"Vaultty","cwd":"/tmp","createdAt":1,"commandCount":2,"lastCommandAt":42,"runningCommand":null,"commandHistory":[],"attachedClientCount":1}]"#.utf8)
+
+        let session = try #require(JSONDecoder().decode([SessionMetadata].self, from: data).first)
+
+        #expect(session.lastCommandAt == Date(timeIntervalSince1970: 42))
     }
 
     @Test("relay session locations survive persistence")

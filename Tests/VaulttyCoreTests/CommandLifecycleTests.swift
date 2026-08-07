@@ -14,6 +14,7 @@ struct CommandLifecycleTests {
         #expect(lifecycle.state.pendingBlockID == blockID)
         #expect(lifecycle.state.commandHistory == ["cargo test"])
         #expect(lifecycle.state.commandCount == 1)
+        #expect(lifecycle.state.lastCommandAt == startedAt)
         #expect(!lifecycle.state.isShellReady)
 
         lifecycle.apply(.commandStarted)
@@ -55,12 +56,27 @@ struct CommandLifecycleTests {
             command: "make",
             at: Date(timeIntervalSince1970: 100)
         ))
+        #expect(lifecycle.state.lastCommandAt == nil)
 
         lifecycle.apply(.finishHistoryReplay)
 
         #expect(lifecycle.state.isCommandRunning)
         #expect(!lifecycle.state.isShellReady)
         #expect(!lifecycle.state.isReplayingHistory)
+    }
+
+    @Test("a newly received command updates recency")
+    func receivedCommandUpdatesRecency() {
+        let lifecycle = CommandLifecycle(cwd: "/repo", commandCount: 2)
+        let receivedAt = Date(timeIntervalSince1970: 100)
+
+        lifecycle.apply(.replayCommandStarted(
+            blockID: UUID(),
+            command: "make",
+            at: receivedAt
+        ))
+
+        #expect(lifecycle.state.lastCommandAt == receivedAt)
     }
 
     @Test("interrupt waits for the shell to report completion")
@@ -123,11 +139,18 @@ struct CommandLifecycleTests {
         lifecycle.apply(.submit(command: "echo old", cwd: "/old", at: .now))
         lifecycle.apply(.markNeedsShellInputReset)
 
-        lifecycle.apply(.replaceSession(cwd: "/new", commandCount: 4, commandHistory: ["new"]))
+        let lastCommandAt = Date(timeIntervalSince1970: 200)
+        lifecycle.apply(.replaceSession(
+            cwd: "/new",
+            commandCount: 4,
+            lastCommandAt: lastCommandAt,
+            commandHistory: ["new"]
+        ))
 
         #expect(lifecycle.state.blocks.isEmpty)
         #expect(lifecycle.state.currentCwd == "/new")
         #expect(lifecycle.state.commandCount == 4)
+        #expect(lifecycle.state.lastCommandAt == lastCommandAt)
         #expect(lifecycle.state.commandHistory == ["new"])
         #expect(!lifecycle.state.isShellReady)
         #expect(!lifecycle.state.hasExited)

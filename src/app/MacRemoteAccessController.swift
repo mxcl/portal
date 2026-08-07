@@ -309,6 +309,7 @@ final class MacRemoteAccessController {
         case .submit:
             if let payload = message.payload,
                let command = String(data: payload, encoding: .utf8) {
+                bridges[message.requestID]?.session.markCommandReceived()
                 bridges[message.requestID]?.session.write(
                     VaulttyCommandEnvelope.shellScript(for: command)
                 )
@@ -331,6 +332,7 @@ final class MacRemoteAccessController {
                 cwd: state.cwd,
                 createdAt: state.createdAt,
                 commandCount: state.commandCount,
+                lastCommandAt: state.lastCommandAt,
                 runningCommand: state.runningCommand,
                 commandHistory: state.commandHistory
             )
@@ -482,6 +484,7 @@ final class MacRemoteAccessController {
                     cwd: home.path,
                     createdAt: createdAt,
                     commandCount: 0,
+                    lastCommandAt: nil,
                     runningCommand: nil,
                     commandHistory: []
                 )
@@ -491,6 +494,7 @@ final class MacRemoteAccessController {
                     cwd: home.path,
                     createdAt: createdAt,
                     commandCount: 0,
+                    lastCommandAt: nil,
                     runningCommand: nil,
                     attachedClientCount: 0
                 )
@@ -503,6 +507,7 @@ final class MacRemoteAccessController {
                     cwd: existing.cwd,
                     createdAt: existing.createdAt,
                     commandCount: existing.commandCount,
+                    lastCommandAt: existing.lastCommandAt,
                     runningCommand: existing.runningCommand,
                     attachedClientCount: existing.attachedClientCount
                 )
@@ -749,6 +754,7 @@ final class MacRemoteAccessController {
                     cwd: $0.cwd,
                     createdAt: $0.createdAt,
                     commandCount: $0.commandCount,
+                    lastCommandAt: $0.lastCommandAt,
                     runningCommand: $0.runningCommand,
                     attachedClientCount: $0.attachedClientCount
                 )

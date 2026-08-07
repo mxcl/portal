@@ -161,6 +161,7 @@ public struct RemoteSessionState: Codable, Equatable, Sendable {
     public var cwd: String
     public var createdAt: Date
     public var commandCount: Int
+    public var lastCommandAt: Date?
     public var runningCommand: String?
     public var commandHistory: [String]
 
@@ -169,6 +170,7 @@ public struct RemoteSessionState: Codable, Equatable, Sendable {
         cwd: String,
         createdAt: Date,
         commandCount: Int,
+        lastCommandAt: Date? = nil,
         runningCommand: String?,
         commandHistory: [String]
     ) {
@@ -176,6 +178,7 @@ public struct RemoteSessionState: Codable, Equatable, Sendable {
         self.cwd = cwd
         self.createdAt = createdAt
         self.commandCount = commandCount
+        self.lastCommandAt = lastCommandAt
         self.runningCommand = runningCommand
         self.commandHistory = commandHistory
     }
@@ -188,15 +191,17 @@ public struct RemoteCatalogSession: Codable, Equatable, Identifiable, Sendable {
     public var cwd: String
     public var createdAt: Date
     public var commandCount: Int
+    public var lastCommandAt: Date?
     public var runningCommand: String?
     public var attachedClientCount: Int
 
-    public init(sessionID: String, title: String, cwd: String, createdAt: Date, commandCount: Int, runningCommand: String?, attachedClientCount: Int) {
+    public init(sessionID: String, title: String, cwd: String, createdAt: Date, commandCount: Int, lastCommandAt: Date? = nil, runningCommand: String?, attachedClientCount: Int) {
         self.sessionID = sessionID
         self.title = title
         self.cwd = cwd
         self.createdAt = createdAt
         self.commandCount = commandCount
+        self.lastCommandAt = lastCommandAt
         self.runningCommand = runningCommand
         self.attachedClientCount = attachedClientCount
     }

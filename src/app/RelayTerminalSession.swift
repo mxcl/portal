@@ -98,6 +98,7 @@ final class RelayTerminalSession: TerminalSession {
         cwd: String,
         createdAt: Date,
         commandCount: Int,
+        lastCommandAt: Date?,
         runningCommand: String?,
         commandHistory: [String]
     ) {
@@ -106,6 +107,7 @@ final class RelayTerminalSession: TerminalSession {
             cwd: cwd,
             createdAt: createdAt,
             commandCount: commandCount,
+            lastCommandAt: lastCommandAt,
             runningCommand: runningCommand,
             commandHistory: commandHistory
         )

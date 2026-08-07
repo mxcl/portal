@@ -213,6 +213,7 @@ struct SessionMetadata {
     cwd: String,
     created_at: f64,
     command_count: u32,
+    last_command_at: Option<f64>,
     running_command: Option<String>,
     command_history: Vec<String>,
     attached_client_count: usize,
@@ -225,6 +226,7 @@ struct SessionStateUpdate {
     cwd: Option<String>,
     created_at: Option<f64>,
     command_count: Option<u32>,
+    last_command_at: Option<f64>,
     running_command: Option<String>,
     command_history: Option<Vec<String>>,
 }
@@ -402,6 +404,9 @@ impl Session {
         }
         if let Some(command_count) = update.command_count {
             metadata.command_count = command_count;
+        }
+        if let Some(last_command_at) = update.last_command_at {
+            metadata.last_command_at = Some(last_command_at);
         }
         metadata.running_command = update.running_command;
         if let Some(command_history) = update.command_history {
@@ -591,6 +596,7 @@ impl SessionMetadata {
             cwd,
             created_at: unix_timestamp_now(),
             command_count: 0,
+            last_command_at: None,
             running_command: None,
             command_history: Vec::new(),
             attached_client_count: 0,
@@ -1305,14 +1311,25 @@ mod tests {
 
     #[test]
     fn state_update_accepts_json_or_base64_json() {
-        let json = r#"{"title":"build","cwd":"/repo","commandCount":3,"runningCommand":"cargo test","commandHistory":["cargo test"]}"#;
+        let json = r#"{"title":"build","cwd":"/repo","commandCount":3,"lastCommandAt":42,"runningCommand":"cargo test","commandHistory":["cargo test"]}"#;
         let direct = decode_state_update(json).expect("direct JSON should parse");
         let base64 = decode_state_update(&encoded(json)).expect("base64 JSON should parse");
 
         assert_eq!(direct.title.as_deref(), Some("build"));
         assert_eq!(base64.cwd.as_deref(), Some("/repo"));
         assert_eq!(base64.command_count, Some(3));
+        assert_eq!(base64.last_command_at, Some(42.0));
         assert_eq!(base64.command_history, Some(vec!["cargo test".to_owned()]));
+    }
+
+    #[test]
+    fn previous_session_metadata_decodes_without_command_recency() {
+        let json = r#"{"sessionId":"session-1","title":"build","cwd":"/repo","createdAt":1,"commandCount":3,"runningCommand":null,"commandHistory":[],"attachedClientCount":0}"#;
+
+        let metadata: SessionMetadata =
+            serde_json::from_str(json).expect("previous metadata should decode");
+
+        assert_eq!(metadata.last_command_at, None);
     }
 
     #[test]

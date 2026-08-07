@@ -33,6 +33,7 @@ final class CommandLifecycle {
         fileprivate(set) var commandHistoryIndex: Int?
         fileprivate(set) var commandHistoryDraft: String
         fileprivate(set) var commandCount: Int
+        fileprivate(set) var lastCommandAt: Date?
 
         var isCommandRunning: Bool {
             guard let latest = blocks.last else { return false }
@@ -51,7 +52,7 @@ final class CommandLifecycle {
     }
 
     enum Event {
-        case replaceSession(cwd: String, commandCount: Int, commandHistory: [String])
+        case replaceSession(cwd: String, commandCount: Int, lastCommandAt: Date?, commandHistory: [String])
         case resetTranscript
         case clearTranscript(keeping: Set<UUID>)
         case beginHistoryReplay
@@ -94,6 +95,7 @@ final class CommandLifecycle {
     init(
         cwd: String,
         commandCount: Int = 0,
+        lastCommandAt: Date? = nil,
         commandHistory: [String] = []
     ) {
         state = State(
@@ -110,7 +112,8 @@ final class CommandLifecycle {
             commandHistory: commandHistory,
             commandHistoryIndex: nil,
             commandHistoryDraft: "",
-            commandCount: commandCount
+            commandCount: commandCount,
+            lastCommandAt: lastCommandAt
         )
     }
 
@@ -118,7 +121,7 @@ final class CommandLifecycle {
     func apply(_ event: Event) -> Change {
         var change = Change()
         switch event {
-        case .replaceSession(let cwd, let commandCount, let commandHistory):
+        case .replaceSession(let cwd, let commandCount, let lastCommandAt, let commandHistory):
             let removedIDs = state.blocks.map(\.id)
             state.blocks.removeAll()
             state.activeBlockID = nil
@@ -134,6 +137,7 @@ final class CommandLifecycle {
             state.commandHistoryIndex = nil
             state.commandHistoryDraft = ""
             state.commandCount = commandCount
+            state.lastCommandAt = lastCommandAt
             change.removedBlockIDs = removedIDs
 
         case .resetTranscript:
@@ -173,6 +177,7 @@ final class CommandLifecycle {
                 state.commandHistory.remove(at: previousIndex)
             }
             state.commandCount += 1
+            state.lastCommandAt = timestamp
             state.commandHistory.append(command)
             state.commandHistoryIndex = nil
             state.commandHistoryDraft = ""
@@ -230,6 +235,9 @@ final class CommandLifecycle {
             state.blocks.append(block)
             if !command.isEmpty {
                 state.commandCount = max(state.commandCount, state.blocks.filter { !$0.command.isEmpty }.count)
+                if !state.isReplayingHistory {
+                    state.lastCommandAt = timestamp
+                }
             }
             state.activeBlockID = blockID
             state.pendingBlockID = nil

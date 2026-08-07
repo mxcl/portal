@@ -3529,6 +3529,7 @@ private final class TerminalTab {
     var canReplaceFreshSession = false
     var createdAt: Date
     var commandCount: Int { commandLifecycle.state.commandCount }
+    var lastCommandAt: Date? { commandLifecycle.state.lastCommandAt }
 
     init(
         title: String,
@@ -3536,6 +3537,7 @@ private final class TerminalTab {
         sessionRef: SessionRef = .local(UUID().uuidString),
         createdAt: Date = Date(),
         commandCount: Int = 0,
+        lastCommandAt: Date? = nil,
         commandHistory: [String] = [],
         createsRelaySession: Bool = false
     ) {
@@ -3554,6 +3556,7 @@ private final class TerminalTab {
         self.commandLifecycle = CommandLifecycle(
             cwd: FileManager.default.homeDirectoryForCurrentUser.path,
             commandCount: commandCount,
+            lastCommandAt: lastCommandAt,
             commandHistory: commandHistory
         )
         buildView(delegate: delegate)
@@ -4453,6 +4456,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             title: stored.title,
             createdAt: stored.createdAt ?? Date(),
             commandCount: stored.commandCount ?? 0,
+            lastCommandAt: stored.lastCommandAt,
             commandHistory: stored.commandHistory ?? [],
             showsSessionPicker: false
         )
@@ -4813,6 +4817,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             title: storedTab.title,
             createdAt: storedTab.createdAt ?? Date(),
             commandCount: storedTab.commandCount ?? 0,
+            lastCommandAt: storedTab.lastCommandAt,
             commandHistory: storedTab.commandHistory ?? [],
             showsSessionPicker: false,
             activates: activates,
@@ -4852,6 +4857,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 cwd: tab.currentCwd,
                 createdAt: tab.createdAt,
                 commandCount: tab.commandCount,
+                lastCommandAt: tab.lastCommandAt,
                 runningCommand: runningCommand(in: tab),
                 commandHistory: tab.commandHistory
             )
@@ -4867,6 +4873,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             windowID: nil,
             createdAt: tab.createdAt,
             commandCount: tab.commandCount,
+            lastCommandAt: tab.lastCommandAt,
             runningCommand: runningCommand(in: tab),
             commandHistory: tab.commandHistory
         )
@@ -4901,6 +4908,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         title: String? = nil,
         createdAt: Date = Date(),
         commandCount: Int = 0,
+        lastCommandAt: Date? = nil,
         commandHistory: [String] = [],
         initialCommand: InitialCommand? = nil,
         shellPath: String? = nil,
@@ -4917,6 +4925,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             sessionRef: sessionRef,
             createdAt: createdAt,
             commandCount: commandCount,
+            lastCommandAt: lastCommandAt,
             commandHistory: commandHistory,
             createsRelaySession: createsRelaySession
         )
@@ -5138,6 +5147,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 isClosed: false,
                 createdAt: visible.createdAt,
                 commandCount: visible.commandCount ?? 0,
+                lastCommandAt: visible.lastCommandAt,
                 runningCommand: visible.runningCommand,
                 commandHistory: visible.commandHistory ?? [],
                 action: .attach
@@ -5157,6 +5167,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 isClosed: true,
                 createdAt: closed.createdAt,
                 commandCount: closed.commandCount ?? 0,
+                lastCommandAt: closed.lastCommandAt,
                 runningCommand: closed.runningCommand,
                 commandHistory: closed.commandHistory ?? [],
                 action: .attach
@@ -5180,6 +5191,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 isClosed: false,
                 createdAt: session.createdAt,
                 commandCount: session.commandCount,
+                lastCommandAt: session.lastCommandAt,
                 runningCommand: session.runningCommand,
                 commandHistory: session.commandHistory,
                 action: .attach,
@@ -5225,6 +5237,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 isClosed: false,
                 createdAt: nil,
                 commandCount: 0,
+                lastCommandAt: nil,
                 runningCommand: nil,
                 commandHistory: [],
                 action: .createRelay
@@ -5244,6 +5257,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                     isClosed: false,
                     createdAt: session.createdAt,
                     commandCount: session.commandCount,
+                    lastCommandAt: session.lastCommandAt,
                     runningCommand: session.runningCommand,
                     commandHistory: [],
                     action: .attach,
@@ -5428,6 +5442,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.commandLifecycle.apply(.replaceSession(
             cwd: candidate.cwd,
             commandCount: candidate.commandCount,
+            lastCommandAt: candidate.lastCommandAt,
             commandHistory: candidate.commandHistory
         ))
         resetTranscriptViews(for: tab)

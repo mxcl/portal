@@ -31,6 +31,7 @@ final class SessionCatalog {
         var windowID: String?
         var createdAt: Date?
         var commandCount: Int?
+        var lastCommandAt: Date? = nil
         var runningCommand: String?
         var commandHistory: [String]?
 

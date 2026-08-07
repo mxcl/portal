@@ -26,6 +26,7 @@ protocol TerminalSession: AnyObject {
         cwd: String,
         createdAt: Date,
         commandCount: Int,
+        lastCommandAt: Date?,
         runningCommand: String?,
         commandHistory: [String]
     )
@@ -380,6 +381,7 @@ final class PtySession {
         cwd: String,
         createdAt: Date,
         commandCount: Int,
+        lastCommandAt: Date?,
         runningCommand: String?,
         commandHistory: [String]
     ) {
@@ -388,10 +390,18 @@ final class PtySession {
             cwd: cwd,
             createdAt: createdAt.timeIntervalSince1970,
             commandCount: commandCount,
+            lastCommandAt: lastCommandAt?.timeIntervalSince1970,
             runningCommand: runningCommand,
             commandHistory: commandHistory
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
+        send(.state(data))
+    }
+
+    func markCommandReceived(at date: Date = .now) {
+        guard let data = try? JSONEncoder().encode([
+            "lastCommandAt": date.timeIntervalSince1970
+        ]) else { return }
         send(.state(data))
     }
 
@@ -620,6 +630,7 @@ final class PtySession {
         var cwd: String
         var createdAt: TimeInterval
         var commandCount: Int
+        var lastCommandAt: TimeInterval?
         var runningCommand: String?
         var commandHistory: [String]
     }

@@ -3226,8 +3226,8 @@ private final class SessionCandidateButton: NSControl {
         metaLabel.stringValue = metadata
         metaLabel.font = .systemFont(ofSize: 12, weight: .medium)
         metaLabel.textColor = .tertiaryLabelColor
-        metaLabel.lineBreakMode = .byTruncatingTail
-        metaLabel.maximumNumberOfLines = 1
+        metaLabel.lineBreakMode = .byWordWrapping
+        metaLabel.maximumNumberOfLines = 2
         metaLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(metaLabel)
 

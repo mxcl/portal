@@ -24,7 +24,9 @@ Phones that understand finalized command history advertise
 `relay-terminal-history-v1` in the optional `clientCapabilities` attach field.
 A supporting Mac then sends `terminalHistory` instead of a raw replay. The
 payload contains bounded command blocks with their final rendered output,
-status, working directory, alternate-screen state, and parser continuation;
+status, working directory, alternate-screen state, optional application-cursor
+state, and parser continuation. Missing application-cursor state defaults to
+normal cursor keys for compatibility with the previous representation;
 live `terminalEvent` traffic remains unchanged. A previous phone omits the
 capability and receives raw history. A previous Mac ignores the additive field
 and sends raw history to a current phone.

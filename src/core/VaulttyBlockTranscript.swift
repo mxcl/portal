@@ -47,6 +47,7 @@ public struct RemoteTerminalHistory: Codable, Equatable, Sendable {
     public var blocks: [Block]
     public var currentCwd: String?
     public var isAlternateScreenActive: Bool
+    public var isApplicationCursorModeActive: Bool?
     fileprivate var markerBuffer: String
     fileprivate var rendererState: String
     fileprivate var rendererBody: String?
@@ -55,11 +56,13 @@ public struct RemoteTerminalHistory: Codable, Equatable, Sendable {
     public init(
         blocks: [Block],
         currentCwd: String?,
-        isAlternateScreenActive: Bool
+        isAlternateScreenActive: Bool,
+        isApplicationCursorModeActive: Bool? = nil
     ) {
         self.blocks = blocks
         self.currentCwd = currentCwd
         self.isAlternateScreenActive = isAlternateScreenActive
+        self.isApplicationCursorModeActive = isApplicationCursorModeActive
         markerBuffer = ""
         rendererState = "text"
         rendererBody = nil
@@ -90,6 +93,7 @@ public struct RemoteTerminalHistory: Codable, Equatable, Sendable {
         blocks = retained.reversed()
         currentCwd = transcript.currentCwd.map { Self.suffix($0, maximumBytes: 8 * 1024) }
         isAlternateScreenActive = transcript.isAlternateScreenActive
+        isApplicationCursorModeActive = transcript.isApplicationCursorModeActive
         markerBuffer = transcript.parser.continuation.utf8.count <= 8 * 1024
             ? transcript.parser.continuation
             : ""
@@ -124,6 +128,7 @@ public struct RemoteTerminalHistory: Codable, Equatable, Sendable {
 public struct VaulttyBlockTranscript: Sendable {
     public private(set) var blocks: [VaulttyBlock] = []
     public private(set) var isAlternateScreenActive = false
+    public private(set) var isApplicationCursorModeActive = false
     public private(set) var revision: UInt64 = 0
 
     fileprivate var parser = VaulttyMarkerParser()
@@ -153,9 +158,11 @@ public struct VaulttyBlockTranscript: Sendable {
         renderer.restoreContinuation(
             state: history.rendererState,
             body: history.rendererBody,
-            isAlternateScreenActive: history.isAlternateScreenActive
+            isAlternateScreenActive: history.isAlternateScreenActive,
+            isApplicationCursorModeActive: history.isApplicationCursorModeActive ?? false
         )
         isAlternateScreenActive = history.isAlternateScreenActive
+        isApplicationCursorModeActive = history.isApplicationCursorModeActive ?? false
         pendingCarriageReturn = history.pendingCarriageReturn
         revision &+= 1
     }
@@ -166,6 +173,7 @@ public struct VaulttyBlockTranscript: Sendable {
             case .text(let visible):
                 let rendered = renderer.consume(visible)
                 isAlternateScreenActive = renderer.isAlternateScreenActive
+                isApplicationCursorModeActive = renderer.isApplicationCursorModeActive
                 guard let activeBlockIndex, !rendered.isEmpty else { continue }
                 if apply(rendered, to: activeBlockIndex) {
                     revision &+= 1
@@ -360,6 +368,7 @@ private struct PlainTerminalRenderer: Sendable {
 
     private var state: State = .text
     private(set) var isAlternateScreenActive = false
+    private(set) var isApplicationCursorModeActive = false
 
     var continuation: (String, String?) {
         switch state {
@@ -374,12 +383,14 @@ private struct PlainTerminalRenderer: Sendable {
     mutating func resetOutputState() {
         state = .text
         isAlternateScreenActive = false
+        isApplicationCursorModeActive = false
     }
 
     mutating func restoreContinuation(
         state: String,
         body: String?,
-        isAlternateScreenActive: Bool
+        isAlternateScreenActive: Bool,
+        isApplicationCursorModeActive: Bool
     ) {
         self.state = switch state {
         case "escape": .escape
@@ -389,6 +400,7 @@ private struct PlainTerminalRenderer: Sendable {
         default: .text
         }
         self.isAlternateScreenActive = isAlternateScreenActive
+        self.isApplicationCursorModeActive = isApplicationCursorModeActive
     }
 
     mutating func consume(_ text: String) -> String {
@@ -422,6 +434,10 @@ private struct PlainTerminalRenderer: Sendable {
                         isAlternateScreenActive = true
                     } else if body == "?1049l" || body == "?1047l" || body == "?47l" {
                         isAlternateScreenActive = false
+                    } else if body == "?1h" {
+                        isApplicationCursorModeActive = true
+                    } else if body == "?1l" {
+                        isApplicationCursorModeActive = false
                     }
                     state = .text
                 } else {

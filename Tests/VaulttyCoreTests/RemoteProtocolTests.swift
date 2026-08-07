@@ -57,7 +57,8 @@ struct RemoteProtocolTests {
                 .init(command: "git pull", cwd: "/repo", output: "Already up to date.\n", exitStatus: 0)
             ],
             currentCwd: "/repo",
-            isAlternateScreenActive: false
+            isAlternateScreenActive: true,
+            isApplicationCursorModeActive: true
         )
         let message = RemoteMessage(
             kind: .terminalHistory,
@@ -77,6 +78,30 @@ struct RemoteProtocolTests {
             RemoteTerminalHistory.self,
             from: #require(decoded.payload)
         ) == history)
+    }
+
+    @Test("semantic terminal history accepts the previous representation")
+    func semanticTerminalHistoryPreviousRepresentation() throws {
+        let current = RemoteTerminalHistory(
+            blocks: [],
+            currentCwd: "/repo",
+            isAlternateScreenActive: true,
+            isApplicationCursorModeActive: true
+        )
+        var object = try #require(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(current)
+        ) as? [String: Any])
+        object.removeValue(forKey: "isApplicationCursorModeActive")
+
+        let previous = try JSONDecoder().decode(
+            RemoteTerminalHistory.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+
+        #expect(previous.isApplicationCursorModeActive == nil)
+        var transcript = VaulttyBlockTranscript()
+        transcript.restore(previous)
+        #expect(!transcript.isApplicationCursorModeActive)
     }
 
     @Test("semantic command submissions preserve their encrypted payload")

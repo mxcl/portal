@@ -63,6 +63,24 @@ struct VaulttyBlockTranscriptTests {
         #expect(!transcript.isAlternateScreenActive)
     }
 
+    @Test("application cursor mode survives semantic history")
+    func applicationCursorModeHistory() throws {
+        var transcript = VaulttyBlockTranscript()
+        let command = Data("vi ./foo.ext".utf8).base64EncodedString()
+
+        transcript.consume("\u{1B}]133;C;\(command)\u{7}\u{1B}[?1h\u{1B}[?1049h")
+        #expect(transcript.isApplicationCursorModeActive)
+
+        let encoded = try JSONEncoder().encode(RemoteTerminalHistory(transcript: transcript))
+        let history = try JSONDecoder().decode(RemoteTerminalHistory.self, from: encoded)
+        var restored = VaulttyBlockTranscript()
+        restored.restore(history)
+        #expect(restored.isApplicationCursorModeActive)
+
+        restored.consume("\u{1B}[?1l")
+        #expect(!restored.isApplicationCursorModeActive)
+    }
+
     @Test("carriage returns replace progress output instead of accumulating it")
     func carriageReturnProgress() throws {
         var transcript = VaulttyBlockTranscript()

@@ -7,6 +7,10 @@ func mobileSelectedCompletion<Element>(
     return suggestions[selectedIndex]
 }
 
+func mobileCursorKey(finalByte: UInt8, applicationCursor: Bool) -> [UInt8] {
+    [0x1b, applicationCursor ? 0x4f : 0x5b, finalByte]
+}
+
 #if os(iOS)
 import SwiftUI
 import SwiftTerm
@@ -497,10 +501,10 @@ private struct MobileSessionView: View {
             TerminalKey("Esc", bytes: [0x1b], model: model)
             TerminalKey("Ctrl-C", bytes: [0x03], model: model)
             TerminalKey("Tab", bytes: [0x09], model: model)
-            TerminalKey("←", bytes: Array("\u{1b}[D".utf8), model: model)
-            TerminalKey("↑", bytes: Array("\u{1b}[A".utf8), model: model)
-            TerminalKey("↓", bytes: Array("\u{1b}[B".utf8), model: model)
-            TerminalKey("→", bytes: Array("\u{1b}[C".utf8), model: model)
+            TerminalKey("←", bytes: cursorKey(0x44), model: model)
+            TerminalKey("↑", bytes: cursorKey(0x41), model: model)
+            TerminalKey("↓", bytes: cursorKey(0x42), model: model)
+            TerminalKey("→", bytes: cursorKey(0x43), model: model)
             Button("Dismiss", systemImage: "keyboard.chevron.compact.down") {
                 UIApplication.shared.sendAction(
                     #selector(UIResponder.resignFirstResponder),
@@ -531,6 +535,13 @@ private struct MobileSessionView: View {
 
     private var currentCwd: String {
         model.transcript.currentCwd ?? session.cwd
+    }
+
+    private func cursorKey(_ finalByte: UInt8) -> [UInt8] {
+        mobileCursorKey(
+            finalByte: finalByte,
+            applicationCursor: model.transcript.isApplicationCursorModeActive
+        )
     }
 
     private var selectedCompletion: MobileCompletionSuggestion? {

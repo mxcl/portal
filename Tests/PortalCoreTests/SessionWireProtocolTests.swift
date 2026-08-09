@@ -80,13 +80,11 @@ struct SessionWireProtocolTests {
         #expect(SessionWireProtocol.localBridgeCandidates(
             forExecutable: "/Applications/Portal.app/Contents/Helpers/portal-remote-agent"
         ) == [
-            "/Applications/Portal.app/Contents/Helpers/vaultty-session-bridge",
             "/Applications/Portal.app/Contents/Helpers/portal-session-bridge",
         ])
         #expect(SessionWireProtocol.localBridgeCandidates(
             forExecutable: "/Applications/Portal.app/Contents/MacOS/Portal"
         ) == [
-            "/Applications/Portal.app/Contents/Helpers/vaultty-session-bridge",
             "/Applications/Portal.app/Contents/Helpers/portal-session-bridge",
         ])
     }

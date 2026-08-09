@@ -102,25 +102,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             switch try PtySession.prepareLocalDaemon() {
             case .ready:
                 return true
-            case .previous:
-                let alert = NSAlert()
-                alert.alertStyle = .warning
-                alert.messageText = "Secure Session Service Update Required"
-                alert.informativeText = """
-                    Portal found a previous session service that cannot enforce the current security policy. Switching secures new connections, but detached sessions held by the previous service will no longer be reachable.
-                    """
-                alert.addButton(withTitle: "Switch Securely")
-                alert.addButton(withTitle: "Keep Existing Sessions")
-                alert.addButton(withTitle: "Quit Portal")
-                switch alert.runModal() {
-                case .alertFirstButtonReturn:
-                    return switchToSecureSessionService()
-                case .alertSecondButtonReturn:
-                    PtySession.allowPreviousDaemonForThisLaunch()
-                    return true
-                default:
-                    return false
-                }
             case .incompatible:
                 return requireSecureSessionServiceSwitch(
                     message: "The running Portal session service is not protocol-compatible with this version."

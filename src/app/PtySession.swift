@@ -197,7 +197,6 @@ private final class SSHSessionTransport: SessionTransport {
 final class PtySession {
     enum LocalDaemonPreparation {
         case ready
-        case previous
         case incompatible
         case untrusted
     }
@@ -229,21 +228,12 @@ final class PtySession {
     private var isStopped = false
     private var didReportExit = false
     private static let daemonStartupLock = NSLock()
-    private static let daemonPolicyLock = NSLock()
-    private static var legacyDaemonAllowed = false
     private static let currentDaemonRequirement = """
         anchor apple generic and \
         certificate 1[field.1.2.840.113635.100.6.2.6] exists and \
         certificate leaf[field.1.2.840.113635.100.6.1.13] exists and \
         certificate leaf[subject.OU] = "ZU76A67LGU" and \
         identifier "dev.mxcl.portal.sessiond"
-        """
-    private static let previousDaemonRequirement = """
-        anchor apple generic and \
-        certificate 1[field.1.2.840.113635.100.6.2.6] exists and \
-        certificate leaf[field.1.2.840.113635.100.6.1.13] exists and \
-        certificate leaf[subject.OU] = "ZU76A67LGU" and \
-        identifier "com.automicvault.vaultty.sessiond"
         """
     private static let ignoreSIGPIPEOnce: Void = {
         _ = Darwin.signal(SIGPIPE, SIG_IGN)
@@ -489,30 +479,12 @@ final class PtySession {
                 return .incompatible
             }
             return .ready
-        case .previous:
-            return .previous
         case .untrusted:
             return .untrusted
         }
     }
 
-    static func allowPreviousDaemonForThisLaunch() {
-        daemonPolicyLock.lock()
-        legacyDaemonAllowed = true
-        daemonPolicyLock.unlock()
-    }
-
-    static func allowsPreviousDaemonForThisLaunch() -> Bool {
-        daemonPolicyLock.lock()
-        defer { daemonPolicyLock.unlock() }
-        return legacyDaemonAllowed
-    }
-
     static func replaceLocalDaemon() throws {
-        daemonPolicyLock.lock()
-        legacyDaemonAllowed = false
-        daemonPolicyLock.unlock()
-
         let process = Process()
         process.executableURL = URL(fileURLWithPath: try sessiondHelperPath())
         process.arguments = ["serve", "--replace-socket"]
@@ -880,12 +852,8 @@ final class PtySession {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         var environment = ProcessInfo.processInfo.environment
-        environment.removeValue(forKey: "PORTAL_SESSIOND_ALLOW_LEGACY_SERVER")
         if namespace == .canonical {
             environment["PORTAL_SESSIOND"] = try sessiondHelperPath()
-            if allowsLegacyDaemon() {
-                environment["PORTAL_SESSIOND_ALLOW_LEGACY_SERVER"] = "1"
-            }
         } else {
             environment["PORTAL_SESSIOND_SOCKET"] = socketPath(namespace: namespace)
             environment["PORTAL_SESSIOND_REQUIRE_EXISTING"] = "1"
@@ -1036,7 +1004,7 @@ final class PtySession {
         let fd = try connectSocketToDaemon(namespace: namespace)
         do {
             let identity = try daemonPeerIdentity(fd: fd)
-            guard identity == .current || identity == .previous && allowsLegacyDaemon() else {
+            guard identity == .current else {
                 throw NSError(
                     domain: NSOSStatusErrorDomain,
                     code: Int(errSecCSReqFailed),
@@ -1069,7 +1037,6 @@ final class PtySession {
 
     private enum DaemonPeerIdentity {
         case current
-        case previous
         case untrusted
     }
 
@@ -1100,9 +1067,6 @@ final class PtySession {
         }
         if SecCodeCheckValidity(code, [], try codeRequirement(currentDaemonRequirement)) == errSecSuccess {
             return .current
-        }
-        if SecCodeCheckValidity(code, [], try codeRequirement(previousDaemonRequirement)) == errSecSuccess {
-            return .previous
         }
         return .untrusted
     }
@@ -1348,12 +1312,6 @@ final class PtySession {
         )
     }
 
-    private static func allowsLegacyDaemon() -> Bool {
-        daemonPolicyLock.lock()
-        defer { daemonPolicyLock.unlock() }
-        return legacyDaemonAllowed
-    }
-
     private static func sshHostRecord(id: String) throws -> SSHHostRecord {
         let stored = loadSSHHosts()
         if let host = stored.hosts.first(where: { $0.id == id }) {
@@ -1468,7 +1426,7 @@ final class PtySession {
            !override.isEmpty {
             return override
         }
-        let applicationSupportName = namespace == .canonical ? "Vaultty" : "Portal Terminal"
+        let applicationSupportName = namespace == .canonical ? "Portal" : "Portal Terminal"
         return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)

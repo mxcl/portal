@@ -34,6 +34,17 @@ rust_version() {
   awk -v property="$property" '$2 == property ":" { gsub(/;/, "", $5); print $5; exit }' "$file"
 }
 
+latest_portal_tag() {
+  local tag
+  while IFS= read -r tag; do
+    if git -C "$ROOT_DIR" show "$tag:Cargo.toml" 2>/dev/null |
+      grep -q '^name = "portal"$'; then
+      printf '%s\n' "$tag"
+      return 0
+    fi
+  done < <(git -C "$ROOT_DIR" tag --sort=-version:refname)
+}
+
 assert_equal() {
   local label="$1"
   local actual="$2"
@@ -95,7 +106,7 @@ echo "Running Swift protocol tests"
 swift test --package-path "$ROOT_DIR"
 
 if [[ -z "$BASE_REF" ]]; then
-  BASE_REF="$(git -C "$ROOT_DIR" describe --tags --abbrev=0 2>/dev/null || true)"
+  BASE_REF="$(latest_portal_tag)"
 fi
 
 if [[ -n "$BASE_REF" ]]; then

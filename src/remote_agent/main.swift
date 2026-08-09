@@ -10,9 +10,6 @@ struct PortalRemoteAgent {
     static func main() {
         guard acquireSingletonLock() else { return }
         let arguments = ProcessInfo.processInfo.arguments
-        if arguments.contains("--allow-previous-session-daemon") {
-            PtySession.allowPreviousDaemonForThisLaunch()
-        }
         guard let macID = value(after: "--mac-id", in: arguments),
               let endpointValue = value(after: "--endpoint", in: arguments),
               let endpoint = URL(string: endpointValue) else { return }

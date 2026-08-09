@@ -243,16 +243,14 @@ enum SessionWireProtocol {
         let executable = URL(fileURLWithPath: executablePath)
         let executableDirectory = executable.deletingLastPathComponent()
         let directory: URL
-        if ["portal-remote-agent", "vaultty-remote-agent"].contains(executable.lastPathComponent) {
+        if executable.lastPathComponent == "portal-remote-agent" {
             directory = executableDirectory
         } else if executableDirectory.lastPathComponent == "MacOS" {
             directory = executableDirectory.deletingLastPathComponent().appendingPathComponent("Helpers")
         } else {
             return []
         }
-        return ["vaultty-session-bridge", "portal-session-bridge"].map {
-            directory.appendingPathComponent($0).path
-        }
+        return [directory.appendingPathComponent("portal-session-bridge").path]
     }
 
     private static func base64(_ value: String) -> String {

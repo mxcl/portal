@@ -20,10 +20,7 @@ const CLIENT_REQUIREMENT: &str = concat!(
     "certificate leaf[subject.OU] = \"ZU76A67LGU\" and ",
     "(identifier \"dev.mxcl.portal\" or ",
     "identifier \"dev.mxcl.portal.session-bridge\" or ",
-    "identifier \"dev.mxcl.portal.remote-agent\" or ",
-    "identifier \"com.automicvault.vaultty\" or ",
-    "identifier \"com.automicvault.vaultty.session-bridge\" or ",
-    "identifier \"com.automicvault.vaultty.remote-agent\")",
+    "identifier \"dev.mxcl.portal.remote-agent\")",
 );
 
 #[cfg(target_os = "macos")]
@@ -35,15 +32,6 @@ const SERVER_REQUIREMENT: &str = concat!(
     "identifier \"dev.mxcl.portal.sessiond\"",
 );
 
-#[cfg(target_os = "macos")]
-const PREVIOUS_SERVER_REQUIREMENT: &str = concat!(
-    "anchor apple generic and ",
-    "certificate 1[field.1.2.840.113635.100.6.2.6] exists and ",
-    "certificate leaf[field.1.2.840.113635.100.6.1.13] exists and ",
-    "certificate leaf[subject.OU] = \"ZU76A67LGU\" and ",
-    "identifier \"com.automicvault.vaultty.sessiond\"",
-);
-
 #[allow(dead_code)]
 pub fn validate_client(stream: &UnixStream) -> io::Result<()> {
     validate_same_user(stream)?;
@@ -53,14 +41,10 @@ pub fn validate_client(stream: &UnixStream) -> io::Result<()> {
 }
 
 #[allow(dead_code)]
-pub fn validate_server(stream: &UnixStream, allow_previous: bool) -> io::Result<()> {
+pub fn validate_server(stream: &UnixStream) -> io::Result<()> {
     validate_same_user(stream)?;
     #[cfg(target_os = "macos")]
-    if allow_previous {
-        validate_code(stream, &[SERVER_REQUIREMENT, PREVIOUS_SERVER_REQUIREMENT])?;
-    } else {
-        validate_code(stream, &[SERVER_REQUIREMENT])?;
-    }
+    validate_code(stream, &[SERVER_REQUIREMENT])?;
     Ok(())
 }
 
@@ -159,11 +143,7 @@ mod tests {
 
     #[test]
     fn code_signing_requirements_parse() {
-        for text in [
-            CLIENT_REQUIREMENT,
-            SERVER_REQUIREMENT,
-            PREVIOUS_SERVER_REQUIREMENT,
-        ] {
+        for text in [CLIENT_REQUIREMENT, SERVER_REQUIREMENT] {
             text.parse::<SecRequirement>()
                 .expect("Portal code-signing requirement should parse");
         }

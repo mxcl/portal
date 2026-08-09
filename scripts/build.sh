@@ -7,7 +7,6 @@ APP_NAME="Portal"
 EXECUTABLE_NAME="Portal"
 APP_BUNDLE_ID="dev.mxcl.portal"
 SESSION_BRIDGE_ID="dev.mxcl.portal.session-bridge"
-LEGACY_SESSION_BRIDGE_ID="com.automicvault.vaultty.session-bridge"
 REMOTE_AGENT_ID="dev.mxcl.portal.remote-agent"
 APP_KEYCHAIN_ACCESS_GROUP="ZU76A67LGU.$APP_BUNDLE_ID"
 GHOSTTY_PROBE_ID="dev.mxcl.portal.ghostty-probe"
@@ -135,10 +134,10 @@ SESSIOND_MACOS_DIR="$SESSIOND_CONTENTS/MacOS"
 SESSIOND_RESOURCES_DIR="$SESSIOND_CONTENTS/Resources"
 SESSIOND_HELPER="$SESSIOND_MACOS_DIR/portal-sessiond"
 SESSION_BRIDGE_HELPER="$HELPERS_DIR/portal-session-bridge"
-LEGACY_SESSION_BRIDGE_HELPER="$HELPERS_DIR/vaultty-session-bridge"
 GHOSTTY_PROBE="$HELPERS_DIR/portal-ghostty-probe"
 GHOSTTY_DYLIB="$FRAMEWORKS_DIR/libghostty-vt.dylib"
 GHOSTTY_BRIDGE_OBJECT="$BUILD_DIR/GhosttyOscBridge.o"
+MODULE_CACHE_DIR="$BUILD_DIR/ModuleCache"
 ICON_BUNDLE="$ROOT_DIR/assets/AppIcon.icon"
 ICON_SOURCE="$ICON_BUNDLE/Assets/Portal.png"
 SESSION_ICON_SOURCE="$ROOT_DIR/assets/session-icon.png"
@@ -810,6 +809,7 @@ case "$CONFIGURATION" in
     exit 1
     ;;
 esac
+SWIFT_FLAGS+=(-module-cache-path "$MODULE_CACHE_DIR")
 
 echo "Building Rust helpers"
 export MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS_VERSION"
@@ -845,7 +845,9 @@ done < <(
 
 echo "Building Portal app bundle"
 rm -rf "$APP_DIR"
+rm -rf "$MODULE_CACHE_DIR"
 mkdir -p \
+  "$MODULE_CACHE_DIR" \
   "$MACOS_DIR" \
   "$RESOURCES_DIR" \
   "$HELPERS_DIR" \
@@ -855,7 +857,6 @@ mkdir -p \
 render_info_plist
 cp "$RUST_BIN_DIR/portal-sessiond" "$SESSIOND_HELPER"
 cp "$RUST_BIN_DIR/portal-session-bridge" "$SESSION_BRIDGE_HELPER"
-cp "$RUST_BIN_DIR/portal-session-bridge" "$LEGACY_SESSION_BRIDGE_HELPER"
 if [[ -n "$MAIN_APP_PROVISIONING_PROFILE" ]]; then
   cp "$MAIN_APP_PROVISIONING_PROFILE" "$CONTENTS_DIR/embedded.provisionprofile"
 fi
@@ -999,10 +1000,6 @@ codesign_runtime \
   --identifier "$SESSION_BRIDGE_ID" \
   "$SESSION_BRIDGE_HELPER"
 verify_signature "$SESSION_BRIDGE_HELPER"
-codesign_runtime \
-  --identifier "$LEGACY_SESSION_BRIDGE_ID" \
-  "$LEGACY_SESSION_BRIDGE_HELPER"
-verify_signature "$LEGACY_SESSION_BRIDGE_HELPER"
 codesign_runtime \
   --identifier "$REMOTE_AGENT_ID" \
   "$HELPERS_DIR/portal-remote-agent"

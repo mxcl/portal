@@ -1144,7 +1144,7 @@ fn socket_path() -> io::Result<PathBuf> {
     Ok(PathBuf::from(home)
         .join("Library")
         .join("Application Support")
-        .join("Vaultty")
+        .join("Portal")
         .join("runtime")
         .join("sessiond.sock"))
 }

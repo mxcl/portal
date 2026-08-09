@@ -203,9 +203,6 @@ final class MacRemoteAccessController {
         let process = Process()
         process.executableURL = helper
         process.arguments = ["--mac-id", macID, "--endpoint", endpoint.absoluteString]
-        if PtySession.allowsPreviousDaemonForThisLaunch() {
-            process.arguments?.append("--allow-previous-session-daemon")
-        }
         let keyPipe = Pipe()
         process.standardInput = keyPipe
         process.standardOutput = FileHandle.nullDevice
@@ -229,18 +226,16 @@ final class MacRemoteAccessController {
 
     private func terminateAgent() {
         agentProcess?.terminationHandler = nil
-        for name in ["portal-remote-agent", "vaultty-remote-agent"] {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-            process.arguments = ["-TERM", "-x", name]
-            do {
-                try process.run()
-                process.waitUntilExit()
-            } catch {
-                remoteAccessLogger.error(
-                    "Portal remote agent could not be terminated: \(String(describing: error), privacy: .public)"
-                )
-            }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        process.arguments = ["-TERM", "-x", "portal-remote-agent"]
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            remoteAccessLogger.error(
+                "Portal remote agent could not be terminated: \(String(describing: error), privacy: .public)"
+            )
         }
         agentProcess = nil
     }

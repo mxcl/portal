@@ -55,7 +55,6 @@ assert_current_bridge_previous_daemon() {
     command = ["ATTACH", *ARGV[2, 4].map { |value| Base64.strict_encode64(value) }].join(" ")
     environment = {
       "PORTAL_SESSIOND_SOCKET" => ARGV.fetch(1),
-      "PORTAL_SESSIOND_ALLOW_LEGACY_SERVER" => "1",
       "PORTAL_SESSIOND_DISABLE_PEER_VALIDATION" => "1"
     }
     IO.popen(environment, [ARGV.fetch(0)], "r+") do |bridge|
@@ -71,11 +70,7 @@ mkdir -p "$TEMP_DIR/previous"
 git -C "$ROOT_DIR" archive "$BASE_REF" | tar -x -C "$TEMP_DIR/previous"
 
 echo "Building released daemon fixture from $BASE_REF"
-if grep -q 'name = "portal-sessiond"' "$TEMP_DIR/previous/Cargo.toml"; then
-  previous_daemon_bin="portal-sessiond"
-else
-  previous_daemon_bin="vaultty-sessiond"
-fi
+previous_daemon_bin="portal-sessiond"
 CARGO_TARGET_DIR="$TEMP_DIR/previous-target" \
   cargo build --quiet --manifest-path "$TEMP_DIR/previous/Cargo.toml" --bin "$previous_daemon_bin"
 
@@ -85,8 +80,6 @@ cargo build --quiet --manifest-path "$ROOT_DIR/Cargo.toml" \
   --bin portal-sessiond --bin portal-session-bridge
 
 previous_socket="$TEMP_DIR/previous.sock"
-VAULTTY_SESSIOND_SOCKET="$previous_socket" \
-VAULTTY_SESSIOND_DISABLE_PEER_VALIDATION=1 \
 PORTAL_SESSIOND_SOCKET="$previous_socket" \
 PORTAL_SESSIOND_DISABLE_PEER_VALIDATION=1 \
   "$TEMP_DIR/previous-target/debug/$previous_daemon_bin" serve \
@@ -101,7 +94,7 @@ else
   assert_probe "$previous_socket" LEGACY_EOF
 fi
 assert_v1_attach "$previous_socket" current-client-previous-daemon
-assert_v1_attach "$previous_socket" current-empty-environment-client VAULTTY=
+assert_v1_attach "$previous_socket" current-empty-environment-client PORTAL=
 assert_current_bridge_previous_daemon \
   "$ROOT_DIR/target/debug/portal-session-bridge" \
   "$previous_socket"

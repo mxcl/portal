@@ -3,8 +3,8 @@ import Foundation
 import QuartzCore
 import SwiftUI
 
-@_silgen_name("vaultty_ghostty_osc_command_type")
-private func vaulttyGhosttyOscCommandType(_ payload: UnsafePointer<CChar>) -> Int32
+@_silgen_name("portal_ghostty_osc_command_type")
+private func portalGhosttyOscCommandType(_ payload: UnsafePointer<CChar>) -> Int32
 
 private typealias TerminalBlock = CommandLifecycle.Block
 
@@ -2735,7 +2735,7 @@ private final class PtyPassthroughView: NSView {
 
         guard view.responds(to: #selector(NSText.paste(_:))) else { return false }
 
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("VaulttyPassthroughRoutingSelfTest"))
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("PortalPassthroughRoutingSelfTest"))
         pasteboard.clearContents()
         pasteboard.setString("pasted\ntext", forType: .string)
         view.paste(from: pasteboard)
@@ -2814,21 +2814,21 @@ private final class TerminalOutputProcessor {
 
     enum Event {
         case snapshot(Snapshot)
-        case marker(VaulttyMarker, isReplay: Bool)
+        case marker(PortalMarker, isReplay: Bool)
         case replayCommandStarted(blockID: UUID, command: String)
     }
 
     var onEvent: ((Event) -> Void)?
     var onTerminalResponse: ((String) -> Void)?
 
-    private let queue = DispatchQueue(label: "com.automicvault.vaultty.output-render", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "dev.mxcl.portal.output-render", qos: .userInitiated)
     private let flushDelay: DispatchTimeInterval
     private let terminalScreen = Ansi.TerminalScreen(rows: 30, cols: 100)
     private let styledRenderer = Ansi.StyledTextRenderer(rows: 30)
     private var pendingShellOutput = ""
     private var isShellOutputFlushScheduled = false
     private var isInputFeedbackPending = false
-    private var markerParser = VaulttyMarkerParser()
+    private var markerParser = PortalMarkerParser()
     private var pendingBlockID: UUID?
     private var activeBlockID: UUID?
     private var activeBlockCwd: String?
@@ -3792,11 +3792,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let updateButton = TitleUpdateButton(frame: .zero)
     private let contentContainer = NSView()
     private let resizeTooltipView = ResizeMetricsTooltipView()
-    private let completionEngine = VaulttyCompletionEngine()
-    private let completionQueue = DispatchQueue(label: "com.automicvault.vaultty.completion", qos: .userInitiated)
+    private let completionEngine = PortalCompletionEngine()
+    private let completionQueue = DispatchQueue(label: "dev.mxcl.portal.completion", qos: .userInitiated)
     private let gitStateProvider = GitDirectoryStateProvider()
-    private let gitStateQueue = DispatchQueue(label: "com.automicvault.vaultty.git-state", qos: .utility)
-    private let sessionCleanupQueue = DispatchQueue(label: "com.automicvault.vaultty.session-cleanup", qos: .utility)
+    private let gitStateQueue = DispatchQueue(label: "dev.mxcl.portal.git-state", qos: .utility)
+    private let sessionCleanupQueue = DispatchQueue(label: "dev.mxcl.portal.session-cleanup", qos: .utility)
     private let completionPopup = CompletionPopupController()
     private var completionRequestSerial = 0
     private var completionCancellation: CompletionCancellation?
@@ -3827,7 +3827,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(CompletionPopupController.selectionSelfTest())
         assert(CommandInputTextView.completionPreviewPreservesCaretSelfTest())
         assert(TerminalViewController.historyCompletionReplacementRangeSelfTest())
-        assert(VaulttyCompletionEngine.historyMergePrefixSelfTest())
+        assert(PortalCompletionEngine.historyMergePrefixSelfTest())
         assert(ShellCompletionParser.midTokenReplacementRangeSelfTest())
         let shellEnvironment = inheritedShellEnvironment([
             "PAGER": "cat",
@@ -4898,7 +4898,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("Vaultty", isDirectory: true)
+            .appendingPathComponent("Portal", isDirectory: true)
             .appendingPathComponent("sessions.json", isDirectory: false)
     }
 
@@ -5887,7 +5887,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         var env: [String: String] = isRemoteSession
             ? [:]
             : Self.inheritedShellEnvironment(ProcessInfo.processInfo.environment)
-        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.automicvault.vaultty"
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "dev.mxcl.portal"
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         env["TERM"] = "xterm-256color"
         env["TERM_PROGRAM"] = "Portal"
@@ -5895,12 +5895,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         env["LC_TERMINAL"] = "Portal"
         env["LC_TERMINAL_VERSION"] = appVersion
         env["__CFBundleIdentifier"] = bundleIdentifier
-        env["VAULTTY"] = "1"
+        env["PORTAL"] = "1"
         env["PROMPT"] = ""
         env["RPROMPT"] = ""
 
         let initScript = """
-            export VAULTTY=1
+            export PORTAL=1
             export TERM=xterm-256color
             export TERM_PROGRAM=Portal
             export TERM_PROGRAM_VERSION=\(shellQuote(appVersion))
@@ -6463,7 +6463,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         startTtyModePolling(for: tab)
         startRunningElapsedUpdates(for: tab)
 
-        let script = shellInputResetPrefixIfNeeded(in: tab) + VaulttyCommandEnvelope.shellScript(
+        let script = shellInputResetPrefixIfNeeded(in: tab) + PortalCommandEnvelope.shellScript(
             for: command,
             exitsShellAfterCompletion: exitsShellAfterCompletion
         )
@@ -6570,11 +6570,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    private func handleMarker(_ marker: VaulttyMarker, isReplay: Bool, in tab: TerminalTab) {
+    private func handleMarker(_ marker: PortalMarker, isReplay: Bool, in tab: TerminalTab) {
         switch marker.kind {
         case .commandStarted, .commandFinished:
             let oscPayload = "133;\(marker.rawValue)"
-            guard oscPayload.withCString({ vaulttyGhosttyOscCommandType($0) }) == 3 else {
+            guard oscPayload.withCString({ portalGhosttyOscCommandType($0) }) == 3 else {
                 return
             }
         default:
@@ -6655,20 +6655,20 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             printf 'usage: code PATH\\n' >&2
             return 2
           fi
-          local __vaultty_target="$1" __vaultty_kind __vaultty_dir __vaultty_name __vaultty_abs
-          if [ -d "$__vaultty_target" ]; then
-            __vaultty_kind=folder
-            __vaultty_abs="$(cd "$__vaultty_target" 2>/dev/null && pwd -P)" || return 1
+          local __portal_target="$1" __portal_kind __portal_dir __portal_name __portal_abs
+          if [ -d "$__portal_target" ]; then
+            __portal_kind=folder
+            __portal_abs="$(cd "$__portal_target" 2>/dev/null && pwd -P)" || return 1
           else
-            __vaultty_kind=file
-            case "$__vaultty_target" in
-              */*) __vaultty_dir="${__vaultty_target%/*}"; __vaultty_name="${__vaultty_target##*/}" ;;
-              *) __vaultty_dir=.; __vaultty_name="$__vaultty_target" ;;
+            __portal_kind=file
+            case "$__portal_target" in
+              */*) __portal_dir="${__portal_target%/*}"; __portal_name="${__portal_target##*/}" ;;
+              *) __portal_dir=.; __portal_name="$__portal_target" ;;
             esac
-            [ -n "$__vaultty_dir" ] || __vaultty_dir=/
-            __vaultty_abs="$(cd "$__vaultty_dir" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$__vaultty_name")" || return 1
+            [ -n "$__portal_dir" ] || __portal_dir=/
+            __portal_abs="$(cd "$__portal_dir" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$__portal_name")" || return 1
           fi
-          printf '\\033]133;O;%s;%s\\a' "$__vaultty_kind" "$(printf '%s' "$__vaultty_abs" | base64 | tr -d '\\n')"
+          printf '\\033]133;O;%s;%s\\a' "$__portal_kind" "$(printf '%s' "$__portal_abs" | base64 | tr -d '\\n')"
         }
         """
     }

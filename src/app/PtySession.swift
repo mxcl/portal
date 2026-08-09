@@ -221,7 +221,7 @@ final class PtySession {
         return sessionRef.sessionID
     }
     private let clientID = UUID().uuidString
-    private let queue = DispatchQueue(label: "com.automicvault.vaultty.session-client")
+    private let queue = DispatchQueue(label: "dev.mxcl.portal.session-client")
     private var transport: (any SessionTransport)?
     private var protocolDecoder = SessionWireProtocol.Decoder()
     private var treatsNextOutputAsLegacyHistory = false
@@ -236,7 +236,7 @@ final class PtySession {
         certificate 1[field.1.2.840.113635.100.6.2.6] exists and \
         certificate leaf[field.1.2.840.113635.100.6.1.13] exists and \
         certificate leaf[subject.OU] = "ZU76A67LGU" and \
-        identifier "com.automicvault.portal.sessiond"
+        identifier "dev.mxcl.portal.sessiond"
         """
     private static let previousDaemonRequirement = """
         anchor apple generic and \
@@ -1244,7 +1244,7 @@ final class PtySession {
         let codeHash = try verifiedCodeHash(of: source)
         let fileManager = FileManager.default
         let base = fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Vaultty/helpers/sessiond", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/Portal/helpers/sessiond", isDirectory: true)
         try fileManager.createDirectory(at: base, withIntermediateDirectories: true)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: base.path)
 
@@ -1422,7 +1422,7 @@ final class PtySession {
 
     private static func sshControlDirectory() -> URL {
         URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent("vaultty-\(getuid())", isDirectory: true)
+            .appendingPathComponent("portal-\(getuid())", isDirectory: true)
     }
 
     private static func sshControlPath(for host: SSHHostRecord) -> URL {
@@ -1482,7 +1482,7 @@ final class PtySession {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("Vaultty", isDirectory: true)
+            .appendingPathComponent("Portal", isDirectory: true)
             .appendingPathComponent("hosts.json", isDirectory: false)
     }
 

@@ -39,10 +39,10 @@ struct RoomMessage {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let bind_address = env::var("VAULTTY_RELAY_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
-    let catalog_directory = env::var_os("VAULTTY_RELAY_DATA_DIR")
+    let bind_address = env::var("PORTAL_RELAY_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
+    let catalog_directory = env::var_os("PORTAL_RELAY_DATA_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/var/lib/vaultty-relay"));
+        .unwrap_or_else(|| PathBuf::from("/var/lib/portal-relay"));
     let state = RelayState::new(catalog_directory).await?;
     let app = router(state);
     let listener = tokio::net::TcpListener::bind(&bind_address).await?;
@@ -352,7 +352,7 @@ mod tests {
     #[tokio::test]
     async fn catalog_round_trips_opaque_bytes_and_rejects_other_credentials() {
         let directory = env::temp_dir().join(format!(
-            "vaultty-relay-test-{}-{}",
+            "portal-relay-test-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -405,7 +405,7 @@ mod tests {
     #[tokio::test]
     async fn catalog_rejects_stale_conditional_write() {
         let directory = env::temp_dir().join(format!(
-            "vaultty-relay-catalog-race-test-{}",
+            "portal-relay-catalog-race-test-{}",
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .expect("clock after epoch")
@@ -485,7 +485,7 @@ mod tests {
     #[tokio::test]
     async fn urgent_send_broadcasts_opaque_bytes() {
         let directory = env::temp_dir().join(format!(
-            "vaultty-relay-urgent-test-{}",
+            "portal-relay-urgent-test-{}",
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .expect("clock after epoch")
@@ -528,7 +528,7 @@ mod tests {
     #[tokio::test]
     async fn websocket_fanout_is_byte_exact_and_does_not_echo() {
         let directory = env::temp_dir().join(format!(
-            "vaultty-relay-ws-test-{}",
+            "portal-relay-ws-test-{}",
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .expect("clock after epoch")
@@ -588,7 +588,7 @@ mod tests {
     #[tokio::test]
     async fn websocket_answers_ping_without_broadcasting_it() {
         let directory = env::temp_dir().join(format!(
-            "vaultty-relay-ping-test-{}",
+            "portal-relay-ping-test-{}",
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .expect("clock after epoch")

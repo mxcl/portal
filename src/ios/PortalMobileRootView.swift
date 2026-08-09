@@ -15,9 +15,9 @@ func mobileCursorKey(finalByte: UInt8, applicationCursor: Bool) -> [UInt8] {
 import SwiftUI
 import SwiftTerm
 import UIKit
-import VaulttyCore
+import PortalCore
 
-public struct VaulttyMobileRootView: View {
+public struct PortalMobileRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model = MobileRemoteModel()
     @State private var store = MobileStore()
@@ -297,7 +297,7 @@ private struct MobileSessionView: View {
         VStack(spacing: 0) {
             statusBar
             if showsTerminal {
-                VaulttyTerminalView(
+                PortalTerminalView(
                     chunks: model.chunks,
                     size: model.terminalSize,
                     generation: model.terminalGeneration
@@ -377,7 +377,7 @@ private struct MobileSessionView: View {
         HStack(spacing: 8) {
             if showsTerminal {
                 Button("Show Keyboard", systemImage: "keyboard") {
-                    NotificationCenter.default.post(name: .vaulttyFocusTerminal, object: nil)
+                    NotificationCenter.default.post(name: .portalFocusTerminal, object: nil)
                 }
                 .frame(maxWidth: .infinity)
             } else {
@@ -620,7 +620,7 @@ private struct MobileCompletionPopover: View {
 }
 
 private struct MobileBlockView: View {
-    let block: VaulttyBlock
+    let block: PortalBlock
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -687,7 +687,7 @@ private struct TerminalKey: View {
     }
 }
 
-private struct VaulttyTerminalView: UIViewRepresentable {
+private struct PortalTerminalView: UIViewRepresentable {
     let chunks: [TerminalChunk]
     let size: RemoteTerminalSize?
     let generation: UInt64
@@ -705,7 +705,7 @@ private struct VaulttyTerminalView: UIViewRepresentable {
         NotificationCenter.default.addObserver(
             context.coordinator,
             selector: #selector(Coordinator.focusTerminal),
-            name: .vaulttyFocusTerminal,
+            name: .portalFocusTerminal,
             object: nil
         )
         return view
@@ -843,6 +843,6 @@ private struct LockedView: View {
 }
 
 private extension Notification.Name {
-    static let vaulttyFocusTerminal = Notification.Name("VaulttyFocusTerminal")
+    static let portalFocusTerminal = Notification.Name("PortalFocusTerminal")
 }
 #endif

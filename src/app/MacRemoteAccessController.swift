@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 
 private let remoteAccessLogger = Logger(
-    subsystem: "com.automicvault.vaultty",
+    subsystem: "dev.mxcl.portal",
     category: "RemoteAccess"
 )
 
@@ -311,7 +311,7 @@ final class MacRemoteAccessController {
                let command = String(data: payload, encoding: .utf8) {
                 bridges[message.requestID]?.session.markCommandReceived()
                 bridges[message.requestID]?.session.write(
-                    VaulttyCommandEnvelope.shellScript(for: command)
+                    PortalCommandEnvelope.shellScript(for: command)
                 )
             }
         case .interrupt:
@@ -465,7 +465,7 @@ final class MacRemoteAccessController {
         environment["TERM"] = "xterm-256color"
         environment["TERM_PROGRAM"] = "Portal"
         environment["LC_TERMINAL"] = "Portal"
-        environment["VAULTTY"] = "1"
+        environment["PORTAL"] = "1"
         environment["PROMPT"] = ""
         environment["RPROMPT"] = ""
 
@@ -555,7 +555,7 @@ final class MacRemoteAccessController {
 
     private func shellBootstrap(home: URL) -> String {
         """
-        export VAULTTY=1
+        export PORTAL=1
         export TERM=xterm-256color
         export TERM_PROGRAM=Portal
         export LC_TERMINAL=Portal
@@ -602,7 +602,7 @@ final class MacRemoteAccessController {
             DispatchQueue.main.async {
                 guard let self else { return }
                 if self.bridges[message.requestID]?.sendsSemanticHistory == true {
-                    var transcript = VaulttyBlockTranscript()
+                    var transcript = PortalBlockTranscript()
                     transcript.consume(text)
                     self.sendTerminalHistory(
                         RemoteTerminalHistory(transcript: transcript),
@@ -793,9 +793,9 @@ final class MacRemoteAccessController {
 
     static func relayEndpoint(configuredEndpoint: URL? = nil) throws -> URL {
         if let configuredEndpoint { return configuredEndpoint }
-        let value = ProcessInfo.processInfo.environment["VAULTTY_RELAY_ENDPOINT"]
+        let value = ProcessInfo.processInfo.environment["PORTAL_RELAY_ENDPOINT"]
             ?? UserDefaults.standard.string(forKey: endpointDefaultsKey)
-            ?? "https://vaultty-relay.mxcl.dev"
+            ?? "https://portal-relay.mxcl.dev"
         guard let endpoint = URL(string: value),
               endpoint.scheme == "https" || endpoint.scheme == "http" else {
             throw RelayClientError.invalidEndpoint

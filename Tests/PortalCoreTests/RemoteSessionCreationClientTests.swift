@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import VaulttyCore
+@testable import PortalCore
 
 @Suite("Remote session creation client")
 struct RemoteSessionCreationClientTests {

@@ -1179,7 +1179,7 @@ enum Ansi {
         assert(StyledTextRenderer().process(punctuation).plainText == punctuation)
 
         let tempDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vaultty-ansi-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("portal-ansi-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let file = tempDirectory.appendingPathComponent("Example.swift")

@@ -2,7 +2,7 @@
 import Foundation
 import LocalAuthentication
 import Observation
-import VaulttyCore
+import PortalCore
 
 public enum MobileConnectionState: Equatable, Sendable {
     case idle
@@ -69,7 +69,7 @@ public final class MobileRemoteModel {
     public private(set) var chunks: [TerminalChunk] = []
     public private(set) var terminalGeneration: UInt64 = 0
     public private(set) var terminalSize: RemoteTerminalSize?
-    public private(set) var transcript = VaulttyBlockTranscript()
+    public private(set) var transcript = PortalBlockTranscript()
     public private(set) var presenceCount = 1
     public private(set) var isLocked = false
     public private(set) var creatingMacID: String?
@@ -103,13 +103,13 @@ public final class MobileRemoteModel {
     private var historySuggestions: [MobileCompletionSuggestion] = []
     private var submittedCommands: [String] = []
     private var observedBlockIDs = Set<UUID>()
-    public init(endpoint: URL = URL(string: "https://vaultty-relay.mxcl.dev")!) {
+    public init(endpoint: URL = URL(string: "https://portal-relay.mxcl.dev")!) {
         self.endpoint = endpoint
-        if let existing = UserDefaults.standard.string(forKey: "vaulttyRemotePeerID") {
+        if let existing = UserDefaults.standard.string(forKey: "portalRemotePeerID") {
             peerID = existing
         } else {
             let created = UUID().uuidString
-            UserDefaults.standard.set(created, forKey: "vaulttyRemotePeerID")
+            UserDefaults.standard.set(created, forKey: "portalRemotePeerID")
             peerID = created
         }
     }

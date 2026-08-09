@@ -150,7 +150,7 @@ enum SessionDaemonNamespace: Sendable {
 
 struct SessionDaemonIdentity: Sendable {
     // Remove this compatibility routing once the unreleased Portal Terminal namespace drains.
-    private static let routingPrefix = "vaultty-dev-session:v1:"
+    private static let routingPrefix = "portal-dev-session:v1:"
     private static let canonicalPrefix = routingPrefix + "canonical:"
     private static let portalDevelopmentPrefix = routingPrefix + "portal:"
 

@@ -872,7 +872,7 @@ private final class CommandDescriptionStore {
     }
 }
 
-final class VaulttyCompletionEngine {
+final class PortalCompletionEngine {
     private static let maxPathSuggestionCandidates = 512
     private static let maxGeneratorSuggestionCandidates = 512
     private static let defaultGeneratorTimeout: TimeInterval = 10
@@ -1382,16 +1382,16 @@ final class VaulttyCompletionEngine {
             )!
         }
 
-        spec.context.setObject(executeCommand, forKeyedSubscript: "__vaulttyExecuteCommand" as NSString)
-        spec.context.setObject(["currentWorkingDirectory": request.cwd, "searchTerm": request.input], forKeyedSubscript: "__vaulttyGeneratorContext" as NSString)
-        spec.context.setObject(request.input.split(whereSeparator: { $0.isWhitespace }).map(String.init), forKeyedSubscript: "__vaulttyTokens" as NSString)
-        spec.context.setObject(custom, forKeyedSubscript: "__vaulttyCustom" as NSString)
+        spec.context.setObject(executeCommand, forKeyedSubscript: "__portalExecuteCommand" as NSString)
+        spec.context.setObject(["currentWorkingDirectory": request.cwd, "searchTerm": request.input], forKeyedSubscript: "__portalGeneratorContext" as NSString)
+        spec.context.setObject(request.input.split(whereSeparator: { $0.isWhitespace }).map(String.init), forKeyedSubscript: "__portalTokens" as NSString)
+        spec.context.setObject(custom, forKeyedSubscript: "__portalCustom" as NSString)
 
         let runner = """
         (function() {
           var box = { done: false, result: null, error: null };
           try {
-            Promise.resolve(__vaulttyCustom(__vaulttyTokens, __vaulttyExecuteCommand, __vaulttyGeneratorContext)).then(function(result) {
+            Promise.resolve(__portalCustom(__portalTokens, __portalExecuteCommand, __portalGeneratorContext)).then(function(result) {
               box.result = result;
               box.done = true;
             }, function(error) {
@@ -2150,7 +2150,7 @@ private final class FigSpecLoader {
     private var cache: [String: LoadedFigSpec] = [:]
 
     init() {
-        if let override = ProcessInfo.processInfo.environment["VAULTTY_COMPLETIONS_DIR"], !override.isEmpty {
+        if let override = ProcessInfo.processInfo.environment["PORTAL_COMPLETIONS_DIR"], !override.isEmpty {
             specsRoot = URL(fileURLWithPath: override, isDirectory: true)
         } else {
             specsRoot = Bundle.main.resourceURL?
@@ -2205,8 +2205,8 @@ private final class FigSpecLoader {
         """)
         guard let context else { return nil }
         _ = context.evaluateScript(transformed)
-        guard context.objectForKeyedSubscript("__vaulttyDefaultException")?.isUndefined != false,
-              let defaultValue = context.objectForKeyedSubscript("__vaulttyDefault"),
+        guard context.objectForKeyedSubscript("__portalDefaultException")?.isUndefined != false,
+              let defaultValue = context.objectForKeyedSubscript("__portalDefault"),
               !defaultValue.isUndefined,
               !defaultValue.isNull
         else {
@@ -2258,7 +2258,7 @@ private final class FigSpecLoader {
             let exportClause = String(source[range])
             guard let defaultName = defaultExportName(from: exportClause) else { return nil }
             var transformed = source
-            transformed.replaceSubrange(range, with: "\nglobalThis.__vaulttyDefault = \(defaultName);")
+            transformed.replaceSubrange(range, with: "\nglobalThis.__portalDefault = \(defaultName);")
             return transformed
         }
         if let range = source.range(of: #"export\s+default\s+([^;]+);?\s*$"#, options: .regularExpression) {
@@ -2267,7 +2267,7 @@ private final class FigSpecLoader {
                 .replacingOccurrences(of: #"export\s+default\s+"#, with: "", options: .regularExpression)
                 .trimmingCharacters(in: CharacterSet(charactersIn: " ;\n\t"))
             var transformed = source
-            transformed.replaceSubrange(range, with: "\nglobalThis.__vaulttyDefault = \(expression);")
+            transformed.replaceSubrange(range, with: "\nglobalThis.__portalDefault = \(expression);")
             return transformed
         }
         return nil

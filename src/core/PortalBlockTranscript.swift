@@ -1,6 +1,6 @@
 import Foundation
 
-public struct VaulttyBlock: Identifiable, Equatable, Sendable {
+public struct PortalBlock: Identifiable, Equatable, Sendable {
     public enum State: Equatable, Sendable {
         case running
         case completed(Int32)
@@ -70,7 +70,7 @@ public struct RemoteTerminalHistory: Codable, Equatable, Sendable {
     }
 
     public init(
-        transcript: VaulttyBlockTranscript,
+        transcript: PortalBlockTranscript,
         maximumTextBytes: Int = Self.maximumTextBytes
     ) {
         var remaining = max(0, maximumTextBytes)
@@ -124,14 +124,14 @@ public struct RemoteTerminalHistory: Codable, Equatable, Sendable {
     }
 }
 
-/// Reconstructs Vaultty's command blocks from the OSC 133 stream retained by a session.
-public struct VaulttyBlockTranscript: Sendable {
-    public private(set) var blocks: [VaulttyBlock] = []
+/// Reconstructs Portal's command blocks from the OSC 133 stream retained by a session.
+public struct PortalBlockTranscript: Sendable {
+    public private(set) var blocks: [PortalBlock] = []
     public private(set) var isAlternateScreenActive = false
     public private(set) var isApplicationCursorModeActive = false
     public private(set) var revision: UInt64 = 0
 
-    fileprivate var parser = VaulttyMarkerParser()
+    fileprivate var parser = PortalMarkerParser()
     fileprivate var renderer = PlainTerminalRenderer()
     public private(set) var currentCwd: String?
     private var activeBlockIndex: Int?
@@ -145,11 +145,11 @@ public struct VaulttyBlockTranscript: Sendable {
 
     public mutating func restore(_ history: RemoteTerminalHistory) {
         blocks = history.blocks.map {
-            VaulttyBlock(
+            PortalBlock(
                 command: $0.command,
                 cwd: $0.cwd,
                 output: $0.output,
-                state: $0.exitStatus.map(VaulttyBlock.State.completed) ?? .running
+                state: $0.exitStatus.map(PortalBlock.State.completed) ?? .running
             )
         }
         currentCwd = history.currentCwd
@@ -184,7 +184,7 @@ public struct VaulttyBlockTranscript: Sendable {
         }
     }
 
-    private mutating func consume(_ marker: VaulttyMarker) {
+    private mutating func consume(_ marker: PortalMarker) {
         switch marker.kind {
         case .shellReady(let cwd):
             currentCwd = cwd
@@ -197,7 +197,7 @@ public struct VaulttyBlockTranscript: Sendable {
             }
             renderer.resetOutputState()
             pendingCarriageReturn = false
-            blocks.append(VaulttyBlock(command: command, cwd: currentCwd))
+            blocks.append(PortalBlock(command: command, cwd: currentCwd))
             activeBlockIndex = blocks.indices.last
             revision &+= 1
         case .commandFinished(let status):
@@ -249,7 +249,7 @@ public struct VaulttyBlockTranscript: Sendable {
     }
 }
 
-public struct VaulttyMarker: Equatable, Sendable {
+public struct PortalMarker: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case shellReady(cwd: String?)
         case commandStarted(command: String)
@@ -293,10 +293,10 @@ public struct VaulttyMarker: Equatable, Sendable {
     }
 }
 
-public struct VaulttyMarkerParser: Sendable {
+public struct PortalMarkerParser: Sendable {
     public enum Event: Equatable, Sendable {
         case text(String)
-        case marker(VaulttyMarker)
+        case marker(PortalMarker)
     }
 
     private static let prefix = "\u{1B}]133;"
@@ -331,7 +331,7 @@ public struct VaulttyMarkerParser: Sendable {
             buffer.removeSubrange(..<start.lowerBound)
             guard let end = buffer.firstIndex(of: "\u{7}") else { break }
             let markerStart = buffer.index(buffer.startIndex, offsetBy: Self.prefix.count)
-            events.append(.marker(VaulttyMarker(
+            events.append(.marker(PortalMarker(
                 rawValue: String(buffer[markerStart..<end])
             )))
             buffer.removeSubrange(...end)

@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         UTType(importedAs: "com.apple.terminal.shell-script")
     ]
     private static let previousTerminalHandlersDefaultsKey = "previousTerminalHandlerURLs"
-    private let updater = AppUpdater(owner: "automic-vault", repo: "vaultty")
+    private let updater = AppUpdater(owner: "mxcl", repo: "portal")
     private var window: NSWindow?
     private var controller: TerminalViewController?
     private var titleToolbar: NSToolbar?
@@ -65,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
         window.delegate = self
-        let toolbar = NSToolbar(identifier: .vaulttyTitlebar)
+        let toolbar = NSToolbar(identifier: .portalTitlebar)
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
@@ -774,11 +774,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 }
 
 private extension NSToolbar.Identifier {
-    static let vaulttyTitlebar = NSToolbar.Identifier("com.automicvault.vaultty.titlebar")
+    static let portalTitlebar = NSToolbar.Identifier("dev.mxcl.portal.titlebar")
 }
 
 @main
-private enum VaulttyApplication {
+private enum PortalApplication {
     @MainActor
     static func main() {
         let app = NSApplication.shared

@@ -85,7 +85,7 @@
               "locale" : "en_US"
             }
           ],
-          "productID" : "app.vaultty.remote.monthly",
+          "productID" : "dev.mxcl.portal.remote.monthly",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Monthly",
           "subscriptionGroupID" : "21429751",
@@ -137,7 +137,7 @@
               "locale" : "en_US"
             }
           ],
-          "productID" : "app.vaultty.remote.annual",
+          "productID" : "dev.mxcl.portal.remote.annual",
           "recurringSubscriptionPeriod" : "P1Y",
           "referenceName" : "Annual",
           "subscriptionGroupID" : "21429751",

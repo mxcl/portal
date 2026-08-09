@@ -1,12 +1,12 @@
 import Foundation
 import Testing
-@testable import VaulttyCore
+@testable import PortalCore
 
 @Suite("Session metadata wire format")
 struct SessionTypesTests {
     @Test("decodes the session daemon's camel-case identifier")
     func decodesSessionDaemonIdentifier() throws {
-        let data = Data(#"[{"sessionId":"session-1","title":"Vaultty","cwd":"/tmp","createdAt":1,"commandCount":2,"runningCommand":null,"commandHistory":[],"attachedClientCount":1}]"#.utf8)
+        let data = Data(#"[{"sessionId":"session-1","title":"Portal","cwd":"/tmp","createdAt":1,"commandCount":2,"runningCommand":null,"commandHistory":[],"attachedClientCount":1}]"#.utf8)
 
         let sessions = try JSONDecoder().decode([SessionMetadata].self, from: data)
 
@@ -16,7 +16,7 @@ struct SessionTypesTests {
 
     @Test("decodes additive command recency from the current daemon")
     func decodesLastCommandAt() throws {
-        let data = Data(#"[{"sessionId":"session-1","title":"Vaultty","cwd":"/tmp","createdAt":1,"commandCount":2,"lastCommandAt":42,"runningCommand":null,"commandHistory":[],"attachedClientCount":1}]"#.utf8)
+        let data = Data(#"[{"sessionId":"session-1","title":"Portal","cwd":"/tmp","createdAt":1,"commandCount":2,"lastCommandAt":42,"runningCommand":null,"commandHistory":[],"attachedClientCount":1}]"#.utf8)
 
         let session = try #require(JSONDecoder().decode([SessionMetadata].self, from: data).first)
 
@@ -58,7 +58,7 @@ struct SessionTypesTests {
 
         let reservedCanonical = SessionDaemonIdentity(
             namespace: .canonical,
-            rawSessionID: "vaultty-dev-session:v1:portal:collision"
+            rawSessionID: "portal-dev-session:v1:portal:collision"
         )
         let decodedCanonical = SessionDaemonIdentity(externalSessionID: reservedCanonical.externalSessionID)
         #expect(decodedCanonical.namespace == .canonical)
@@ -75,17 +75,17 @@ struct SessionTypesTests {
     @Test("daemon inventories preserve every session across both development hosts")
     func combinedDaemonInventories() {
         let maliwan = SessionDaemonInventory.combine(
-            canonical: metadata(count: 7, prefix: "vaultty"),
+            canonical: metadata(count: 7, prefix: "portal"),
             portalDevelopment: metadata(count: 5, prefix: "portal")
         )
         let pangolin = SessionDaemonInventory.combine(
-            canonical: metadata(count: 1, prefix: "vaultty"),
+            canonical: metadata(count: 1, prefix: "portal"),
             portalDevelopment: metadata(count: 3, prefix: "portal")
         )
 
         #expect(maliwan.count == 12)
         #expect(pangolin.count == 4)
-        #expect(maliwan.prefix(7).map(\.sessionID) == (0..<7).map { "vaultty-\($0)" })
+        #expect(maliwan.prefix(7).map(\.sessionID) == (0..<7).map { "portal-\($0)" })
         #expect(maliwan.suffix(5).allSatisfy {
             SessionDaemonIdentity(externalSessionID: $0.sessionID).namespace == .portalDevelopment
         })

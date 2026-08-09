@@ -82,19 +82,19 @@ public struct RelayCrypto: Sendable {
     private func key(purpose: String) -> SymmetricKey {
         HKDF<SHA256>.deriveKey(
             inputKeyMaterial: rootKey,
-            salt: Data("vaultty-relay-v1".utf8),
+            salt: Data("portal-relay-v1".utf8),
             info: Data(purpose.utf8),
             outputByteCount: Self.rootKeyByteCount
         )
     }
 
     private func authenticatedData(purpose: String) -> Data {
-        Data("vaultty:\(RelayCiphertext.currentVersion):\(purpose)".utf8)
+        Data("portal:\(RelayCiphertext.currentVersion):\(purpose)".utf8)
     }
 
     private func identifier(label: String) -> String {
         let authenticationCode = HMAC<SHA256>.authenticationCode(
-            for: Data("vaultty-relay-address:\(label):v1".utf8),
+            for: Data("portal-relay-address:\(label):v1".utf8),
             using: rootKey
         )
         return Data(authenticationCode)

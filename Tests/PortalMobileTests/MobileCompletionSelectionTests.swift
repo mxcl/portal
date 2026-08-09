@@ -1,5 +1,5 @@
 import Testing
-@testable import VaulttyMobile
+@testable import PortalMobile
 
 @Test("automatic and dismissed completion popovers do not hijack Return")
 func unselectedCompletionDoesNotApply() {

@@ -1230,7 +1230,7 @@ mod tests {
             encoded("session-1"),
             encoded("/tmp"),
             encoded("/bin/sh"),
-            encoded("TERM=xterm-256color\0VAULTTY=1")
+            encoded("TERM=xterm-256color\0PORTAL=1")
         );
 
         let request = parse_attach(&line).expect("attach request should parse");
@@ -1242,7 +1242,7 @@ mod tests {
             request.environment,
             vec![
                 ("TERM".to_owned(), "xterm-256color".to_owned()),
-                ("VAULTTY".to_owned(), "1".to_owned())
+                ("PORTAL".to_owned(), "1".to_owned())
             ]
         );
     }
@@ -1535,7 +1535,7 @@ mod tests {
             session_id: "child-launch-test".to_owned(),
             cwd: cwd.clone(),
             shell: "/bin/sh".to_owned(),
-            environment: vec![("VAULTTY_CHILD_TEST".to_owned(), "ready".to_owned())],
+            environment: vec![("PORTAL_CHILD_TEST".to_owned(), "ready".to_owned())],
             protocol_version: CURRENT_PROTOCOL_VERSION,
             client_role: ClientRole::Mac,
             allows_creation: true,
@@ -1546,10 +1546,10 @@ mod tests {
         let session =
             Session::new(&request, Arc::downgrade(&state)).expect("test session should start");
         session.write_input(
-            b"printf '__VAULTTY_CHILD__%s:%s\\n' \"$VAULTTY_CHILD_TEST\" \"$PWD\"; exit\n",
+            b"printf '__PORTAL_CHILD__%s:%s\\n' \"$PORTAL_CHILD_TEST\" \"$PWD\"; exit\n",
         );
 
-        let expected = format!("__VAULTTY_CHILD__ready:{}", cwd.display());
+        let expected = format!("__PORTAL_CHILD__ready:{}", cwd.display());
         assert!(
             wait_for_history(&session, expected.as_bytes(), 1),
             "child did not inherit the prepared cwd and environment"
@@ -1572,19 +1572,19 @@ mod tests {
         });
         let session =
             Session::new(&request, Arc::downgrade(&state)).expect("test session should start");
-        session.write_input(b"unsetopt zle; stty -echo; printf '__VAULTTY_SETUP__\\n'\n");
-        let setup_complete = wait_for_history(&session, b"__VAULTTY_SETUP__", 2);
+        session.write_input(b"unsetopt zle; stty -echo; printf '__PORTAL_SETUP__\\n'\n");
+        let setup_complete = wait_for_history(&session, b"__PORTAL_SETUP__", 2);
         if setup_complete {
             session.write_input(
-                b"/usr/bin/perl -e '$SIG{INT}=sub {}; system q(stty raw -echo); print qq(__VAULTTY_RAW_READY__\\n); while (!defined sysread(STDIN, $c, 1)) { next if $!{EINTR}; die $! } print qq(__VAULTTY_CTRL_C_RECEIVED__\\n)'\n",
+                b"/usr/bin/perl -e '$SIG{INT}=sub {}; system q(stty raw -echo); print qq(__PORTAL_RAW_READY__\\n); while (!defined sysread(STDIN, $c, 1)) { next if $!{EINTR}; die $! } print qq(__PORTAL_CTRL_C_RECEIVED__\\n)'\n",
             );
         }
-        let ready = setup_complete && wait_for_history(&session, b"__VAULTTY_RAW_READY__", 1);
+        let ready = setup_complete && wait_for_history(&session, b"__PORTAL_RAW_READY__", 1);
         if ready {
             session.interrupt();
         }
         let received_ctrl_c =
-            ready && wait_for_history(&session, b"__VAULTTY_CTRL_C_RECEIVED__", 1);
+            ready && wait_for_history(&session, b"__PORTAL_CTRL_C_RECEIVED__", 1);
         session.kill();
 
         assert!(setup_complete, "test shell did not finish setup");
@@ -1610,8 +1610,8 @@ mod tests {
             Session::new(&request, Arc::downgrade(&state)).expect("test session should start");
         let (client, events) = mpsc::channel();
         session.attach_client(client);
-        session.write_input(b"unsetopt zle; stty -echo; printf '__VAULTTY_SETUP__\\n'\n");
-        let setup_complete = wait_for_history(&session, b"__VAULTTY_SETUP__", 2);
+        session.write_input(b"unsetopt zle; stty -echo; printf '__PORTAL_SETUP__\\n'\n");
+        let setup_complete = wait_for_history(&session, b"__PORTAL_SETUP__", 2);
         if setup_complete {
             session.write_input(
                 b"printf '\\033]133;C;test\\a'; sleep 30; printf '\\033]133;D;0\\a'\n",

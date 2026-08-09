@@ -1,28 +1,28 @@
 import Foundation
 import Testing
-@testable import VaulttyCore
+@testable import PortalCore
 
-@Suite("Vaultty block transcript")
-struct VaulttyBlockTranscriptTests {
+@Suite("Portal block transcript")
+struct PortalBlockTranscriptTests {
     @Test("parser emits typed markers in order and resets partial input")
     func typedMarkers() {
-        var parser = VaulttyMarkerParser()
+        var parser = PortalMarkerParser()
         let cwd = Data("/repo\n".utf8).base64EncodedString()
         let command = Data("echo hi".utf8).base64EncodedString()
 
         #expect(parser.consume("before\u{1B}]133;R;\(cwd)\u{7}\u{1B}]13") == [
             .text("before"),
-            .marker(VaulttyMarker(rawValue: "R;\(cwd)")),
+            .marker(PortalMarker(rawValue: "R;\(cwd)")),
         ])
         #expect(parser.consume("3;C;\(command)\u{7}\u{1B}]133;D;wat\u{7}") == [
-            .marker(VaulttyMarker(rawValue: "C;\(command)")),
-            .marker(VaulttyMarker(rawValue: "D;wat")),
+            .marker(PortalMarker(rawValue: "C;\(command)")),
+            .marker(PortalMarker(rawValue: "D;wat")),
         ])
-        #expect(VaulttyMarker(rawValue: "R;\(cwd)").kind == .shellReady(cwd: "/repo"))
-        #expect(VaulttyMarker(rawValue: "C;\(command)").kind == .commandStarted(command: "echo hi"))
-        #expect(VaulttyMarker(rawValue: "P;bad").kind == .cwdChanged(nil))
-        #expect(VaulttyMarker(rawValue: "D;wat").kind == .commandFinished(status: -1))
-        #expect(VaulttyMarker(rawValue: "X;a;b").kind == .unknown(code: "X", payload: "a;b"))
+        #expect(PortalMarker(rawValue: "R;\(cwd)").kind == .shellReady(cwd: "/repo"))
+        #expect(PortalMarker(rawValue: "C;\(command)").kind == .commandStarted(command: "echo hi"))
+        #expect(PortalMarker(rawValue: "P;bad").kind == .cwdChanged(nil))
+        #expect(PortalMarker(rawValue: "D;wat").kind == .commandFinished(status: -1))
+        #expect(PortalMarker(rawValue: "X;a;b").kind == .unknown(code: "X", payload: "a;b"))
 
         _ = parser.consume("\u{1B}]133;C;partial")
         parser.reset()
@@ -31,7 +31,7 @@ struct VaulttyBlockTranscriptTests {
 
     @Test("reconstructs blocks when markers are split across network chunks")
     func splitMarkers() throws {
-        var transcript = VaulttyBlockTranscript()
+        var transcript = PortalBlockTranscript()
         let cwd = Data("/repo".utf8).base64EncodedString()
         let command = Data("printf 'hello'".utf8).base64EncodedString()
 
@@ -48,7 +48,7 @@ struct VaulttyBlockTranscriptTests {
 
     @Test("strips styling and excludes alternate-screen contents")
     func terminalRendering() throws {
-        var transcript = VaulttyBlockTranscript()
+        var transcript = PortalBlockTranscript()
         let command = Data("less file".utf8).base64EncodedString()
 
         transcript.consume("\u{1B}]133;C;\(command)\u{7}")
@@ -65,7 +65,7 @@ struct VaulttyBlockTranscriptTests {
 
     @Test("application cursor mode survives semantic history")
     func applicationCursorModeHistory() throws {
-        var transcript = VaulttyBlockTranscript()
+        var transcript = PortalBlockTranscript()
         let command = Data("vi ./foo.ext".utf8).base64EncodedString()
 
         transcript.consume("\u{1B}]133;C;\(command)\u{7}\u{1B}[?1h\u{1B}[?1049h")
@@ -73,7 +73,7 @@ struct VaulttyBlockTranscriptTests {
 
         let encoded = try JSONEncoder().encode(RemoteTerminalHistory(transcript: transcript))
         let history = try JSONDecoder().decode(RemoteTerminalHistory.self, from: encoded)
-        var restored = VaulttyBlockTranscript()
+        var restored = PortalBlockTranscript()
         restored.restore(history)
         #expect(restored.isApplicationCursorModeActive)
 
@@ -83,7 +83,7 @@ struct VaulttyBlockTranscriptTests {
 
     @Test("carriage returns replace progress output instead of accumulating it")
     func carriageReturnProgress() throws {
-        var transcript = VaulttyBlockTranscript()
+        var transcript = PortalBlockTranscript()
         let command = Data("git pull".utf8).base64EncodedString()
 
         transcript.consume("\u{1B}]133;C;\(command)\u{7}")
@@ -103,7 +103,7 @@ struct VaulttyBlockTranscriptTests {
 
     @Test("a subsequent command closes an incomplete historical block")
     func incompleteHistory() throws {
-        var transcript = VaulttyBlockTranscript()
+        var transcript = PortalBlockTranscript()
         let first = Data("first".utf8).base64EncodedString()
         let second = Data("second".utf8).base64EncodedString()
 
@@ -117,14 +117,14 @@ struct VaulttyBlockTranscriptTests {
 
     @Test("semantic history restores final output and parser continuation")
     func semanticHistoryContinuation() throws {
-        var transcript = VaulttyBlockTranscript()
+        var transcript = PortalBlockTranscript()
         let command = Data("git pull".utf8).base64EncodedString()
 
         transcript.consume("\u{1B}]133;C;\(command)\u{7}Receiving: 10%\r")
         transcript.consume("\u{1B}[")
         let history = RemoteTerminalHistory(transcript: transcript, maximumTextBytes: 1024)
 
-        var restored = VaulttyBlockTranscript()
+        var restored = PortalBlockTranscript()
         restored.restore(history)
         restored.consume("2KReceiving: 100%\nDone\n\u{1B}]133;D;0\u{7}")
 
@@ -135,7 +135,7 @@ struct VaulttyBlockTranscriptTests {
 
     @Test("semantic history bounds text while preserving newest commands")
     func semanticHistoryLimit() throws {
-        var transcript = VaulttyBlockTranscript()
+        var transcript = PortalBlockTranscript()
         let first = Data("first".utf8).base64EncodedString()
         let second = Data("second".utf8).base64EncodedString()
 

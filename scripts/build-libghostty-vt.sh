@@ -74,7 +74,7 @@ echo "Building libghostty-vt" | tee -a "$LOG_FILE"
 set +e
 (
   cd "$GHOSTTY_DIR"
-  VAULTTY_REAL_ZIG="$ZIG" \
+  PORTAL_REAL_ZIG="$ZIG" \
   SDKROOT="$SDKROOT_PATH" \
   "$runner" \
     "$WRAPPER" \
@@ -82,7 +82,7 @@ set +e
     "$GHOSTTY_DIR" \
     "$GHOSTTY_DIR/.zig-cache" \
     "$GLOBAL_CACHE" \
-    -Zvaulttyghosttyvt01 \
+    -Zportalghosttyvt01 \
     lib-vt \
     -Dtarget=aarch64-macos.15.0 \
     -Doptimize=ReleaseFast \
@@ -112,7 +112,7 @@ if [[ $build_status -ne 0 ]] && rg -q 'zig ld -dynamic .*libghostty-vt' "$LOG_FI
     )
     extracted=()
     remaining_archives=()
-    extract_root="$GHOSTTY_DIR/.zig-cache/vaultty-archive-objects"
+    extract_root="$GHOSTTY_DIR/.zig-cache/portal-archive-objects"
     rm -rf "$extract_root"
     mkdir -p "$extract_root"
     archive_index=0

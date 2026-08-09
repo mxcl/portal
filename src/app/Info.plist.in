@@ -8,7 +8,7 @@
   <key>CFBundleExecutable</key>
   <string>Portal</string>
   <key>CFBundleIdentifier</key>
-  <string>com.automicvault.vaultty</string>
+  <string>dev.mxcl.portal</string>
   <key>CFBundleIconFile</key>
   <string>Portal</string>
   <key>CFBundleInfoDictionaryVersion</key>

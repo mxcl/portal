@@ -7,7 +7,7 @@
   <key>CFBundleExecutable</key>
   <string>portal-sessiond</string>
   <key>CFBundleIdentifier</key>
-  <string>com.automicvault.portal.sessiond</string>
+  <string>dev.mxcl.portal.sessiond</string>
   <key>CFBundleIconFile</key>
   <string>Portal</string>
   <key>CFBundleInfoDictionaryVersion</key>

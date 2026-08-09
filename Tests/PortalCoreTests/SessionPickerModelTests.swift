@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import VaulttyCore
+@testable import PortalCore
 
 private actor LocalLoadSequence {
     private var values: [[SessionPickerCandidate]?]

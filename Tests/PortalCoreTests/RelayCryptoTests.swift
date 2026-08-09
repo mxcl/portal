@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 import Testing
-@testable import VaulttyCore
+@testable import PortalCore
 
 @Suite("Relay cryptography")
 struct RelayCryptoTests {
@@ -53,11 +53,11 @@ struct RelayCryptoTests {
     func publishedVector() throws {
         let crypto = try RelayCrypto(rootKeyData: rootKey)
         let envelope = try crypto.seal(
-            Data("Vaultty test vector".utf8),
+            Data("Portal test vector".utf8),
             purpose: "session",
             nonceData: Data((0..<12).map(UInt8.init))
         )
 
-        #expect(envelope.combined.base64EncodedString() == "AAECAwQFBgcICQoLag4ThItv2wpRtP7eU5+pr2vH+/eTnIXjivJB8N34tnk3iy4=")
+        #expect(envelope.combined.base64EncodedString() == "AAECAwQFBgcICQoLuUsVBmsVIHDcbyzzNNBgkvF0fITUc+LJ9S7RDdlr2i9oaw==")
     }
 }

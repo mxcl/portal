@@ -4,12 +4,12 @@
 <plist version="1.0">
 <dict>
   <key>com.apple.application-identifier</key>
-  <string>ZU76A67LGU.com.automicvault.vaultty</string>
+  <string>ZU76A67LGU.dev.mxcl.portal</string>
   <key>com.apple.developer.team-identifier</key>
   <string>ZU76A67LGU</string>
   <key>keychain-access-groups</key>
   <array>
-    <string>ZU76A67LGU.com.automicvault.vaultty</string>
+    <string>ZU76A67LGU.dev.mxcl.portal</string>
   </array>
   <key>com.apple.security.app-sandbox</key>
   <false/>

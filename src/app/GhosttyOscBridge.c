@@ -1,16 +1,16 @@
 #include <stdint.h>
 #include <string.h>
 
-#if VAULTTY_WITH_GHOSTTY
+#if PORTAL_WITH_GHOSTTY
 #include <ghostty/vt.h>
 #endif
 
-int32_t vaultty_ghostty_osc_command_type(const char *payload) {
+int32_t portal_ghostty_osc_command_type(const char *payload) {
   if (payload == 0) {
     return 0;
   }
 
-#if VAULTTY_WITH_GHOSTTY
+#if PORTAL_WITH_GHOSTTY
   GhosttyOscParser parser;
   if (ghostty_osc_new(0, &parser) != GHOSTTY_SUCCESS) {
     return 0;

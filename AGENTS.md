@@ -4,7 +4,7 @@
 
 ## Protocol compatibility
 
-Vaultty has four independently deployed protocol seams: the app-to-session-daemon wire protocol, relay messages and catalogs, the encrypted relay envelope, and SSH helpers. A release must tolerate one adjacent release of version skew at each seam.
+Portal has four independently deployed protocol seams: the app-to-session-daemon wire protocol, relay messages and catalogs, the encrypted relay envelope, and SSH helpers. A release must tolerate one adjacent release of version skew at each seam.
 
 - Do not promise permanent compatibility. Support the current and immediately previous released protocol where version skew can occur.
 - Keep the session wire protocol usable in both upgrade directions: the current client with the previous daemon and the previous client with the current daemon. Before incrementing its version, add negotiation or fallback and test both pairings.

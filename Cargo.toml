@@ -1,5 +1,5 @@
 [package]
-name = "vaultty"
+name = "portal"
 version = "0.22.0"
 edition = "2024"
 
@@ -36,5 +36,5 @@ name = "portal-session-bridge"
 path = "src/session_bridge/main.rs"
 
 [[bin]]
-name = "vaultty-relay"
+name = "portal-relay"
 path = "src/relay/main.rs"

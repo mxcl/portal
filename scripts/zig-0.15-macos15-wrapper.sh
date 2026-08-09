@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ -z "${VAULTTY_REAL_ZIG:-}" ]]; then
-  echo "VAULTTY_REAL_ZIG is required" >&2
+if [[ -z "${PORTAL_REAL_ZIG:-}" ]]; then
+  echo "PORTAL_REAL_ZIG is required" >&2
   exit 2
 fi
 
 run_zig() {
-  if [[ -n "${VAULTTY_ZIG_TRACE:-}" ]]; then
-    printf '%q' "$VAULTTY_REAL_ZIG" >>"$VAULTTY_ZIG_TRACE"
-    printf ' %q' "$@" >>"$VAULTTY_ZIG_TRACE"
-    printf '\n' >>"$VAULTTY_ZIG_TRACE"
+  if [[ -n "${PORTAL_ZIG_TRACE:-}" ]]; then
+    printf '%q' "$PORTAL_REAL_ZIG" >>"$PORTAL_ZIG_TRACE"
+    printf ' %q' "$@" >>"$PORTAL_ZIG_TRACE"
+    printf '\n' >>"$PORTAL_ZIG_TRACE"
   fi
-  exec "$VAULTTY_REAL_ZIG" "$@"
+  exec "$PORTAL_REAL_ZIG" "$@"
 }
 
 sdk="${SDKROOT:-}"

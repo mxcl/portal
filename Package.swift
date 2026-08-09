@@ -2,15 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "VaulttySwiftDependencies",
+    name: "PortalSwiftDependencies",
     platforms: [
         .macOS(.v12),
         .iOS("26.1"),
     ],
     products: [
-        .library(name: "VaulttySwiftDependencies", targets: ["VaulttySwiftDependencies"]),
-        .library(name: "VaulttyCore", targets: ["VaulttyCore"]),
-        .library(name: "VaulttyMobile", targets: ["VaulttyMobile"]),
+        .library(name: "PortalSwiftDependencies", targets: ["PortalSwiftDependencies"]),
+        .library(name: "PortalCore", targets: ["PortalCore"]),
+        .library(name: "PortalMobile", targets: ["PortalMobile"]),
     ],
     dependencies: [
         .package(url: "https://github.com/mxcl/AppUpdater.git", from: "2.1.1"),
@@ -18,30 +18,30 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "VaulttySwiftDependencies",
+            name: "PortalSwiftDependencies",
             dependencies: [
                 .product(name: "AppUpdater", package: "AppUpdater"),
             ]
         ),
         .target(
-            name: "VaulttyCore",
+            name: "PortalCore",
             path: "src/core"
         ),
         .target(
-            name: "VaulttyMobile",
+            name: "PortalMobile",
             dependencies: [
-                "VaulttyCore",
+                "PortalCore",
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
             ],
             path: "src/ios"
         ),
         .testTarget(
-            name: "VaulttyCoreTests",
-            dependencies: ["VaulttyCore"]
+            name: "PortalCoreTests",
+            dependencies: ["PortalCore"]
         ),
         .testTarget(
-            name: "VaulttyMobileTests",
-            dependencies: ["VaulttyMobile"]
+            name: "PortalMobileTests",
+            dependencies: ["PortalMobile"]
         ),
     ]
 )

@@ -10,6 +10,6 @@ swift test
 swift build \
   --triple arm64-apple-ios26.1-simulator \
   --sdk "$IOS_SDK" \
-  --target VaulttyMobile
+  --target PortalMobile
 
 echo "Remote MVP protocol, cryptography, relay fan-out, and Apple client builds passed."

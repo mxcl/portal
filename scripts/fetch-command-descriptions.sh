@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 URL="https://automicvault.com/db.json"
 OUTPUT="$ROOT_DIR/src/app/command-descriptions.json"
 
-tmp="$(mktemp "${TMPDIR:-/tmp}/vaultty-db.XXXXXX.json")"
+tmp="$(mktemp "${TMPDIR:-/tmp}/portal-db.XXXXXX.json")"
 trap 'rm -f "$tmp"' EXIT
 
 curl -L --fail --silent --show-error "$URL" -o "$tmp"

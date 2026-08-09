@@ -3,7 +3,7 @@ import Dispatch
 import Foundation
 
 @main
-struct VaulttyRemoteAgent {
+struct PortalRemoteAgent {
     @MainActor private static var controller: MacRemoteAccessController?
 
     @MainActor

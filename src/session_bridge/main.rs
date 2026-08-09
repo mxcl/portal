@@ -363,7 +363,7 @@ fn abbreviate_home(path: &str) -> String {
 }
 
 fn history_path() -> io::Result<PathBuf> {
-    if let Some(path) = env::var_os("VAULTTY_HISTORY_PATH") {
+    if let Some(path) = env::var_os("PORTAL_HISTORY_PATH") {
         return Ok(PathBuf::from(path));
     }
     let home = env::var_os("HOME")
@@ -374,7 +374,7 @@ fn history_path() -> io::Result<PathBuf> {
         return Ok(home
             .join("Library")
             .join("Application Support")
-            .join("Vaultty")
+            .join("Portal")
             .join("history.json"));
     }
     #[cfg(not(target_os = "macos"))]
@@ -382,7 +382,7 @@ fn history_path() -> io::Result<PathBuf> {
         let state_home = env::var_os("XDG_STATE_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".local").join("state"));
-        Ok(state_home.join("vaultty").join("history.json"))
+        Ok(state_home.join("portal").join("history.json"))
     }
 }
 
@@ -1216,7 +1216,7 @@ fn socket_path() -> io::Result<PathBuf> {
         let state_home = env::var_os("XDG_STATE_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".local").join("state"));
-        Ok(state_home.join("vaultty").join("sessiond.sock"))
+        Ok(state_home.join("portal").join("sessiond.sock"))
     }
 }
 
@@ -1300,9 +1300,9 @@ mod tests {
 
     fn init_git_repo(temp: &TempDir) {
         git(temp, &["init"]);
-        git(temp, &["checkout", "-b", "vaultty-test"]);
-        git(temp, &["config", "user.email", "vaultty@example.invalid"]);
-        git(temp, &["config", "user.name", "Vaultty Test"]);
+        git(temp, &["checkout", "-b", "portal-test"]);
+        git(temp, &["config", "user.email", "portal@example.invalid"]);
+        git(temp, &["config", "user.name", "Portal Test"]);
         fs::write(temp.path.join("tracked.txt"), b"one\n").expect("tracked file should be written");
         git(temp, &["add", "tracked.txt"]);
         git(temp, &["commit", "-m", "initial"]);
@@ -1554,7 +1554,7 @@ mod tests {
             cwd: temp.path.to_string_lossy().into_owned(),
         });
         let summary = response.summary.expect("git summary should exist");
-        assert_eq!(summary.branch, "vaultty-test");
+        assert_eq!(summary.branch, "portal-test");
         assert!(!summary.is_dirty);
         assert_eq!(summary.insertions, 0);
         assert_eq!(summary.deletions, 0);
@@ -1571,7 +1571,7 @@ mod tests {
             cwd: temp.path.to_string_lossy().into_owned(),
         });
         let summary = response.summary.expect("git summary should exist");
-        assert_eq!(summary.branch, "vaultty-test");
+        assert_eq!(summary.branch, "portal-test");
         assert!(summary.is_dirty);
         assert_eq!(summary.insertions, 1);
         assert_eq!(summary.deletions, 0);
@@ -1581,10 +1581,10 @@ mod tests {
     fn generator_runs_with_cwd_environment_and_output_limit() {
         let temp = TempDir::new("generator");
         let output = run_generator(&GeneratorRequest {
-            command_line: "printf '%s:%s' \"$VAULTTY_TEST_VALUE\" \"$(pwd)\"".to_owned(),
+            command_line: "printf '%s:%s' \"$PORTAL_TEST_VALUE\" \"$(pwd)\"".to_owned(),
             cwd: temp.path.to_string_lossy().into_owned(),
             environment: Some(vec![EnvironmentPair {
-                key: "VAULTTY_TEST_VALUE".to_owned(),
+                key: "PORTAL_TEST_VALUE".to_owned(),
                 value: "remote".to_owned(),
             }]),
             timeout_ms: Some(2_000),

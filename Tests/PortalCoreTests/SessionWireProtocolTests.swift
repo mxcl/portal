@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import VaulttyCore
+@testable import PortalCore
 
 @Suite("Session wire protocol")
 struct SessionWireProtocolTests {
@@ -29,7 +29,7 @@ struct SessionWireProtocolTests {
             shellPath: "/bin/sh",
             environment: [:]
         )).split(separator: " ")
-        #expect(try decode(String(#require(emptyEnvironmentAttach.last))) == "VAULTTY=")
+        #expect(try decode(String(#require(emptyEnvironmentAttach.last))) == "PORTAL=")
         #expect(SessionWireProtocol.encode(.resize(rows: 24, cols: 80)) == "RESIZE 24 80")
         #expect(SessionWireProtocol.encode(.interrupt) == "INTERRUPT")
         #expect(SessionWireProtocol.encode(.clearHistory) == "CLEAR_HISTORY")

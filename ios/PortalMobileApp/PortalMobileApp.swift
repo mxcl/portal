@@ -1,11 +1,11 @@
 import SwiftUI
-import VaulttyMobile
+import PortalMobile
 
 @main
-struct VaulttyMobileApp: App {
+struct PortalMobileApp: App {
     var body: some Scene {
         WindowGroup {
-            VaulttyMobileRootView()
+            PortalMobileRootView()
                 .preferredColorScheme(.dark)
         }
     }

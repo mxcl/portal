@@ -3,9 +3,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_HOST="${DEPLOY_HOST:-atlas}"
-REMOTE_ROOT="${REMOTE_ROOT:-/apps/vaultty-relay}"
+REMOTE_ROOT="${REMOTE_ROOT:-/apps/portal-relay}"
 RELAY_PORT="${RELAY_PORT:-3006}"
-PUBLIC_HOSTNAME="${PUBLIC_HOSTNAME:-vaultty-relay.mxcl.dev}"
+PUBLIC_HOSTNAME="${PUBLIC_HOSTNAME:-portal-relay.mxcl.dev}"
 ATLAS_PUBLIC_IPS="${ATLAS_PUBLIC_IPS:-16.58.147.215 13.59.178.38}"
 REVISION="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
 RELEASE_ID="${REVISION}-$(date -u +%Y%m%d%H%M%S)"
@@ -62,23 +62,23 @@ release_dir="$2"
 relay_port="$3"
 public_hostname="$4"
 atlas_public_ips="$5"
-service_name="vaultty-relay"
-service_user="vaultty-relay"
+service_name="portal-relay"
+service_user="portal-relay"
 
 cd "$release_dir/source"
-cargo build --locked --release --bin vaultty-relay
+cargo build --locked --release --bin portal-relay
 sudo install -o root -g root -m 0755 \
-  target/release/vaultty-relay \
-  "$release_dir/vaultty-relay"
+  target/release/portal-relay \
+  "$release_dir/portal-relay"
 
 if ! id "$service_user" >/dev/null 2>&1; then
   sudo useradd \
     --system \
-    --home-dir /var/lib/vaultty-relay \
+    --home-dir /var/lib/portal-relay \
     --shell /sbin/nologin \
     "$service_user"
 fi
-sudo install -d -o "$service_user" -g "$service_user" -m 0750 /var/lib/vaultty-relay
+sudo install -d -o "$service_user" -g "$service_user" -m 0750 /var/lib/portal-relay
 
 unit_file="$(mktemp)"
 trap 'rm -f "$unit_file"' EXIT
@@ -93,9 +93,9 @@ Type=simple
 User=$service_user
 Group=$service_user
 WorkingDirectory=$remote_root/current
-Environment=VAULTTY_RELAY_BIND=127.0.0.1:$relay_port
-Environment=VAULTTY_RELAY_DATA_DIR=/var/lib/vaultty-relay
-ExecStart=$remote_root/current/vaultty-relay
+Environment=PORTAL_RELAY_BIND=127.0.0.1:$relay_port
+Environment=PORTAL_RELAY_DATA_DIR=/var/lib/portal-relay
+ExecStart=$remote_root/current/portal-relay
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
@@ -105,7 +105,7 @@ ProtectHome=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/vaultty-relay
+ReadWritePaths=/var/lib/portal-relay
 RestrictSUIDSGID=true
 
 [Install]

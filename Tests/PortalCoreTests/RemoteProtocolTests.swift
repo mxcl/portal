@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import VaulttyCore
+@testable import PortalCore
 
 @Suite("Remote protocol")
 struct RemoteProtocolTests {
@@ -99,7 +99,7 @@ struct RemoteProtocolTests {
         )
 
         #expect(previous.isApplicationCursorModeActive == nil)
-        var transcript = VaulttyBlockTranscript()
+        var transcript = PortalBlockTranscript()
         transcript.restore(previous)
         #expect(!transcript.isApplicationCursorModeActive)
     }

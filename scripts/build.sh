@@ -5,12 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGURATION="${CONFIGURATION:-release}"
 APP_NAME="Portal"
 EXECUTABLE_NAME="Portal"
-APP_BUNDLE_ID="com.automicvault.vaultty"
-SESSION_BRIDGE_ID="com.automicvault.portal.session-bridge"
+APP_BUNDLE_ID="dev.mxcl.portal"
+SESSION_BRIDGE_ID="dev.mxcl.portal.session-bridge"
 LEGACY_SESSION_BRIDGE_ID="com.automicvault.vaultty.session-bridge"
-REMOTE_AGENT_ID="com.automicvault.vaultty.remote-agent"
+REMOTE_AGENT_ID="dev.mxcl.portal.remote-agent"
 APP_KEYCHAIN_ACCESS_GROUP="ZU76A67LGU.$APP_BUNDLE_ID"
-GHOSTTY_PROBE_ID="com.automicvault.vaultty.ghostty-probe"
+GHOSTTY_PROBE_ID="dev.mxcl.portal.ghostty-probe"
 MIN_MACOS_VERSION="26.1"
 FIG_AUTOCOMPLETE_DIR="$ROOT_DIR/target/vendor/fig-autocomplete/package"
 COMMAND_DESCRIPTIONS_FILE="$ROOT_DIR/src/app/command-descriptions.json"
@@ -116,8 +116,8 @@ fi
 if [[ "$NOTARIZE_DMG" == true &&
   ( -z "${APPLE_PASSWORD:-}" || -z "${APPLE_USERNAME:-}" ) &&
   -x /usr/local/bin/av &&
-  -z "${VAULTTY_AV_INJECTED:-}" ]]; then
-  export VAULTTY_AV_INJECTED=1
+  -z "${PORTAL_AV_INJECTED:-}" ]]; then
+  export PORTAL_AV_INJECTED=1
   exec /usr/local/bin/av inject +APPLE_PASSWORD +APPLE_USERNAME /bin/bash "$0" "${ORIGINAL_ARGS[@]}"
 fi
 
@@ -140,7 +140,7 @@ GHOSTTY_PROBE="$HELPERS_DIR/portal-ghostty-probe"
 GHOSTTY_DYLIB="$FRAMEWORKS_DIR/libghostty-vt.dylib"
 GHOSTTY_BRIDGE_OBJECT="$BUILD_DIR/GhosttyOscBridge.o"
 ICON_BUNDLE="$ROOT_DIR/assets/AppIcon.icon"
-ICON_SOURCE="$ICON_BUNDLE/Assets/Vaultty.png"
+ICON_SOURCE="$ICON_BUNDLE/Assets/Portal.png"
 SESSION_ICON_SOURCE="$ROOT_DIR/assets/session-icon.png"
 ICONSET_DIR="$BUILD_DIR/$APP_NAME.iconset"
 COMMAND_DESCRIPTIONS_FILE="$ROOT_DIR/src/app/command-descriptions.json"
@@ -207,7 +207,7 @@ profile_matches_main_app() {
   local profile_path="$1"
   local decoded_path app_identifier team_identifier keychain_groups
 
-  decoded_path="$(mktemp "${TMPDIR:-/tmp}/vaultty-profile.XXXXXX")"
+  decoded_path="$(mktemp "${TMPDIR:-/tmp}/portal-profile.XXXXXX")"
   if ! decode_provisioning_profile "$profile_path" "$decoded_path"; then
     rm -f "$decoded_path"
     return 1
@@ -240,7 +240,7 @@ find_main_app_provisioning_profile() {
 }
 
 resolve_main_app_provisioning_profile() {
-  local profile="${VAULTTY_PROVISIONING_PROFILE:-}"
+  local profile="${PORTAL_PROVISIONING_PROFILE:-}"
   if [[ -n "$profile" ]]; then
     profile="$(normalize_profile_path "$profile")"
     [[ -f "$profile" ]] || die "Portal provisioning profile not found: $profile"
@@ -489,9 +489,9 @@ generate_release_plan() {
   require_tool codex
   require_tool gh
 
-  plan_path="$(mktemp "${TMPDIR:-/tmp}/vaultty-release-plan.XXXXXX")"
-  notes_path="$(mktemp "${TMPDIR:-/tmp}/vaultty-release-notes.XXXXXX")"
-  version_path="$(mktemp "${TMPDIR:-/tmp}/vaultty-release-version.XXXXXX")"
+  plan_path="$(mktemp "${TMPDIR:-/tmp}/portal-release-plan.XXXXXX")"
+  notes_path="$(mktemp "${TMPDIR:-/tmp}/portal-release-notes.XXXXXX")"
+  version_path="$(mktemp "${TMPDIR:-/tmp}/portal-release-version.XXXXXX")"
   target_ref="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 
   if previous_tag="$(latest_release_tag)"; then
@@ -578,7 +578,7 @@ bump_cargo_version() {
 
   cargo update \
     --manifest-path "$ROOT_DIR/Cargo.toml" \
-    -p vaultty \
+    -p portal \
     --precise "$version" \
     >/dev/null
 }
@@ -607,7 +607,7 @@ existing_release_notes_path() {
   local notes_path
 
   require_tool gh
-  notes_path="$(mktemp "${TMPDIR:-/tmp}/vaultty-existing-release-notes.XXXXXX")"
+  notes_path="$(mktemp "${TMPDIR:-/tmp}/portal-existing-release-notes.XXXXXX")"
   gh release view "$tag" --json body --jq '.body // ""' >"$notes_path" ||
     die "--clobber requires an existing GitHub release $tag"
   printf '%s\n' "$notes_path"
@@ -790,7 +790,7 @@ IDENTITY="$(codesign_identity)"
 MAIN_APP_PROVISIONING_PROFILE=""
 if [[ "$IDENTITY" != "-" ]]; then
   if ! MAIN_APP_PROVISIONING_PROFILE="$(resolve_main_app_provisioning_profile)"; then
-    die "No Developer ID provisioning profile found for $APP_BUNDLE_ID with keychain access group $APP_KEYCHAIN_ACCESS_GROUP. Set VAULTTY_PROVISIONING_PROFILE to its path."
+    die "No Developer ID provisioning profile found for $APP_BUNDLE_ID with keychain access group $APP_KEYCHAIN_ACCESS_GROUP. Set PORTAL_PROVISIONING_PROFILE to its path."
   fi
 fi
 
@@ -825,7 +825,7 @@ swift build \
   --package-path "$ROOT_DIR" \
   --configuration "$CONFIGURATION" \
   --build-path "$SWIFT_DEPS_BUILD_PATH" \
-  --target VaulttySwiftDependencies
+  --target PortalSwiftDependencies
 SWIFT_DEPS_BIN_DIR="$(swift build \
   --package-path "$ROOT_DIR" \
   --configuration "$CONFIGURATION" \
@@ -867,7 +867,7 @@ cp "$SESSION_ICON_SOURCE" "$RESOURCES_DIR/session-icon.png"
 bundle_completions
 
 GHOSTTY_SWIFT_LINK_ARGS=()
-GHOSTTY_BRIDGE_FLAGS=(-DVAULTTY_WITH_GHOSTTY=0)
+GHOSTTY_BRIDGE_FLAGS=(-DPORTAL_WITH_GHOSTTY=0)
 
 if [[ "$WITH_GHOSTTY_VT" == true ]]; then
   GHOSTTY_PREFIX="$ROOT_DIR/target/ghostty-vt"
@@ -888,7 +888,7 @@ if [[ "$WITH_GHOSTTY_VT" == true ]]; then
       -Xlinker -rpath
       -Xlinker @executable_path/../Frameworks
     )
-    GHOSTTY_BRIDGE_FLAGS=(-DVAULTTY_WITH_GHOSTTY=1 -I"$GHOSTTY_INCLUDE")
+    GHOSTTY_BRIDGE_FLAGS=(-DPORTAL_WITH_GHOSTTY=1 -I"$GHOSTTY_INCLUDE")
     clang \
       -Os \
       -target "arm64-apple-macos$MIN_MACOS_VERSION" \
@@ -933,8 +933,8 @@ SWIFTC_COMMAND=(
   "$ROOT_DIR/src/core/RemoteProtocol.swift" \
   "$ROOT_DIR/src/core/RemoteSessionCreationClient.swift" \
   "$ROOT_DIR/src/core/RemoteTerminalSessionClient.swift" \
-  "$ROOT_DIR/src/core/VaulttyCommandEnvelope.swift" \
-  "$ROOT_DIR/src/core/VaulttyBlockTranscript.swift" \
+  "$ROOT_DIR/src/core/PortalCommandEnvelope.swift" \
+  "$ROOT_DIR/src/core/PortalBlockTranscript.swift" \
   "$ROOT_DIR/src/core/RelayCrypto.swift" \
   "$ROOT_DIR/src/core/ICloudKeychainRootKey.swift" \
   "$ROOT_DIR/src/core/RelayClient.swift" \
@@ -959,8 +959,8 @@ swiftc \
   "$ROOT_DIR/src/core/SessionWireProtocol.swift" \
   "$ROOT_DIR/src/core/RemoteProtocol.swift" \
   "$ROOT_DIR/src/core/RemoteSessionCreationClient.swift" \
-  "$ROOT_DIR/src/core/VaulttyCommandEnvelope.swift" \
-  "$ROOT_DIR/src/core/VaulttyBlockTranscript.swift" \
+  "$ROOT_DIR/src/core/PortalCommandEnvelope.swift" \
+  "$ROOT_DIR/src/core/PortalBlockTranscript.swift" \
   "$ROOT_DIR/src/core/RelayCrypto.swift" \
   "$ROOT_DIR/src/core/ICloudKeychainRootKey.swift" \
   "$ROOT_DIR/src/core/RelayClient.swift" \
@@ -985,7 +985,7 @@ if [[ -f "$GHOSTTY_DYLIB" ]]; then
 fi
 codesign_runtime "$SESSIOND_APP"
 verify_signature "$SESSIOND_APP"
-[[ "$(plist_value CFBundleIdentifier "$SESSIOND_CONTENTS/Info.plist")" == "com.automicvault.portal.sessiond" ]] ||
+[[ "$(plist_value CFBundleIdentifier "$SESSIOND_CONTENTS/Info.plist")" == "dev.mxcl.portal.sessiond" ]] ||
   die "session helper bundle identifier is invalid"
 [[ "$(plist_value CFBundlePackageType "$SESSIOND_CONTENTS/Info.plist")" == "APPL" ]] ||
   die "session helper package type is invalid"
@@ -1014,7 +1014,7 @@ if [[ -x "$GHOSTTY_PROBE" ]]; then
   verify_signature "$GHOSTTY_PROBE"
 fi
 codesign_runtime \
-  --entitlements "$ROOT_DIR/src/app/vaultty.entitlements" \
+  --entitlements "$ROOT_DIR/src/app/portal.entitlements" \
   --identifier "$APP_BUNDLE_ID" \
   "$APP_DIR"
 verify_signature "$APP_DIR"

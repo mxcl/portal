@@ -2,10 +2,10 @@
   "version": 1,
   "algorithm": "HKDF-SHA256 + AES-256-GCM",
   "rootKeyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-  "hkdfSaltUtf8": "vaultty-relay-v1",
+  "hkdfSaltUtf8": "portal-relay-v1",
   "purposeUtf8": "session",
-  "authenticatedDataUtf8": "vaultty:1:session",
+  "authenticatedDataUtf8": "portal:1:session",
   "nonceHex": "000102030405060708090a0b",
-  "plaintextUtf8": "Vaultty test vector",
-  "combinedBase64": "AAECAwQFBgcICQoLag4ThItv2wpRtP7eU5+pr2vH+/eTnIXjivJB8N34tnk3iy4="
+  "plaintextUtf8": "Portal test vector",
+  "combinedBase64": "AAECAwQFBgcICQoLuUsVBmsVIHDcbyzzNNBgkvF0fITUc+LJ9S7RDdlr2i9oaw=="
 }

@@ -74,18 +74,18 @@ require_fixture "parse_attach_v2_tracks_client_role_and_version" "$ROOT_DIR/src/
 require_fixture "previous_session_metadata_decodes_without_command_recency" "$ROOT_DIR/src/sessiond/main.rs"
 require_fixture "session_protocol_capability_parses_daemon_versions" "$ROOT_DIR/src/session_bridge/main.rs"
 require_fixture "assert_current_bridge_previous_daemon" "$ROOT_DIR/scripts/test-session-protocol-compatibility.sh"
-require_fixture "adjacentVersionNegotiation" "$ROOT_DIR/Tests/VaulttyCoreTests/SessionWireProtocolTests.swift"
-require_fixture "remoteAgentBridgeRouting" "$ROOT_DIR/Tests/VaulttyCoreTests/SessionWireProtocolTests.swift"
-require_fixture "unknownMessageKindsDecode" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
-require_fixture "previousRelayMessagesDecode" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
-require_fixture "previousCommandRecencyFieldsDecode" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
-require_fixture "previousDaemonKeepsClientCommandRecency" "$ROOT_DIR/Tests/VaulttyCoreTests/SessionPickerModelTests.swift"
-require_fixture "currentPhonePreviousMacHistoryCompatibility" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
-require_fixture "previousPhoneCurrentMacHistoryFallback" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
-require_fixture "phoneSemanticHistory" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteTerminalSessionClientTests.swift"
-require_fixture "previousRelayInterruptFallback" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteTerminalSessionClientTests.swift"
-require_fixture "terminalSnapshotRoundTrip" "$ROOT_DIR/Tests/VaulttyCoreTests/RemoteProtocolTests.swift"
-require_fixture "publishedVector" "$ROOT_DIR/Tests/VaulttyCoreTests/RelayCryptoTests.swift"
+require_fixture "adjacentVersionNegotiation" "$ROOT_DIR/Tests/PortalCoreTests/SessionWireProtocolTests.swift"
+require_fixture "remoteAgentBridgeRouting" "$ROOT_DIR/Tests/PortalCoreTests/SessionWireProtocolTests.swift"
+require_fixture "unknownMessageKindsDecode" "$ROOT_DIR/Tests/PortalCoreTests/RemoteProtocolTests.swift"
+require_fixture "previousRelayMessagesDecode" "$ROOT_DIR/Tests/PortalCoreTests/RemoteProtocolTests.swift"
+require_fixture "previousCommandRecencyFieldsDecode" "$ROOT_DIR/Tests/PortalCoreTests/RemoteProtocolTests.swift"
+require_fixture "previousDaemonKeepsClientCommandRecency" "$ROOT_DIR/Tests/PortalCoreTests/SessionPickerModelTests.swift"
+require_fixture "currentPhonePreviousMacHistoryCompatibility" "$ROOT_DIR/Tests/PortalCoreTests/RemoteProtocolTests.swift"
+require_fixture "previousPhoneCurrentMacHistoryFallback" "$ROOT_DIR/Tests/PortalCoreTests/RemoteProtocolTests.swift"
+require_fixture "phoneSemanticHistory" "$ROOT_DIR/Tests/PortalCoreTests/RemoteTerminalSessionClientTests.swift"
+require_fixture "previousRelayInterruptFallback" "$ROOT_DIR/Tests/PortalCoreTests/RemoteTerminalSessionClientTests.swift"
+require_fixture "terminalSnapshotRoundTrip" "$ROOT_DIR/Tests/PortalCoreTests/RemoteProtocolTests.swift"
+require_fixture "publishedVector" "$ROOT_DIR/Tests/PortalCoreTests/RelayCryptoTests.swift"
 require_fixture "urgent_send_broadcasts_opaque_bytes" "$ROOT_DIR/src/relay/main.rs"
 
 echo "Running Rust protocol tests"
@@ -102,8 +102,8 @@ if [[ -n "$BASE_REF" ]]; then
   git -C "$ROOT_DIR" rev-parse --verify --quiet "$BASE_REF^{commit}" >/dev/null ||
     die "baseline $BASE_REF is not a commit"
 
-  baseline_dir="$(mktemp -d "${TMPDIR:-/tmp}/vaultty-protocol-baseline.XXXXXX")"
-  audit_path="$(mktemp "${TMPDIR:-/tmp}/vaultty-protocol-audit.XXXXXX")"
+  baseline_dir="$(mktemp -d "${TMPDIR:-/tmp}/portal-protocol-baseline.XXXXXX")"
+  audit_path="$(mktemp "${TMPDIR:-/tmp}/portal-protocol-audit.XXXXXX")"
   cleanup() {
     rm -rf "$baseline_dir"
     rm -f "$audit_path"
@@ -163,9 +163,9 @@ if [[ -n "$BASE_REF" ]]; then
     src/app/MacRemoteAccessController.swift
     src/app/RelayTerminalSession.swift
     src/ios/MobileRemoteModel.swift
-    Tests/VaulttyCoreTests/SessionWireProtocolTests.swift
-    Tests/VaulttyCoreTests/RemoteProtocolTests.swift
-    Tests/VaulttyCoreTests/RelayCryptoTests.swift
+    Tests/PortalCoreTests/SessionWireProtocolTests.swift
+    Tests/PortalCoreTests/RemoteProtocolTests.swift
+    Tests/PortalCoreTests/RelayCryptoTests.swift
   )
 
   if ! git -C "$ROOT_DIR" diff --quiet "$BASE_REF..HEAD" -- "${protocol_paths[@]}"; then
@@ -176,7 +176,7 @@ if [[ -n "$BASE_REF" ]]; then
       --color never \
       --ephemeral \
       --output-last-message "$audit_path" \
-      "Audit Vaultty protocol compatibility for the release diff $BASE_REF..HEAD.
+      "Audit Portal protocol compatibility for the release diff $BASE_REF..HEAD.
 
 Treat the Protocol compatibility section in AGENTS.md as mandatory. Inspect the diff and relevant tests. Check adjacent-release skew in both directions for the session wire protocol, additive and tolerant relay messages/catalogs, retained relay-envelope readers, daemon upgrade behavior, and SSH helper compatibility. Do not edit files. Perform this focused audit directly; do not invoke skills or delegate to subagents.
 

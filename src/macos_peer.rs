@@ -18,8 +18,10 @@ const CLIENT_REQUIREMENT: &str = concat!(
     "certificate 1[field.1.2.840.113635.100.6.2.6] exists and ",
     "certificate leaf[field.1.2.840.113635.100.6.1.13] exists and ",
     "certificate leaf[subject.OU] = \"ZU76A67LGU\" and ",
-    "(identifier \"com.automicvault.vaultty\" or ",
-    "identifier \"com.automicvault.portal.session-bridge\" or ",
+    "(identifier \"dev.mxcl.portal\" or ",
+    "identifier \"dev.mxcl.portal.session-bridge\" or ",
+    "identifier \"dev.mxcl.portal.remote-agent\" or ",
+    "identifier \"com.automicvault.vaultty\" or ",
     "identifier \"com.automicvault.vaultty.session-bridge\" or ",
     "identifier \"com.automicvault.vaultty.remote-agent\")",
 );
@@ -30,7 +32,7 @@ const SERVER_REQUIREMENT: &str = concat!(
     "certificate 1[field.1.2.840.113635.100.6.2.6] exists and ",
     "certificate leaf[field.1.2.840.113635.100.6.1.13] exists and ",
     "certificate leaf[subject.OU] = \"ZU76A67LGU\" and ",
-    "identifier \"com.automicvault.portal.sessiond\"",
+    "identifier \"dev.mxcl.portal.sessiond\"",
 );
 
 #[cfg(target_os = "macos")]

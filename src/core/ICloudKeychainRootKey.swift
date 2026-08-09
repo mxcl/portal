@@ -8,7 +8,7 @@ public enum ICloudKeychainError: Error, Equatable {
 }
 
 public struct ICloudKeychainRootKey {
-    public static let service = "com.automicvault.vaultty.remote"
+    public static let service = "dev.mxcl.portal.remote"
     public static let account = "account-root-key-v1"
 
     public init() {}

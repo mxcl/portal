@@ -6,8 +6,8 @@ import StoreKit
 @MainActor
 @Observable
 public final class MobileStore {
-    public static let monthlyProductID = "app.vaultty.remote.monthly"
-    public static let annualProductID = "app.vaultty.remote.annual"
+    public static let monthlyProductID = "dev.mxcl.portal.remote.monthly"
+    public static let annualProductID = "dev.mxcl.portal.remote.annual"
 
     public private(set) var products: [Product] = []
     public private(set) var hasEntitlement = false

@@ -161,9 +161,25 @@ final class MacRemoteAccessController {
             }
             catalogTask = Task { [weak self] in
                 guard let self else { return }
-                let catalog = try? RelayCatalogClient(endpoint: endpoint, rootKeyData: key)
+                let catalog: RelayCatalogClient
+                do {
+                    catalog = try RelayCatalogClient(endpoint: endpoint, rootKeyData: key)
+                } catch {
+                    remoteAccessLogger.error(
+                        "Portal remote catalog could not start: \(String(describing: error), privacy: .public)"
+                    )
+                    return
+                }
                 while !Task.isCancelled {
-                    try? await catalog?.update { self.catalogData(merging: $0) }
+                    do {
+                        try await catalog.update { self.catalogData(merging: $0) }
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        remoteAccessLogger.error(
+                            "Portal remote catalog update failed: \(String(describing: error), privacy: .public)"
+                        )
+                    }
                     try? await Task.sleep(for: .seconds(2))
                 }
             }

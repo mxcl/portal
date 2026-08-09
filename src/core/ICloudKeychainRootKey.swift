@@ -9,7 +9,7 @@ public enum ICloudKeychainError: Error, Equatable {
 
 public struct ICloudKeychainRootKey {
     public static let service = "dev.mxcl.portal.remote"
-    public static let account = "account-root-key-v1"
+    public static let account = "account-root-key-v2"
 
     public init() {}
 
@@ -34,7 +34,7 @@ public struct ICloudKeychainRootKey {
 
     private func load() -> Result<Data, ICloudKeychainError> {
         var query = primaryKey
-        query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+        query[kSecAttrSynchronizable as String] = true
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?

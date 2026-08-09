@@ -939,6 +939,7 @@ SWIFTC_COMMAND=(
   "$ROOT_DIR/src/core/RelayCrypto.swift" \
   "$ROOT_DIR/src/core/ICloudKeychainRootKey.swift" \
   "$ROOT_DIR/src/core/RelayClient.swift" \
+  "$ROOT_DIR/src/core/RemoteAgentLock.swift" \
   "$ROOT_DIR/src/app/PtySession.swift" \
   "$ROOT_DIR/src/app/MacRemoteAccessController.swift" \
   "$ROOT_DIR/src/app/RelayTerminalSession.swift" \
@@ -965,6 +966,7 @@ swiftc \
   "$ROOT_DIR/src/core/RelayCrypto.swift" \
   "$ROOT_DIR/src/core/ICloudKeychainRootKey.swift" \
   "$ROOT_DIR/src/core/RelayClient.swift" \
+  "$ROOT_DIR/src/core/RemoteAgentLock.swift" \
   "$ROOT_DIR/src/app/PtySession.swift" \
   "$ROOT_DIR/src/app/MacRemoteAccessController.swift" \
   -o "$HELPERS_DIR/portal-remote-agent"

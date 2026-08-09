@@ -5,10 +5,13 @@ import Foundation
 @main
 struct PortalRemoteAgent {
     @MainActor private static var controller: MacRemoteAccessController?
+    private static var singletonLock: RemoteAgentLock?
 
     @MainActor
     static func main() {
-        guard acquireSingletonLock() else { return }
+        let lockPath = "/tmp/portal-remote-agent-\(getuid()).lock"
+        guard let lock = RemoteAgentLock.acquire(path: lockPath, waitingUpTo: 5) else { return }
+        singletonLock = lock
         let arguments = ProcessInfo.processInfo.arguments
         guard let macID = value(after: "--mac-id", in: arguments),
               let endpointValue = value(after: "--endpoint", in: arguments),
@@ -27,10 +30,4 @@ struct PortalRemoteAgent {
         return arguments[index + 1]
     }
 
-    private static func acquireSingletonLock() -> Bool {
-        let path = "/tmp/portal-remote-agent-\(getuid()).lock"
-        let descriptor = open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
-        guard descriptor >= 0, flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return false }
-        return true
-    }
 }

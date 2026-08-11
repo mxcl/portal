@@ -3809,6 +3809,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var isApplyingCompletion = false
     private var isShowingResizeTooltip = false
     private var tabMouseDownMonitor: Any?
+    private var draggedTabID: UUID?
+    private var draggedTabPointerOffsetX: CGFloat = 0
     private var sessionPickerMouseDownMonitor: Any?
     private var commandFocusMonitor: Any?
     private var updateButtonWidthConstraint: NSLayoutConstraint?
@@ -3829,6 +3831,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(TerminalViewController.historyCompletionReplacementRangeSelfTest())
         assert(PortalCompletionEngine.historyMergePrefixSelfTest())
         assert(ShellCompletionParser.midTokenReplacementRangeSelfTest())
+        assert(TerminalViewController.tabReorderDestination(cursorX: 0, tabMidpoints: [10, 20, 30]) == 0)
+        assert(TerminalViewController.tabReorderDestination(cursorX: 10, tabMidpoints: [10, 20, 30]) == 1)
+        assert(TerminalViewController.tabReorderDestination(cursorX: 25, tabMidpoints: [10, 20, 30]) == 2)
+        assert(TerminalViewController.tabReorderDestination(cursorX: 40, tabMidpoints: [10, 20, 30]) == 2)
         let shellEnvironment = inheritedShellEnvironment([
             "PAGER": "cat",
             "GIT_PAGER": "cat",
@@ -5510,25 +5516,81 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func installTabMouseDownMonitor() {
-        tabMouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+        tabMouseDownMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+        ) { [weak self] event in
             guard let self,
                   event.window === self.view.window
             else {
                 return event
             }
 
-            guard let clickedTarget = self.tabClickTarget(atWindowPoint: event.locationInWindow) else {
+            switch event.type {
+            case .leftMouseDown:
+                self.draggedTabID = nil
+                guard let clickedTarget = self.tabClickTarget(atWindowPoint: event.locationInWindow) else {
+                    return event
+                }
+                switch clickedTarget {
+                case .select(let id):
+                    self.draggedTabID = id
+                    if let button = self.tabButtons[id] {
+                        let pointerX = self.titleTabStack.convert(event.locationInWindow, from: nil).x
+                        self.draggedTabPointerOffsetX = pointerX - button.frame.midX
+                    }
+                    self.activateTab(id)
+                case .close(let id):
+                    _ = self.closeTab(withID: id)
+                }
+                return nil
+            case .leftMouseDragged:
+                guard let draggedTabID = self.draggedTabID else { return event }
+                self.reorderTab(draggedTabID, atWindowPoint: event.locationInWindow)
+                return nil
+            case .leftMouseUp:
+                guard self.draggedTabID != nil else { return event }
+                self.draggedTabID = nil
+                return nil
+            default:
                 return event
             }
-
-            switch clickedTarget {
-            case .select(let id):
-                self.activateTab(id)
-            case .close(let id):
-                _ = self.closeTab(withID: id)
-            }
-            return nil
         }
+    }
+
+    private func reorderTab(_ id: UUID, atWindowPoint windowPoint: NSPoint) {
+        guard tabs.count > 1,
+              let sourceIndex = tabs.firstIndex(where: { $0.id == id })
+        else {
+            return
+        }
+        let cursorX = titleTabStack.convert(windowPoint, from: nil).x - draggedTabPointerOffsetX
+        let midpoints = tabs.compactMap { tabButtons[$0.id]?.frame.midX }
+        guard midpoints.count == tabs.count,
+              let destinationIndex = Self.tabReorderDestination(
+                cursorX: cursorX,
+                tabMidpoints: midpoints
+              ),
+              destinationIndex != sourceIndex,
+              let button = tabButtons[id]
+        else {
+            return
+        }
+
+        tabs.insert(tabs.remove(at: sourceIndex), at: destinationIndex)
+        titleTabStack.removeArrangedSubview(button)
+        button.removeFromSuperview()
+        titleTabStack.insertArrangedSubview(button, at: destinationIndex)
+        layoutTabStripBeforeMeasuringSelection()
+        updateActiveTabCutoutFrame()
+        persistSessionState()
+    }
+
+    private static func tabReorderDestination(
+        cursorX: CGFloat,
+        tabMidpoints: [CGFloat]
+    ) -> Int? {
+        guard !tabMidpoints.isEmpty else { return nil }
+        return tabMidpoints.firstIndex(where: { cursorX < $0 }) ?? tabMidpoints.count - 1
     }
 
     private func installSessionPickerMouseDownMonitor() {

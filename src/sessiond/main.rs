@@ -435,12 +435,18 @@ impl Session {
 
         let mut terminal = self.terminal.lock().expect("terminal lock poisoned");
         let history = terminal.snapshot(MAX_SCROLLBACK_LINES).history;
-        if history_has_unfinished_command(&history) {
+        let completion = if history_has_unfinished_command(&history) {
             // ponytail: exit status is unknown for old incomplete replays; 0 restores input.
-            terminal.record(SYNTHETIC_COMMAND_FINISHED_MARKER.to_vec());
-        }
+            let bytes = SYNTHETIC_COMMAND_FINISHED_MARKER.to_vec();
+            Some((terminal.record(bytes.clone()), bytes))
+        } else {
+            None
+        };
         drop(terminal);
         self.clear_running_command();
+        if let Some((sequence, bytes)) = completion {
+            self.broadcast(SessionEvent::Output { sequence, bytes });
+        }
     }
 
     fn write_input(&self, bytes: &[u8]) {
@@ -1641,6 +1647,60 @@ mod tests {
         assert!(
             completion_reported,
             "shell became idle without reporting the interrupted command's completion"
+        );
+    }
+
+    #[test]
+    fn idle_reconciliation_notifies_attached_clients() {
+        let request = AttachRequest {
+            session_id: "idle-reconciliation-test".to_owned(),
+            cwd: env::temp_dir(),
+            shell: "/bin/zsh".to_owned(),
+            environment: Vec::new(),
+            protocol_version: CURRENT_PROTOCOL_VERSION,
+            client_role: ClientRole::Mac,
+            allows_creation: true,
+        };
+        let state = Arc::new(DaemonState {
+            sessions: Mutex::new(HashMap::new()),
+        });
+        let session =
+            Session::new(&request, Arc::downgrade(&state)).expect("test session should start");
+        let (client, events) = mpsc::channel();
+        session.attach_client(client);
+        let shell_ready = (0..200).any(|_| {
+            let ready = shell_is_foreground(&session);
+            if !ready {
+                thread::sleep(Duration::from_millis(10));
+            }
+            ready
+        });
+        if shell_ready {
+            session
+                .terminal
+                .lock()
+                .expect("terminal lock poisoned")
+                .record(b"\x1b]133;C;test\x07".to_vec());
+            _ = session.metadata_snapshot();
+        }
+        let completion_reported = shell_ready
+            && loop {
+                match events.recv_timeout(Duration::from_secs(2)) {
+                    Ok(SessionEvent::Output { bytes, .. })
+                        if bytes == SYNTHETIC_COMMAND_FINISHED_MARKER =>
+                    {
+                        break true;
+                    }
+                    Ok(_) => continue,
+                    Err(_) => break false,
+                }
+        };
+        session.kill();
+
+        assert!(shell_ready, "test shell did not become idle");
+        assert!(
+            completion_reported,
+            "idle reconciliation did not notify the attached client"
         );
     }
 

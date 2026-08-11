@@ -3831,10 +3831,21 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(TerminalViewController.historyCompletionReplacementRangeSelfTest())
         assert(PortalCompletionEngine.historyMergePrefixSelfTest())
         assert(ShellCompletionParser.midTokenReplacementRangeSelfTest())
-        assert(TerminalViewController.tabReorderDestination(cursorX: 0, tabMidpoints: [10, 20, 30]) == 0)
-        assert(TerminalViewController.tabReorderDestination(cursorX: 10, tabMidpoints: [10, 20, 30]) == 1)
-        assert(TerminalViewController.tabReorderDestination(cursorX: 25, tabMidpoints: [10, 20, 30]) == 2)
-        assert(TerminalViewController.tabReorderDestination(cursorX: 40, tabMidpoints: [10, 20, 30]) == 2)
+        assert(TerminalViewController.tabReorderDestination(
+            sourceIndex: 0,
+            draggedCenterX: 60,
+            tabMidpoints: [50, 220]
+        ) == 0)
+        assert(TerminalViewController.tabReorderDestination(
+            sourceIndex: 0,
+            draggedCenterX: 221,
+            tabMidpoints: [50, 220]
+        ) == 1)
+        assert(TerminalViewController.tabReorderDestination(
+            sourceIndex: 1,
+            draggedCenterX: 221,
+            tabMidpoints: [120, 290]
+        ) == 1)
         let shellEnvironment = inheritedShellEnvironment([
             "PAGER": "cat",
             "GIT_PAGER": "cat",
@@ -5563,11 +5574,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         else {
             return
         }
-        let cursorX = titleTabStack.convert(windowPoint, from: nil).x - draggedTabPointerOffsetX
+        let draggedCenterX = titleTabStack.convert(windowPoint, from: nil).x - draggedTabPointerOffsetX
         let midpoints = tabs.compactMap { tabButtons[$0.id]?.frame.midX }
         guard midpoints.count == tabs.count,
               let destinationIndex = Self.tabReorderDestination(
-                cursorX: cursorX,
+                sourceIndex: sourceIndex,
+                draggedCenterX: draggedCenterX,
                 tabMidpoints: midpoints
               ),
               destinationIndex != sourceIndex,
@@ -5586,11 +5598,14 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private static func tabReorderDestination(
-        cursorX: CGFloat,
+        sourceIndex: Int,
+        draggedCenterX: CGFloat,
         tabMidpoints: [CGFloat]
     ) -> Int? {
-        guard !tabMidpoints.isEmpty else { return nil }
-        return tabMidpoints.firstIndex(where: { cursorX < $0 }) ?? tabMidpoints.count - 1
+        guard tabMidpoints.indices.contains(sourceIndex) else { return nil }
+        return tabMidpoints.indices.filter {
+            $0 != sourceIndex && draggedCenterX > tabMidpoints[$0]
+        }.count
     }
 
     private func installSessionPickerMouseDownMonitor() {

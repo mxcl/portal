@@ -2831,6 +2831,7 @@ private final class TerminalOutputProcessor {
 
     private let queue = DispatchQueue(label: "dev.mxcl.portal.output-render", qos: .userInitiated)
     private let flushDelay: DispatchTimeInterval
+    private let inputFeedbackFlushDelay: DispatchTimeInterval = .milliseconds(2)
     private let terminalScreen = Ansi.TerminalScreen(rows: 30, cols: 100)
     private let styledRenderer = Ansi.StyledTextRenderer(rows: 30)
     private var pendingShellOutput = ""
@@ -2929,14 +2930,11 @@ private final class TerminalOutputProcessor {
         }
 
         pendingShellOutput += text
-        if consumeInputFeedbackPriority() {
-            flushPendingShellOutputOnQueue()
-            return
-        }
+        let delay = consumeInputFeedbackPriority() ? inputFeedbackFlushDelay : flushDelay
         guard !isShellOutputFlushScheduled else { return }
 
         isShellOutputFlushScheduled = true
-        queue.asyncAfter(deadline: .now() + flushDelay) { [weak self] in
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.flushPendingShellOutputOnQueue()
         }
     }
@@ -3152,13 +3150,12 @@ private final class TerminalOutputProcessor {
 
     static func inputFeedbackPrioritySelfTest() -> Bool {
         let processor = TerminalOutputProcessor()
-        guard processor.queue.sync(execute: { !processor.consumeInputFeedbackPriority() }) else {
-            return false
-        }
-        processor.prioritizeNextOutputForInput()
         return processor.queue.sync {
-            processor.consumeInputFeedbackPriority()
-                && !processor.consumeInputFeedbackPriority()
+            processor.isInputFeedbackPending = true
+            processor.enqueueShellOutputOnQueue("\u{1B}[41;130H~@k")
+            guard processor.pendingShellOutput.hasSuffix("~@k") else { return false }
+            processor.enqueueShellOutputOnQueue("\u{1B}[41;130H   ")
+            return processor.pendingShellOutput.hasSuffix("~@k\u{1B}[41;130H   ")
         }
     }
 

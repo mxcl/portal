@@ -785,49 +785,60 @@ private struct MobilePaywall: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                Image(systemName: "iphone.and.arrow.forward")
-                    .font(.system(size: 54))
-                Text("One terminal everywhere")
-                    .font(.largeTitle.bold())
-                    .multilineTextAlignment(.center)
-                Text("Attach securely to every open Portal Terminal session on your Macs. Includes a 14-day free trial.")
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                if store.isLoading {
-                    ProgressView("Loading subscriptions…")
-                } else if store.products.isEmpty {
-                    VStack(spacing: 8) {
-                        Text("Subscriptions are temporarily unavailable.")
-                            .foregroundStyle(.secondary)
-                        Button("Try Again") {
-                            Task { await store.load() }
-                        }
-                    }
-                } else {
-                    ForEach(store.products, id: \.id) { product in
-                        Button {
-                            Task { await store.purchase(product) }
-                        } label: {
-                            HStack {
-                                Text(product.id == MobileStore.annualProductID ? "Annual" : "Monthly")
-                                Spacer()
-                                Text(product.displayPrice)
+            ScrollView {
+                VStack(spacing: 20) {
+                    Image(systemName: "iphone.and.arrow.forward")
+                        .font(.system(size: 54))
+                    Text("One terminal everywhere")
+                        .font(.largeTitle.bold())
+                        .multilineTextAlignment(.center)
+                    Text("Attach securely to every open Portal Terminal session on your Macs.")
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                    if store.isLoading {
+                        ProgressView("Loading subscriptions…")
+                    } else if store.products.isEmpty {
+                        VStack(spacing: 8) {
+                            Text("Subscriptions are temporarily unavailable.")
+                                .foregroundStyle(.secondary)
+                            Button("Try Again") {
+                                Task { await store.load() }
                             }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
+                    } else {
+                        ForEach(store.products, id: \.id) { product in
+                            Button {
+                                Task { await store.purchase(product) }
+                            } label: {
+                                HStack {
+                                    Text(product.id == MobileStore.annualProductID ? "Annual" : "Monthly")
+                                    Spacer()
+                                    Text("14 days free, then \(product.displayPrice)/\(product.id == MobileStore.annualProductID ? "year" : "month")")
+                                        .font(.subheadline)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                        }
                     }
-                }
-                if let errorMessage = store.errorMessage {
-                    Text(errorMessage)
+                    if let errorMessage = store.errorMessage {
+                        Text(errorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.center)
+                    }
+                    Text("Payment is charged to your Apple Account after the 14-day free trial. Subscriptions renew automatically at the displayed price unless canceled at least 24 hours before the end of the current period. Manage or cancel in App Store account settings.")
                         .font(.footnote)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+                    HStack(spacing: 20) {
+                        Link("Privacy Policy", destination: URL(string: "https://mxcl.dev/portal/security/")!)
+                        Link("Terms of Use", destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
+                    }
+                    Button("Restore Purchases") { Task { await store.restore() } }
                 }
-                Button("Restore Purchases") { Task { await store.restore() } }
+                .padding(24)
             }
-            .padding(24)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }

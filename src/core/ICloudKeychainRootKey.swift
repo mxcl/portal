@@ -11,6 +11,12 @@ public struct ICloudKeychainRootKey {
     public static let service = "dev.mxcl.portal.remote"
     public static let account = "account-root-key-v1"
 
+    public static func hasActiveICloudAccount(
+        identityToken: Any? = FileManager.default.ubiquityIdentityToken
+    ) -> Bool {
+        identityToken != nil
+    }
+
     public init() {}
 
     public func loadOrCreate() throws -> Data {

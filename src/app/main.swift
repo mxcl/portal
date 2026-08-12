@@ -470,6 +470,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
     @objc private func toggleRemoteAccess(_ sender: NSMenuItem) {
         let enabled = !remoteAccessController.isEnabled
+        guard !enabled || ICloudKeychainRootKey.hasActiveICloudAccount() else {
+            let alert = NSAlert()
+            alert.alertStyle = .critical
+            alert.messageText = "Remote Access Requires iCloud"
+            alert.informativeText = "Sign in to your Apple Account in System Settings, then try again."
+            if let window {
+                alert.beginSheetModal(for: window)
+            } else {
+                alert.runModal()
+            }
+            return
+        }
         remoteAccessController.setEnabled(enabled)
         sender.state = enabled ? .on : .off
     }

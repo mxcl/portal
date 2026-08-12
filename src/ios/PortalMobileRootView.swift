@@ -66,6 +66,7 @@ public struct PortalMobileRootView: View {
             .navigationDestination(item: $createdDestination) { destination in
                 MobileSessionView(
                     model: model,
+                    store: store,
                     session: destination.session,
                     mac: destination.mac
                 )
@@ -216,7 +217,12 @@ private struct MobileHostSection: View {
         Section {
             ForEach(mac.sessions) { session in
                 NavigationLink {
-                    MobileSessionView(model: model, session: session, mac: mac)
+                    MobileSessionView(
+                        model: model,
+                        store: store,
+                        session: session,
+                        mac: mac
+                    )
                         .onAppear { model.attach(to: session, on: mac, store: store) }
                 } label: {
                     SessionRow(session: session)
@@ -283,6 +289,7 @@ private struct SessionRow: View {
 
 private struct MobileSessionView: View {
     let model: MobileRemoteModel
+    let store: MobileStore
     let session: RemoteCatalogSession
     let mac: RemoteMac
     @State private var command = ""
@@ -315,6 +322,9 @@ private struct MobileSessionView: View {
         .navigationTitle(session.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.black, for: .navigationBar)
+        .onChange(of: store.hasEntitlement) { _, entitled in
+            if entitled { model.attach(to: session, on: mac, store: store) }
+        }
         .onDisappear { model.detach() }
     }
 

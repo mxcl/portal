@@ -541,6 +541,7 @@ enum Ansi {
         private var isAlternateScreenActive = false
         private var isApplicationCursorModeActive = false
         private var wrapsAtRightMargin = true
+        private var isWrapPending = false
         private var scrollTop = 0
         private var scrollBottom = 0
         private var style = TextStyle()
@@ -577,6 +578,7 @@ enum Ansi {
             cursorCol = min(cursorCol, cols - 1)
             savedCursorRow = min(savedCursorRow, rows - 1)
             savedCursorCol = min(savedCursorCol, cols - 1)
+            isWrapPending = false
             scrollTop = 0
             scrollBottom = rows - 1
         }
@@ -592,6 +594,7 @@ enum Ansi {
             isAlternateScreenActive = false
             isApplicationCursorModeActive = false
             wrapsAtRightMargin = true
+            isWrapPending = false
             scrollTop = 0
             scrollBottom = rows - 1
             attributeCache.removeAll(keepingCapacity: true)
@@ -615,15 +618,19 @@ enum Ansi {
                 case 0x07:
                     index += 1
                 case 0x08:
+                    isWrapPending = false
                     cursorCol = max(0, cursorCol - 1)
                     index += 1
                 case 0x09:
+                    isWrapPending = false
                     cursorCol = min(cols - 1, cursorCol + (8 - cursorCol % 8))
                     index += 1
                 case 0x0A, 0x0B, 0x0C:
+                    isWrapPending = false
                     lineFeed()
                     index += 1
                 case 0x0D:
+                    isWrapPending = false
                     cursorCol = 0
                     index += 1
                 case 0x00..<0x20, 0x7F:
@@ -713,9 +720,14 @@ enum Ansi {
             let privateMode = body.first == "?"
 
             if privateMode {
+                isWrapPending = false
                 let parameters = parseParameters(body.dropFirst())
                 handlePrivateMode(parameters: parameters, final: final)
                 return
+            }
+
+            if final != "m" {
+                isWrapPending = false
             }
 
             switch final {
@@ -795,12 +807,14 @@ enum Ansi {
         }
 
         private func put(_ scalar: Unicode.Scalar) {
+            if isWrapPending {
+                isWrapPending = false
+                cursorCol = 0
+                lineFeed()
+            }
             cells[cursorRow][cursorCol] = Cell(scalar: scalar, style: style)
-                if cursorCol == cols - 1 {
-                if wrapsAtRightMargin {
-                    cursorCol = 0
-                    lineFeed()
-                }
+            if cursorCol == cols - 1 {
+                isWrapPending = wrapsAtRightMargin
             } else {
                 cursorCol += 1
             }
@@ -1082,6 +1096,13 @@ enum Ansi {
         let lower = screen.process("\u{1B}[2J\u{1B}[3;1Hlower", preservesAllRows: true)
         return upper.text.components(separatedBy: "\n").count == 4
             && lower.text.components(separatedBy: "\n").count == 4
+    }
+
+    static func terminalScreenDeferredWrapSelfTest() -> Bool {
+        let screen = TerminalScreen(rows: 2, cols: 3)
+        let filledBottomRow = screen.process("\u{1B}[2;1Hxyz", preservesAllRows: true)
+        let wrapped = screen.process("q", preservesAllRows: true)
+        return filledBottomRow.text == "\nxyz" && wrapped.text == "xyz\nq "
     }
 
     static func alternateScreenSwitches(in text: String) -> [Bool] {

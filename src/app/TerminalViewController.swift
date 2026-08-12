@@ -133,9 +133,10 @@ private final class SessionPickerView: NSView {
 
     weak var sessionPickerStack: NSStackView?
     weak var commandInputView: NSTextView?
+    weak var remoteAccessSwitch: NSSwitch?
     private var selection: Selection?
 
-    static func headerButtonHitTestingSelfTest() -> Bool {
+    static func interactiveControlHitTestingSelfTest() -> Bool {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
         let picker = SessionPickerView(frame: NSRect(x: 20, y: 20, width: 40, height: 40))
         let stack = NSStackView(frame: picker.bounds)
@@ -148,13 +149,17 @@ private final class SessionPickerView: NSView {
             sessionRef: SessionRef(location: .relayMac("test"), sessionID: "second"),
             hostName: "test"
         )
+        let remoteAccessSwitch = NSSwitch(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
         button.frame = NSRect(x: 10, y: 10, width: 20, height: 20)
         picker.sessionPickerStack = stack
+        picker.remoteAccessSwitch = remoteAccessSwitch
         container.addSubview(picker)
         picker.addSubview(stack)
+        picker.addSubview(remoteAccessSwitch)
         stack.addArrangedSubview(header)
         header.addSubview(button)
         return container.hitTest(NSPoint(x: 40, y: 40)) === button
+            && container.hitTest(NSPoint(x: 22, y: 22)) === remoteAccessSwitch
             && picker.selection(for: button) == picker.selection(for: replacement)
     }
 
@@ -180,7 +185,15 @@ private final class SessionPickerView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, alphaValue > 0.01, frame.contains(point) else { return nil }
         let localPoint = convert(point, from: superview)
-        return headerButton(at: localPoint) ?? candidateButton(at: localPoint)
+        return remoteAccessSwitch(at: localPoint)
+            ?? headerButton(at: localPoint)
+            ?? candidateButton(at: localPoint)
+    }
+
+    private func remoteAccessSwitch(at point: NSPoint) -> NSSwitch? {
+        guard let remoteAccessSwitch else { return nil }
+        let switchPoint = remoteAccessSwitch.convert(point, from: self)
+        return remoteAccessSwitch.bounds.contains(switchPoint) ? remoteAccessSwitch : nil
     }
 
     private func headerButton(at point: NSPoint) -> SessionHeaderAddButton? {
@@ -3494,6 +3507,8 @@ private final class TerminalTab {
     let stackView = NSStackView()
     let sessionPickerView = SessionPickerView()
     let sessionPickerStack = NSStackView()
+    let remoteAccessRow = NSStackView()
+    let remoteAccessSwitch = NSSwitch()
     let inputView = CommandInputTextView(frame: .zero)
     let statusLineStack = NSStackView()
     let statusLabel = NSTextField(labelWithString: "Starting shell...")
@@ -3590,6 +3605,7 @@ private final class TerminalTab {
         sessionPickerView.isHidden = true
         sessionPickerView.sessionPickerStack = sessionPickerStack
         sessionPickerView.commandInputView = inputView
+        sessionPickerView.remoteAccessSwitch = remoteAccessSwitch
         sessionPickerView.translatesAutoresizingMaskIntoConstraints = false
 
         sessionPickerStack.orientation = .vertical
@@ -3598,6 +3614,31 @@ private final class TerminalTab {
         sessionPickerStack.distribution = .fill
         sessionPickerStack.translatesAutoresizingMaskIntoConstraints = false
         sessionPickerView.addSubview(sessionPickerStack)
+
+        let remoteAccessTitle = NSTextField(labelWithString: "Remote Access")
+        remoteAccessTitle.font = .systemFont(ofSize: 13, weight: .medium)
+        remoteAccessTitle.textColor = TahoeGlassPalette.titleTextActive
+        let remoteAccessDescription = NSTextField(
+            labelWithString: "Access this Mac from your iPhone through iCloud."
+        )
+        remoteAccessDescription.font = .systemFont(ofSize: 11, weight: .regular)
+        remoteAccessDescription.textColor = TahoeGlassPalette.titleTextActive.withAlphaComponent(0.5)
+        let remoteAccessLabels = NSStackView(views: [remoteAccessTitle, remoteAccessDescription])
+        remoteAccessLabels.orientation = .vertical
+        remoteAccessLabels.alignment = .leading
+        remoteAccessLabels.spacing = 2
+        remoteAccessRow.orientation = .horizontal
+        remoteAccessRow.alignment = .centerY
+        remoteAccessRow.distribution = .fill
+        remoteAccessRow.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+        remoteAccessRow.wantsLayer = true
+        remoteAccessRow.layer?.cornerRadius = 8
+        remoteAccessRow.layer?.backgroundColor = TahoeGlassPalette.titleSegmentHoverFill.cgColor
+        remoteAccessRow.addArrangedSubview(remoteAccessLabels)
+        remoteAccessRow.addArrangedSubview(remoteAccessSwitch)
+        remoteAccessRow.heightAnchor.constraint(equalToConstant: 52).isActive = true
+        remoteAccessSwitch.setAccessibilityLabel("Enable Remote Access")
+        remoteAccessSwitch.setAccessibilityHelp(remoteAccessDescription.stringValue)
 
         inputView.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         inputView.minSize = NSSize(width: 0, height: 44)
@@ -3784,6 +3825,14 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var sessionPickerCandidatesByTab: [UUID: [SessionRef: SessionPickerCandidate]] = [:]
     private var sessionPickerModelsByTab: [UUID: SessionPickerModel] = [:]
     var onInstallStagedUpdate: (() -> Void)?
+    var onSetRemoteAccessEnabled: ((Bool) -> Bool)?
+    var remoteAccessEnabled = false {
+        didSet {
+            tabs.forEach {
+                $0.remoteAccessSwitch.state = remoteAccessEnabled ? .on : .off
+            }
+        }
+    }
     var backgroundBlurEffect = BackgroundBlurEffect.preferred {
         didSet {
             guard isViewLoaded else { return }
@@ -3830,7 +3879,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(Ansi.terminalScreenScrollRegionSelfTest())
         assert(Ansi.terminalScreenFixedHeightSelfTest())
         assert(Ansi.terminalScreenDeferredWrapSelfTest())
-        assert(SessionPickerView.headerButtonHitTestingSelfTest())
+        assert(SessionPickerView.interactiveControlHitTestingSelfTest())
         assert(SessionPickerView.keyboardNavigationSelfTest())
         assert(CompletionPopupController.selectionSelfTest())
         assert(CommandInputTextView.completionPreviewPreservesCaretSelfTest())
@@ -4955,6 +5004,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.commandLifecycle.apply(.cwdChanged(directoryPath))
         tab.findCloseButton.target = self
         tab.findCloseButton.action = #selector(closeFindMode(_:))
+        tab.remoteAccessSwitch.target = self
+        tab.remoteAccessSwitch.action = #selector(toggleRemoteAccess(_:))
+        tab.remoteAccessSwitch.state = remoteAccessEnabled ? .on : .off
         setCommandBarStatusText("Starting shell...", in: tab)
         tab.rootView.isHidden = !activates
         tabs.append(tab)
@@ -5025,20 +5077,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func renderSessionPicker(_ snapshot: SessionPickerSnapshot, for tab: TerminalTab) {
-        guard !snapshot.sections.isEmpty else {
-            tab.canReplaceFreshSession = true
-            tab.sessionPickerView.clearSelection()
-            sessionPickerCandidatesByTab[tab.id] = [:]
-            tab.sessionPickerView.isHidden = true
-            tab.sessionPickerHeightConstraint?.constant = 0
-            for view in tab.sessionPickerStack.arrangedSubviews {
-                tab.sessionPickerStack.removeArrangedSubview(view)
-                view.removeFromSuperview()
-            }
-            tab.rootView.needsLayout = true
-            return
-        }
-
         tab.canReplaceFreshSession = true
         let candidates = snapshot.sections.flatMap { section in
             section.items.map(\.candidate) + [section.newSession].compactMap { $0 }
@@ -5046,9 +5084,15 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         sessionPickerCandidatesByTab[tab.id] = Dictionary(
             uniqueKeysWithValues: candidates.map { ($0.sessionRef, $0) }
         )
-        for view in tab.sessionPickerStack.arrangedSubviews {
+        for view in tab.sessionPickerStack.arrangedSubviews where view !== tab.remoteAccessRow {
             tab.sessionPickerStack.removeArrangedSubview(view)
             view.removeFromSuperview()
+        }
+        if tab.remoteAccessRow.superview == nil {
+            tab.sessionPickerStack.addArrangedSubview(tab.remoteAccessRow)
+            tab.remoteAccessRow.widthAnchor.constraint(
+                equalTo: tab.sessionPickerStack.widthAnchor
+            ).isActive = true
         }
 
         var rowCount = 0
@@ -5129,12 +5173,16 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         tab.sessionPickerView.isHidden = false
         tab.sessionPickerView.restoreSelection()
-        let arrangedViewCount = rowCount + emptyRowCount + snapshot.sections.count
+        let arrangedViewCount = rowCount + emptyRowCount + snapshot.sections.count + 1
         let spacing = max(0, arrangedViewCount - 1) * 10
         tab.sessionPickerHeightConstraint?.constant = CGFloat(
-            16 + (rowCount + emptyRowCount) * 82 + snapshot.sections.count * 20 + spacing
+            68 + (rowCount + emptyRowCount) * 82 + snapshot.sections.count * 20 + spacing
         )
         tab.rootView.needsLayout = true
+    }
+
+    @objc private func toggleRemoteAccess(_ sender: NSSwitch) {
+        remoteAccessEnabled = onSetRemoteAccessEnabled?(sender.state == .on) ?? remoteAccessEnabled
     }
 
     private func hideSessionPicker(for tab: TerminalTab) {
@@ -5144,7 +5192,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         sessionPickerCandidatesByTab.removeValue(forKey: tab.id)
         tab.sessionPickerView.isHidden = true
         tab.sessionPickerHeightConstraint?.constant = 0
-        for view in tab.sessionPickerStack.arrangedSubviews {
+        for view in tab.sessionPickerStack.arrangedSubviews where view !== tab.remoteAccessRow {
             tab.sessionPickerStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }

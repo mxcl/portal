@@ -37,10 +37,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         let selfTestCommand = args.enumerated().first { $0.element == "--self-test" }
             .flatMap { index, _ in args.indices.contains(index + 1) ? args[index + 1] : nil }
         let controller = TerminalViewController(selfTestCommand: selfTestCommand)
-        controller.loadViewIfNeeded()
         controller.onInstallStagedUpdate = { [weak self] in
             self?.confirmInstallStagedUpdate()
         }
+        controller.remoteAccessEnabled = remoteAccessController.isEnabled
+        controller.onSetRemoteAccessEnabled = { [weak self] enabled in
+            self?.setRemoteAccessEnabled(enabled) ?? false
+        }
+        controller.loadViewIfNeeded()
         self.controller = controller
 
         let styleMask: NSWindow.StyleMask = [
@@ -469,7 +473,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     @objc private func toggleRemoteAccess(_ sender: NSMenuItem) {
-        let enabled = !remoteAccessController.isEnabled
+        setRemoteAccessEnabled(!remoteAccessController.isEnabled)
+    }
+
+    @discardableResult
+    private func setRemoteAccessEnabled(_ enabled: Bool) -> Bool {
         guard !enabled || ICloudKeychainRootKey.hasActiveICloudAccount() else {
             let alert = NSAlert()
             alert.alertStyle = .critical
@@ -480,10 +488,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             } else {
                 alert.runModal()
             }
-            return
+            return false
         }
         remoteAccessController.setEnabled(enabled)
-        sender.state = enabled ? .on : .off
+        remoteAccessMenuItem?.state = enabled ? .on : .off
+        controller?.remoteAccessEnabled = enabled
+        return true
     }
 
     func menuWillOpen(_ menu: NSMenu) {

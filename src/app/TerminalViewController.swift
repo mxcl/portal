@@ -1685,6 +1685,14 @@ private final class BlockView: NSView {
         return nil
     }
 
+    func terminalContentSize(fitting viewportSize: NSSize) -> NSSize {
+        layoutSubtreeIfNeeded()
+        return NSSize(
+            width: max(0, viewportSize.width - max(0, bounds.width - outputView.bounds.width)),
+            height: max(0, viewportSize.height - max(0, bounds.height - outputView.bounds.height))
+        )
+    }
+
     private func updateOutputHeight() {
         guard let textContainer = outputView.textContainer,
               let layoutManager = outputView.layoutManager
@@ -7229,11 +7237,16 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let viewport = tab.scrollView.contentView.bounds
         guard viewport.width > 0, viewport.height > 0 else { return nil }
 
+        let contentSize = latestRunningBlock(in: tab)
+            .flatMap { tab.blockViews[$0.id] }
+            .map { $0.terminalContentSize(fitting: viewport.size) }
+            ?? viewport.size
+
         let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         let characterWidth = max(1, ceil(("W" as NSString).size(withAttributes: [.font: font]).width))
         let lineHeight = max(1, ceil(font.ascender - font.descender + font.leading))
-        let cols = UInt16(max(20, Int(viewport.width / characterWidth)))
-        let rows = UInt16(max(5, Int(viewport.height / lineHeight)))
+        let cols = UInt16(max(20, Int(contentSize.width / characterWidth)))
+        let rows = UInt16(max(5, Int(contentSize.height / lineHeight)))
         return TerminalGridSize(rows: rows, cols: cols)
     }
 

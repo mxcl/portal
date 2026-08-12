@@ -3619,7 +3619,7 @@ private final class TerminalTab {
         remoteAccessTitle.font = .systemFont(ofSize: 13, weight: .medium)
         remoteAccessTitle.textColor = TahoeGlassPalette.titleTextActive
         let remoteAccessDescription = NSTextField(
-            labelWithString: "Access this Mac from your iPhone through iCloud."
+            labelWithString: "Access this Mac from your iPhone and other Macs through iCloud."
         )
         remoteAccessDescription.font = .systemFont(ofSize: 11, weight: .regular)
         remoteAccessDescription.textColor = TahoeGlassPalette.titleTextActive.withAlphaComponent(0.5)

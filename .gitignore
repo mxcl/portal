@@ -4,3 +4,5 @@
 /zig-cache/
 /.DS_Store
 *.xcuserdatad/
+/output/
+/.playwright-cli/

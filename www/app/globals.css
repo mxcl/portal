@@ -304,6 +304,7 @@ h1 span {
 .autocomplete h2,
 .beauty h2,
 .craft h2,
+.pricing h2,
 .linux h2 {
   margin: 0;
   max-width: 1100px;
@@ -809,6 +810,61 @@ h1 span {
   line-height: 1.55;
 }
 
+.pricing {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: clamp(60px, 9vw, 160px);
+  padding: clamp(110px, 14vw, 220px) clamp(22px, 7vw, 126px);
+  background: #f0f1ee;
+  color: #08090c;
+}
+
+.pricing .section-kicker {
+  color: #61646d;
+}
+
+.pricing h2 {
+  font-size: clamp(55px, 6.4vw, 105px);
+}
+
+.pricing p:last-child {
+  max-width: 470px;
+  margin-top: 38px;
+  color: #5e626b;
+  font-size: 18px;
+  line-height: 1.6;
+}
+
+.pricing table {
+  width: 100%;
+  align-self: center;
+  border-collapse: collapse;
+}
+
+.pricing tr {
+  border-bottom: 1px solid #acafb6;
+}
+
+.pricing tr:first-child {
+  border-top: 1px solid #acafb6;
+}
+
+.pricing th,
+.pricing td {
+  padding: 28px 0;
+  font-size: clamp(18px, 2vw, 28px);
+}
+
+.pricing th {
+  font-weight: 500;
+  text-align: left;
+}
+
+.pricing td {
+  font-weight: 650;
+  text-align: right;
+}
+
 .linux {
   position: relative;
   display: grid;
@@ -1163,7 +1219,8 @@ footer {
   .sync,
   .autocomplete,
   .beauty,
-  .craft {
+  .craft,
+  .pricing {
     grid-template-columns: 1fr;
   }
 

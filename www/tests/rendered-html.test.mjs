@@ -30,6 +30,10 @@ test("server-renders the Portal landing page", async () => {
   assert.match(html, /Built by Mac/);
   assert.match(html, /creator of Homebrew/);
   assert.match(html, /Closed tabs come back\./);
+  assert.match(html, /Portal for Mac<\/th><td>Free forever/);
+  assert.match(html, /Portal for iPhone<\/th><td>3 days free/);
+  assert.match(html, /Monthly<\/th><td>\$4\.99\/mo/);
+  assert.match(html, /Annual<\/th><td>\$39\.99\/yr/);
   assert.match(html, /Linux is through the next portal\./);
   assert.match(html, /portal-icon\.png/);
   assert.match(html, /portal-electric/);

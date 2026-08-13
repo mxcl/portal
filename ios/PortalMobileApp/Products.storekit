@@ -62,22 +62,6 @@
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "78000100",
-          "introductoryOffer" : {
-            "billingPlanType" : "BILLED_UPFRONT",
-            "internalID" : "78000111",
-            "numberOfPeriods" : 1,
-            "paymentMode" : "free",
-            "subscriptionPeriod" : "P2W"
-          },
-          "introductoryOffers" : [
-            {
-              "billingPlanType" : "BILLED_UPFRONT",
-              "internalID" : "78000111",
-              "numberOfPeriods" : 1,
-              "paymentMode" : "free",
-              "subscriptionPeriod" : "P2W"
-            }
-          ],
           "localizations" : [
             {
               "description" : "Secure access to open Portal Terminal sessions.",
@@ -119,7 +103,7 @@
             "internalID" : "78000211",
             "numberOfPeriods" : 1,
             "paymentMode" : "free",
-            "subscriptionPeriod" : "P2W"
+            "subscriptionPeriod" : "P3D"
           },
           "introductoryOffers" : [
             {
@@ -127,7 +111,7 @@
               "internalID" : "78000211",
               "numberOfPeriods" : 1,
               "paymentMode" : "free",
-              "subscriptionPeriod" : "P2W"
+              "subscriptionPeriod" : "P3D"
             }
           ],
           "localizations" : [

@@ -813,8 +813,13 @@ private struct MobilePaywall: View {
                                 HStack {
                                     Text(product.id == MobileStore.annualProductID ? "Annual" : "Monthly")
                                     Spacer()
-                                    Text("14 days free, then \(product.displayPrice)/\(product.id == MobileStore.annualProductID ? "year" : "month")")
-                                        .font(.subheadline)
+                                    if product.id == MobileStore.annualProductID {
+                                        Text("3 days free, then \(product.displayPrice)/year")
+                                            .font(.subheadline)
+                                    } else {
+                                        Text("\(product.displayPrice)/month")
+                                            .font(.subheadline)
+                                    }
                                 }
                             }
                             .buttonStyle(.borderedProminent)
@@ -827,7 +832,7 @@ private struct MobilePaywall: View {
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.center)
                     }
-                    Text("Payment is charged to your Apple Account after the 14-day free trial. Subscriptions renew automatically at the displayed price unless canceled at least 24 hours before the end of the current period. Manage or cancel in App Store account settings.")
+                    Text("Monthly payment is charged to your Apple Account at purchase. Annual payment is charged after the 3-day free trial. Subscriptions renew automatically at the displayed price unless canceled at least 24 hours before the end of the current period. Manage or cancel in App Store account settings.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)

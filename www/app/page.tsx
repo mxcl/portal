@@ -278,8 +278,39 @@ export default function Home() {
         </ul>
       </section>
 
+      <section className="pricing" id="pricing">
+        <div>
+          <p className="section-kicker">07 / Pricing</p>
+          <h2>Simple pricing.</h2>
+          <p>
+            Try Portal for iPhone free for three days with annual billing.
+            Monthly billing starts immediately.
+          </p>
+        </div>
+        <table>
+          <tbody>
+            <tr>
+              <th scope="row">Portal for Mac</th>
+              <td>Free forever</td>
+            </tr>
+            <tr>
+              <th scope="row">Portal for iPhone</th>
+              <td>3 days free</td>
+            </tr>
+            <tr>
+              <th scope="row">Monthly</th>
+              <td>$4.99/mo</td>
+            </tr>
+            <tr>
+              <th scope="row">Annual</th>
+              <td>$39.99/yr</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
       <section className="linux">
-        <span>07 / NEXT DESTINATION</span>
+        <span>08 / NEXT DESTINATION</span>
         <h2>Linux is through the next portal.</h2>
         <p>Coming soon.</p>
         <a className="primary-action" href="#top">

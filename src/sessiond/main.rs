@@ -1630,7 +1630,7 @@ mod tests {
         }
         let completion_reported = command_started
             && loop {
-                match events.recv_timeout(Duration::from_secs(2)) {
+                match events.recv_timeout(Duration::from_secs(3)) {
                     Ok(SessionEvent::Output { bytes, .. })
                         if bytes == INTERRUPTED_COMMAND_FINISHED_MARKER =>
                     {

@@ -1,113 +1,78 @@
 # Portal
 
-`Portal` is a macOS block terminal for Automic Vault workflows.
+A native block terminal for Mac whose sessions survive closed tabs, app relaunches, and device changes.
 
-The app owns command input and renders command output as blocks. It uses a
-persistent shell process and private OSC lifecycle markers.
+[Download Portal for macOS][download]
 
-![Portal Terminal screenshot](assets/screenshot1.webp)
+> [!IMPORTANT]
+> Portal 1.0 requires macOS 26.1 or newer. GitHub releases contain the Mac app; this repository also contains the iPhone app.
 
-![Portal Terminal screenshot](assets/screenshot2.webp)
+![Portal showing terminal sessions as command blocks](assets/screenshot1.webp)
 
-## Features
+## Install
 
-- The macOS Tahoe appearance you’ve been waiting for.
-  Proper (occluding) blur, vibrancy, and translucency.
-- [Warp](https://warp.dev) style blocks
-- [Fig](https://fig.io) autocompletions †
-- [libghostty](https://github.com/mitchellh/ghostty) as the tty layer
-- Persistent shell sessions that survive closed tabs and app quits
+1. Download the latest DMG.
+2. Drag Portal to Applications.
+3. Open it.
+
+## Your shell keeps running
+
+Portal renders each command and its output as a block while the shell runs in a separate `portal-sessiond` process.
+
+Close a tab with `⌘W` and reopen it with `⌘⇧T`. Quit Portal and come back later. Typing `exit` ends the session; closing its window only detaches.
+
+The new-tab screen lists every live session, including its working directory, recent command, and host.
+
+![Portal session picker](assets/screenshot2.webp)
+
+## Rejoin from another Mac or iPhone
+
+Turn on **Remote Access** in the new-tab screen or the Portal menu. Macs signed in to the same Apple Account then appear in Portal on your other devices. You can attach to a live session or start a new one.
+
+Portal creates the remote-access key on your device and syncs it through iCloud Keychain. Portal encrypts terminal traffic and session catalogs before they reach the relay. The Mac makes outbound connections; Portal opens no terminal listener on your LAN.
 
 > [!WARNING]
->
-> † Portal Terminal executes bundled Fig completion generator commands through
-> a login shell for compatibility with specs that rely on shell quoting, pipes,
-> redirects, and command syntax. Completion specs and custom generators can
-> therefore execute shell code. For relay-backed sessions, those generators run
-> on the remote Mac as the signed-in user over the existing encrypted relay
-> connection. Only use completion specs you trust.
+> Read the [security model][security] and feel contented before enabling Remote Access.
 
-## Sessions Survive Tabs
+The relay implementation and wire protocol are in this repository. Portal does not support self-hosted relays yet.
 
-Closed tabs persist until you type `exit`. This means you can unclose tabs with
-⌘⇧T. Even after restarting the app. Even across different machines.
+## Completions without shell setup
 
-Tabs detach from a Portal-owned `portal-sessiond` helper. The helper keeps the
-PTY alive, and Portal can rejoin it later with terminal history and session
-metadata.
+Portal combines executable names, shell builtins, command history, paths, and bundled [Fig completion specs][fig] as you type. The same completions work when you attach to another Mac.
 
-New tabs show existing sessions above the command bar. Pick one to join it; the
-fresh shell created for that new tab is discarded.
+> [!WARNING]
+> Fig generators can execute shell code. A generator for a remote session runs as your user on that Mac. Use completion specs you trust.
 
-## Remote Sessions
+## Build from source
 
-Portal can also list and attach to sessions owned by your Unix account on
-configured SSH hosts. The app does not open a LAN terminal listener and does not
-store SSH passwords or private keys; SSH host keys, agent keys, and account
-authorization remain the trust boundary.
-
-Use `Sessions > Manage SSH Hosts...` to add a host. Enrollment verifies:
+You need macOS 26.1, Xcode, and Rust.
 
 ```sh
-ssh -o BatchMode=yes -T user@host 'portal-session-bridge --version'
+$ scripts/build.sh --debug --run
 ```
 
-If the bridge is missing, Portal saves the host as unenrolled and shows an
-install command. The remote side needs both helpers in the same directory:
+> [!NOTE]
+> The full app build currently needs Portal's Developer ID Application identity and matching provisioning profile because the app authenticates its session daemon by code signature. You can build and test the Swift and Rust cores without them. You can run your own relay if you prefer… it’s not trivial tho.
+
+Run the Swift and Rust tests:
 
 ```sh
-portal-session-bridge
-portal-sessiond
+$ swift test
+$ cargo test
 ```
 
-Once enrolled, remote sessions appear in the new-tab session picker alongside
-local sessions. Each enrolled host also has a **New session** card that starts
-a fresh login shell in the remote account's home directory. Attaching is a full
-terminal attach over `ssh -T`; the remote `portal-session-bridge` proxies the
-existing Portal Terminal line protocol to the remote user's private
-`portal-sessiond` Unix socket.
-
-Remote Portal shells intercept the `code` command:
+Protocol changes must also pass the release gate:
 
 ```sh
-code .
-code src/app/TerminalViewController.swift
+$ scripts/validate-protocol-compatibility.sh
 ```
 
-When you run `code PATH` in a session attached from another Mac, Portal opens
-VS Code on the Mac in front of you with the matching Remote SSH folder or file.
-VS Code's `code` command and Remote SSH extension must be installed locally.
-
-## Build
+For build, DMG, notarization, and publishing options:
 
 ```sh
-scripts/build.sh --release
+$ scripts/build.sh --help
 ```
 
-The build script signs the app with the first installed Developer ID Application
-identity, or the identity specified by `CODESIGN_IDENTITY`.
-
-## Versioning
-
-`Cargo.toml` is the source of truth. By default, `scripts/build.sh --publish` asks Codex
-for release notes and the next semantic version based on changes since the last
-release, updates `Cargo.toml` and `Cargo.lock`, commits `vX.Y.Z`, pushes the
-branch, then publishes GitHub release tag `vX.Y.Z` from the built app bundle.
-With `--clobber`, it rebuilds and replaces the existing GitHub release for the
-current Cargo version without asking Codex for notes or a new version.
-`scripts/build.sh` stamps the Cargo version into `CFBundleShortVersionString`
-and sets `CFBundleVersion` from the git commit count.
-
-## Ghostty Integration
-
-```sh
-scripts/build-libghostty-vt.sh
-scripts/build.sh --release --with-ghostty-vt
-```
-
-`libghostty-vt` is pinned to Ghostty `v1.3.1`, whose `build.zig.zon` requires
-Zig `0.15.2`. `scripts/fetch-zig-0.15.2.sh` downloads the official arm64 macOS
-Zig tarball and verifies its SHA-256 checksum. If Zig `0.15.2` cannot link
-against the installed macOS SDK, the Ghostty build fails loudly and logs to
-`target/logs/libghostty-vt-build.log` instead of silently shipping a terminal
-that only pretends to use Ghostty.
+[download]: https://github.com/mxcl/portal/releases/latest
+[fig]: https://github.com/withfig/autocomplete
+[security]: docs/remote-access-threat-model.md

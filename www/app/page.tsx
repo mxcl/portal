@@ -31,10 +31,22 @@ export default function Home() {
             iPhone. Your Macs appear automatically through iCloud—no Portal
             account, no setup, no configuration. Just open the app.
           </p>
-          <a className="primary-action" href="#inside">
-            Enter Portal
-            <span aria-hidden="true">↓</span>
-          </a>
+          <div className="download-actions">
+            <a
+              className="primary-action"
+              href="https://github.com/mxcl/portal/releases/latest"
+            >
+              Download for macOS
+              <span aria-hidden="true">↓</span>
+            </a>
+            <a
+              className="primary-action"
+              href="https://apps.apple.com/app/id6800348258"
+            >
+              Download for iPhone
+              <span aria-hidden="true">↗</span>
+            </a>
+          </div>
         </div>
 
         <div className="portal-stage" aria-hidden="true">

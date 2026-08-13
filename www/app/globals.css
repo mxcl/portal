@@ -188,6 +188,12 @@ h1 span {
     box-shadow 180ms ease;
 }
 
+.download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .primary-action:hover,
 .primary-action:focus-visible {
   border-color: #c9efff;
@@ -1251,10 +1257,16 @@ footer {
     backdrop-filter: none;
   }
 
-  .hero-copy .primary-action {
+  .hero-copy .download-actions {
     grid-row: 5;
     justify-self: start;
+    margin-right: 22px;
+    margin-left: 22px;
     margin-bottom: 110px;
+  }
+
+  .hero-copy .download-actions .primary-action {
+    margin: 0;
   }
 
   .statement-copy {

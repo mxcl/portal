@@ -34,6 +34,8 @@ test("server-renders the Portal landing page", async () => {
   assert.match(html, /portal-icon\.png/);
   assert.match(html, /portal-electric/);
   assert.match(html, /poster="\/portal-terminal-natural-loop\.jpg"/);
+  assert.match(html, /https:\/\/github\.com\/mxcl\/portal\/releases\/latest/);
+  assert.match(html, /https:\/\/apps\.apple\.com\/app\/id6800348258/);
   assert.doesNotMatch(
     html,
     /codex-preview|Your site is taking shape|never leaves|still running/i,

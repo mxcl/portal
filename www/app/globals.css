@@ -233,6 +233,7 @@ h1 span {
     black 69%,
     transparent 83%
   );
+  transform: translateY(2.6em);
 }
 
 .portal-electric {

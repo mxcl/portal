@@ -1,4 +1,7 @@
 import { ElectricPortal } from "@/components/ElectricPortal";
+import Link from "next/link";
+
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 export default function Home() {
   return (
@@ -10,7 +13,7 @@ export default function Home() {
         </a>
         <div className="header-meta">
           <span>MAC + IPHONE</span>
-          <a href="/security">SECURITY</a>
+          <Link href="/security">SECURITY</Link>
           <a href="#inside">SEE INSIDE</a>
         </div>
       </header>
@@ -51,7 +54,11 @@ export default function Home() {
 
         <div className="portal-stage" aria-hidden="true">
           <div className="portal-aura" />
-          <img className="portal-core" src="/portal-icon.png" alt="" />
+          <img
+            className="portal-core"
+            src={`${basePath}/portal-icon.png`}
+            alt=""
+          />
           <ElectricPortal className="portal-electric" />
           <div className="portal-flare" />
         </div>
@@ -88,8 +95,8 @@ export default function Home() {
             <span>REJOIN ANYWHERE</span>
           </div>
           <video
-            src="/portal-terminal-natural-loop.webm"
-            poster="/portal-terminal-natural-loop.jpg"
+            src={`${basePath}/portal-terminal-natural-loop.webm`}
+            poster={`${basePath}/portal-terminal-natural-loop.jpg`}
             aria-label="Portal showing terminal sessions ready to rejoin"
             autoPlay
             loop
@@ -217,7 +224,7 @@ export default function Home() {
         </div>
         <div className="beauty-shot">
           <img
-            src="/session-blocks.webp"
+            src={`${basePath}/session-blocks.webp`}
             alt="Portal’s translucent macOS interface over a colorful desktop"
           />
         </div>
@@ -287,7 +294,7 @@ export default function Home() {
           <strong>PORTAL</strong>
         </a>
         <p>
-          <a href="/security">SECURITY</a>
+          <Link href="/security">SECURITY</Link>
         </p>
         <p>© 2026</p>
       </footer>

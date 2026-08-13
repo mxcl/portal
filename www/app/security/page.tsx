@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Security — Portal",
@@ -28,11 +29,11 @@ export default function Security() {
   return (
     <main className="security-page">
       <header className="security-header">
-        <a className="brand" href="/" aria-label="Portal home">
+        <Link className="brand" href="/" aria-label="Portal home">
           <span aria-hidden="true">&gt;_</span>
           <strong>PORTAL</strong>
-        </a>
-        <a href="/">BACK TO PORTAL</a>
+        </Link>
+        <Link href="/">BACK TO PORTAL</Link>
       </header>
 
       <article className="security-article">
@@ -216,10 +217,10 @@ export default function Security() {
       </article>
 
       <footer>
-        <a className="brand" href="/">
+        <Link className="brand" href="/">
           <span aria-hidden="true">&gt;_</span>
           <strong>PORTAL</strong>
-        </a>
+        </Link>
         <p>SECURITY MODEL</p>
         <p>© 2026</p>
       </footer>

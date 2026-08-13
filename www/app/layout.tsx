@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -18,21 +20,23 @@ export const metadata: Metadata = {
   description:
     "A terminal app for Mac and iPhone that finds your Macs automatically. Open or rejoin shells with no SSH setup.",
   icons: {
-    icon: "/portal-icon.png",
-    apple: "/portal-icon.png",
+    icon: `${basePath}/portal-icon.png`,
+    apple: `${basePath}/portal-icon.png`,
   },
   openGraph: {
     title: "Portal — Give your Mac a portal",
     description:
       "A terminal app for Mac and iPhone that finds your Macs automatically. No SSH setup or configuration.",
-    images: [{ url: "/og.png", width: 1730, height: 909, alt: "Portal" }],
+    images: [
+      { url: `${basePath}/og.png`, width: 1730, height: 909, alt: "Portal" },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "Portal — Give your Mac a portal",
     description:
       "A terminal app for Mac and iPhone that finds your Macs automatically. No SSH setup or configuration.",
-    images: ["/og.png"],
+    images: [`${basePath}/og.png`],
   },
 };
 

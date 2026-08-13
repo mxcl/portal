@@ -99,6 +99,7 @@ struct SessionPickerModelTests {
     @Test("loads relay sessions")
     func loadsRelaySessions() async throws {
         let model = SessionPickerModel()
+        let updated = AsyncSignal()
         var snapshots: [SessionPickerSnapshot] = []
 
         model.refresh(
@@ -116,10 +117,15 @@ struct SessionPickerModelTests {
                 )]
             },
             isAvailable: { _ in true },
-            onUpdate: { snapshots.append($0) }
+            onUpdate: {
+                snapshots.append($0)
+                if $0.sections.first?.newSession?.action == .createRelay {
+                    Task { await updated.signal() }
+                }
+            }
         )
 
-        try await Task.sleep(nanoseconds: 10_000_000)
+        await updated.wait()
 
         let final = try #require(snapshots.last)
         #expect(final.sections.count == 1)
@@ -132,6 +138,7 @@ struct SessionPickerModelTests {
     @Test("sorts and labels sessions by their latest command")
     func latestCommandFirst() async throws {
         let model = SessionPickerModel()
+        let updated = AsyncSignal()
         var snapshots: [SessionPickerSnapshot] = []
         let olderSession = candidate(
             id: "recent-command",
@@ -153,10 +160,15 @@ struct SessionPickerModelTests {
             loadLocal: { [] },
             loadRelay: { [newerSession, olderSession] },
             isAvailable: { _ in true },
-            onUpdate: { snapshots.append($0) }
+            onUpdate: {
+                snapshots.append($0)
+                if $0.sections.first?.items.count == 2 {
+                    Task { await updated.signal() }
+                }
+            }
         )
 
-        try await Task.sleep(nanoseconds: 10_000_000)
+        await updated.wait()
 
         let items = try #require(snapshots.last?.sections.first?.items)
         #expect(items.map(\.candidate.sessionRef.sessionID) == ["recent-command", "older-command"])
@@ -174,6 +186,7 @@ struct SessionPickerModelTests {
     @Test("keeps command recency when a previous daemon omits it")
     func previousDaemonKeepsClientCommandRecency() async throws {
         let model = SessionPickerModel()
+        let updated = AsyncSignal()
         var snapshots: [SessionPickerSnapshot] = []
         let recentClientSession = candidate(
             id: "av",
@@ -202,10 +215,15 @@ struct SessionPickerModelTests {
             loadLocal: { [previousDaemonSession, otherSession] },
             loadRelay: { [] },
             isAvailable: { _ in true },
-            onUpdate: { snapshots.append($0) }
+            onUpdate: {
+                snapshots.append($0)
+                if $0.sections.first?.items.count == 2 {
+                    Task { await updated.signal() }
+                }
+            }
         )
 
-        try await Task.sleep(nanoseconds: 10_000_000)
+        await updated.wait()
 
         let items = try #require(snapshots.last?.sections.first?.items)
         #expect(items.map(\.candidate.sessionRef.sessionID) == ["av", "other"])
@@ -217,6 +235,7 @@ struct SessionPickerModelTests {
     @Test("deduplicates, groups, sorts, and rejects stale loads")
     func progressiveSnapshots() async throws {
         let model = SessionPickerModel()
+        let updated = AsyncSignal()
         var snapshots: [SessionPickerSnapshot] = []
         let oldRemote = candidate(id: "old", host: "Zulu", date: 1)
         let local = candidate(id: "local", host: "This Mac", date: 2, location: .local)
@@ -242,10 +261,15 @@ struct SessionPickerModelTests {
                 [oldRemote, oldRemote, candidate(id: "alpha", host: "Alpha", date: 3)]
             },
             isAvailable: { _ in true },
-            onUpdate: { snapshots.append($0) }
+            onUpdate: {
+                snapshots.append($0)
+                if $0.sections.map(\.title) == ["Alpha", "Zulu", "This Mac"] {
+                    Task { await updated.signal() }
+                }
+            }
         )
 
-        try await Task.sleep(nanoseconds: 40_000_000)
+        await updated.wait()
 
         let final = try #require(snapshots.last)
         #expect(final.sections.map(\.title) == ["Alpha", "Zulu", "This Mac"])

@@ -675,6 +675,15 @@ create_dmg() {
     >&2
 }
 
+sign_dmg() {
+  local dmg_path="$1"
+  local timestamp_args=(--timestamp)
+
+  [[ "$IDENTITY" != "-" ]] || timestamp_args=()
+  codesign --force "${timestamp_args[@]}" --sign "$IDENTITY" "$dmg_path"
+  verify_signature "$dmg_path"
+}
+
 notarize_dmg() {
   local dmg_path="$1"
   local team_id="${APPLE_TEAM_ID:-}"
@@ -699,6 +708,7 @@ notarize_dmg() {
     "$dmg_path" \
     >&2
   /usr/bin/xcrun stapler staple "$dmg_path" >&2
+  /usr/bin/xcrun stapler validate "$dmg_path" >&2
 }
 
 publish_github_release() {
@@ -1039,6 +1049,7 @@ if [[ "$CREATE_DMG" == true ]]; then
 
   echo "Creating $FINAL_DMG"
   create_dmg "$APP_DIR" "$FINAL_DMG"
+  sign_dmg "$FINAL_DMG"
 
   if [[ "$NOTARIZE_DMG" == true ]]; then
     echo "Notarizing $FINAL_DMG"

@@ -326,6 +326,8 @@ export default function Home() {
         </a>
         <p>
           <Link href="/security">SECURITY</Link>
+          {" / "}
+          <Link href="/privacy">PRIVACY</Link>
         </p>
         <p>© 2026</p>
       </footer>

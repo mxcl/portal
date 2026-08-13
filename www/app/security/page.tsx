@@ -33,7 +33,7 @@ export default function Security() {
           <span aria-hidden="true">&gt;_</span>
           <strong>PORTAL</strong>
         </Link>
-        <Link href="/">BACK TO PORTAL</Link>
+        <Link href="/privacy">PRIVACY POLICY</Link>
       </header>
 
       <article className="security-article">
@@ -221,7 +221,9 @@ export default function Security() {
           <span aria-hidden="true">&gt;_</span>
           <strong>PORTAL</strong>
         </Link>
-        <p>SECURITY MODEL</p>
+        <p>
+          <Link href="/privacy">PRIVACY POLICY</Link>
+        </p>
         <p>© 2026</p>
       </footer>
     </main>

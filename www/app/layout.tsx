@@ -28,7 +28,12 @@ export const metadata: Metadata = {
     description:
       "A terminal app for Mac and iPhone that finds your Macs automatically. No SSH setup or configuration.",
     images: [
-      { url: `${basePath}/og.png`, width: 1730, height: 909, alt: "Portal" },
+      {
+        url: `${basePath}/portal-social-preview.png`,
+        width: 1200,
+        height: 630,
+        alt: "Portal — Give your Mac a portal.",
+      },
     ],
   },
   twitter: {
@@ -36,7 +41,7 @@ export const metadata: Metadata = {
     title: "Portal — Give your Mac a portal",
     description:
       "A terminal app for Mac and iPhone that finds your Macs automatically. No SSH setup or configuration.",
-    images: [`${basePath}/og.png`],
+    images: [`${basePath}/portal-social-preview.png`],
   },
 };
 

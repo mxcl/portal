@@ -247,7 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
         let alert = NSAlert()
         alert.messageText = "Install update?"
-        alert.informativeText = "Portal will quit, install \(stagedUpdate.assetName), and relaunch."
+        alert.informativeText = "Portal will quit, install \(stagedUpdate.assetName), and relaunch. Shell sessions will keep running during the update."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Install and Relaunch")
         alert.addButton(withTitle: "Cancel")

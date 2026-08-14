@@ -18,7 +18,7 @@ test("server-renders the Portal landing page", async () => {
     html,
     /Portal is a delightful, opinionated terminal app for Mac and\s+iPhone/,
   );
-  assert.match(html, /Your Macs appear automatically through iCloud/);
+  assert.match(html, /Start and resume sessions from any Mac or iPhone/);
   assert.match(html, /No Portal account/);
   assert.match(html, /whenever the host Mac is awake/);
   assert.match(html, /Sessions stay put until you/);

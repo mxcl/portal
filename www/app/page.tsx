@@ -31,8 +31,10 @@ export default function Home() {
           </h1>
           <p className="lede">
             Portal is a delightful, opinionated terminal app for Mac and
-            iPhone. Your Macs appear automatically through iCloud—no Portal
-            account, no setup, no configuration. Just open the app.
+            iPhone. Start and resume sessions from any Mac or iPhone;
+            they appear automatically through iCloud—no Portal
+            account, no setup, no configuration.
+            Just open the app; twenty years of UNIX experience not required.
           </p>
           <div className="download-actions">
             <a

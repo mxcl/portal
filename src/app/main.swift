@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var pendingOpenURLs: [URL] = []
     private var stagedUpdate: Update?
     private var updateCheckTask: Task<Void, Never>?
+    private var isInstallingUpdate = false
     private weak var defaultTerminalMenuItem: NSMenuItem?
     private weak var remoteAccessMenuItem: NSMenuItem?
     private weak var remoteTabsMenu: NSMenu?
@@ -192,7 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        !isInstallingUpdate
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -265,8 +266,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         controller?.setUpdateInstallInProgress(true)
         Task { @MainActor in
             do {
-                try await update.installAndRelaunch()
+                let preparedUpdate = try await update.prepareInstallation()
+                isInstallingUpdate = true
+                try await preparedUpdate.installAndRelaunch()
             } catch {
+                isInstallingUpdate = false
                 controller?.setUpdateInstallInProgress(false)
                 presentUpdateInstallError(error)
             }

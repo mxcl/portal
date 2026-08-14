@@ -13,7 +13,7 @@ let package = Package(
         .library(name: "PortalMobile", targets: ["PortalMobile"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/mxcl/AppUpdater.git", from: "2.1.1"),
+        .package(url: "https://github.com/mxcl/AppUpdater.git", exact: "4.0.0"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.14.0"),
     ],
     targets: [

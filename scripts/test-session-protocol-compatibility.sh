@@ -72,7 +72,8 @@ git -C "$ROOT_DIR" archive "$BASE_REF" | tar -x -C "$TEMP_DIR/previous"
 echo "Building released daemon fixture from $BASE_REF"
 previous_daemon_bin="portal-sessiond"
 CARGO_TARGET_DIR="$TEMP_DIR/previous-target" \
-  cargo build --quiet --manifest-path "$TEMP_DIR/previous/Cargo.toml" --bin "$previous_daemon_bin"
+  cargo build --quiet --manifest-path "$TEMP_DIR/previous/Cargo.toml" \
+    --features test-peer-validation-bypass --bin "$previous_daemon_bin"
 
 echo "Building current daemon fixture"
 cargo build --quiet --manifest-path "$ROOT_DIR/Cargo.toml" \

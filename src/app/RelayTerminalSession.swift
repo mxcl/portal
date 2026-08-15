@@ -89,8 +89,8 @@ final class RelayTerminalSession: TerminalSession {
         send { try await $0.send(.clearHistory) }
     }
 
-    func write(_ string: String, suppressEcho: Bool = false) {
-        send { try await $0.send(.input(Data(string.utf8))) }
+    func write(_ data: Data, suppressEcho: Bool = false) {
+        send { try await $0.send(.input(data)) }
     }
 
     func updateState(

@@ -20,7 +20,7 @@ protocol TerminalSession: AnyObject {
     func isCanonicalInputModeEnabled() -> Bool?
     func sendInterrupt()
     func clearHistory()
-    func write(_ string: String, suppressEcho: Bool)
+    func write(_ data: Data, suppressEcho: Bool)
     func updateState(
         title: String,
         cwd: String,
@@ -35,8 +35,12 @@ protocol TerminalSession: AnyObject {
 }
 
 extension TerminalSession {
-    func write(_ string: String) {
-        write(string, suppressEcho: false)
+    func write(_ string: String, suppressEcho: Bool = false) {
+        write(Data(string.utf8), suppressEcho: suppressEcho)
+    }
+
+    func write(_ data: Data) {
+        write(data, suppressEcho: false)
     }
 }
 
@@ -362,8 +366,8 @@ final class PtySession {
         send(.clearHistory)
     }
 
-    func write(_ string: String, suppressEcho: Bool = false) {
-        send(.input(Data(string.utf8)))
+    func write(_ data: Data, suppressEcho: Bool = false) {
+        send(.input(data))
     }
 
     func updateState(

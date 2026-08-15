@@ -313,9 +313,8 @@ final class MacRemoteAccessController {
         case .createSession:
             createSession(message)
         case .input:
-            if let payload = message.payload,
-               let text = String(data: payload, encoding: .utf8) {
-                bridges[message.requestID]?.session.write(text)
+            if let payload = message.payload {
+                bridges[message.requestID]?.session.write(payload)
             }
         case .submit:
             if let payload = message.payload,

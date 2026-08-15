@@ -3,6 +3,12 @@ import Foundation
 import UniformTypeIdentifiers
 
 enum Ansi {
+    enum MouseTrackingMode: Int {
+        case normal = 1000
+        case button = 1002
+        case any = 1003
+    }
+
     final class FileLink: NSObject {
         let url: URL
         let line: Int?
@@ -27,6 +33,8 @@ enum Ansi {
         let attributedText: NSAttributedString
         let isAlternateScreenActive: Bool
         let isApplicationCursorModeActive: Bool
+        let mouseTrackingMode: MouseTrackingMode?
+        let usesSGRMouseMode: Bool
     }
 
     struct StyledOutput {
@@ -540,6 +548,8 @@ enum Ansi {
         private var pending = ""
         private var isAlternateScreenActive = false
         private var isApplicationCursorModeActive = false
+        private var enabledMouseTrackingModes = Set<MouseTrackingMode>()
+        private var usesSGRMouseMode = false
         private var wrapsAtRightMargin = true
         private var isWrapPending = false
         private var scrollTop = 0
@@ -593,6 +603,8 @@ enum Ansi {
             pending.removeAll()
             isAlternateScreenActive = false
             isApplicationCursorModeActive = false
+            enabledMouseTrackingModes.removeAll()
+            usesSGRMouseMode = false
             wrapsAtRightMargin = true
             isWrapPending = false
             scrollTop = 0
@@ -800,6 +812,15 @@ enum Ansi {
                         cursorRow = 0
                         cursorCol = 0
                     }
+                case 1000, 1002, 1003:
+                    guard let mode = MouseTrackingMode(rawValue: parameter) else { break }
+                    if final == "h" {
+                        enabledMouseTrackingModes.insert(mode)
+                    } else if final == "l" {
+                        enabledMouseTrackingModes.remove(mode)
+                    }
+                case 1006:
+                    usesSGRMouseMode = final == "h"
                 default:
                     break
                 }
@@ -985,7 +1006,9 @@ enum Ansi {
                     text: " ",
                     attributedText: Ansi.emptyAttributedOutput(),
                     isAlternateScreenActive: isAlternateScreenActive,
-                    isApplicationCursorModeActive: isApplicationCursorModeActive
+                    isApplicationCursorModeActive: isApplicationCursorModeActive,
+                    mouseTrackingMode: mouseTrackingMode,
+                    usesSGRMouseMode: usesSGRMouseMode
                 )
             }
 
@@ -1028,8 +1051,14 @@ enum Ansi {
                 text: plain,
                 attributedText: output,
                 isAlternateScreenActive: isAlternateScreenActive,
-                isApplicationCursorModeActive: isApplicationCursorModeActive
+                isApplicationCursorModeActive: isApplicationCursorModeActive,
+                mouseTrackingMode: mouseTrackingMode,
+                usesSGRMouseMode: usesSGRMouseMode
             )
+        }
+
+        private var mouseTrackingMode: MouseTrackingMode? {
+            [.any, .button, .normal].first(where: enabledMouseTrackingModes.contains)
         }
 
         private func renderedRows(preservesAllRows: Bool) -> [RenderedRow] {

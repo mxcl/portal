@@ -1166,6 +1166,7 @@ private final class BlockOutputTextView: NSTextView {
     private static let linkCapsuleColor = NSColor.white.withAlphaComponent(0.10)
     private var linkTrackingArea: NSTrackingArea?
     private var firstMouseLink: (value: Any, characterIndex: Int)?
+    var onTerminalMouseEvent: ((NSEvent, NSPoint) -> Bool)?
     private var hoveredLinkRange: NSRange? {
         didSet {
             guard hoveredLinkRange != oldValue else { return }
@@ -1191,11 +1192,51 @@ private final class BlockOutputTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if forwardTerminalMouseEvent(event) {
+            firstMouseLink = nil
+            return
+        }
         let firstMouseLink = firstMouseLink
         super.mouseDown(with: event)
         guard self.firstMouseLink != nil, let firstMouseLink else { return }
         self.firstMouseLink = nil
         clicked(onLink: firstMouseLink.value, at: firstMouseLink.characterIndex)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if !forwardTerminalMouseEvent(event) { super.mouseUp(with: event) }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if !forwardTerminalMouseEvent(event) { super.rightMouseDown(with: event) }
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        if !forwardTerminalMouseEvent(event) { super.rightMouseUp(with: event) }
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        if !forwardTerminalMouseEvent(event) { super.otherMouseDown(with: event) }
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        if !forwardTerminalMouseEvent(event) { super.otherMouseUp(with: event) }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        if !forwardTerminalMouseEvent(event) { super.mouseDragged(with: event) }
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        if !forwardTerminalMouseEvent(event) { super.rightMouseDragged(with: event) }
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        if !forwardTerminalMouseEvent(event) { super.otherMouseDragged(with: event) }
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        if !forwardTerminalMouseEvent(event) { super.scrollWheel(with: event) }
     }
 
     override func didChangeText() {
@@ -1220,6 +1261,11 @@ private final class BlockOutputTextView: NSTextView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        if forwardTerminalMouseEvent(event) {
+            hoveredLinkRange = nil
+            NSCursor.arrow.set()
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         var hoveredRange: NSRange?
         enumerateLinkRects { range, rect in
@@ -1229,6 +1275,10 @@ private final class BlockOutputTextView: NSTextView {
         }
         hoveredLinkRange = hoveredRange
         (hoveredRange == nil ? NSCursor.iBeam : NSCursor.pointingHand).set()
+    }
+
+    private func forwardTerminalMouseEvent(_ event: NSEvent) -> Bool {
+        onTerminalMouseEvent?(event, convert(event.locationInWindow, from: nil)) == true
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -1490,6 +1540,9 @@ private final class BlockView: NSView {
     private var findSelectionRange: NSRange?
 
     var onCopyMarkdown: (() -> Void)?
+    var onTerminalMouseEvent: ((NSEvent, NSPoint) -> Bool)? {
+        didSet { outputView.onTerminalMouseEvent = onTerminalMouseEvent }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1703,6 +1756,20 @@ private final class BlockView: NSView {
         return NSSize(
             width: max(0, viewportSize.width - max(0, bounds.width - outputView.bounds.width)),
             height: max(0, viewportSize.height - max(0, bounds.height - outputView.bounds.height))
+        )
+    }
+
+    func terminalCell(at point: NSPoint, rows: Int, cols: Int) -> (column: Int, row: Int)? {
+        guard outputView.bounds.contains(point), let font = outputView.font else { return nil }
+        let origin = outputView.textContainerOrigin
+        let x = point.x - origin.x
+        let y = point.y - origin.y
+        guard x >= 0, y >= 0 else { return nil }
+        let characterWidth = max(1, ceil(("W" as NSString).size(withAttributes: [.font: font]).width))
+        let lineHeight = max(1, ceil(font.ascender - font.descender + font.leading))
+        return (
+            min(cols, Int(x / characterWidth) + 1),
+            min(rows, Int(y / lineHeight) + 1)
         )
     }
 
@@ -2712,6 +2779,111 @@ private final class TitleUpdateButton: NSButton {
     }
 }
 
+private enum TerminalMouseEncoder {
+    private enum Action {
+        case press(Int)
+        case release(Int)
+        case motion(Int?)
+        case wheel(Int)
+    }
+
+    static func sequence(
+        for event: NSEvent,
+        column: Int,
+        row: Int,
+        trackingMode: Ansi.MouseTrackingMode,
+        usesSGR: Bool
+    ) -> Data? {
+        guard let action = action(for: event) else { return nil }
+        if case .motion(let button) = action {
+            guard trackingMode == .any || (trackingMode == .button && button != nil) else { return nil }
+        }
+
+        let modifiers = modifierCode(for: event.modifierFlags)
+        let code: Int
+        let isRelease: Bool
+        switch action {
+        case .press(let button):
+            code = button + modifiers
+            isRelease = false
+        case .release(let button):
+            code = (usesSGR ? button : 3) + modifiers
+            isRelease = true
+        case .motion(let button):
+            code = (button ?? 3) + 32 + modifiers
+            isRelease = false
+        case .wheel(let direction):
+            code = 64 + direction + modifiers
+            isRelease = false
+        }
+
+        if usesSGR {
+            return sgrSequence(code: code, column: column, row: row, isRelease: isRelease)
+        }
+        return legacySequence(code: code, column: min(223, column), row: min(223, row))
+    }
+
+    static func selfTest() -> Bool {
+        guard let click = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ) else {
+            return false
+        }
+        return sequence(for: click, column: 12, row: 3, trackingMode: .normal, usesSGR: true)
+                == Data("\u{1B}[<0;12;3M".utf8)
+            && legacySequence(code: 0, column: 100, row: 7)
+                == Data([0x1B, 0x5B, 0x4D, 32, 132, 39])
+    }
+
+    private static func action(for event: NSEvent) -> Action? {
+        switch event.type {
+        case .leftMouseDown: return .press(0)
+        case .rightMouseDown: return .press(2)
+        case .otherMouseDown: return terminalButton(event.buttonNumber).map(Action.press)
+        case .leftMouseUp: return .release(0)
+        case .rightMouseUp: return .release(2)
+        case .otherMouseUp: return terminalButton(event.buttonNumber).map(Action.release)
+        case .leftMouseDragged: return .motion(0)
+        case .rightMouseDragged: return .motion(2)
+        case .otherMouseDragged: return .motion(terminalButton(event.buttonNumber))
+        case .mouseMoved: return .motion(nil)
+        case .scrollWheel:
+            let vertical = event.scrollingDeltaY
+            guard vertical != 0 else { return nil }
+            return .wheel(vertical > 0 ? 0 : 1)
+        default:
+            return nil
+        }
+    }
+
+    private static func terminalButton(_ buttonNumber: Int) -> Int? {
+        buttonNumber == 2 ? 1 : nil
+    }
+
+    private static func modifierCode(for flags: NSEvent.ModifierFlags) -> Int {
+        let flags = flags.intersection(.deviceIndependentFlagsMask)
+        return (flags.contains(.shift) ? 4 : 0)
+            + (flags.contains(.option) ? 8 : 0)
+            + (flags.contains(.control) ? 16 : 0)
+    }
+
+    private static func sgrSequence(code: Int, column: Int, row: Int, isRelease: Bool) -> Data {
+        Data("\u{1B}[<\(code);\(column);\(row)\(isRelease ? "m" : "M")".utf8)
+    }
+
+    private static func legacySequence(code: Int, column: Int, row: Int) -> Data {
+        Data([0x1B, 0x5B, 0x4D, UInt8(code + 32), UInt8(column + 32), UInt8(row + 32)])
+    }
+}
+
 private final class PtyPassthroughView: NSView {
     var onInput: ((String) -> Void)?
     var onInterrupt: (() -> Void)?
@@ -2831,6 +3003,8 @@ private final class TerminalOutputProcessor {
         let attributedText: NSAttributedString
         let isAlternateScreenActive: Bool
         let isApplicationCursorModeActive: Bool
+        let mouseTrackingMode: Ansi.MouseTrackingMode?
+        let usesSGRMouseMode: Bool
     }
 
     enum Event {
@@ -2860,6 +3034,8 @@ private final class TerminalOutputProcessor {
     private var didSeeAlternateScreenSwitch = false
     private var isAlternateScreenActive = false
     private var isApplicationCursorModeActive = false
+    private var mouseTrackingMode: Ansi.MouseTrackingMode?
+    private var usesSGRMouseMode = false
     private var rows = 30
     private var cols = 100
 
@@ -2882,6 +3058,8 @@ private final class TerminalOutputProcessor {
             self.didSeeAlternateScreenSwitch = false
             self.isAlternateScreenActive = false
             self.isApplicationCursorModeActive = false
+            self.mouseTrackingMode = nil
+            self.usesSGRMouseMode = false
             self.terminalScreen.resetForCommand()
             self.styledRenderer.reset()
         }
@@ -2989,6 +3167,8 @@ private final class TerminalOutputProcessor {
         didSeeAlternateScreenSwitch = false
         isAlternateScreenActive = false
         isApplicationCursorModeActive = false
+        mouseTrackingMode = nil
+        usesSGRMouseMode = false
         terminalScreen.resetForCommand()
         styledRenderer.reset()
     }
@@ -3027,6 +3207,8 @@ private final class TerminalOutputProcessor {
                         styledRenderer.reset()
                         isAlternateScreenActive = false
                         isApplicationCursorModeActive = false
+                        mouseTrackingMode = nil
+                        usesSGRMouseMode = false
                         activeBlockID = blockID
                         activeBlockCwd = nil
                         isReplayingCommand = true
@@ -3093,6 +3275,8 @@ private final class TerminalOutputProcessor {
         } else {
             let state = terminalScreen.process(text)
             isApplicationCursorModeActive = state.isApplicationCursorModeActive
+            mouseTrackingMode = state.mouseTrackingMode
+            usesSGRMouseMode = state.usesSGRMouseMode
             let rendered = styledRenderer.process(text, linkBaseDirectory: activeBlockCwd)
             onSnapshot(snapshot(
                 blockID: blockID,
@@ -3110,6 +3294,8 @@ private final class TerminalOutputProcessor {
         let state = terminalScreen.process(text, preservesAllRows: true)
         isAlternateScreenActive = state.isAlternateScreenActive
         isApplicationCursorModeActive = state.isApplicationCursorModeActive
+        mouseTrackingMode = state.mouseTrackingMode
+        usesSGRMouseMode = state.usesSGRMouseMode
         if state.isAlternateScreenActive || (usesPagerScreenRendering && !didSeeAlternateScreenSwitch) {
             onSnapshot(snapshot(
                 blockID: blockID,
@@ -3136,7 +3322,9 @@ private final class TerminalOutputProcessor {
             plainText: plainText,
             attributedText: attributedText,
             isAlternateScreenActive: isAlternateScreenActive,
-            isApplicationCursorModeActive: isApplicationCursorModeActive
+            isApplicationCursorModeActive: isApplicationCursorModeActive,
+            mouseTrackingMode: mouseTrackingMode,
+            usesSGRMouseMode: usesSGRMouseMode
         )
     }
 
@@ -3154,6 +3342,8 @@ private final class TerminalOutputProcessor {
         return finalSnapshot(for: "before\n\u{1B}[?1049heditor text\u{1B}[?1049lafter\n")?.plainText == "before\nafter\n"
             && finalSnapshot(for: "\u{1B}[?1049heditor text\u{1B}[?1049l")?.plainText == ""
             && finalSnapshot(for: "\u{1B}[?1h\u{1B}=\u{1B}[?1049hpager")?.isApplicationCursorModeActive == true
+            && finalSnapshot(for: "\u{1B}[?1000h\u{1B}[?1002h\u{1B}[?1006hmouse")?.mouseTrackingMode == .button
+            && finalSnapshot(for: "\u{1B}[?1003h\u{1B}[?1006hmouse")?.usesSGRMouseMode == true
     }
 
     static func terminalSizeProbeSelfTest() -> Bool {
@@ -3537,6 +3727,8 @@ private final class TerminalTab {
     var isTerminalControlActive = false
     var isAlternateScreenActive: Bool { commandLifecycle.state.isAlternateScreenActive }
     var isApplicationCursorModeActive: Bool { commandLifecycle.state.isApplicationCursorModeActive }
+    var mouseTrackingMode: Ansi.MouseTrackingMode?
+    var usesSGRMouseMode = false
     var runningElapsedTimer: Timer?
     var ttyModeTimer: Timer?
     var commandHistory: [String] { commandLifecycle.state.commandHistory }
@@ -3873,6 +4065,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let fallbackDisplayRefreshRate = 60
     private static let didRunPassthroughRoutingSelfTest: Void = {
         assert(PtyPassthroughView.passthroughRoutingSelfTest())
+        assert(TerminalMouseEncoder.selfTest())
         assert(TerminalOutputProcessor.alternateScreenTranscriptSelfTest())
         assert(TerminalOutputProcessor.terminalSizeProbeSelfTest())
         assert(TerminalOutputProcessor.inputFeedbackPrioritySelfTest())
@@ -6682,6 +6875,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func applyOutputSnapshot(_ snapshot: TerminalOutputProcessor.Snapshot, in tab: TerminalTab) {
+        tab.mouseTrackingMode = snapshot.mouseTrackingMode
+        tab.usesSGRMouseMode = snapshot.usesSGRMouseMode
         let change = tab.commandLifecycle.apply(.output(
             blockID: snapshot.blockID,
             plainText: snapshot.plainText,
@@ -6720,6 +6915,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             persistSessionState()
             runInitialCommandIfNeeded(in: tab)
         case .commandStarted:
+            tab.mouseTrackingMode = nil
+            tab.usesSGRMouseMode = false
             tab.commandLifecycle.apply(.commandStarted)
         case .cwdChanged(let cwd):
             if let cwd {
@@ -6731,6 +6928,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 openRemoteCode(payload: payload, in: tab)
             }
         case .commandFinished(let status):
+            tab.mouseTrackingMode = nil
+            tab.usesSGRMouseMode = false
             let finishedBlock = (tab.activeBlockID ?? tab.pendingBlockID).flatMap { blockID in
                 tab.blocks.first(where: { $0.id == blockID })
             }
@@ -7296,6 +7495,40 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return TerminalGridSize(rows: rows, cols: cols)
     }
 
+    private func handleTerminalMouseEvent(
+        _ event: NSEvent,
+        at point: NSPoint,
+        in blockView: BlockView,
+        blockID: UUID,
+        tab: TerminalTab
+    ) -> Bool {
+        guard !event.modifierFlags.contains(.shift),
+              activeTabID == tab.id,
+              latestRunningBlock(in: tab)?.id == blockID,
+              let trackingMode = tab.mouseTrackingMode,
+              let gridSize = terminalGridSize(for: tab),
+              let cell = blockView.terminalCell(
+                at: point,
+                rows: Int(gridSize.rows),
+                cols: Int(gridSize.cols)
+              )
+        else {
+            return false
+        }
+
+        if let sequence = TerminalMouseEncoder.sequence(
+            for: event,
+            column: cell.column,
+            row: cell.row,
+            trackingMode: trackingMode,
+            usesSGR: tab.usesSGRMouseMode
+        ) {
+            tab.outputProcessor.prioritizeNextOutputForInput()
+            tab.session.write(sequence)
+        }
+        return true
+    }
+
     private func tooltipOrigin(near point: NSPoint, size: NSSize) -> NSPoint {
         let bounds = view.bounds
         let offset: CGFloat = 14
@@ -7335,6 +7568,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 exitCode = nil
             }
             self.copy(markdownTranscript(command: latest.command, output: latest.output, exitCode: exitCode))
+        }
+        blockView.onTerminalMouseEvent = { [weak self, weak tab, weak blockView] event, point in
+            guard let self, let tab, let blockView else { return false }
+            return self.handleTerminalMouseEvent(event, at: point, in: blockView, blockID: block.id, tab: tab)
         }
         tab.stackView.addArrangedSubview(blockView)
         blockView.translatesAutoresizingMaskIntoConstraints = false

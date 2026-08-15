@@ -1539,6 +1539,13 @@ private final class BlockView: NSView {
     private var findSelectionTarget: FindResultTarget?
     private var findSelectionRange: NSRange?
 
+    var hidesLiveDuration = false {
+        didSet {
+            guard hidesLiveDuration != oldValue, let lastBlock else { return }
+            update(with: lastBlock)
+        }
+    }
+
     var onCopyMarkdown: (() -> Void)?
     var onTerminalMouseEvent: ((NSEvent, NSPoint) -> Bool)? {
         didSet { outputView.onTerminalMouseEvent = onTerminalMouseEvent }
@@ -1661,10 +1668,12 @@ private final class BlockView: NSView {
         switch block.state {
         case .running:
             layer?.backgroundColor = TahoeGlassPalette.commandTint.cgColor
-            metadata.append(MetadataSegment(
-                text: liveDurationText(startedAt: block.startedAt, now: now),
-                color: .tertiaryLabelColor
-            ))
+            if !hidesLiveDuration {
+                metadata.append(MetadataSegment(
+                    text: liveDurationText(startedAt: block.startedAt, now: now),
+                    color: .tertiaryLabelColor
+                ))
+            }
             minimumHeightConstraint?.constant = Metrics.runningMinimumHeight
             contentBottomConstraint?.isActive = hasVisibleOutput
         case .completed(let code):
@@ -7427,6 +7436,14 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
 
         tab.isTerminalControlActive = isActive
+        if let runningBlock = latestRunningBlock(in: tab) {
+            tab.blockViews[runningBlock.id]?.hidesLiveDuration = isActive
+        }
+        if isActive {
+            stopRunningElapsedUpdates(for: tab)
+        } else if isCommandRunning(in: tab) {
+            startRunningElapsedUpdates(for: tab)
+        }
         updatePassthroughVisibility(for: tab)
         updateCommandBarVisibility(for: tab)
 

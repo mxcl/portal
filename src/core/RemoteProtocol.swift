@@ -209,7 +209,9 @@ public struct RemoteCatalogSession: Codable, Equatable, Identifiable, Sendable {
 
 public enum RemoteMessageKind: Codable, Equatable, Sendable {
     case catalog
+    case agentReady
     case attach
+    case attached
     case detach
     case createSession
     case sessionCreated
@@ -236,7 +238,9 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
         let value = try decoder.singleValueContainer().decode(String.self)
         self = switch value {
         case "catalog": .catalog
+        case "agentReady": .agentReady
         case "attach": .attach
+        case "attached": .attached
         case "detach": .detach
         case "createSession": .createSession
         case "sessionCreated": .sessionCreated
@@ -264,7 +268,9 @@ public enum RemoteMessageKind: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         let value = switch self {
         case .catalog: "catalog"
+        case .agentReady: "agentReady"
         case .attach: "attach"
+        case .attached: "attached"
         case .detach: "detach"
         case .createSession: "createSession"
         case .sessionCreated: "sessionCreated"

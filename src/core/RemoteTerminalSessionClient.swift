@@ -32,6 +32,7 @@ public enum RemoteTerminalSessionError: Error, Equatable, LocalizedError {
     case alreadyRunning
     case notAttached
     case deliveryUnknown
+    case peerRestarted
     case invalidResponse
     case sequenceGap(expected: UInt64)
     case completionUnavailable
@@ -46,6 +47,8 @@ public enum RemoteTerminalSessionError: Error, Equatable, LocalizedError {
             "The remote terminal session is not attached."
         case .deliveryUnknown:
             "The remote terminal command may not have been delivered."
+        case .peerRestarted:
+            "The remote Mac restarted its relay connection."
         case .invalidResponse:
             "The Mac returned an invalid terminal message."
         case .sequenceGap:
@@ -117,8 +120,13 @@ public actor RemoteTerminalSessionClient {
                 do {
                     try await attach()
                     guard !shouldStop, !Task.isCancelled else { break }
+                    let firstEvent = try await receiveAttachResponse()
+                    guard !shouldStop, !Task.isCancelled else { break }
                     state = .attached
                     await handle(.connection(.attached))
+                    if let firstEvent {
+                        await handle(firstEvent)
+                    }
 
                     while !shouldStop, !Task.isCancelled {
                         if let event = try await receiveEvent() {
@@ -265,6 +273,10 @@ public actor RemoteTerminalSessionClient {
         sequenceTracker.reset(to: nil)
         capabilities.removeAll()
         try await transport.connect(peerID: peerID)
+        try await sendAttach()
+    }
+
+    private func sendAttach() async throws {
         try await sendMessage(
             .attach,
             clientRole: role,
@@ -274,15 +286,45 @@ public actor RemoteTerminalSessionClient {
         )
     }
 
+    private func receiveAttachResponse() async throws -> RemoteTerminalEvent? {
+        let retry = Task { [weak self] in
+            await self?.retryAttachUntilCancelled()
+        }
+        defer { retry.cancel() }
+        return try await receiveEvent()
+    }
+
+    private func retryAttachUntilCancelled() async {
+        while !Task.isCancelled, !shouldStop {
+            do {
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+                try Task.checkCancellation()
+                try await sendAttach()
+            } catch is CancellationError {
+                return
+            } catch {
+                await transport.disconnect()
+                return
+            }
+        }
+    }
+
     private func receiveEvent() async throws -> RemoteTerminalEvent? {
         while !Task.isCancelled {
             let data = try await transport.receive()
             let message = try JSONDecoder().decode(RemoteMessage.self, from: data)
-            guard message.version == RemoteMessage.currentVersion,
+            guard message.version == RemoteMessage.currentVersion else { continue }
+            if message.kind == .agentReady {
+                guard message.macID == macID else { continue }
+                throw RemoteTerminalSessionError.peerRestarted
+            }
+            guard
                   message.requestID == requestID,
                   message.macID == macID,
                   message.sessionID == nil || message.sessionID == sessionID else { continue }
             switch message.kind {
+            case .attached:
+                return nil
             case .terminalEvent:
                 guard let sequence = message.sequence,
                       let payload = message.payload

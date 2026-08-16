@@ -286,6 +286,11 @@ final class MacRemoteAccessController {
         while !Task.isCancelled {
             do {
                 try await relay.connect(peerID: macID)
+                try await relay.send(JSONEncoder().encode(RemoteMessage(
+                    kind: .agentReady,
+                    requestID: UUID().uuidString,
+                    macID: macID
+                )))
                 retryDelay = .seconds(1)
                 while !Task.isCancelled {
                     let data = try await relay.receive()
@@ -354,7 +359,8 @@ final class MacRemoteAccessController {
             cancelCompletion(message)
         case .historyPage:
             break
-        case .catalog, .sessionCreated, .terminalSnapshot, .terminalHistory, .terminalEvent,
+        case .catalog, .agentReady, .attached, .sessionCreated,
+             .terminalSnapshot, .terminalHistory, .terminalEvent,
              .presence, .capabilities,
              .completionResponse, .error, .unknown:
             break
@@ -594,6 +600,12 @@ final class MacRemoteAccessController {
             pendingSnapshot: nil,
             sendsSemanticHistory: message.requestsSemanticTerminalHistory
         )
+        send(RemoteMessage(
+            kind: .attached,
+            requestID: message.requestID,
+            macID: macID,
+            sessionID: sessionID
+        ))
         if let payload = try? JSONEncoder().encode(RemoteCapabilities(
             values: [
                 RemoteCapabilities.relayCompletion,

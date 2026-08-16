@@ -144,6 +144,54 @@ struct RemoteTerminalSessionClientTests {
         }
     }
 
+    @Test("attach waits for the peer and retries a lost request")
+    func attachRequiresAcknowledgement() async throws {
+        let (client, transport) = makeClient(role: .mac, automaticallyAcknowledgesAttach: false)
+        let running = run(client)
+        var events = running.events.makeAsyncIterator()
+
+        #expect(await events.next() == .connection(.connecting))
+        _ = try await transport.waitForMessage(kind: .attach)
+        await #expect(throws: RemoteTerminalSessionError.notAttached) {
+            try await client.send(.input(Data("must not be dropped".utf8)))
+        }
+        let retry = try await transport.waitForMessage(kind: .attach, occurrence: 2)
+        try await transport.enqueue(RemoteMessage(
+            kind: .attached,
+            requestID: retry.requestID,
+            macID: retry.macID,
+            sessionID: retry.sessionID
+        ))
+        #expect(await events.next() == .connection(.attached))
+
+        try await client.send(.input(Data("delivered".utf8)))
+        _ = try await transport.waitForMessage(kind: .input)
+        await client.disconnect()
+        try await running.task.value
+    }
+
+    @Test("peer startup announcement reattaches an existing client")
+    func peerRestartReattaches() async throws {
+        let (client, transport) = makeClient(role: .mac)
+        let running = run(client)
+        var events = running.events.makeAsyncIterator()
+        _ = await events.next()
+        _ = try await transport.waitForMessage(kind: .attach)
+        #expect(await events.next() == .connection(.attached))
+
+        try await transport.enqueue(RemoteMessage(
+            kind: .agentReady,
+            requestID: "agent",
+            macID: "mac"
+        ))
+
+        #expect(await events.next() == .connection(.reconnecting))
+        _ = try await transport.waitForMessage(kind: .attach, occurrence: 2)
+        #expect(await events.next() == .connection(.attached))
+        await client.disconnect()
+        try await running.task.value
+    }
+
     @Test("out-of-band interrupt drops stale output and immediately reattaches")
     func urgentInterruptResetsStream() async throws {
         let (client, transport) = makeClient(role: .phone, urgentDeliveryIsOutOfBand: true)
@@ -335,10 +383,12 @@ struct RemoteTerminalSessionClientTests {
 
     private func makeClient(
         role: RemoteClientRole,
-        urgentDeliveryIsOutOfBand: Bool = false
+        urgentDeliveryIsOutOfBand: Bool = false,
+        automaticallyAcknowledgesAttach: Bool = true
     ) -> (RemoteTerminalSessionClient, FakeTerminalTransport) {
         let transport = FakeTerminalTransport(
-            urgentDeliveryIsOutOfBand: urgentDeliveryIsOutOfBand
+            urgentDeliveryIsOutOfBand: urgentDeliveryIsOutOfBand,
+            automaticallyAcknowledgesAttach: automaticallyAcknowledgesAttach
         )
         return (
             RemoteTerminalSessionClient(
@@ -367,14 +417,19 @@ struct RemoteTerminalSessionClientTests {
 
 private actor FakeTerminalTransport: RemoteRelayTransport {
     private let urgentDeliveryIsOutOfBand: Bool
+    private let automaticallyAcknowledgesAttach: Bool
     private var responses: [Data] = []
     private var isConnected = false
     private var disconnections = 0
     private(set) var sentMessages: [RemoteMessage] = []
     private(set) var urgentMessages: [RemoteMessage] = []
 
-    init(urgentDeliveryIsOutOfBand: Bool = false) {
+    init(
+        urgentDeliveryIsOutOfBand: Bool = false,
+        automaticallyAcknowledgesAttach: Bool = true
+    ) {
         self.urgentDeliveryIsOutOfBand = urgentDeliveryIsOutOfBand
+        self.automaticallyAcknowledgesAttach = automaticallyAcknowledgesAttach
     }
 
     func connect(peerID: String) async throws {
@@ -383,7 +438,16 @@ private actor FakeTerminalTransport: RemoteRelayTransport {
 
     func send(_ plaintext: Data) async throws {
         guard isConnected else { throw FakeTransportError.disconnected }
-        sentMessages.append(try JSONDecoder().decode(RemoteMessage.self, from: plaintext))
+        let message = try JSONDecoder().decode(RemoteMessage.self, from: plaintext)
+        sentMessages.append(message)
+        if automaticallyAcknowledgesAttach, message.kind == .attach {
+            responses.append(try JSONEncoder().encode(RemoteMessage(
+                kind: .attached,
+                requestID: message.requestID,
+                macID: message.macID,
+                sessionID: message.sessionID
+            )))
+        }
     }
 
     func sendUrgently(_ plaintext: Data) async throws -> Bool {

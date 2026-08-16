@@ -15,6 +15,11 @@ Relay messages are additive. Mac clients may advertise `clientRole: "mac"` on
 attach and send resize, clear-history, state-update, and kill messages. Terminal
 events may mark replayed output with `isHistory: true`. Peers that predate these
 fields continue to decode the message and ignore behavior they do not support.
+An agent answers attach with `attached`; clients retry until that or another
+matching response arrives, so a request broadcast while the agent is offline is
+not mistaken for a connection. Current agents also broadcast `agentReady` after
+connecting so attached clients can reattach after an agent restart. Older peers
+decode and ignore both additive message kinds.
 Session state and catalog entries may include an optional `lastCommandAt`
 timestamp; peers without it fall back to session creation time.
 After replaying history, Macs may send a `terminalSnapshot` containing the

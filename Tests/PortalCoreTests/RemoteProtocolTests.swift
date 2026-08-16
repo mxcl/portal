@@ -4,6 +4,14 @@ import Testing
 
 @Suite("Remote protocol")
 struct RemoteProtocolTests {
+    @Test("relay lifecycle messages round-trip additively")
+    func relayLifecycleMessagesAreAdditive() throws {
+        for kind in [RemoteMessageKind.agentReady, .attached] {
+            let data = try JSONEncoder().encode(kind)
+            #expect(try JSONDecoder().decode(RemoteMessageKind.self, from: data) == kind)
+        }
+    }
+
     @Test("messages preserve opaque terminal payloads")
     func messageRoundTrip() throws {
         let message = RemoteMessage(

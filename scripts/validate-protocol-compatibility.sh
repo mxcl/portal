@@ -95,6 +95,7 @@ require_fixture "currentPhonePreviousMacHistoryCompatibility" "$ROOT_DIR/Tests/P
 require_fixture "previousPhoneCurrentMacHistoryFallback" "$ROOT_DIR/Tests/PortalCoreTests/RemoteProtocolTests.swift"
 require_fixture "phoneSemanticHistory" "$ROOT_DIR/Tests/PortalCoreTests/RemoteTerminalSessionClientTests.swift"
 require_fixture "previousRelayInterruptFallback" "$ROOT_DIR/Tests/PortalCoreTests/RemoteTerminalSessionClientTests.swift"
+require_fixture "relayLifecycleMessagesAreAdditive" "$ROOT_DIR/Tests/PortalCoreTests/RemoteProtocolTests.swift"
 require_fixture "terminalSnapshotRoundTrip" "$ROOT_DIR/Tests/PortalCoreTests/RemoteProtocolTests.swift"
 require_fixture "publishedVector" "$ROOT_DIR/Tests/PortalCoreTests/RelayCryptoTests.swift"
 require_fixture "urgent_send_broadcasts_opaque_bytes" "$ROOT_DIR/src/relay/main.rs"

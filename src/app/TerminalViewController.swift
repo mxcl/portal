@@ -7523,6 +7523,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         guard !event.modifierFlags.contains(.shift),
               activeTabID == tab.id,
               latestRunningBlock(in: tab)?.id == blockID,
+              tab.session.supportsBinaryInput,
               let trackingMode = tab.mouseTrackingMode,
               let gridSize = terminalGridSize(for: tab),
               let cell = blockView.terminalCell(

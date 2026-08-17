@@ -4,6 +4,14 @@ import Testing
 
 @Suite("Remote protocol")
 struct RemoteProtocolTests {
+    @Test("binary terminal input is capability-gated for previous Macs")
+    func previousMacBinaryInputFallback() {
+        #expect(!RemoteCapabilities(values: []).supportsBinaryInput)
+        #expect(RemoteCapabilities(
+            values: [RemoteCapabilities.relayBinaryInput]
+        ).supportsBinaryInput)
+    }
+
     @Test("relay lifecycle messages round-trip additively")
     func relayLifecycleMessagesAreAdditive() throws {
         for kind in [RemoteMessageKind.agentReady, .attached] {

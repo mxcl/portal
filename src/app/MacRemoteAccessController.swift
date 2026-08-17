@@ -609,7 +609,8 @@ final class MacRemoteAccessController {
         if let payload = try? JSONEncoder().encode(RemoteCapabilities(
             values: [
                 RemoteCapabilities.relayCompletion,
-                RemoteCapabilities.relayHistory
+                RemoteCapabilities.relayHistory,
+                RemoteCapabilities.relayBinaryInput
             ]
         )) {
             send(RemoteMessage(

@@ -9,6 +9,7 @@ protocol TerminalSession: AnyObject {
     var onExit: ((Int32) -> Void)? { get set }
     var onReady: ((Bool) -> Void)? { get set }
     var onPresence: ((Int) -> Void)? { get set }
+    var supportsBinaryInput: Bool { get }
 
     func start(
         shellPath: String,
@@ -35,6 +36,8 @@ protocol TerminalSession: AnyObject {
 }
 
 extension TerminalSession {
+    var supportsBinaryInput: Bool { true }
+
     func write(_ string: String, suppressEcho: Bool = false) {
         write(Data(string.utf8), suppressEcho: suppressEcho)
     }

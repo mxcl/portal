@@ -72,11 +72,16 @@ public struct RemoteCapabilities: Codable, Equatable, Sendable {
     public static let relayCompletion = "relay-completion-v1"
     public static let relayHistory = "relay-history-v1"
     public static let relayTerminalHistory = "relay-terminal-history-v1"
+    public static let relayBinaryInput = "relay-binary-input-v1"
 
     public var values: [String]
 
     public init(values: [String]) {
         self.values = values
+    }
+
+    public var supportsBinaryInput: Bool {
+        values.contains(Self.relayBinaryInput)
     }
 }
 

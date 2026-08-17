@@ -7,6 +7,7 @@ final class RelayTerminalSession: TerminalSession {
     var onExit: ((Int32) -> Void)?
     var onReady: ((Bool) -> Void)?
     var onPresence: ((Int) -> Void)?
+    private(set) var supportsBinaryInput = false
     let completionProvider = RelayCompletionProvider()
 
     private let sessionRef: SessionRef
@@ -169,6 +170,7 @@ final class RelayTerminalSession: TerminalSession {
                 onReady?(false)
             }
         case .connection(.reconnecting):
+            supportsBinaryInput = false
             completionProvider.disconnect()
             if let client {
                 completionProvider.connect(client)
@@ -186,6 +188,7 @@ final class RelayTerminalSession: TerminalSession {
         case .presence(let count):
             onPresence?(count)
         case .capabilitiesChanged(let capabilities):
+            supportsBinaryInput = capabilities.contains(RemoteCapabilities.relayBinaryInput)
             if !capabilities.isEmpty {
                 completionProvider.enable(capabilities)
             } else {

@@ -39,8 +39,10 @@ capability and receives raw history. A previous Mac ignores the additive field
 and sends raw history to a current phone.
 
 After a terminal attach, a Mac may advertise the `relay-completion-v1` and
-`relay-history-v1` capabilities. A client must not send work until it receives
-the corresponding capability for the current connection. Both use the attached
+`relay-history-v1` capabilities. Current Macs also advertise
+`relay-binary-input-v1`; clients must not send non-UTF-8 terminal input, such as
+legacy mouse reports, without it. A client must not send work until it receives
+the corresponding capability for the current connection. All use the attached
 terminal's existing WebSocket and request ID:
 
 - `completionRequest` contains a unique operation ID, one of

@@ -28,7 +28,6 @@ const INTERRUPTED_COMMAND_FINISHED_MARKER: &[u8] = b"\x1b]133;D;130\x07";
 const CURRENT_PROTOCOL_VERSION: u16 = 2;
 const PREVIOUS_PROTOCOL_VERSION: u16 = 1;
 const MAX_SCROLLBACK_LINES: usize = 10_000;
-const MAX_SCROLLBACK_BYTES: usize = 16 * 1024 * 1024;
 const INITIAL_HISTORY_LINES: usize = 1_000;
 const DAEMON_STARTUP_PROBES: usize = 5;
 
@@ -67,8 +66,6 @@ struct OutputChunk {
 struct TerminalState {
     parser: vt100::Parser,
     chunks: VecDeque<OutputChunk>,
-    retained_bytes: usize,
-    retained_lines: usize,
     next_sequence: u64,
     rows: u16,
     cols: u16,
@@ -89,8 +86,6 @@ impl TerminalState {
         Self {
             parser: vt100::Parser::new(rows, cols, MAX_SCROLLBACK_LINES),
             chunks: VecDeque::new(),
-            retained_bytes: 0,
-            retained_lines: 0,
             next_sequence: 1,
             rows,
             cols,
@@ -102,22 +97,11 @@ impl TerminalState {
         let sequence = self.next_sequence;
         self.next_sequence = self.next_sequence.saturating_add(1);
         let line_count = bytes.iter().filter(|byte| **byte == b'\n').count();
-        self.retained_bytes += bytes.len();
-        self.retained_lines += line_count;
         self.chunks.push_back(OutputChunk {
             sequence,
             bytes,
             line_count,
         });
-        while self.retained_bytes > MAX_SCROLLBACK_BYTES
-            || self.retained_lines > MAX_SCROLLBACK_LINES
-        {
-            let Some(removed) = self.chunks.pop_front() else {
-                break;
-            };
-            self.retained_bytes -= removed.bytes.len();
-            self.retained_lines -= removed.line_count;
-        }
         sequence
     }
 
@@ -200,8 +184,6 @@ impl TerminalState {
 
     fn clear_history(&mut self) {
         self.chunks.clear();
-        self.retained_bytes = 0;
-        self.retained_lines = 0;
     }
 }
 
@@ -355,13 +337,17 @@ impl Session {
         Ok(session)
     }
 
-    fn attach_client(&self, sender: Sender<SessionEvent>) -> TerminalSnapshot {
+    fn attach_client(
+        &self,
+        sender: Sender<SessionEvent>,
+        history_lines: usize,
+    ) -> TerminalSnapshot {
         let terminal = self.terminal.lock().expect("terminal lock poisoned");
         self.clients
             .lock()
             .expect("clients lock poisoned")
             .push(sender);
-        terminal.snapshot(INITIAL_HISTORY_LINES)
+        terminal.snapshot(history_lines)
     }
 
     fn increment_attached_client_count(&self) {
@@ -841,7 +827,13 @@ fn handle_client(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<
     };
 
     let (tx, rx) = mpsc::channel::<SessionEvent>();
-    let snapshot = session.attach_client(tx);
+    let history_lines = if request.protocol_version >= CURRENT_PROTOCOL_VERSION {
+        INITIAL_HISTORY_LINES
+    } else {
+        // v1 clients predate paging and require the complete replay in HISTORY.
+        usize::MAX
+    };
+    let snapshot = session.attach_client(tx, history_lines);
     session.increment_attached_client_count();
     if request.protocol_version >= CURRENT_PROTOCOL_VERSION {
         write_attach_header_v2(&mut stream, created, &snapshot)?;
@@ -1296,7 +1288,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_state_enforces_rendered_line_limit() {
+    fn terminal_state_preserves_complete_v1_history() {
         let mut terminal = TerminalState::new(24, 80);
         for _ in 0..=MAX_SCROLLBACK_LINES {
             terminal.record(b"line\n".to_vec());
@@ -1310,9 +1302,9 @@ mod tests {
                 .iter()
                 .filter(|byte| **byte == b'\n')
                 .count(),
-            MAX_SCROLLBACK_LINES
+            MAX_SCROLLBACK_LINES + 1
         );
-        assert_eq!(snapshot.history_start_sequence, 2);
+        assert_eq!(snapshot.history_start_sequence, 1);
     }
 
     #[test]
@@ -1615,7 +1607,7 @@ mod tests {
         let session =
             Session::new(&request, Arc::downgrade(&state)).expect("test session should start");
         let (client, events) = mpsc::channel();
-        session.attach_client(client);
+        session.attach_client(client, INITIAL_HISTORY_LINES);
         session.write_input(b"unsetopt zle; stty -echo; printf '__PORTAL_SETUP__\\n'\n");
         let setup_complete = wait_for_history(&session, b"__PORTAL_SETUP__", 2);
         if setup_complete {
@@ -1667,7 +1659,7 @@ mod tests {
         let session =
             Session::new(&request, Arc::downgrade(&state)).expect("test session should start");
         let (client, events) = mpsc::channel();
-        session.attach_client(client);
+        session.attach_client(client, INITIAL_HISTORY_LINES);
         let shell_ready = (0..200).any(|_| {
             let ready = shell_is_foreground(&session);
             if !ready {

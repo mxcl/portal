@@ -52,8 +52,6 @@ enum Ansi {
     }
 
     final class StyledTextRenderer {
-        private static let maxRenderedLines = 5_000
-        private static let maxRenderedCells = 300_000
         private static let maxLineCells = 2_000
 
         private var pending = ""
@@ -67,7 +65,6 @@ enum Ansi {
         private var rows: Int?
         private var scrollTop = 0
         private var scrollBottom = 0
-        private var droppedLineCount = 0
         private var visibleCellCount = 0
         private var attributeCache: AttributeCache = [:]
         private var linkBaseDirectory: String?
@@ -97,7 +94,6 @@ enum Ansi {
             viewportTop = 0
             scrollTop = 0
             scrollBottom = rows.map { $0 - 1 } ?? 0
-            droppedLineCount = 0
             visibleCellCount = 0
             attributeCache.removeAll(keepingCapacity: true)
             linkBaseDirectory = nil
@@ -322,13 +318,8 @@ enum Ansi {
 
         private func ensureCursorRow(_ requestedRow: Int? = nil) {
             let row = requestedRow ?? cursorRow
-            var didAppendRow = false
             while row >= lines.count {
                 lines.append([])
-                didAppendRow = true
-            }
-            if didAppendRow {
-                trimScrollbackIfNeeded()
             }
         }
 
@@ -462,22 +453,7 @@ enum Ansi {
         private func renderedOutput() -> StyledOutput {
             let attributed = NSMutableAttributedString()
             var plain = ""
-            plain.reserveCapacity(
-                visibleCellCount
-                    + max(0, lines.count - 1)
-                    + (droppedLineCount > 0 ? 48 : 0)
-            )
-
-            if droppedLineCount > 0 {
-                let notice = "[Trimmed \(droppedLineCount) earlier output lines]\n"
-                plain.append(notice)
-                Ansi.appendAttributed(
-                    notice,
-                    style: TextStyle(),
-                    to: attributed,
-                    cache: &attributeCache
-                )
-            }
+            plain.reserveCapacity(visibleCellCount + max(0, lines.count - 1))
 
             for (rowIndex, line) in lines.enumerated() {
                 Ansi.appendStyledCells(
@@ -499,31 +475,6 @@ enum Ansi {
 
             Ansi.linkifyURLs(in: attributed, baseDirectory: linkBaseDirectory)
             return StyledOutput(plainText: plain, attributedText: attributed)
-        }
-
-        private func trimScrollbackIfNeeded() {
-            guard lines.count > Self.maxRenderedLines || visibleCellCount > Self.maxRenderedCells else {
-                return
-            }
-
-            // ponytail: batch trim gives replay headroom; exact-at-cap trimming turns huge logs quadratic.
-            let targetLines = Self.maxRenderedLines * 9 / 10
-            let targetCells = Self.maxRenderedCells * 9 / 10
-            var removeCount = 0
-            var removedCells = 0
-            while removeCount < lines.count - 1,
-                  lines.count - removeCount > targetLines || visibleCellCount - removedCells > targetCells {
-                removedCells += lines[removeCount].count
-                removeCount += 1
-            }
-            if removeCount > 0 {
-                lines.removeSubrange(0..<removeCount)
-                visibleCellCount -= removedCells
-                droppedLineCount += removeCount
-                cursorRow = max(0, cursorRow - removeCount)
-                savedCursorRow = max(0, savedCursorRow - removeCount)
-                viewportTop = max(0, viewportTop - removeCount)
-            }
         }
 
         private func parameter(_ parameters: [Int?], at index: Int, defaultValue: Int) -> Int {

@@ -31,6 +31,14 @@ private struct RendererBenchmark {
             return
         }
 
+        if CommandLine.arguments.contains("--large-output-self-test") {
+            let output = Ansi.StyledTextRenderer().process(longOutputInput(lines: 6_000)).plainText
+            precondition(output.contains("line 0:"))
+            precondition(output.contains("line 5999:"))
+            precondition(!output.contains("[Trimmed "))
+            return
+        }
+
         let cases = [
             BenchmarkCase(
                 name: "carriage-return-progress",

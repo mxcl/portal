@@ -3086,7 +3086,12 @@ private final class TerminalOutputProcessor {
             guard let self else { return }
             self.isReplayingHistoryOutput = true
             self.resetForReplayOnQueue()
-            self.replayShellOutputChunk(text, startingAt: text.startIndex, completion: completion)
+            self.consumeShellOutput(text)
+            self.isReplayingHistoryOutput = false
+            self.flushPendingShellOutputOnQueue()
+            DispatchQueue.main.async {
+                completion?()
+            }
         }
     }
 
@@ -3145,24 +3150,6 @@ private final class TerminalOutputProcessor {
         return true
     }
 
-    private func replayShellOutputChunk(_ text: String, startingAt index: String.Index, completion: (() -> Void)?) {
-        guard index < text.endIndex else {
-            isReplayingHistoryOutput = false
-            flushPendingShellOutputOnQueue()
-            DispatchQueue.main.async {
-                completion?()
-            }
-            return
-        }
-
-        let chunkSize = 64 * 1024
-        let end = text.index(index, offsetBy: chunkSize, limitedBy: text.endIndex) ?? text.endIndex
-        consumeShellOutput(String(text[index..<end]))
-        queue.asyncAfter(deadline: .now() + .milliseconds(8)) { [weak self] in
-            self?.replayShellOutputChunk(text, startingAt: end, completion: completion)
-        }
-    }
-
     private func resetForReplayOnQueue() {
         pendingShellOutput.removeAll(keepingCapacity: true)
         isShellOutputFlushScheduled = false
@@ -3199,12 +3186,26 @@ private final class TerminalOutputProcessor {
             onTerminalResponse?(response)
         }
 
-        for event in markerParser.consume(text) {
+        let events = markerParser.consume(text)
+        let prioritizedCompletionIndex = isReplayingHistoryOutput ? nil : events.lastIndex {
+            guard case .marker(let marker) = $0,
+                  case .commandFinished = marker.kind
+            else { return false }
+            return true
+        }
+        if let prioritizedCompletionIndex,
+           case .marker(let marker) = events[prioritizedCompletionIndex] {
+            emit(.marker(marker, isReplay: false))
+        }
+
+        for (index, event) in events.enumerated() {
             switch event {
             case .text(let visible):
                 flushVisible(visible)
             case .marker(let marker):
-                emit(.marker(marker, isReplay: isReplayingCommand))
+                if index != prioritizedCompletionIndex {
+                    emit(.marker(marker, isReplay: isReplayingCommand))
+                }
                 if case .commandStarted(let command) = marker.kind {
                     if let pendingBlockID {
                         activeBlockID = pendingBlockID

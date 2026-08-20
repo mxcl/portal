@@ -1939,7 +1939,8 @@ final class PortalCompletionEngine: @unchecked Sendable {
         case .file, .folder:
             return matches(prefix: prefix, candidate: suggestion.insertText.replacingOccurrences(of: "\\", with: ""))
         case .application:
-            return suggestion.displayText.range(of: prefix, options: [.caseInsensitive]) != nil
+            return URL(fileURLWithPath: suggestion.source).lastPathComponent
+                .range(of: prefix, options: [.caseInsensitive]) != nil
         default:
             return false
         }

@@ -1,6 +1,36 @@
 import AppKit
 import AppUpdater
+import Carbon.HIToolbox
+import ServiceManagement
 import UniformTypeIdentifiers
+
+private let launcherHotKeySignature = OSType(0x5052544C) // PRTL
+private let launcherHotKeyID = UInt32(1)
+
+private enum LauncherHotKey: String, CaseIterable {
+    case optionSpace
+    case commandSpace
+
+    static let defaultsKey = "launcherHotKey"
+
+    static var preferred: LauncherHotKey {
+        UserDefaults.standard.string(forKey: defaultsKey).flatMap(Self.init(rawValue:)) ?? .optionSpace
+    }
+
+    var title: String {
+        switch self {
+        case .optionSpace: "⌥ Space"
+        case .commandSpace: "⌘ Space"
+        }
+    }
+
+    var carbonModifiers: UInt32 {
+        switch self {
+        case .optionSpace: UInt32(optionKey)
+        case .commandSpace: UInt32(cmdKey)
+        }
+    }
+}
 
 private enum AppWindowMetrics {
     static let defaultContentSize = NSSize(width: 1120, height: 760)
@@ -30,7 +60,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private weak var defaultTerminalMenuItem: NSMenuItem?
     private weak var remoteAccessMenuItem: NSMenuItem?
     private weak var remoteTabsMenu: NSMenu?
+    private weak var hotKeyMenu: NSMenu?
+    private weak var launchAtLoginMenuItem: NSMenuItem?
     private let remoteAccessController = MacRemoteAccessController()
+    private var registeredHotKey: EventHotKeyRef?
+    private var hotKeyHandler: EventHandlerRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = makeMainMenu()
@@ -94,6 +128,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         titleToolbar = toolbar
         self.window = window
         display(initialController, asLauncher: selfTestCommand == nil)
+        if selfTestCommand == nil {
+            installHotKeyHandler()
+            _ = registerHotKey(LauncherHotKey.preferred, reportsError: false)
+            configureLaunchAtLogin()
+        }
         window.makeKeyAndOrderFront(nil)
         window.makeMain()
         NSApp.activate(ignoringOtherApps: true)
@@ -145,12 +184,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         return launcher
     }
 
-    private func showLauncher() {
+    fileprivate func toggleLauncher() {
         guard let window else { return }
         if displayedController === launcherController, window.isVisible {
             window.orderOut(nil)
             return
         }
+        showLauncher()
+    }
+
+    private func showLauncher() {
+        guard let window else { return }
         let launcher = launcherController ?? makeLauncherController()
         launcherController = launcher
         launcher.loadViewIfNeeded()
@@ -231,29 +275,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     private func launchApplication(_ suggestion: CompletionSuggestion) {
-        let process = Process()
-        let errorPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", suggestion.insertText]
-        process.standardError = errorPipe
-        do {
-            try process.run()
-            process.terminationHandler = { [weak self] process in
-                let error = String(
-                    data: errorPipe.fileHandleForReading.readDataToEndOfFile(),
-                    encoding: .utf8
-                )?.trimmingCharacters(in: .whitespacesAndNewlines)
-                DispatchQueue.main.async {
-                    guard let self else { return }
-                    if process.terminationStatus == 0 {
-                        self.window?.orderOut(nil)
-                    } else {
-                        self.launcherController?.showError(error?.isEmpty == false ? error! : "Could not open \(suggestion.displayText)")
-                    }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(
+            at: URL(fileURLWithPath: suggestion.source),
+            configuration: configuration
+        ) { [weak self] _, error in
+            let message = error?.localizedDescription
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let message {
+                    self.launcherController?.showError(message)
+                } else {
+                    self.window?.orderOut(nil)
                 }
             }
-        } catch {
-            launcherController?.showError(error.localizedDescription)
         }
     }
 
@@ -354,6 +390,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showLauncher()
         return true
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let registeredHotKey {
+            UnregisterEventHotKey(registeredHotKey)
+        }
+        if let hotKeyHandler {
+            RemoveEventHandler(hotKeyHandler)
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -568,6 +613,111 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         []
     }
 
+    private func installHotKeyHandler() {
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+        let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
+            guard let event, let userData else { return noErr }
+            var received = EventHotKeyID()
+            GetEventParameter(
+                event,
+                EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID),
+                nil,
+                MemoryLayout<EventHotKeyID>.size,
+                nil,
+                &received
+            )
+            guard received.signature == launcherHotKeySignature,
+                  received.id == launcherHotKeyID
+            else { return noErr }
+            let delegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
+            Task { @MainActor in delegate.toggleLauncher() }
+            return noErr
+        }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
+        if status != noErr {
+            NSLog("Portal could not install its global hot-key handler: \(status)")
+        }
+    }
+
+    @discardableResult
+    private func registerHotKey(_ hotKey: LauncherHotKey, reportsError: Bool) -> Bool {
+        if let registeredHotKey {
+            UnregisterEventHotKey(registeredHotKey)
+            self.registeredHotKey = nil
+        }
+        var reference: EventHotKeyRef?
+        let identifier = EventHotKeyID(signature: launcherHotKeySignature, id: launcherHotKeyID)
+        let status = RegisterEventHotKey(
+            UInt32(kVK_Space),
+            hotKey.carbonModifiers,
+            identifier,
+            GetApplicationEventTarget(),
+            0,
+            &reference
+        )
+        guard status == noErr else {
+            if reportsError {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "\(hotKey.title) is already in use"
+                alert.informativeText = "Change the other app’s shortcut, then try again."
+                alert.runModal()
+            }
+            return false
+        }
+        registeredHotKey = reference
+        UserDefaults.standard.set(hotKey.rawValue, forKey: LauncherHotKey.defaultsKey)
+        hotKeyMenu?.items.forEach {
+            $0.state = $0.representedObject as? String == hotKey.rawValue ? .on : .off
+        }
+        return true
+    }
+
+    private func configureLaunchAtLogin() {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: "launchAtLogin") == nil {
+            defaults.set(true, forKey: "launchAtLogin")
+        }
+        guard defaults.bool(forKey: "launchAtLogin"), SMAppService.mainApp.status == .notRegistered else {
+            return
+        }
+        do {
+            try SMAppService.mainApp.register()
+        } catch {
+            NSLog("Portal could not enable launch at login: \(error.localizedDescription)")
+        }
+    }
+
+    @objc private func selectLauncherHotKey(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let hotKey = LauncherHotKey(rawValue: rawValue)
+        else { return }
+        let previous = LauncherHotKey.preferred
+        if !registerHotKey(hotKey, reportsError: true) {
+            _ = registerHotKey(previous, reportsError: false)
+        }
+    }
+
+    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+                UserDefaults.standard.set(false, forKey: "launchAtLogin")
+            } else {
+                try SMAppService.mainApp.register()
+                UserDefaults.standard.set(true, forKey: "launchAtLogin")
+            }
+            sender.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.messageText = "Could not change launch at login"
+            alert.runModal()
+        }
+    }
+
     private func makeMainMenu() -> NSMenu {
         let menu = NSMenu(title: "Main Menu")
         menu.addItem(makeAppMenuItem())
@@ -591,6 +741,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
         let preferencesItem = NSMenuItem(title: "Preferences", action: nil, keyEquivalent: "")
         let preferencesMenu = NSMenu(title: "Preferences")
+        let hotKeyItem = NSMenuItem(title: "Launcher Hot Key", action: nil, keyEquivalent: "")
+        let hotKeyMenu = NSMenu(title: "Launcher Hot Key")
+        for hotKey in LauncherHotKey.allCases {
+            let item = hotKeyMenu.addItem(
+                withTitle: hotKey.title,
+                action: #selector(selectLauncherHotKey(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = hotKey.rawValue
+            item.state = hotKey == LauncherHotKey.preferred ? .on : .off
+        }
+        self.hotKeyMenu = hotKeyMenu
+        hotKeyItem.submenu = hotKeyMenu
+        preferencesMenu.addItem(hotKeyItem)
+        let loginItem = preferencesMenu.addItem(
+            withTitle: "Launch at Login",
+            action: #selector(toggleLaunchAtLogin(_:)),
+            keyEquivalent: ""
+        )
+        loginItem.target = self
+        loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        launchAtLoginMenuItem = loginItem
+        preferencesMenu.addItem(.separator())
         for effect in BackgroundBlurEffect.allCases {
             let item = preferencesMenu.addItem(
                 withTitle: effect.title,
@@ -674,6 +848,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        launchAtLoginMenuItem?.state = SMAppService.mainApp.status == .enabled ? .on : .off
         if menu === defaultTerminalMenuItem?.menu {
             updateDefaultTerminalMenuItem()
         } else if menu === remoteTabsMenu {

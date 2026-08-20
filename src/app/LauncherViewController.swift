@@ -1,18 +1,20 @@
 import AppKit
 import Foundation
 
+private final class LauncherSessionDocument: NSView {
+    override var isFlipped: Bool { true }
+}
+
 @MainActor
 final class LauncherViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
     private enum Row {
-        case header(String)
-        case session(SessionPickerItem)
         case completion(CompletionSuggestion)
         case message(String)
 
         var isSelectable: Bool {
             switch self {
-            case .session, .completion: true
-            case .header, .message: false
+            case .completion: true
+            case .message: false
             }
         }
     }
@@ -26,11 +28,25 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     private let input = NSTextField()
     private let table = NSTableView()
     private let scroll = NSScrollView()
+    private let sessionScroll = NSScrollView()
+    private let sessionDocument = LauncherSessionDocument()
+    private let sessionStack = NSStackView()
     private let completionEngine = PortalCompletionEngine()
     private let completionQueue = DispatchQueue(label: "dev.mxcl.portal.launcher-completion", qos: .userInitiated)
     private let sessionModel = SessionPickerModel()
     private var rows: [Row] = []
+    private var sessionButtons: [SessionCandidateButton] = []
+    private var sessionCandidates: [SessionRef: SessionPickerCandidate] = [:]
+    private var selectedSessionRef: SessionRef?
     private var completionSerial = 0
+
+    static func keyboardSelectionSelfTest() -> Bool {
+        sessionSelectionDestination(current: nil, delta: 4, count: 6) == 0
+            && sessionSelectionDestination(current: nil, delta: -4, count: 6) == 5
+            && sessionSelectionDestination(current: 0, delta: 4, count: 6) == 4
+            && sessionSelectionDestination(current: 4, delta: -1, count: 6) == nil
+            && sessionSelectionDestination(current: 3, delta: 1, count: 6) == nil
+    }
 
     override func loadView() {
         let glass = NSGlassEffectView()
@@ -60,11 +76,33 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         table.target = self
         table.action = #selector(openSelectedRow(_:))
 
+        sessionDocument.translatesAutoresizingMaskIntoConstraints = false
+        sessionStack.orientation = .vertical
+        sessionStack.alignment = .leading
+        sessionStack.spacing = 10
+        sessionStack.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 16, right: 16)
+        sessionStack.translatesAutoresizingMaskIntoConstraints = false
+        sessionDocument.addSubview(sessionStack)
+        NSLayoutConstraint.activate([
+            sessionStack.leadingAnchor.constraint(equalTo: sessionDocument.leadingAnchor),
+            sessionStack.trailingAnchor.constraint(equalTo: sessionDocument.trailingAnchor),
+            sessionStack.topAnchor.constraint(equalTo: sessionDocument.topAnchor),
+            sessionStack.bottomAnchor.constraint(equalTo: sessionDocument.bottomAnchor),
+        ])
+
         scroll.documentView = table
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
+        scroll.isHidden = true
         scroll.translatesAutoresizingMaskIntoConstraints = false
+
+        sessionScroll.documentView = sessionDocument
+        sessionScroll.drawsBackground = false
+        sessionScroll.hasVerticalScroller = true
+        sessionScroll.autohidesScrollers = true
+        sessionScroll.translatesAutoresizingMaskIntoConstraints = false
+        sessionDocument.widthAnchor.constraint(equalTo: sessionScroll.contentView.widthAnchor).isActive = true
 
         let separator = NSBox()
         separator.boxType = .separator
@@ -73,6 +111,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         content.addSubview(input)
         content.addSubview(separator)
         content.addSubview(scroll)
+        content.addSubview(sessionScroll)
         NSLayoutConstraint.activate([
             input.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
             input.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
@@ -85,6 +124,10 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             scroll.topAnchor.constraint(equalTo: separator.bottomAnchor),
             scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            sessionScroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            sessionScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            sessionScroll.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            sessionScroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
     }
 
@@ -100,6 +143,8 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
 
     func reset() {
         completionSerial += 1
+        selectedSessionRef = nil
+        sessionButtons.forEach { $0.isKeyboardSelected = false }
         input.stringValue = ""
         refreshSessions()
         view.window?.makeFirstResponder(input)
@@ -111,6 +156,8 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     func showError(_ message: String) {
+        scroll.isHidden = false
+        sessionScroll.isHidden = true
         rows = [.message(message)]
         reloadRows()
     }
@@ -118,8 +165,6 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        guard rows.indices.contains(row) else { return 48 }
-        if case .header = rows[row] { return 28 }
         return 52
     }
 
@@ -127,31 +172,14 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         rows.indices.contains(row) && rows[row].isSelectable
     }
 
-    func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
-        guard rows.indices.contains(row) else { return false }
-        if case .header = rows[row] { return true }
-        return false
-    }
-
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard rows.indices.contains(row) else { return nil }
         switch rows[row] {
-        case .header(let title):
-            let label = NSTextField(labelWithString: title)
-            label.font = .systemFont(ofSize: 11, weight: .semibold)
-            label.textColor = .secondaryLabelColor
-            return label
         case .message(let message):
             let label = NSTextField(labelWithString: message)
             label.font = .systemFont(ofSize: 12)
             label.textColor = .secondaryLabelColor
             return label
-        case .session(let item):
-            return resultCell(
-                title: item.title,
-                detail: [item.subtitle, item.metadata].compactMap { $0 }.joined(separator: " · "),
-                icon: Bundle.main.image(forResource: NSImage.Name("session-icon"))
-            )
         case .completion(let suggestion):
             let icon = suggestion.kind == .application
                 ? NSWorkspace.shared.icon(forFile: suggestion.source)
@@ -180,9 +208,13 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     ) -> Bool {
         switch commandSelector {
         case #selector(NSResponder.moveDown(_:)):
-            moveSelection(1)
+            input.stringValue.isEmpty ? moveSessionSelection(columns: 4) : moveSelection(1)
         case #selector(NSResponder.moveUp(_:)):
-            moveSelection(-1)
+            input.stringValue.isEmpty ? moveSessionSelection(columns: -4) : moveSelection(-1)
+        case #selector(NSResponder.moveLeft(_:)) where input.stringValue.isEmpty:
+            moveSessionSelection(columns: -1)
+        case #selector(NSResponder.moveRight(_:)) where input.stringValue.isEmpty:
+            moveSessionSelection(columns: 1)
         case #selector(NSResponder.insertTab(_:)):
             acceptSelectedCompletion()
         case #selector(NSResponder.insertNewline(_:)):
@@ -232,6 +264,8 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     private func refreshSessions() {
+        scroll.isHidden = true
+        sessionScroll.isHidden = false
         let hostname = Host.current().localizedName ?? "This Mac"
         sessionModel.refresh(
             initial: [],
@@ -259,18 +293,74 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             isAvailable: { _ in true },
             onUpdate: { [weak self] snapshot in
                 guard let self, self.input.stringValue.isEmpty else { return }
-                self.rows = snapshot.sections.flatMap { section in
-                    [Row.header(section.title)] + section.items.map(Row.session)
-                }
-                if self.rows.isEmpty {
-                    self.rows = [.message("No active sessions")]
-                }
-                self.reloadRows()
+                self.renderSessions(snapshot)
             }
         )
     }
 
+    private func renderSessions(_ snapshot: SessionPickerSnapshot) {
+        sessionCandidates = Dictionary(uniqueKeysWithValues: snapshot.sections.flatMap { section in
+            section.items.map { ($0.candidate.sessionRef, $0.candidate) }
+        })
+        sessionButtons.removeAll()
+        for view in sessionStack.arrangedSubviews {
+            sessionStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        for section in snapshot.sections {
+            let header = NSTextField(labelWithString: section.title.uppercased())
+            header.font = .systemFont(ofSize: 10, weight: .semibold)
+            header.textColor = .secondaryLabelColor
+            sessionStack.addArrangedSubview(header)
+
+            if section.items.isEmpty {
+                let empty = NSTextField(labelWithString: "No active sessions")
+                empty.font = .systemFont(ofSize: 12, weight: .regular)
+                empty.textColor = .tertiaryLabelColor
+                empty.alignment = .center
+                empty.heightAnchor.constraint(equalToConstant: 82).isActive = true
+                sessionStack.addArrangedSubview(empty)
+                empty.widthAnchor.constraint(equalTo: sessionStack.widthAnchor).isActive = true
+                continue
+            }
+
+            for start in stride(from: 0, to: section.items.count, by: 4) {
+                let buttons = section.items[start..<min(start + 4, section.items.count)].map { item in
+                    let button = SessionCandidateButton(
+                        sessionRef: item.candidate.sessionRef,
+                        title: item.title,
+                        subtitle: item.subtitle,
+                        metadata: item.metadata
+                    )
+                    button.target = self
+                    button.action = #selector(openSessionCard(_:))
+                    button.isKeyboardSelected = item.candidate.sessionRef == selectedSessionRef
+                    sessionButtons.append(button)
+                    return button
+                }
+                let row = SessionCandidateRowView(buttons: buttons)
+                sessionStack.addArrangedSubview(row)
+                row.widthAnchor.constraint(equalTo: sessionStack.widthAnchor).isActive = true
+            }
+        }
+
+        if let selectedSessionRef, !sessionCandidates.keys.contains(selectedSessionRef) {
+            self.selectedSessionRef = nil
+        }
+        sessionDocument.layoutSubtreeIfNeeded()
+        onHeightChanged?(56 + sessionStack.fittingSize.height)
+    }
+
+    @objc private func openSessionCard(_ sender: SessionCandidateButton) {
+        guard let candidate = sessionCandidates[sender.sessionRef] else { return }
+        selectedSessionRef = sender.sessionRef
+        onOpenSession?(candidate)
+    }
+
     private func refreshCompletions(_ query: String) {
+        scroll.isHidden = false
+        sessionScroll.isHidden = true
         completionSerial += 1
         let serial = completionSerial
         let cancellation = CompletionCancellation()
@@ -325,6 +415,35 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         table.scrollRowToVisible(selectable[next])
     }
 
+    private func moveSessionSelection(columns delta: Int) {
+        guard !sessionButtons.isEmpty else { return }
+        let current = selectedSessionRef.flatMap { selected in
+            sessionButtons.firstIndex { $0.sessionRef == selected }
+        }
+        guard let destination = Self.sessionSelectionDestination(
+            current: current,
+            delta: delta,
+            count: sessionButtons.count
+        ) else { return }
+        sessionButtons.forEach { $0.isKeyboardSelected = false }
+        let button = sessionButtons[destination]
+        button.isKeyboardSelected = true
+        selectedSessionRef = button.sessionRef
+        button.scrollToVisible(button.bounds)
+    }
+
+    private static func sessionSelectionDestination(
+        current: Int?,
+        delta: Int,
+        count: Int
+    ) -> Int? {
+        guard count > 0 else { return nil }
+        guard let current else { return delta < 0 ? count - 1 : 0 }
+        if delta == -1, current.isMultiple(of: 4) { return nil }
+        if delta == 1, current % 4 == 3 { return nil }
+        return min(max(0, current + delta), count - 1)
+    }
+
     private func acceptSelectedCompletion() {
         guard rows.indices.contains(table.selectedRow),
               case .completion(let suggestion) = rows[table.selectedRow]
@@ -334,11 +453,14 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     private func activateSelectionOrInput() {
-        if rows.indices.contains(table.selectedRow) {
+        if input.stringValue.isEmpty,
+           let selectedSessionRef,
+           let candidate = sessionCandidates[selectedSessionRef] {
+            onOpenSession?(candidate)
+            return
+        }
+        if !input.stringValue.isEmpty, rows.indices.contains(table.selectedRow) {
             switch rows[table.selectedRow] {
-            case .session(let item):
-                onOpenSession?(item.candidate)
-                return
             case .completion(let suggestion):
                 if suggestion.kind == .application {
                     input.stringValue = suggestion.insertText
@@ -347,7 +469,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
                     onRunCommand?(suggestion.insertText.trimmingCharacters(in: .whitespaces))
                 }
                 return
-            case .header, .message:
+            case .message:
                 break
             }
         }

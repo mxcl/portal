@@ -3396,7 +3396,7 @@ private final class TerminalOutputProcessor {
     }
 }
 
-private final class SessionCandidateButton: NSControl {
+final class SessionCandidateButton: NSControl {
     let sessionRef: SessionRef
     let sessionID: String
     private let iconView = NSImageView()
@@ -3638,7 +3638,7 @@ private final class SessionHeaderAddButton: NSButton {
     }
 }
 
-private final class SessionCandidateRowView: NSView {
+final class SessionCandidateRowView: NSView {
     private enum Metrics {
         static let columnCount = 4
         static let spacing: CGFloat = 10
@@ -4090,6 +4090,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(TerminalViewController.historyCompletionReplacementRangeSelfTest())
         assert(PortalCompletionEngine.historyMergePrefixSelfTest())
         assert(PortalCompletionEngine.applicationCompletionSelfTest())
+        assert(LauncherViewController.keyboardSelectionSelfTest())
         assert(ShellCompletionParser.midTokenReplacementRangeSelfTest())
         assert(TerminalViewController.tabReorderDestination(
             sourceIndex: 0,

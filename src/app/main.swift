@@ -116,6 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         window.isRestorable = false
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        window.tabbingMode = .disallowed
         window.isMovableByWindowBackground = false
         window.delegate = self
         let toolbar = NSToolbar(identifier: .portalTitlebar)
@@ -195,6 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
     private func showLauncher() {
         guard let window else { return }
+        discardTerminalController()
         let launcher = launcherController ?? makeLauncherController()
         launcherController = launcher
         launcher.loadViewIfNeeded()
@@ -202,6 +204,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         display(launcher, asLauncher: true)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func discardTerminalController() {
+        guard let controller else { return }
+        if displayedController === controller {
+            terminalFrame = window?.frame
+            controller.view.removeFromSuperview()
+            displayedController = nil
+        }
+        controller.stopAllSessions()
+        self.controller = nil
     }
 
     private func hideWindow() {
@@ -446,6 +459,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        discardTerminalController()
         hideWindow()
         return false
     }
@@ -731,7 +745,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private func makeMainMenu() -> NSMenu {
         let menu = NSMenu(title: "Main Menu")
         menu.addItem(makeAppMenuItem())
-        menu.addItem(makeTabsMenuItem())
         menu.addItem(makeEditMenuItem())
         menu.addItem(makeWindowMenuItem())
         return menu
@@ -1147,6 +1160,7 @@ private enum PortalApplication {
     @MainActor
     static func main() {
         let app = NSApplication.shared
+        NSWindow.allowsAutomaticWindowTabbing = false
         let delegate = AppDelegate()
         app.delegate = delegate
         app.appearance = NSAppearance(named: .darkAqua)

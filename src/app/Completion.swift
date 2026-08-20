@@ -42,6 +42,7 @@ struct CompletionResult {
 struct CompletionSuggestion {
     enum Kind {
         case history
+        case application
         case command
         case subcommand
         case option
@@ -818,6 +819,7 @@ private extension CompletionSuggestion.Kind {
     var label: String {
         switch self {
         case .history: return "history"
+        case .application: return "app"
         case .command: return "cmd"
         case .subcommand: return "subcmd"
         case .option: return "option"
@@ -835,6 +837,8 @@ private extension CompletionSuggestion {
 
     var trailingLabel: String {
         switch kind {
+        case .application:
+            return source
         case .command:
             guard source != "shell" else { return "builtin" }
             let directory = (source as NSString).deletingLastPathComponent
@@ -882,6 +886,17 @@ final class PortalCompletionEngine {
     private let commandDescriptions = CommandDescriptionStore.shared
     private let fileManager = FileManager.default
     private var commandCache: [String: [CompletionSuggestion]] = [:]
+    private lazy var applicationSuggestions = discoverApplications()
+
+    static func applicationCompletionSelfTest() -> Bool {
+        let engine = PortalCompletionEngine()
+        let suggestion = engine.applicationSuggestion(
+            for: URL(fileURLWithPath: "/Applications/O'Brien App.app")
+        )
+        return suggestion.displayText == "O'Brien App"
+            && suggestion.insertText == "open /Applications/O\\'Brien\\ App.app"
+            && suggestion.kind == .application
+    }
 
     func completions(for request: CompletionRequest) -> CompletionResult {
         if request.historyOnly {
@@ -1461,26 +1476,71 @@ final class PortalCompletionEngine {
         }
 
         let cacheKey = commandCacheKey(for: request)
+        let commands: [CompletionSuggestion]
         if let cached = commandCache[cacheKey] {
-            return rankedSuggestions(cached, prefix: prefix, limit: request.limit)
+            commands = cached
+        } else {
+            let executableSources = executableCommandSources(for: request)
+            commands = Set(executableSources.keys).map { name in
+                let hasSpec = specLoader.hasSpec(command: name)
+                return CompletionSuggestion(
+                    displayText: name,
+                    insertText: name + " ",
+                    description: executableSources[name] == "shell" ? nil : commandDescriptions.description(for: name),
+                    kind: .command,
+                    priority: hasSpec ? 70 : 50,
+                    source: executableSources[name] ?? "PATH"
+                )
+            }
+            commandCache[cacheKey] = commands
         }
 
-        let executableSources = executableCommandSources(for: request)
-        let names = Set(executableSources.keys)
-
-        let suggestions = names.map { name in
-            let hasSpec = specLoader.hasSpec(command: name)
-            return CompletionSuggestion(
-                displayText: name,
-                insertText: name + " ",
-                description: executableSources[name] == "shell" ? nil : commandDescriptions.description(for: name),
-                kind: .command,
-                priority: hasSpec ? 70 : 50,
-                source: executableSources[name] ?? "PATH"
-            )
+        let suggestions: [CompletionSuggestion]
+        if case .local = request.location {
+            suggestions = commands + applicationSuggestions
+        } else {
+            suggestions = commands
         }
-        commandCache[cacheKey] = suggestions
         return rankedSuggestions(suggestions, prefix: prefix, limit: request.limit)
+    }
+
+    private func discoverApplications() -> [CompletionSuggestion] {
+        let roots = [
+            fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true),
+            URL(fileURLWithPath: "/Applications", isDirectory: true),
+            URL(fileURLWithPath: "/System/Applications", isDirectory: true),
+        ]
+        let portalURL = Bundle.main.bundleURL.standardizedFileURL
+        var seen = Set<URL>()
+        var suggestions: [CompletionSuggestion] = []
+
+        for root in roots {
+            guard let enumerator = fileManager.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.isApplicationKey],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else { continue }
+
+            for case let url as URL in enumerator where url.pathExtension.caseInsensitiveCompare("app") == .orderedSame {
+                let standardized = url.standardizedFileURL.resolvingSymlinksInPath()
+                guard standardized != portalURL,
+                      seen.insert(standardized).inserted
+                else { continue }
+                suggestions.append(applicationSuggestion(for: standardized))
+            }
+        }
+        return suggestions
+    }
+
+    private func applicationSuggestion(for url: URL) -> CompletionSuggestion {
+        CompletionSuggestion(
+            displayText: url.deletingPathExtension().lastPathComponent,
+            insertText: "open \(shellEscapePath(url.path))",
+            description: url.path,
+            kind: .application,
+            priority: 65,
+            source: url.path
+        )
     }
 
     private func commandCacheKey(for request: CompletionRequest) -> String {
@@ -1878,6 +1938,8 @@ final class PortalCompletionEngine {
         switch suggestion.kind {
         case .file, .folder:
             return matches(prefix: prefix, candidate: suggestion.insertText.replacingOccurrences(of: "\\", with: ""))
+        case .application:
+            return suggestion.displayText.range(of: prefix, options: [.caseInsensitive]) != nil
         default:
             return false
         }

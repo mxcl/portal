@@ -4088,6 +4088,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(CommandInputTextView.completionPreviewPreservesCaretSelfTest())
         assert(TerminalViewController.historyCompletionReplacementRangeSelfTest())
         assert(PortalCompletionEngine.historyMergePrefixSelfTest())
+        assert(PortalCompletionEngine.applicationCompletionSelfTest())
         assert(ShellCompletionParser.midTokenReplacementRangeSelfTest())
         assert(TerminalViewController.tabReorderDestination(
             sourceIndex: 0,

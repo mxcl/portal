@@ -4016,6 +4016,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let sessionCatalog: SessionCatalog
     private var windowID: String { sessionCatalog.windowID }
     private let restoresPersistedWindow: Bool
+    private let showsTabStrip: Bool
     private var didRunSelfTest = false
     private var initialCommands: [UUID: InitialCommand] = [:]
     private var tabs: [TerminalTab] = []
@@ -4125,12 +4126,14 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     init(
         selfTestCommand: String? = nil,
         windowID: String = UUID().uuidString,
-        restoresPersistedWindow: Bool = true
+        restoresPersistedWindow: Bool = true,
+        showsTabStrip: Bool = true
     ) {
         _ = Self.didRunPassthroughRoutingSelfTest
         self.selfTestCommand = selfTestCommand
         self.sessionCatalog = SessionCatalog(url: Self.sessionStateURL(), windowID: windowID)
         self.restoresPersistedWindow = restoresPersistedWindow
+        self.showsTabStrip = showsTabStrip
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -4139,6 +4142,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         self.selfTestCommand = nil
         self.sessionCatalog = SessionCatalog(url: Self.sessionStateURL(), windowID: UUID().uuidString)
         self.restoresPersistedWindow = true
+        self.showsTabStrip = true
         super.init(coder: coder)
     }
 
@@ -4165,6 +4169,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         updateButton.action = #selector(installStagedUpdate(_:))
         updateButton.isHidden = true
         titleTabBorderView.tabStack = titleTabStack
+        titleTabStack.isHidden = !showsTabStrip
+        titleTabBorderView.isHidden = !showsTabStrip
+        newTabButton.isHidden = !showsTabStrip
 
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
         resizeTooltipView.isHidden = true
@@ -4219,7 +4226,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             ),
             contentContainer.topAnchor.constraint(
                 equalTo: view.topAnchor,
-                constant: TahoeGlassPalette.titleContentTop
+                constant: showsTabStrip ? TahoeGlassPalette.titleContentTop : 0
             ),
             contentContainer.bottomAnchor.constraint(
                 equalTo: view.bottomAnchor
@@ -4284,6 +4291,32 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 tab.session.stop()
             }
         }
+    }
+
+    var activeSessionRef: SessionRef? { activeTab?.sessionRef }
+
+    func openFromLauncher(_ candidate: SessionPickerCandidate) {
+        guard let tab = activeTab,
+              tab.canReplaceFreshSession,
+              tab.blocks.isEmpty
+        else { return }
+        attachSessionFromPicker(candidate, in: tab)
+    }
+
+    func runFromLauncher(_ command: String) {
+        guard let tab = activeTab,
+              tab.blocks.isEmpty,
+              !command.isEmpty
+        else { return }
+        guard tab.isShellReady else {
+            initialCommands[tab.id] = InitialCommand(
+                command: command,
+                exitsShellAfterCompletion: false
+            )
+            return
+        }
+        tab.inputView.string = command
+        submitCommand(in: tab)
     }
 
     func setUpdateStaged(_ isStaged: Bool) {

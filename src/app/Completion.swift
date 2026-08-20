@@ -876,7 +876,7 @@ private final class CommandDescriptionStore {
     }
 }
 
-final class PortalCompletionEngine {
+final class PortalCompletionEngine: @unchecked Sendable {
     private static let maxPathSuggestionCandidates = 512
     private static let maxGeneratorSuggestionCandidates = 512
     private static let defaultGeneratorTimeout: TimeInterval = 10

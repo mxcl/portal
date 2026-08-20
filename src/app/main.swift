@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 private enum AppWindowMetrics {
     static let defaultContentSize = NSSize(width: 1120, height: 760)
     static let minimumContentSize = NSSize(width: 760, height: 480)
+    static let launcherWidth: CGFloat = 720
+    static let launcherHeight: CGFloat = 420
 }
 
 @MainActor
@@ -17,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private let updater = AppUpdater(owner: "mxcl", repo: "portal")
     private var window: NSWindow?
     private var controller: TerminalViewController?
+    private var launcherController: LauncherViewController?
+    private weak var displayedController: NSViewController?
+    private var terminalFrame: NSRect?
     private var titleToolbar: NSToolbar?
     private var pendingOpenURLs: [URL] = []
     private var stagedUpdate: Update?
@@ -37,16 +42,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         let args = ProcessInfo.processInfo.arguments
         let selfTestCommand = args.enumerated().first { $0.element == "--self-test" }
             .flatMap { index, _ in args.indices.contains(index + 1) ? args[index + 1] : nil }
-        let controller = TerminalViewController(selfTestCommand: selfTestCommand)
-        controller.onInstallStagedUpdate = { [weak self] in
-            self?.confirmInstallStagedUpdate()
+        let initialController: NSViewController
+        if selfTestCommand != nil {
+            let controller = makeTerminalController(
+                selfTestCommand: selfTestCommand,
+                restoresPersistedWindow: true
+            )
+            self.controller = controller
+            initialController = controller
+        } else {
+            let launcher = makeLauncherController()
+            launcherController = launcher
+            initialController = launcher
         }
-        controller.remoteAccessEnabled = remoteAccessController.isEnabled
-        controller.onSetRemoteAccessEnabled = { [weak self] enabled in
-            self?.setRemoteAccessEnabled(enabled) ?? false
-        }
-        controller.loadViewIfNeeded()
-        self.controller = controller
+        initialController.loadViewIfNeeded()
 
         let styleMask: NSWindow.StyleMask = [
             .titled,
@@ -56,7 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             .fullSizeContentView
         ]
         let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: AppWindowMetrics.defaultContentSize),
+            contentRect: NSRect(
+                origin: .zero,
+                size: selfTestCommand == nil
+                    ? NSSize(width: AppWindowMetrics.launcherWidth, height: AppWindowMetrics.launcherHeight)
+                    : AppWindowMetrics.defaultContentSize
+            ),
             styleMask: styleMask,
             backing: .buffered,
             defer: false
@@ -78,27 +92,168 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         window.toolbarStyle = .unified
         window.titlebarSeparatorStyle = .none
         titleToolbar = toolbar
-        window.minSize = NSWindow.frameRect(
-            forContentRect: NSRect(origin: .zero, size: AppWindowMetrics.minimumContentSize),
-            styleMask: styleMask
-        ).size
-        window.contentMinSize = AppWindowMetrics.minimumContentSize
-        window.setContentSize(AppWindowMetrics.defaultContentSize)
-        window.center()
-        if let nativeContentView = window.contentView {
-            controller.view.frame = nativeContentView.bounds
-            controller.view.autoresizingMask = [.width, .height]
-            nativeContentView.addSubview(controller.view)
-        }
+        self.window = window
+        display(initialController, asLauncher: selfTestCommand == nil)
         window.makeKeyAndOrderFront(nil)
         window.makeMain()
-        self.window = window
         NSApp.activate(ignoringOtherApps: true)
-        controller.windowDidAttach()
+        controller?.windowDidAttach()
         openPendingURLs()
         if selfTestCommand == nil {
             checkForUpdates()
             remoteAccessController.startIfEnabled()
+        }
+    }
+
+    private func makeTerminalController(
+        selfTestCommand: String? = nil,
+        restoresPersistedWindow: Bool
+    ) -> TerminalViewController {
+        let controller = TerminalViewController(
+            selfTestCommand: selfTestCommand,
+            restoresPersistedWindow: restoresPersistedWindow,
+            showsTabStrip: false
+        )
+        controller.onInstallStagedUpdate = { [weak self] in
+            self?.confirmInstallStagedUpdate()
+        }
+        controller.remoteAccessEnabled = remoteAccessController.isEnabled
+        controller.onSetRemoteAccessEnabled = { [weak self] enabled in
+            self?.setRemoteAccessEnabled(enabled) ?? false
+        }
+        controller.loadViewIfNeeded()
+        return controller
+    }
+
+    private func makeLauncherController() -> LauncherViewController {
+        let launcher = LauncherViewController()
+        launcher.onRunCommand = { [weak self] command in
+            self?.openTerminal(running: command)
+        }
+        launcher.onOpenSession = { [weak self] candidate in
+            self?.openTerminal(session: candidate)
+        }
+        launcher.onLaunchApplication = { [weak self] suggestion in
+            self?.launchApplication(suggestion)
+        }
+        launcher.onCancel = { [weak self] in
+            self?.window?.orderOut(nil)
+        }
+        launcher.onHeightChanged = { [weak self] height in
+            self?.resizeLauncher(to: height)
+        }
+        return launcher
+    }
+
+    private func showLauncher() {
+        guard let window else { return }
+        if displayedController === launcherController, window.isVisible {
+            window.orderOut(nil)
+            return
+        }
+        let launcher = launcherController ?? makeLauncherController()
+        launcherController = launcher
+        launcher.loadViewIfNeeded()
+        launcher.reset()
+        display(launcher, asLauncher: true)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func openTerminal(running command: String) {
+        replaceTerminalController()
+        guard let controller else { return }
+        display(controller, asLauncher: false)
+        controller.runFromLauncher(command)
+        controller.windowDidAttach()
+    }
+
+    private func openTerminal(session candidate: SessionPickerCandidate) {
+        if controller?.activeSessionRef == candidate.sessionRef, let controller {
+            display(controller, asLauncher: false)
+            controller.windowDidAttach()
+            return
+        }
+        replaceTerminalController()
+        guard let controller else { return }
+        controller.openFromLauncher(candidate)
+        display(controller, asLauncher: false)
+        controller.windowDidAttach()
+    }
+
+    private func replaceTerminalController() {
+        controller?.stopAllSessions()
+        let replacement = makeTerminalController(restoresPersistedWindow: false)
+        controller = replacement
+    }
+
+    private func display(_ controller: NSViewController, asLauncher: Bool) {
+        guard let window, let contentView = window.contentView else { return }
+        if displayedController === self.controller {
+            terminalFrame = window.frame
+        }
+        displayedController?.view.removeFromSuperview()
+        controller.view.frame = contentView.bounds
+        controller.view.autoresizingMask = [.width, .height]
+        contentView.addSubview(controller.view)
+        displayedController = controller
+
+        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            window.standardWindowButton(button)?.isHidden = asLauncher
+        }
+        if asLauncher {
+            terminalFrame = terminalFrame ?? window.frame
+            window.styleMask.remove([.resizable, .miniaturizable])
+            window.level = .floating
+            resizeLauncher(to: max(AppWindowMetrics.launcherHeight, controller.view.fittingSize.height))
+        } else {
+            window.styleMask.insert([.resizable, .miniaturizable])
+            window.level = .normal
+            window.contentMinSize = AppWindowMetrics.minimumContentSize
+            window.setFrame(terminalFrame ?? NSRect(origin: window.frame.origin, size: AppWindowMetrics.defaultContentSize), display: true, animate: true)
+        }
+    }
+
+    private func resizeLauncher(to height: CGFloat) {
+        guard let window, displayedController === launcherController else { return }
+        let contentHeight = min(max(108, height), 56 + 8 * 52)
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+            ?? window.screen
+            ?? NSScreen.main
+        guard let visibleFrame = screen?.visibleFrame else { return }
+        let contentRect = NSRect(
+            x: visibleFrame.midX - AppWindowMetrics.launcherWidth / 2,
+            y: visibleFrame.maxY - contentHeight - visibleFrame.height * 0.18,
+            width: AppWindowMetrics.launcherWidth,
+            height: contentHeight
+        )
+        window.setFrame(NSWindow.frameRect(forContentRect: contentRect, styleMask: window.styleMask), display: true, animate: window.isVisible)
+    }
+
+    private func launchApplication(_ suggestion: CompletionSuggestion) {
+        let process = Process()
+        let errorPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", suggestion.insertText]
+        process.standardError = errorPipe
+        do {
+            try process.run()
+            process.terminationHandler = { [weak self] process in
+                let error = String(
+                    data: errorPipe.fileHandleForReading.readDataToEndOfFile(),
+                    encoding: .utf8
+                )?.trimmingCharacters(in: .whitespacesAndNewlines)
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if process.terminationStatus == 0 {
+                        self.window?.orderOut(nil)
+                    } else {
+                        self.launcherController?.showError(error?.isEmpty == false ? error! : "Could not open \(suggestion.displayText)")
+                    }
+                }
+            }
+        } catch {
+            launcherController?.showError(error.localizedDescription)
         }
     }
 
@@ -193,16 +348,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        !isInstallingUpdate
+        false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showLauncher()
+        return true
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        controller?.windowDidBecomeActive()
+        if displayedController === controller {
+            controller?.windowDidBecomeActive()
+        }
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
         guard notification.object as? NSWindow === window else { return }
-        controller?.windowDidBecomeActive()
+        if displayedController === controller {
+            controller?.windowDidBecomeActive()
+        }
     }
 
     func windowWillStartLiveResize(_ notification: Notification) {
@@ -224,6 +388,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         guard notification.object as? NSWindow === window else { return }
         updateCheckTask?.cancel()
         controller?.stopAllSessions()
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        return false
     }
 
     private func checkForUpdates() {
@@ -361,7 +530,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     private func open(_ item: OpenItem) {
+        if controller == nil {
+            replaceTerminalController()
+        }
         guard let controller else { return }
+        display(controller, asLauncher: false)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 

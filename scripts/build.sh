@@ -957,6 +957,7 @@ SWIFTC_COMMAND=(
   "$ROOT_DIR/src/app/Ansi.swift" \
   "$ROOT_DIR/src/app/GitDirectoryState.swift" \
   "$ROOT_DIR/src/app/Completion.swift" \
+  "$ROOT_DIR/src/app/LauncherViewController.swift" \
   "$ROOT_DIR/src/app/TerminalViewController.swift" \
   "$GHOSTTY_BRIDGE_OBJECT"
 )

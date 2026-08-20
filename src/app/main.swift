@@ -176,7 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             self?.launchApplication(suggestion)
         }
         launcher.onCancel = { [weak self] in
-            self?.window?.orderOut(nil)
+            self?.hideWindow()
         }
         launcher.onHeightChanged = { [weak self] height in
             self?.resizeLauncher(to: height)
@@ -187,7 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     fileprivate func toggleLauncher() {
         guard let window else { return }
         if displayedController === launcherController, window.isVisible {
-            window.orderOut(nil)
+            hideWindow()
             return
         }
         showLauncher()
@@ -202,6 +202,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         display(launcher, asLauncher: true)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func hideWindow() {
+        if displayedController === launcherController {
+            launcherController?.suspend()
+        }
+        window?.orderOut(nil)
     }
 
     private func openTerminal(running command: String) {
@@ -235,6 +242,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         guard let window, let contentView = window.contentView else { return }
         if displayedController === self.controller {
             terminalFrame = window.frame
+        }
+        if displayedController === launcherController, controller !== launcherController {
+            launcherController?.suspend()
         }
         displayedController?.view.removeFromSuperview()
         controller.view.frame = contentView.bounds
@@ -287,7 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
                 if let message {
                     self.launcherController?.showError(message)
                 } else {
-                    self.window?.orderOut(nil)
+                    self.hideWindow()
                 }
             }
         }
@@ -436,7 +446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        sender.orderOut(nil)
+        hideWindow()
         return false
     }
 

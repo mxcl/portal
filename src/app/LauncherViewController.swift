@@ -105,6 +105,11 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         view.window?.makeFirstResponder(input)
     }
 
+    func suspend() {
+        completionSerial += 1
+        sessionModel.invalidate()
+    }
+
     func showError(_ message: String) {
         rows = [.message(message)]
         reloadRows()

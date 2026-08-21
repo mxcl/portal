@@ -379,6 +379,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             && dismissalAnimationSelfTest()
             && remoteAddButtonSelfTest()
             && escapeSelfTest()
+            && completionResizeSelfTest()
             && sessionSelectionDestination(current: nil, delta: -3, rowStarts: rows, count: 13) == 11
             && sessionSelectionDestination(current: 7, delta: -1, rowStarts: rows, count: 13) == 6
             && sessionSelectionDestination(current: 5, delta: -1, rowStarts: rows, count: 13) == nil
@@ -457,6 +458,14 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         )
         controller.suspend()
         return reset && canceled
+    }
+
+    private static func completionResizeSelfTest() -> Bool {
+        let controller = LauncherViewController()
+        var resizeCount = 0
+        controller.onHeightChanged = { _ in resizeCount += 1 }
+        controller.reloadRows()
+        return resizeCount == 0
     }
 
     override func loadView() {
@@ -980,10 +989,6 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         if selectsFirst, let row = rows.firstIndex(where: \.isSelectable) {
             table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         }
-        let rowsHeight = rows.prefix(8).enumerated().reduce(CGFloat.zero) { height, pair in
-            height + tableView(table, heightOfRow: pair.offset)
-        }
-        onHeightChanged?(min(57 + rowsHeight, 57 + 8 * 52))
     }
 
     private func moveSelection(_ offset: Int) {

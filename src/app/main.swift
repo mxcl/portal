@@ -8,24 +8,34 @@ private let launcherHotKeySignature = OSType(0x5052544C) // PRTL
 private let launcherHotKeyID = UInt32(1)
 
 private enum LauncherHotKey: String, CaseIterable {
+    case functionGrave
     case optionSpace
     case commandSpace
 
     static let defaultsKey = "launcherHotKey"
 
     static var preferred: LauncherHotKey {
-        UserDefaults.standard.string(forKey: defaultsKey).flatMap(Self.init(rawValue:)) ?? .optionSpace
+        UserDefaults.standard.string(forKey: defaultsKey).flatMap(Self.init(rawValue:)) ?? .functionGrave
     }
 
     var title: String {
         switch self {
+        case .functionGrave: "fn `"
         case .optionSpace: "⌥ Space"
         case .commandSpace: "⌘ Space"
         }
     }
 
+    var carbonKeyCode: UInt32 {
+        switch self {
+        case .functionGrave: UInt32(kVK_ANSI_Grave)
+        case .optionSpace, .commandSpace: UInt32(kVK_Space)
+        }
+    }
+
     var carbonModifiers: UInt32 {
         switch self {
+        case .functionGrave: UInt32(kEventKeyModifierFnMask)
         case .optionSpace: UInt32(optionKey)
         case .commandSpace: UInt32(cmdKey)
         }
@@ -685,7 +695,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         var reference: EventHotKeyRef?
         let identifier = EventHotKeyID(signature: launcherHotKeySignature, id: launcherHotKeyID)
         let status = RegisterEventHotKey(
-            UInt32(kVK_Space),
+            hotKey.carbonKeyCode,
             hotKey.carbonModifiers,
             identifier,
             GetApplicationEventTarget(),

@@ -1,5 +1,225 @@
 import AppKit
 import Foundation
+import QuartzCore
+
+enum PortalLauncherAppearance {
+    static let effectOutset: CGFloat = 14
+}
+
+@MainActor
+private final class PortalTendrilView: NSView {
+    private let aura = CAGradientLayer()
+    private let strands = CAGradientLayer()
+    private let sparks = CAGradientLayer()
+    private let auraMask = CALayer()
+    private let strandMask = CALayer()
+    private let sparkMask = CALayer()
+    private var sparkLayers: [CAShapeLayer] = []
+    private var renderedSize = CGSize.zero
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        [aura, strands, sparks].forEach(configureGradient)
+        aura.mask = auraMask
+        strands.mask = strandMask
+        sparks.mask = sparkMask
+        aura.opacity = 0.5
+        strands.opacity = 0.9
+        layer?.addSublayer(aura)
+        layer?.addSublayer(strands)
+        layer?.addSublayer(sparks)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(accessibilityDisplayOptionsDidChange),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil
+        )
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        guard bounds.width > 0, bounds.height > 0, bounds.size != renderedSize else { return }
+        renderedSize = bounds.size
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for gradient in [aura, strands, sparks] {
+            gradient.frame = bounds
+            gradient.mask?.frame = bounds
+        }
+        rebuildTendrils()
+        CATransaction.commit()
+        updateAnimations()
+    }
+
+    static func pathSelfTest() -> Bool {
+        let bounds = CGRect(x: 0, y: 0, width: 720, height: 420)
+        let box = tendrilPath(in: bounds, strand: 2).boundingBoxOfPath
+        return box.width > 690 && box.height > 390 && bounds.contains(box)
+    }
+
+    private func configureGradient(_ gradient: CAGradientLayer) {
+        gradient.colors = [
+            NSColor(red: 0.16, green: 0.72, blue: 1, alpha: 1).cgColor,
+            NSColor(red: 0.52, green: 0.56, blue: 1, alpha: 1).cgColor,
+            NSColor(red: 0.82, green: 0.25, blue: 1, alpha: 1).cgColor,
+        ]
+        gradient.locations = [0, 0.5, 1]
+        gradient.startPoint = CGPoint(x: 0, y: 0.5)
+        gradient.endPoint = CGPoint(x: 1, y: 0.5)
+    }
+
+    private func rebuildTendrils() {
+        [auraMask, strandMask, sparkMask].forEach { mask in
+            mask.sublayers?.forEach { $0.removeFromSuperlayer() }
+        }
+        sparkLayers.removeAll()
+
+        for strand in 0..<3 {
+            auraMask.addSublayer(shapeLayer(
+                path: Self.tendrilPath(in: bounds, strand: strand),
+                lineWidth: CGFloat(12 - strand * 3),
+                opacity: Float(0.055 + Double(strand) * 0.025)
+            ))
+        }
+        for strand in 0..<11 {
+            strandMask.addSublayer(shapeLayer(
+                path: Self.tendrilPath(in: bounds, strand: strand),
+                lineWidth: 0.55 + CGFloat(strand % 4) * 0.28,
+                opacity: 0.24 + Float(strand % 5) * 0.1
+            ))
+        }
+        for strand in 0..<6 {
+            let spark = shapeLayer(
+                path: Self.tendrilPath(in: bounds, strand: strand + 2),
+                lineWidth: 1.2 + CGFloat(strand % 3) * 0.45,
+                opacity: 0.95
+            )
+            spark.lineDashPattern = [NSNumber(value: 2 + strand % 2), 34, 1, 72]
+            sparkMask.addSublayer(spark)
+            sparkLayers.append(spark)
+        }
+    }
+
+    private func shapeLayer(path: CGPath, lineWidth: CGFloat, opacity: Float) -> CAShapeLayer {
+        let shape = CAShapeLayer()
+        shape.frame = bounds
+        shape.path = path
+        shape.fillColor = nil
+        shape.strokeColor = NSColor.white.withAlphaComponent(CGFloat(opacity)).cgColor
+        shape.lineWidth = lineWidth
+        shape.lineCap = .round
+        shape.lineJoin = .round
+        return shape
+    }
+
+    @objc private func accessibilityDisplayOptionsDidChange() {
+        updateAnimations()
+    }
+
+    private func updateAnimations() {
+        [aura, strands, sparks].forEach { $0.removeAllAnimations() }
+        sparkLayers.forEach { $0.removeAllAnimations() }
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+
+        let breathe = CABasicAnimation(keyPath: "opacity")
+        breathe.fromValue = 0.28
+        breathe.toValue = 0.64
+        breathe.duration = 3.8
+        breathe.autoreverses = true
+        breathe.repeatCount = .infinity
+        aura.add(breathe, forKey: "portal-breathe")
+
+        let shimmer = CABasicAnimation(keyPath: "opacity")
+        shimmer.fromValue = 0.68
+        shimmer.toValue = 1
+        shimmer.duration = 2.4
+        shimmer.autoreverses = true
+        shimmer.repeatCount = .infinity
+        strands.add(shimmer, forKey: "portal-shimmer")
+
+        for (index, spark) in sparkLayers.enumerated() {
+            let travel = CABasicAnimation(keyPath: "lineDashPhase")
+            travel.byValue = index.isMultiple(of: 2) ? -109 : 109
+            travel.duration = 2.8 + Double(index) * 0.58
+            travel.repeatCount = .infinity
+            spark.add(travel, forKey: "portal-travel")
+        }
+    }
+
+    private static func tendrilPath(in bounds: CGRect, strand: Int) -> CGPath {
+        let path = CGMutablePath()
+        let inset = PortalLauncherAppearance.effectOutset - 5 + CGFloat(strand % 5) * 2
+        let rect = bounds.insetBy(dx: inset, dy: inset)
+        let radius = min(14, rect.height / 2)
+        let phase = CGFloat(strand) * 1.731
+        let samples = max(96, Int((rect.width + rect.height) / 5))
+
+        for sample in 0...samples {
+            let t = CGFloat(sample) / CGFloat(samples)
+            let position = point(on: rect, radius: radius, fraction: t)
+            let neighbor = point(
+                on: rect,
+                radius: radius,
+                fraction: sample == samples ? t - 0.001 : t + 0.001
+            )
+            let tangent = sample == samples
+                ? CGPoint(x: position.x - neighbor.x, y: position.y - neighbor.y)
+                : CGPoint(x: neighbor.x - position.x, y: neighbor.y - position.y)
+            let length = max(0.001, hypot(tangent.x, tangent.y))
+            let normal = CGPoint(x: -tangent.y / length, y: tangent.x / length)
+            let wave = sin(t * .pi * CGFloat(10 + strand % 4) + phase) * (0.8 + CGFloat(strand % 3) * 0.32)
+                + sin(t * .pi * CGFloat(27 + strand % 5) - phase * 0.7) * 0.45
+            let p = CGPoint(x: position.x + normal.x * wave, y: position.y + normal.y * wave)
+            sample == 0 ? path.move(to: p) : path.addLine(to: p)
+        }
+        path.closeSubpath()
+        return path
+    }
+
+    private static func point(on rect: CGRect, radius: CGFloat, fraction: CGFloat) -> CGPoint {
+        let horizontal = rect.width - radius * 2
+        let vertical = rect.height - radius * 2
+        let arc = radius * .pi / 2
+        var distance = min(max(fraction, 0), 1) * (horizontal * 2 + vertical * 2 + arc * 4)
+
+        if distance <= horizontal { return CGPoint(x: rect.minX + radius + distance, y: rect.maxY) }
+        distance -= horizontal
+        if distance <= arc {
+            let angle = .pi / 2 - distance / radius
+            return CGPoint(x: rect.maxX - radius + cos(angle) * radius, y: rect.maxY - radius + sin(angle) * radius)
+        }
+        distance -= arc
+        if distance <= vertical { return CGPoint(x: rect.maxX, y: rect.maxY - radius - distance) }
+        distance -= vertical
+        if distance <= arc {
+            let angle = -distance / radius
+            return CGPoint(x: rect.maxX - radius + cos(angle) * radius, y: rect.minY + radius + sin(angle) * radius)
+        }
+        distance -= arc
+        if distance <= horizontal { return CGPoint(x: rect.maxX - radius - distance, y: rect.minY) }
+        distance -= horizontal
+        if distance <= arc {
+            let angle = -.pi / 2 - distance / radius
+            return CGPoint(x: rect.minX + radius + cos(angle) * radius, y: rect.minY + radius + sin(angle) * radius)
+        }
+        distance -= arc
+        if distance <= vertical { return CGPoint(x: rect.minX, y: rect.minY + radius + distance) }
+        distance -= vertical
+        let angle = .pi - distance / radius
+        return CGPoint(x: rect.minX + radius + cos(angle) * radius, y: rect.maxY - radius + sin(angle) * radius)
+    }
+}
 
 private final class LauncherSessionDocument: NSView {
     override var isFlipped: Bool { true }
@@ -48,7 +268,8 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
 
     static func keyboardSelectionSelfTest() -> Bool {
         let rows = [0, 3, 5, 8, 11]
-        return sessionSelectionDestination(current: nil, delta: -3, rowStarts: rows, count: 13) == 11
+        return PortalTendrilView.pathSelfTest()
+            && sessionSelectionDestination(current: nil, delta: -3, rowStarts: rows, count: 13) == 11
             && sessionSelectionDestination(current: 7, delta: -1, rowStarts: rows, count: 13) == 6
             && sessionSelectionDestination(current: 5, delta: -1, rowStarts: rows, count: 13) == nil
             && sessionSelectionDestination(current: 5, delta: 1, rowStarts: rows, count: 13) == 6
@@ -60,11 +281,14 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     override func loadView() {
+        let container = NSView()
         let glass = NSGlassEffectView()
         glass.cornerRadius = 18
+        glass.translatesAutoresizingMaskIntoConstraints = false
         let content = NSView()
         glass.contentView = content
-        view = glass
+        container.addSubview(glass)
+        view = container
 
         input.delegate = self
         input.font = .monospacedSystemFont(ofSize: 15, weight: .regular)
@@ -129,7 +353,14 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         content.addSubview(separator)
         content.addSubview(scroll)
         content.addSubview(sessionScroll)
+        let tendrils = PortalTendrilView()
+        tendrils.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(tendrils)
         NSLayoutConstraint.activate([
+            glass.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: PortalLauncherAppearance.effectOutset),
+            glass.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PortalLauncherAppearance.effectOutset),
+            glass.topAnchor.constraint(equalTo: container.topAnchor, constant: PortalLauncherAppearance.effectOutset),
+            glass.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -PortalLauncherAppearance.effectOutset),
             input.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
             input.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
             input.centerYAnchor.constraint(equalTo: content.bottomAnchor, constant: -28),
@@ -144,6 +375,10 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             sessionScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             sessionScroll.topAnchor.constraint(equalTo: content.topAnchor),
             sessionScroll.bottomAnchor.constraint(equalTo: separator.topAnchor),
+            tendrils.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            tendrils.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            tendrils.topAnchor.constraint(equalTo: container.topAnchor),
+            tendrils.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
     }
 

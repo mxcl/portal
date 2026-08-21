@@ -53,8 +53,8 @@ private enum LauncherHotKey: String, CaseIterable {
 private enum AppWindowMetrics {
     static let defaultContentSize = NSSize(width: 1120, height: 760)
     static let minimumContentSize = NSSize(width: 760, height: 480)
-    static let launcherWidth: CGFloat = 720
-    static let launcherHeight: CGFloat = 420
+    static let launcherWidth: CGFloat = 720 + PortalLauncherAppearance.effectOutset * 2
+    static let launcherHeight: CGFloat = 420 + PortalLauncherAppearance.effectOutset * 2
 }
 
 @MainActor
@@ -201,7 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             self?.hideWindow()
         }
         launcher.onHeightChanged = { [weak self] height in
-            self?.resizeLauncher(to: height)
+            self?.resizeLauncher(to: height + PortalLauncherAppearance.effectOutset * 2)
         }
         return launcher
     }

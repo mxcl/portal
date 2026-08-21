@@ -117,18 +117,18 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         NSLayoutConstraint.activate([
             input.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
             input.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            input.centerYAnchor.constraint(equalTo: content.topAnchor, constant: 28),
+            input.centerYAnchor.constraint(equalTo: content.bottomAnchor, constant: -28),
             separator.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            separator.topAnchor.constraint(equalTo: content.topAnchor, constant: 56),
+            separator.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -56),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: separator.bottomAnchor),
-            scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            scroll.topAnchor.constraint(equalTo: content.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: separator.topAnchor),
             sessionScroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             sessionScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            sessionScroll.topAnchor.constraint(equalTo: separator.bottomAnchor),
-            sessionScroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            sessionScroll.topAnchor.constraint(equalTo: content.topAnchor),
+            sessionScroll.bottomAnchor.constraint(equalTo: separator.topAnchor),
         ])
     }
 

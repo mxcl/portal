@@ -302,7 +302,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         )
         var frame = NSWindow.frameRect(forContentRect: contentRect, styleMask: window.styleMask)
         if !repositions {
-            frame.origin = NSPoint(x: window.frame.minX, y: window.frame.maxY - frame.height)
+            frame.origin = window.frame.origin
         }
         window.setFrame(frame, display: true, animate: window.isVisible)
     }

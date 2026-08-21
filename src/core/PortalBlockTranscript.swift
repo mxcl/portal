@@ -105,6 +105,28 @@ public struct RemoteTerminalHistory: Codable, Equatable, Sendable {
         pendingCarriageReturn = transcript.pendingCarriageReturn
     }
 
+    public var terminalReplay: String {
+        var text = ""
+        for block in blocks {
+            if let cwd = block.cwd {
+                text += Self.marker("P", cwd)
+            }
+            text += Self.marker("C", block.command)
+            text += block.output
+            if let status = block.exitStatus {
+                text += "\u{1B}]133;D;\(status)\u{7}"
+            }
+        }
+        if let currentCwd {
+            text += Self.marker("P", currentCwd)
+        }
+        return text
+    }
+
+    private static func marker(_ code: String, _ value: String) -> String {
+        "\u{1B}]133;\(code);\(Data(value.utf8).base64EncodedString())\u{7}"
+    }
+
     private static func suffix(_ text: String, fitting remaining: inout Int) -> String {
         guard remaining > 0 else { return "" }
         let utf8 = text.utf8

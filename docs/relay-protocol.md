@@ -27,16 +27,18 @@ daemon's canonical screen and grid size. Older phones ignore this additive
 message; newer phones use it to render full-screen programs without taking PTY
 resize authority from the Mac.
 
-Phones that understand finalized command history advertise
+Clients that understand finalized command history advertise
 `relay-terminal-history-v1` in the optional `clientCapabilities` attach field.
 A supporting Mac then sends `terminalHistory` instead of a raw replay. The
 payload contains bounded command blocks with their final rendered output,
 status, working directory, alternate-screen state, optional application-cursor
 state, and parser continuation. Missing application-cursor state defaults to
 normal cursor keys for compatibility with the previous representation;
-live `terminalEvent` traffic remains unchanged. A previous phone omits the
-capability and receives raw history. A previous Mac ignores the additive field
-and sends raw history to a current phone.
+live `terminalEvent` traffic remains unchanged. Mac clients use the bounded
+representation so encrypted history stays below the relay frame limit. A
+previous client omits the capability and receives raw history. A previous Mac
+that predates the capability ignores the additive field and sends raw history
+to a current client.
 
 After a terminal attach, a Mac may advertise the `relay-completion-v1` and
 `relay-history-v1` capabilities. Current Macs also advertise

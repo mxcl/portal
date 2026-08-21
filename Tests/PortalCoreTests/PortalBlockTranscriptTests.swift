@@ -133,6 +133,26 @@ struct PortalBlockTranscriptTests {
         #expect(block.state == .completed(0))
     }
 
+    @Test("semantic history replays through the Mac terminal parser")
+    func semanticHistoryTerminalReplay() throws {
+        let history = RemoteTerminalHistory(
+            blocks: [
+                .init(command: "git status", cwd: "/repo", output: "clean\n", exitStatus: 0),
+                .init(command: "make", cwd: "/repo", output: "building\n", exitStatus: nil),
+            ],
+            currentCwd: "/repo/subdir",
+            isAlternateScreenActive: false
+        )
+        var replayed = PortalBlockTranscript()
+
+        replayed.consume(history.terminalReplay)
+
+        #expect(replayed.blocks.map(\.command) == ["git status", "make"])
+        #expect(replayed.blocks.map(\.output) == ["clean\n", "building\n"])
+        #expect(replayed.blocks.map(\.state) == [.completed(0), .running])
+        #expect(replayed.currentCwd == "/repo/subdir")
+    }
+
     @Test("semantic history bounds text while preserving newest commands")
     func semanticHistoryLimit() throws {
         var transcript = PortalBlockTranscript()

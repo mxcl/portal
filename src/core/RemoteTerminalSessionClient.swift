@@ -280,9 +280,7 @@ public actor RemoteTerminalSessionClient {
         try await sendMessage(
             .attach,
             clientRole: role,
-            clientCapabilities: role == .phone
-                ? [RemoteCapabilities.relayTerminalHistory]
-                : nil
+            clientCapabilities: [RemoteCapabilities.relayTerminalHistory]
         )
     }
 

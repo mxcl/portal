@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Remote terminal session client")
 struct RemoteTerminalSessionClientTests {
-    @Test("Mac attach preserves ordered history")
+    @Test("Mac attach requests bounded semantic history")
     func macHistory() async throws {
         let (client, transport) = makeClient(role: .mac)
         let running = run(client)
@@ -13,19 +13,24 @@ struct RemoteTerminalSessionClientTests {
         #expect(await events.next() == .connection(.connecting))
         let attach = try await transport.waitForMessage(kind: .attach)
         #expect(attach.clientRole == .mac)
-        #expect(attach.clientCapabilities == nil)
+        #expect(attach.clientCapabilities == [RemoteCapabilities.relayTerminalHistory])
         #expect(await events.next() == .connection(.attached))
 
+        let history = RemoteTerminalHistory(
+            blocks: [
+                .init(command: "git status", cwd: "/repo", output: "clean\n", exitStatus: 0)
+            ],
+            currentCwd: "/repo",
+            isAlternateScreenActive: false
+        )
         try await transport.enqueue(RemoteMessage(
-            kind: .terminalEvent,
+            kind: .terminalHistory,
             requestID: "request",
             macID: "mac",
             sessionID: "session",
-            sequence: 1,
-            payload: Data("history".utf8),
-            isHistory: true
+            payload: try JSONEncoder().encode(history)
         ))
-        #expect(await events.next() == .history(Data("history".utf8)))
+        #expect(await events.next() == .historySnapshot(history))
 
         await client.disconnect()
         try await running.task.value

@@ -90,7 +90,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         sessionStack.orientation = .vertical
         sessionStack.alignment = .leading
         sessionStack.spacing = 10
-        sessionStack.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 16, right: 16)
+        sessionStack.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 0, right: 16)
         sessionStack.translatesAutoresizingMaskIntoConstraints = false
         sessionDocument.addSubview(sessionStack)
         NSLayoutConstraint.activate([
@@ -386,7 +386,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             self.selectedSessionRef = nil
         }
         sessionDocument.layoutSubtreeIfNeeded()
-        onHeightChanged?(56 + sessionStack.fittingSize.height)
+        onHeightChanged?(57 + sessionStack.fittingSize.height)
     }
 
     @objc private func openSessionCard(_ sender: SessionCandidateButton) {
@@ -439,7 +439,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         let rowsHeight = rows.prefix(8).enumerated().reduce(CGFloat.zero) { height, pair in
             height + tableView(table, heightOfRow: pair.offset)
         }
-        onHeightChanged?(min(56 + rowsHeight, 56 + 8 * 52))
+        onHeightChanged?(min(57 + rowsHeight, 57 + 8 * 52))
     }
 
     private func moveSelection(_ offset: Int) {

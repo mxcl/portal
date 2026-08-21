@@ -307,11 +307,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
     private func resizeLauncher(to height: CGFloat, repositions: Bool = false) {
         guard let window, displayedController === launcherController else { return }
-        let contentHeight = min(max(108, height), 56 + 8 * 52)
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
             ?? window.screen
             ?? NSScreen.main
         guard let visibleFrame = screen?.visibleFrame else { return }
+        let contentHeight = min(max(108, height), visibleFrame.height * 0.82)
         let contentRect = NSRect(
             x: visibleFrame.midX - AppWindowMetrics.launcherWidth / 2,
             y: visibleFrame.maxY - contentHeight - visibleFrame.height * 0.18,

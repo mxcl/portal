@@ -195,12 +195,13 @@ private final class PortalTendrilView: NSView {
             [0, 0.13, 0.55, 0.73, 1],
         ]
         let keyTimes = [0.0, 0.2, 0.45, 0.72, 1.0].map { NSNumber(value: $0) }
+        let phaseCycles = 3.0
         for (index, spark) in sparkLayers.enumerated() {
             let cycle = spark.lineDashPattern?.reduce(CGFloat.zero) { $0 + CGFloat(truncating: $1) } ?? 109
             let direction: CGFloat = index.isMultiple(of: 2) ? -1 : 1
             let travel = CAKeyframeAnimation(keyPath: "lineDashPhase")
             travel.values = pacing[index % pacing.count].map {
-                NSNumber(value: Double(direction * cycle) * $0)
+                NSNumber(value: Double(direction * cycle) * phaseCycles * $0)
             }
             travel.keyTimes = keyTimes
             travel.timingFunctions = [
@@ -209,8 +210,8 @@ private final class PortalTendrilView: NSView {
                 CAMediaTimingFunction(name: .easeInEaseOut),
                 CAMediaTimingFunction(name: .easeOut),
             ]
-            travel.duration = 3.4 + Double(index) * 0.47
-            travel.timeOffset = Double(index) * 0.43
+            travel.duration = 10.8 + Double(index) * 1.35
+            travel.timeOffset = Double(index) * 1.73
             travel.repeatCount = .infinity
             spark.add(travel, forKey: "portal-travel")
         }

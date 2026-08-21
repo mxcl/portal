@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage.CIFilterBuiltins
 import Foundation
 import QuartzCore
 
@@ -612,6 +613,13 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         }
         Self.centerAnimationAnchor(of: layer)
 
+        let pinch = CIFilter.pinchDistortion()
+        pinch.name = "singularity"
+        pinch.center = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
+        pinch.radius = Float(hypot(layer.bounds.width, layer.bounds.height) / 2)
+        pinch.scale = 0
+        view.contentFilters = [pinch]
+
         let transform = CAKeyframeAnimation(keyPath: "transform")
         transform.values = Self.dismissalTransforms.map { NSValue(caTransform3D: $0) }
         transform.keyTimes = [0, 0.32, 0.78, 1]
@@ -624,8 +632,12 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         opacity.values = [1, 0.98, 0.62, 0]
         opacity.keyTimes = transform.keyTimes
 
+        let warp = CAKeyframeAnimation(keyPath: "filters.singularity.inputScale")
+        warp.values = [0, 0.12, 0.72, 1]
+        warp.keyTimes = transform.keyTimes
+
         let collapse = CAAnimationGroup()
-        collapse.animations = [transform, opacity]
+        collapse.animations = [transform, opacity, warp]
         collapse.duration = Self.dismissalDuration
         collapse.fillMode = .forwards
         collapse.isRemovedOnCompletion = false
@@ -638,26 +650,11 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
 
     func cancelDismissalAnimation() {
         view.layer?.removeAnimation(forKey: Self.dismissalAnimationKey)
+        view.contentFilters = []
     }
 
-    private static let dismissalTransforms = [
-        singularityTransform(scaleX: 1, scaleY: 1, rotation: 0),
-        singularityTransform(scaleX: 0.82, scaleY: 0.98, rotation: 0.01),
-        singularityTransform(scaleX: 0.18, scaleY: 0.54, rotation: 0.08),
-        singularityTransform(scaleX: 0.006, scaleY: 0.006, rotation: 0.28),
-    ]
-
-    private static func singularityTransform(
-        scaleX: CGFloat,
-        scaleY: CGFloat,
-        rotation: CGFloat
-    ) -> CATransform3D {
-        CATransform3DScale(
-            CATransform3DMakeRotation(rotation, 0, 0, 1),
-            scaleX,
-            scaleY,
-            1
-        )
+    private static let dismissalTransforms = [1.0, 0.84, 0.34, 0.006].map {
+        CATransform3DMakeScale($0, $0, 1)
     }
 
     private static func centerAnimationAnchor(of layer: CALayer) {
@@ -681,6 +678,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         else { return false }
         return layer.anchorPoint == CGPoint(x: 0.5, y: 0.5)
             && layer.frame == frame
+            && dismissalTransforms.allSatisfy { $0.m12 == 0 && $0.m21 == 0 }
             && abs(final.m11) < 0.01
             && abs(final.m22) < 0.01
     }

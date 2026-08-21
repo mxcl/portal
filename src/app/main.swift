@@ -107,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private let remoteAccessController = MacRemoteAccessController()
     private var registeredHotKey: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
+    private var launcherDismissalID: UUID?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         assert(AppWindowMetrics.terminalFrameSelfTest())
@@ -242,6 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
     private func showLauncher() {
         guard let window else { return }
+        cancelLauncherDismissal()
         discardTerminalController()
         let launcher = launcherController ?? makeLauncherController()
         launcherController = launcher
@@ -267,10 +269,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     private func hideWindow() {
-        if displayedController === launcherController {
-            launcherController?.suspend()
+        guard displayedController === launcherController,
+              let launcherController
+        else {
+            window?.orderOut(nil)
+            return
         }
-        window?.orderOut(nil)
+        guard launcherDismissalID == nil else { return }
+
+        launcherController.suspend()
+        let dismissalID = UUID()
+        launcherDismissalID = dismissalID
+        launcherController.animateDismissal { [weak self] in
+            guard let self, launcherDismissalID == dismissalID else { return }
+            window?.orderOut(nil)
+            launcherController.cancelDismissalAnimation()
+            launcherDismissalID = nil
+        }
+    }
+
+    private func cancelLauncherDismissal() {
+        launcherDismissalID = nil
+        launcherController?.cancelDismissalAnimation()
     }
 
     private func openTerminal(running command: String) {
@@ -303,6 +323,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 
     private func display(_ controller: NSViewController, asLauncher: Bool) {
         guard let window, let contentView = window.contentView else { return }
+        if controller !== launcherController {
+            cancelLauncherDismissal()
+        }
         if displayedController === self.controller {
             terminalFrame = window.frame
         }

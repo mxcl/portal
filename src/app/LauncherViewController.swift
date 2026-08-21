@@ -329,6 +329,9 @@ private final class LauncherSessionDocument: NSView {
 
 @MainActor
 final class LauncherViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
+    static let dismissalDuration: CFTimeInterval = 0.3
+    private static let dismissalAnimationKey = "portal-singularity"
+
     private static let sessionColumnCount = 3
 
     private enum Row {
@@ -372,6 +375,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     static func keyboardSelectionSelfTest() -> Bool {
         let rows = [0, 3, 5, 8, 11]
         return PortalTendrilView.pathSelfTest()
+            && dismissalAnimationSelfTest()
             && remoteAddButtonSelfTest()
             && escapeSelfTest()
             && sessionSelectionDestination(current: nil, delta: -3, rowStarts: rows, count: 13) == 11
@@ -456,6 +460,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
 
     override func loadView() {
         let container = NSView()
+        container.wantsLayer = true
         let glass = NSGlassEffectView()
         glass.cornerRadius = 18
         glass.translatesAutoresizingMaskIntoConstraints = false
@@ -596,6 +601,70 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     func suspend() {
         completionSerial += 1
         sessionModel.invalidate()
+    }
+
+    func animateDismissal(completion: @escaping () -> Void) {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+              let layer = view.layer
+        else {
+            completion()
+            return
+        }
+
+        let transform = CAKeyframeAnimation(keyPath: "transform")
+        transform.values = Self.dismissalTransforms.map { NSValue(caTransform3D: $0) }
+        transform.keyTimes = [0, 0.32, 0.78, 1]
+        transform.timingFunctions = Array(
+            repeating: CAMediaTimingFunction(name: .easeIn),
+            count: Self.dismissalTransforms.count - 1
+        )
+
+        let opacity = CAKeyframeAnimation(keyPath: "opacity")
+        opacity.values = [1, 0.98, 0.62, 0]
+        opacity.keyTimes = transform.keyTimes
+
+        let collapse = CAAnimationGroup()
+        collapse.animations = [transform, opacity]
+        collapse.duration = Self.dismissalDuration
+        collapse.fillMode = .forwards
+        collapse.isRemovedOnCompletion = false
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock(completion)
+        layer.add(collapse, forKey: Self.dismissalAnimationKey)
+        CATransaction.commit()
+    }
+
+    func cancelDismissalAnimation() {
+        view.layer?.removeAnimation(forKey: Self.dismissalAnimationKey)
+    }
+
+    private static let dismissalTransforms = [
+        singularityTransform(scaleX: 1, scaleY: 1, rotation: 0),
+        singularityTransform(scaleX: 0.82, scaleY: 0.98, rotation: 0.01),
+        singularityTransform(scaleX: 0.18, scaleY: 0.54, rotation: 0.08),
+        singularityTransform(scaleX: 0.006, scaleY: 0.006, rotation: 0.28),
+    ]
+
+    private static func singularityTransform(
+        scaleX: CGFloat,
+        scaleY: CGFloat,
+        rotation: CGFloat
+    ) -> CATransform3D {
+        CATransform3DScale(
+            CATransform3DMakeRotation(rotation, 0, 0, 1),
+            scaleX,
+            scaleY,
+            1
+        )
+    }
+
+    private static func dismissalAnimationSelfTest() -> Bool {
+        guard dismissalDuration == 0.3,
+              dismissalTransforms.count == 4,
+              let final = dismissalTransforms.last
+        else { return false }
+        return abs(final.m11) < 0.01 && abs(final.m22) < 0.01
     }
 
     func showError(_ message: String) {

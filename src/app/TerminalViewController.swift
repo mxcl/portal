@@ -3045,6 +3045,7 @@ private final class TerminalOutputProcessor {
     private var activeBlockCwd: String?
     private var isReplayingCommand = false
     private var isReplayingHistoryOutput = false
+    private var replayFallbackCommand: String?
     private var usesPagerScreenRendering = false
     private var didSeeAlternateScreenSwitch = false
     private var isAlternateScreenActive = false
@@ -3080,10 +3081,11 @@ private final class TerminalOutputProcessor {
         }
     }
 
-    func resetForReplay() {
+    func resetForReplay(fallbackCommand: String? = nil) {
         queue.async { [weak self] in
             guard let self else { return }
             self.resetForReplayOnQueue()
+            self.replayFallbackCommand = fallbackCommand
         }
     }
 
@@ -3092,7 +3094,8 @@ private final class TerminalOutputProcessor {
             guard let self else { return }
             self.isReplayingHistoryOutput = true
             self.resetForReplayOnQueue()
-            self.consumeShellOutput(text)
+            self.consumeShellOutput(Self.replayText(text, fallbackCommand: self.replayFallbackCommand))
+            self.replayFallbackCommand = nil
             self.isReplayingHistoryOutput = false
             self.flushPendingShellOutputOnQueue()
             DispatchQueue.main.async {
@@ -3376,6 +3379,23 @@ private final class TerminalOutputProcessor {
             processor.enqueueShellOutputOnQueue("\u{1B}[41;130H   ")
             return processor.pendingShellOutput.hasSuffix("~@k\u{1B}[41;130H   ")
         }
+    }
+
+    static func truncatedHistoryReplaySelfTest() -> Bool {
+        let finish = "output\u{1B}]133;P;L3RtcA==\u{7}\u{1B}]133;D;0\u{7}"
+        let restored = replayText(finish, fallbackCommand: "make release")
+        let existing = "\u{1B}]133;C;bWFrZSByZWxlYXNl\u{7}" + finish
+        return restored.hasPrefix("\u{1B}]133;C;bWFrZSByZWxlYXNl\u{7}")
+            && replayText(existing, fallbackCommand: "make release") == existing
+            && replayText("", fallbackCommand: "make release").isEmpty
+    }
+
+    private static func replayText(_ text: String, fallbackCommand: String?) -> String {
+        guard !text.isEmpty,
+              !text.contains("\u{1B}]133;C;"),
+              let fallbackCommand
+        else { return text }
+        return "\u{1B}]133;C;\(Data(fallbackCommand.utf8).base64EncodedString())\u{7}" + text
     }
 
     private func emit(_ event: Event) {
@@ -4079,6 +4099,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(TerminalOutputProcessor.alternateScreenTranscriptSelfTest())
         assert(TerminalOutputProcessor.terminalSizeProbeSelfTest())
         assert(TerminalOutputProcessor.inputFeedbackPrioritySelfTest())
+        assert(TerminalOutputProcessor.truncatedHistoryReplaySelfTest())
         assert(Ansi.terminalScreenScrollRegionSelfTest())
         assert(Ansi.terminalScreenFixedHeightSelfTest())
         assert(Ansi.terminalScreenDeferredWrapSelfTest())
@@ -5788,7 +5809,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         resetTranscriptViews(for: tab)
         setCommandBarStatusText("Rejoining session...", in: tab)
         tab.isTerminalControlActive = false
-        tab.outputProcessor.resetForReplay()
+        tab.outputProcessor.resetForReplay(
+            fallbackCommand: candidate.runningCommand ?? candidate.commandHistory.last
+        )
         configureSession(for: tab)
         configureInterruptHandling(for: tab)
         updateTabTitle(candidate.title, detail: candidate.cwd, in: tab)

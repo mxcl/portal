@@ -48,19 +48,34 @@ assert_v1_attach() {
   ' "$socket_path" "$session_id" /tmp /usr/bin/false "$environment"
 }
 
+assert_v2_attach() {
+  local socket_path="$1"
+  local session_id="$2"
+  ruby -rbase64 -rsocket -e '
+    encoded = ARGV[1, 5].map { |value| Base64.strict_encode64(value) }
+    socket = UNIXSocket.new(ARGV.fetch(0))
+    socket.write("ATTACH2 2 mac #{encoded.join(" ")}\n")
+    protocol = socket.gets
+    response = socket.gets
+    abort "v2 ATTACH failed: #{[protocol, response].inspect}" unless protocol == "PROTOCOL 2\n" && response&.start_with?("READY ")
+  ' "$socket_path" compatibility-client "$session_id" /tmp /usr/bin/false TERM=xterm-256color
+}
+
 assert_current_bridge_previous_daemon() {
   local bridge_path="$1"
   local socket_path="$2"
   ruby -rbase64 -e '
-    command = ["ATTACH", *ARGV[2, 4].map { |value| Base64.strict_encode64(value) }].join(" ")
+    fields = ARGV[2, 4].map { |value| Base64.strict_encode64(value) }
+    command = ["ATTACH2", "2", "mac", Base64.strict_encode64("compatibility-client"), *fields].join(" ")
     environment = {
       "PORTAL_SESSIOND_SOCKET" => ARGV.fetch(1),
       "PORTAL_SESSIOND_DISABLE_PEER_VALIDATION" => "1"
     }
     IO.popen(environment, [ARGV.fetch(0)], "r+") do |bridge|
       bridge.puts(command)
+      protocol = bridge.gets
       response = bridge.gets&.strip
-      abort "current bridge to previous daemon failed: #{response.inspect}" unless response&.start_with?("READY ")
+      abort "current bridge to previous daemon failed: #{[protocol, response].inspect}" unless protocol == "PROTOCOL 2\n" && response&.start_with?("READY ")
       Process.kill("TERM", bridge.pid)
     end
   ' "$bridge_path" "$socket_path" bridge-previous-daemon /tmp /bin/cat TERM=xterm-256color
@@ -96,6 +111,7 @@ else
 fi
 assert_v1_attach "$previous_socket" current-client-previous-daemon
 assert_v1_attach "$previous_socket" current-empty-environment-client PORTAL=
+assert_v2_attach "$previous_socket" current-v2-client-previous-daemon
 assert_current_bridge_previous_daemon \
   "$ROOT_DIR/target/debug/portal-session-bridge" \
   "$previous_socket"

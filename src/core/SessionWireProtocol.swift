@@ -3,8 +3,7 @@ import Foundation
 enum SessionWireProtocol {
     static let currentVersion: UInt16 = 2
     static let previousVersion: UInt16 = 1
-    // v2 readers ship before Mac clients make v2 their default write format.
-    static let macWriteVersion: UInt16 = 1
+    static let macWriteVersion: UInt16 = 2
 
     enum ClientRole: String {
         case mac

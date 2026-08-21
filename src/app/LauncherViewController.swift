@@ -613,12 +613,12 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         }
         Self.centerAnimationAnchor(of: layer)
 
-        let pinch = CIFilter.pinchDistortion()
-        pinch.name = "singularity"
-        pinch.center = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
-        pinch.radius = Float(hypot(layer.bounds.width, layer.bounds.height) / 2)
-        pinch.scale = 0
-        view.contentFilters = [pinch]
+        let radialWarp = CIFilter.bumpDistortion()
+        radialWarp.name = "singularity"
+        radialWarp.center = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
+        radialWarp.radius = Float(hypot(layer.bounds.width, layer.bounds.height))
+        radialWarp.scale = 0
+        view.contentFilters = [radialWarp]
 
         let transform = CAKeyframeAnimation(keyPath: "transform")
         transform.values = Self.dismissalTransforms.map { NSValue(caTransform3D: $0) }
@@ -633,7 +633,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         opacity.keyTimes = transform.keyTimes
 
         let warp = CAKeyframeAnimation(keyPath: "filters.singularity.inputScale")
-        warp.values = [0, 0.12, 0.72, 1]
+        warp.values = [0, -0.08, -0.58, -1]
         warp.keyTimes = transform.keyTimes
 
         let collapse = CAAnimationGroup()

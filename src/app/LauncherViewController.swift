@@ -71,9 +71,9 @@ private final class PortalTendrilView: NSView {
     static func pathSelfTest() -> Bool {
         let bounds = CGRect(x: 0, y: 0, width: 720, height: 420)
         let box = tendrilPath(in: bounds, strand: 2).boundingBoxOfPath
-        let wispBox = wispPath(in: bounds, index: 3).boundingBoxOfPath
+        let wispBoxes = [-0.85, 0, 1.15].map { wispPath(in: bounds, index: 3, wave: $0).boundingBoxOfPath }
         return box.width > 690 && box.height > 390 && bounds.contains(box)
-            && !wispBox.isEmpty && bounds.contains(wispBox) && box.intersects(wispBox)
+            && wispBoxes.allSatisfy { !$0.isEmpty && bounds.contains($0) && box.intersects($0) }
     }
 
     private func configureGradient(_ gradient: CAGradientLayer) {
@@ -187,6 +187,17 @@ private final class PortalTendrilView: NSView {
             drift.timeOffset = Double(index) * 0.57
             drift.repeatCount = .infinity
             wisp.add(drift, forKey: "portal-wisp")
+
+            let wave = CAKeyframeAnimation(keyPath: "path")
+            wave.values = [0, 1.15, -0.85, 0].map {
+                Self.wispPath(in: bounds, index: index, wave: CGFloat($0))
+            }
+            wave.keyTimes = [0, 0.32, 0.68, 1]
+            wave.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 3)
+            wave.duration = 12.4 + Double(index % 4) * 1.75
+            wave.timeOffset = Double(index) * 1.37
+            wave.repeatCount = .infinity
+            wisp.add(wave, forKey: "portal-wave")
         }
 
         let pacing: [[Double]] = [
@@ -247,7 +258,7 @@ private final class PortalTendrilView: NSView {
         return path
     }
 
-    private static func wispPath(in bounds: CGRect, index: Int) -> CGPath {
+    private static func wispPath(in bounds: CGRect, index: Int, wave: CGFloat = 0) -> CGPath {
         let path = CGMutablePath()
         let rect = bounds.insetBy(dx: PortalLauncherAppearance.effectOutset, dy: PortalLauncherAppearance.effectOutset)
         let starts: [CGFloat] = [0.025, 0.14, 0.25, 0.36, 0.485, 0.6, 0.72, 0.84]
@@ -264,7 +275,10 @@ private final class PortalTendrilView: NSView {
             let normal = CGPoint(x: -tangent.y / length, y: tangent.x / length)
             let envelope = sin(.pi * progress)
             let lift = 1.2 + envelope * (2.4 + CGFloat(index % 4) * 1.05)
-            let flutter = sin(progress * .pi * CGFloat(3 + index % 3) + CGFloat(index)) * envelope * 0.65
+            let flutter = (
+                sin(progress * .pi * CGFloat(3 + index % 3) + CGFloat(index) + wave) * 0.75
+                    + sin(wave * 0.9) * 0.55
+            ) * envelope
             let p = CGPoint(
                 x: position.x + normal.x * (lift + flutter),
                 y: position.y + normal.y * (lift + flutter)

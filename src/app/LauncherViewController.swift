@@ -7,6 +7,8 @@ private final class LauncherSessionDocument: NSView {
 
 @MainActor
 final class LauncherViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
+    private static let sessionColumnCount = 3
+
     private enum Row {
         case completion(CompletionSuggestion)
         case message(String)
@@ -44,16 +46,16 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     private var completionSerial = 0
 
     static func keyboardSelectionSelfTest() -> Bool {
-        let rows = [0, 4, 5, 9]
-        return sessionSelectionDestination(current: nil, delta: -4, rowStarts: rows, count: 13) == 9
-            && sessionSelectionDestination(current: 8, delta: -1, rowStarts: rows, count: 13) == 7
+        let rows = [0, 3, 5, 8, 11]
+        return sessionSelectionDestination(current: nil, delta: -3, rowStarts: rows, count: 13) == 11
+            && sessionSelectionDestination(current: 7, delta: -1, rowStarts: rows, count: 13) == 6
             && sessionSelectionDestination(current: 5, delta: -1, rowStarts: rows, count: 13) == nil
             && sessionSelectionDestination(current: 5, delta: 1, rowStarts: rows, count: 13) == 6
-            && sessionSelectionDestination(current: 8, delta: 1, rowStarts: rows, count: 13) == nil
-            && sessionSelectionDestination(current: 11, delta: -4, rowStarts: rows, count: 13) == 7
-            && sessionSelectionDestination(current: 8, delta: -4, rowStarts: rows, count: 13) == 4
-            && sessionSelectionDestination(current: 4, delta: 4, rowStarts: rows, count: 13) == 5
-            && sessionSelectionDestination(current: 7, delta: 4, rowStarts: rows, count: 13) == 11
+            && sessionSelectionDestination(current: 7, delta: 1, rowStarts: rows, count: 13) == nil
+            && sessionSelectionDestination(current: 9, delta: -3, rowStarts: rows, count: 13) == 6
+            && sessionSelectionDestination(current: 7, delta: -3, rowStarts: rows, count: 13) == 4
+            && sessionSelectionDestination(current: 4, delta: 3, rowStarts: rows, count: 13) == 6
+            && sessionSelectionDestination(current: 6, delta: 3, rowStarts: rows, count: 13) == 9
     }
 
     override func loadView() {
@@ -239,9 +241,9 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     ) -> Bool {
         switch commandSelector {
         case #selector(NSResponder.moveDown(_:)):
-            input.stringValue.isEmpty ? moveSessionSelection(columns: 4) : moveSelection(1)
+            input.stringValue.isEmpty ? moveSessionSelection(columns: Self.sessionColumnCount) : moveSelection(1)
         case #selector(NSResponder.moveUp(_:)):
-            input.stringValue.isEmpty ? moveSessionSelection(columns: -4) : moveSelection(-1)
+            input.stringValue.isEmpty ? moveSessionSelection(columns: -Self.sessionColumnCount) : moveSelection(-1)
         case #selector(NSResponder.moveLeft(_:)) where input.stringValue.isEmpty:
             moveSessionSelection(columns: -1)
         case #selector(NSResponder.moveRight(_:)) where input.stringValue.isEmpty:
@@ -359,9 +361,9 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
                 continue
             }
 
-            for start in stride(from: 0, to: section.items.count, by: 4) {
+            for start in stride(from: 0, to: section.items.count, by: Self.sessionColumnCount) {
                 sessionRowStarts.append(sessionButtons.count)
-                let buttons = section.items[start..<min(start + 4, section.items.count)].map { item in
+                let buttons = section.items[start..<min(start + Self.sessionColumnCount, section.items.count)].map { item in
                     let button = SessionCandidateButton(
                         sessionRef: item.candidate.sessionRef,
                         title: item.title,
@@ -374,7 +376,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
                     sessionButtons.append(button)
                     return button
                 }
-                let row = SessionCandidateRowView(buttons: buttons)
+                let row = SessionCandidateRowView(buttons: buttons, columnCount: Self.sessionColumnCount)
                 sessionStack.addArrangedSubview(row)
                 row.widthAnchor.constraint(equalTo: sessionStack.widthAnchor).isActive = true
             }

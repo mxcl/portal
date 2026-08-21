@@ -3636,15 +3636,16 @@ private final class SessionHeaderAddButton: NSButton {
 
 final class SessionCandidateRowView: NSView {
     private enum Metrics {
-        static let columnCount = 4
         static let spacing: CGFloat = 10
         static let height: CGFloat = 82
     }
 
     private let buttons: [SessionCandidateButton]
+    private let columnCount: Int
 
-    init(buttons: [SessionCandidateButton]) {
+    init(buttons: [SessionCandidateButton], columnCount: Int = 4) {
         self.buttons = buttons
+        self.columnCount = columnCount
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         for button in buttons {
@@ -3672,8 +3673,8 @@ final class SessionCandidateRowView: NSView {
 
     override func layout() {
         super.layout()
-        let availableWidth = max(0, bounds.width - Metrics.spacing * CGFloat(Metrics.columnCount - 1))
-        let columnWidth = floor(availableWidth / CGFloat(Metrics.columnCount))
+        let availableWidth = max(0, bounds.width - Metrics.spacing * CGFloat(columnCount - 1))
+        let columnWidth = floor(availableWidth / CGFloat(columnCount))
 
         for (index, button) in buttons.enumerated() {
             let x = CGFloat(index) * (columnWidth + Metrics.spacing)

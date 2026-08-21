@@ -1,6 +1,7 @@
 import AppKit
 import CoreImage.CIFilterBuiltins
 import Foundation
+import MetalKit
 import QuartzCore
 
 enum PortalLauncherAppearance {
@@ -8,320 +9,264 @@ enum PortalLauncherAppearance {
 }
 
 @MainActor
-private final class PortalTendrilView: NSView {
-    private let aura = CAGradientLayer()
-    private let wisps = CAGradientLayer()
-    private let strands = CAGradientLayer()
-    private let sparks = CAGradientLayer()
-    private let auraMask = CALayer()
-    private let wispMask = CALayer()
-    private let strandMask = CALayer()
-    private let sparkMask = CALayer()
-    private var wispLayers: [CAShapeLayer] = []
-    private var sparkLayers: [CAShapeLayer] = []
-    private var renderedSize = CGSize.zero
+private final class PortalTendrilView: MTKView, MTKViewDelegate {
+    private struct Uniforms {
+        var size: SIMD2<Float>
+        var pointer: SIMD2<Float>
+        var time: Float
+        var excite: Float
+    }
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        [aura, wisps, strands, sparks].forEach(configureGradient)
-        aura.mask = auraMask
-        wisps.mask = wispMask
-        strands.mask = strandMask
-        sparks.mask = sparkMask
-        aura.opacity = 0.5
-        wisps.opacity = 0.75
-        strands.opacity = 0.9
-        layer?.addSublayer(aura)
-        layer?.addSublayer(wisps)
-        layer?.addSublayer(strands)
-        layer?.addSublayer(sparks)
+    private var commandQueue: MTLCommandQueue?
+    private var pipeline: MTLRenderPipelineState?
+    private var tracking: NSTrackingArea?
+    private var pointer = SIMD2<Float>(repeating: -1)
+    private var targetExcite: Float = 0
+    private var excite: Float = 0
+    private let startedAt = CACurrentMediaTime()
+
+    init() {
+        let metalDevice = MTLCreateSystemDefaultDevice()
+        super.init(frame: .zero, device: metalDevice)
+        guard let metalDevice else {
+            isHidden = true
+            return
+        }
+
+        colorPixelFormat = .bgra8Unorm
+        clearColor = MTLClearColorMake(0, 0, 0, 0)
+        framebufferOnly = true
+        preferredFramesPerSecond = 30
+        enableSetNeedsDisplay = false
+        isPaused = false
+        layer?.isOpaque = false
+
+        let descriptor = MTLRenderPipelineDescriptor()
+        if let library = try? metalDevice.makeLibrary(source: Self.shaderSource, options: nil) {
+            descriptor.vertexFunction = library.makeFunction(name: "portalVertex")
+            descriptor.fragmentFunction = library.makeFunction(name: "portalFragment")
+        }
+        descriptor.colorAttachments[0].pixelFormat = colorPixelFormat
+        descriptor.colorAttachments[0].isBlendingEnabled = true
+        descriptor.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
+        descriptor.colorAttachments[0].destinationRGBBlendFactor = .one
+        descriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
+        descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        commandQueue = metalDevice.makeCommandQueue()
+        pipeline = try? metalDevice.makeRenderPipelineState(descriptor: descriptor)
+        delegate = self
+
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(accessibilityDisplayOptionsDidChange),
             name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil
         )
+        updateMotion()
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     deinit {
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
+    override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    override func layout() {
-        super.layout()
-        guard bounds.width > 0, bounds.height > 0, bounds.size != renderedSize else { return }
-        renderedSize = bounds.size
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        for gradient in [aura, wisps, strands, sparks] {
-            gradient.frame = bounds
-            gradient.mask?.frame = bounds
-        }
-        rebuildTendrils()
-        CATransaction.commit()
-        updateAnimations()
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { needsDisplay = true }
     }
 
-    static func pathSelfTest() -> Bool {
-        let bounds = CGRect(x: 0, y: 0, width: 720, height: 420)
-        let box = tendrilPath(in: bounds, strand: 2).boundingBoxOfPath
-        let wispBoxes = [-0.85, 0, 1.15].map { wispPath(in: bounds, index: 3, wave: $0).boundingBoxOfPath }
-        return box.width > 690 && box.height > 390 && bounds.contains(box)
-            && wispBoxes.allSatisfy { !$0.isEmpty && bounds.contains($0) && box.intersects($0) }
+    override func updateTrackingAreas() {
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self
+        )
+        tracking = area
+        addTrackingArea(area)
+        super.updateTrackingAreas()
     }
 
-    private func configureGradient(_ gradient: CAGradientLayer) {
-        gradient.colors = [
-            NSColor(red: 0.16, green: 0.72, blue: 1, alpha: 1).cgColor,
-            NSColor(red: 0.52, green: 0.56, blue: 1, alpha: 1).cgColor,
-            NSColor(red: 0.82, green: 0.25, blue: 1, alpha: 1).cgColor,
-        ]
-        gradient.locations = [0, 0.5, 1]
-        gradient.startPoint = CGPoint(x: 0, y: 0.5)
-        gradient.endPoint = CGPoint(x: 1, y: 0.5)
+    override func mouseMoved(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        pointer = SIMD2(Float(location.x / bounds.width), Float(location.y / bounds.height))
+        targetExcite = 1
     }
 
-    private func rebuildTendrils() {
-        [auraMask, wispMask, strandMask, sparkMask].forEach { mask in
-            mask.sublayers?.forEach { $0.removeFromSuperlayer() }
-        }
-        wispLayers.removeAll()
-        sparkLayers.removeAll()
-
-        for index in 0..<3 {
-            let strand = index + 1
-            auraMask.addSublayer(shapeLayer(
-                path: Self.tendrilPath(in: bounds, strand: strand),
-                lineWidth: CGFloat(12 - index * 3),
-                opacity: Float(0.055 + Double(index) * 0.025)
-            ))
-        }
-        for strand in 0..<11 {
-            strandMask.addSublayer(shapeLayer(
-                path: Self.tendrilPath(in: bounds, strand: strand),
-                lineWidth: 0.55 + CGFloat(strand % 4) * 0.28,
-                opacity: 0.24 + Float(strand % 5) * 0.1
-            ))
-        }
-        for index in 0..<8 {
-            let wisp = shapeLayer(
-                path: Self.wispPath(in: bounds, index: index),
-                lineWidth: 0.7 + CGFloat(index % 3) * 0.25,
-                opacity: 0.42 + Float(index % 4) * 0.09
-            )
-            wispMask.addSublayer(wisp)
-            wispLayers.append(wisp)
-        }
-        for strand in 0..<6 {
-            let spark = shapeLayer(
-                path: Self.tendrilPath(in: bounds, strand: strand + 2),
-                lineWidth: 1.2 + CGFloat(strand % 3) * 0.45,
-                opacity: 0.95
-            )
-            spark.lineDashPattern = [NSNumber(value: 2 + strand % 2), 34, 1, 72]
-            sparkMask.addSublayer(spark)
-            sparkLayers.append(spark)
-        }
+    override func mouseExited(with event: NSEvent) {
+        targetExcite = 0
     }
 
-    private func shapeLayer(path: CGPath, lineWidth: CGFloat, opacity: Float) -> CAShapeLayer {
-        let shape = CAShapeLayer()
-        shape.frame = bounds
-        shape.path = path
-        shape.fillColor = nil
-        shape.strokeColor = NSColor.white.withAlphaComponent(CGFloat(opacity)).cgColor
-        shape.lineWidth = lineWidth
-        shape.lineCap = .round
-        shape.lineJoin = .round
-        return shape
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
+
+    func draw(in view: MTKView) {
+        guard let pipeline, let commandQueue, let pass = currentRenderPassDescriptor,
+              let drawable = currentDrawable, bounds.width > 0, bounds.height > 0,
+              let buffer = commandQueue.makeCommandBuffer(),
+              let encoder = buffer.makeRenderCommandEncoder(descriptor: pass)
+        else { return }
+
+        excite += (targetExcite - excite) * 0.07
+        var uniforms = Uniforms(
+            size: SIMD2(Float(bounds.width), Float(bounds.height)),
+            pointer: pointer,
+            time: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                ? 2.4
+                : Float(CACurrentMediaTime() - startedAt),
+            excite: excite
+        )
+        encoder.setRenderPipelineState(pipeline)
+        encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
+        encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+        encoder.endEncoding()
+        buffer.present(drawable)
+        buffer.commit()
+    }
+
+    static func rendererSelfTest() -> Bool {
+        guard let device = MTLCreateSystemDefaultDevice() else { return false }
+        return (try? device.makeLibrary(source: shaderSource, options: nil)) != nil
     }
 
     @objc private func accessibilityDisplayOptionsDidChange() {
-        updateAnimations()
+        updateMotion()
     }
 
-    private func updateAnimations() {
-        [aura, wisps, strands, sparks].forEach { $0.removeAllAnimations() }
-        wispLayers.forEach { $0.removeAllAnimations() }
-        sparkLayers.forEach { $0.removeAllAnimations() }
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
-
-        let breathe = CABasicAnimation(keyPath: "opacity")
-        breathe.fromValue = 0.28
-        breathe.toValue = 0.64
-        breathe.duration = 3.8
-        breathe.autoreverses = true
-        breathe.repeatCount = .infinity
-        aura.add(breathe, forKey: "portal-breathe")
-
-        let shimmer = CABasicAnimation(keyPath: "opacity")
-        shimmer.fromValue = 0.68
-        shimmer.toValue = 1
-        shimmer.duration = 2.4
-        shimmer.autoreverses = true
-        shimmer.repeatCount = .infinity
-        strands.add(shimmer, forKey: "portal-shimmer")
-
-        for (index, wisp) in wispLayers.enumerated() {
-            let start = CAKeyframeAnimation(keyPath: "strokeStart")
-            start.values = [0, 0, 0.38, 0.76, 1]
-            start.keyTimes = [0, 0.18, 0.52, 0.8, 1]
-
-            let end = CAKeyframeAnimation(keyPath: "strokeEnd")
-            end.values = [0.12, 0.52, 0.86, 1, 1]
-            end.keyTimes = start.keyTimes
-
-            let fade = CAKeyframeAnimation(keyPath: "opacity")
-            fade.values = [0, 0.9, 0.72, 0.28, 0]
-            fade.keyTimes = start.keyTimes
-
-            let drift = CAAnimationGroup()
-            drift.animations = [start, end, fade]
-            drift.duration = 4.8 + Double(index % 4) * 0.65
-            drift.timeOffset = Double(index) * 0.57
-            drift.repeatCount = .infinity
-            wisp.add(drift, forKey: "portal-wisp")
-
-            let wave = CAKeyframeAnimation(keyPath: "path")
-            wave.values = [0, 1.15, -0.85, 0].map {
-                Self.wispPath(in: bounds, index: index, wave: CGFloat($0))
-            }
-            wave.keyTimes = [0, 0.32, 0.68, 1]
-            wave.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 3)
-            wave.duration = 12.4 + Double(index % 4) * 1.75
-            wave.timeOffset = Double(index) * 1.37
-            wave.repeatCount = .infinity
-            wisp.add(wave, forKey: "portal-wave")
-        }
-
-        let pacing: [[Double]] = [
-            [0, 0.08, 0.46, 0.62, 1],
-            [0, 0.24, 0.39, 0.79, 1],
-            [0, 0.13, 0.55, 0.73, 1],
-        ]
-        let keyTimes = [0.0, 0.2, 0.45, 0.72, 1.0].map { NSNumber(value: $0) }
-        let phaseCycles = 3.0
-        for (index, spark) in sparkLayers.enumerated() {
-            let cycle = spark.lineDashPattern?.reduce(CGFloat.zero) { $0 + CGFloat(truncating: $1) } ?? 109
-            let direction: CGFloat = index.isMultiple(of: 2) ? -1 : 1
-            let travel = CAKeyframeAnimation(keyPath: "lineDashPhase")
-            travel.values = pacing[index % pacing.count].map {
-                NSNumber(value: Double(direction * cycle) * phaseCycles * $0)
-            }
-            travel.keyTimes = keyTimes
-            travel.timingFunctions = [
-                CAMediaTimingFunction(name: .easeIn),
-                CAMediaTimingFunction(name: .easeOut),
-                CAMediaTimingFunction(name: .easeInEaseOut),
-                CAMediaTimingFunction(name: .easeOut),
-            ]
-            travel.duration = 10.8 + Double(index) * 1.35
-            travel.timeOffset = Double(index) * 1.73
-            travel.repeatCount = .infinity
-            spark.add(travel, forKey: "portal-travel")
-        }
+    private func updateMotion() {
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        isPaused = reduceMotion
+        enableSetNeedsDisplay = reduceMotion
+        if reduceMotion { needsDisplay = true }
     }
 
-    private static func tendrilPath(in bounds: CGRect, strand: Int) -> CGPath {
-        let path = CGMutablePath()
-        let inset = PortalLauncherAppearance.effectOutset - 4 + CGFloat(strand % 5) * 2
-        let rect = bounds.insetBy(dx: inset, dy: inset)
-        let radius = min(14, rect.height / 2)
-        let phase = CGFloat(strand) * 1.731
-        let samples = max(96, Int((rect.width + rect.height) / 5))
+    private static let shaderSource = #"""
+    #include <metal_stdlib>
+    using namespace metal;
 
-        for sample in 0...samples {
-            let t = CGFloat(sample) / CGFloat(samples)
-            let position = point(on: rect, radius: radius, fraction: t)
-            let neighbor = point(
-                on: rect,
-                radius: radius,
-                fraction: sample == samples ? t - 0.001 : t + 0.001
-            )
-            let tangent = sample == samples
-                ? CGPoint(x: position.x - neighbor.x, y: position.y - neighbor.y)
-                : CGPoint(x: neighbor.x - position.x, y: neighbor.y - position.y)
-            let length = max(0.001, hypot(tangent.x, tangent.y))
-            let normal = CGPoint(x: -tangent.y / length, y: tangent.x / length)
-            let wave = sin(t * .pi * CGFloat(10 + strand % 4) + phase) * (0.8 + CGFloat(strand % 3) * 0.32)
-                + sin(t * .pi * CGFloat(27 + strand % 5) - phase * 0.7) * 0.45
-            let p = CGPoint(x: position.x + normal.x * wave, y: position.y + normal.y * wave)
-            sample == 0 ? path.move(to: p) : path.addLine(to: p)
-        }
-        path.closeSubpath()
-        return path
+    struct VertexOut {
+        float4 position [[position]];
+        float2 uv;
+    };
+
+    struct Uniforms {
+        float2 size;
+        float2 pointer;
+        float time;
+        float excite;
+    };
+
+    vertex VertexOut portalVertex(uint id [[vertex_id]]) {
+        const float2 positions[4] = {
+            float2(-1.0, -1.0), float2(1.0, -1.0),
+            float2(-1.0, 1.0), float2(1.0, 1.0)
+        };
+        VertexOut out;
+        out.position = float4(positions[id], 0.0, 1.0);
+        out.uv = positions[id] * 0.5 + 0.5;
+        return out;
     }
 
-    private static func wispPath(in bounds: CGRect, index: Int, wave: CGFloat = 0) -> CGPath {
-        let path = CGMutablePath()
-        let rect = bounds.insetBy(dx: PortalLauncherAppearance.effectOutset, dy: PortalLauncherAppearance.effectOutset)
-        let starts: [CGFloat] = [0.025, 0.14, 0.25, 0.36, 0.485, 0.6, 0.72, 0.84]
-        let spans: [CGFloat] = [0.036, 0.082, 0.052, 0.115, 0.044, 0.094, 0.062, 0.075]
-        let start = starts[index % starts.count]
-        let span = spans[index % spans.count]
-
-        for sample in 0...28 {
-            let progress = CGFloat(sample) / 28
-            let fraction = start + span * progress
-            let position = point(on: rect, radius: 14, fraction: fraction)
-            let neighbor = point(on: rect, radius: 14, fraction: fraction + 0.001)
-            let tangent = CGPoint(x: neighbor.x - position.x, y: neighbor.y - position.y)
-            let length = max(0.001, hypot(tangent.x, tangent.y))
-            let normal = CGPoint(x: -tangent.y / length, y: tangent.x / length)
-            let envelope = sin(.pi * progress)
-            let lift = 1.2 + envelope * (2.4 + CGFloat(index % 4) * 1.05)
-            let flutter = (
-                sin(progress * .pi * CGFloat(3 + index % 3) + CGFloat(index) + wave) * 0.75
-                    + sin(wave * 0.9) * 0.55
-            ) * envelope
-            let p = CGPoint(
-                x: position.x + normal.x * (lift + flutter),
-                y: position.y + normal.y * (lift + flutter)
-            )
-            sample == 0 ? path.move(to: p) : path.addLine(to: p)
-        }
-        return path
+    float hash21(float2 p) {
+        return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
     }
 
-    private static func point(on rect: CGRect, radius: CGFloat, fraction: CGFloat) -> CGPoint {
-        let horizontal = rect.width - radius * 2
-        let vertical = rect.height - radius * 2
-        let arc = radius * .pi / 2
-        var distance = min(max(fraction, 0), 1) * (horizontal * 2 + vertical * 2 + arc * 4)
-
-        if distance <= horizontal { return CGPoint(x: rect.minX + radius + distance, y: rect.maxY) }
-        distance -= horizontal
-        if distance <= arc {
-            let angle = .pi / 2 - distance / radius
-            return CGPoint(x: rect.maxX - radius + cos(angle) * radius, y: rect.maxY - radius + sin(angle) * radius)
-        }
-        distance -= arc
-        if distance <= vertical { return CGPoint(x: rect.maxX, y: rect.maxY - radius - distance) }
-        distance -= vertical
-        if distance <= arc {
-            let angle = -distance / radius
-            return CGPoint(x: rect.maxX - radius + cos(angle) * radius, y: rect.minY + radius + sin(angle) * radius)
-        }
-        distance -= arc
-        if distance <= horizontal { return CGPoint(x: rect.maxX - radius - distance, y: rect.minY) }
-        distance -= horizontal
-        if distance <= arc {
-            let angle = -.pi / 2 - distance / radius
-            return CGPoint(x: rect.minX + radius + cos(angle) * radius, y: rect.minY + radius + sin(angle) * radius)
-        }
-        distance -= arc
-        if distance <= vertical { return CGPoint(x: rect.minX, y: rect.minY + radius + distance) }
-        distance -= vertical
-        let angle = .pi - distance / radius
-        return CGPoint(x: rect.minX + radius + cos(angle) * radius, y: rect.maxY - radius + sin(angle) * radius)
+    float noise21(float2 p) {
+        float2 i = floor(p);
+        float2 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(
+            mix(hash21(i), hash21(i + float2(1.0, 0.0)), f.x),
+            mix(hash21(i + float2(0.0, 1.0)), hash21(i + 1.0), f.x),
+            f.y
+        );
     }
+
+    float fbm(float2 p) {
+        float value = 0.0;
+        float weight = 0.5;
+        for (int i = 0; i < 4; i++) {
+            value += weight * noise21(p);
+            p = p * 2.03 + 17.1;
+            weight *= 0.5;
+        }
+        return value;
+    }
+
+    float roundedBoxDistance(float2 p, float2 halfSize, float radius) {
+        float2 q = abs(p) - halfSize + radius;
+        return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
+    }
+
+    fragment float4 portalFragment(VertexOut in [[stage_in]], constant Uniforms &u [[buffer(0)]]) {
+        float2 p = (in.uv - 0.5) * u.size;
+        float2 halfSize = max(u.size * 0.5 - 14.0, float2(20.0));
+        float distance = roundedBoxDistance(p, halfSize, 18.0);
+        float2 q = p / halfSize;
+        float angle = atan2(q.y, q.x);
+        float turn = angle / 6.2831853 + 0.5;
+        float cursor = exp(-length(in.uv - u.pointer) * 11.0) * u.excite;
+        float time = u.time * 0.42;
+
+        float flow = fbm(float2(angle * 1.8 - time * 0.34, time * 0.11));
+        float fine = noise21(float2(angle * 7.0 + time * 0.8, time * 0.23));
+        float warp = (flow - 0.5) * (5.2 + cursor * 5.0);
+
+        float core = exp(-abs(distance - warp) * 0.95);
+        float threadA = exp(-abs(distance - 3.2 - sin(angle * 5.0 - time * 1.7) * 1.4) * 1.65);
+        float threadB = exp(-abs(distance + 2.7 - sin(angle * 7.0 + time * 1.15) * 1.1) * 1.85);
+
+        float pulseA = pow(max(0.0, sin(angle * 9.0 - time * 4.2 + flow * 5.0)), 12.0);
+        float pulseB = pow(max(0.0, sin(angle * 13.0 + time * 3.1 + fine * 4.0)), 16.0);
+        float outer = exp(-abs(distance - 6.6 - (fine - 0.5) * 8.0) * 0.82)
+            * (pulseA + pulseB) * 0.9;
+        float wispFade = 1.0 - smoothstep(7.0, 13.5, distance);
+        float wisps = exp(-abs(distance - 9.0 - (flow - 0.5) * 12.0) * 0.5)
+            * (pulseA * 0.75 + pulseB * 0.55) * wispFade;
+
+        float cellA = floor(turn * 72.0);
+        float seedA = hash21(float2(cellA, 19.0));
+        float lifeA = fract(seedA + time * (0.09 + seedA * 0.08));
+        float localA = fract(turn * 72.0) - 0.5 + (lifeA - 0.5) * (seedA - 0.5);
+        float sparkA = exp(-localA * localA * 210.0)
+            * exp(-abs(distance - (1.3 + lifeA * 10.0)) * 1.5)
+            * pow(1.0 - lifeA, 2.0);
+
+        float cellB = floor(turn * 109.0);
+        float seedB = hash21(float2(cellB, 47.0));
+        float lifeB = fract(seedB + time * (0.12 + seedB * 0.06));
+        float localB = fract(turn * 109.0) - 0.5 - (lifeB - 0.5) * (seedB - 0.5);
+        float sparkB = exp(-localB * localB * 260.0)
+            * exp(-abs(distance - (1.0 + lifeB * 11.0)) * 1.75)
+            * pow(1.0 - lifeB, 2.4);
+        float sparks = (sparkA + sparkB) * (0.75 + cursor * 1.8);
+
+        float energy = core * (0.65 + flow * 0.7)
+            + threadA * (0.25 + pulseA)
+            + threadB * (0.2 + pulseB)
+            + outer + wisps + sparks * 1.7;
+        energy *= 1.0 + cursor * 2.3;
+
+        float side = smoothstep(-0.75, 0.75, q.x);
+        float3 color = mix(float3(0.16, 0.72, 1.0), float3(0.82, 0.25, 1.0), side);
+        color = mix(color, 1.0, saturate(core * 0.72 + pulseA + sparks + cursor));
+
+        float edgeFade = 1.0 - smoothstep(11.5, 13.8, distance);
+        energy *= edgeFade;
+        float glow = exp(-abs(distance) * 0.22) * 0.22 * edgeFade;
+        float bottomFlare = exp(-abs(distance) * 0.3)
+            * exp(-q.x * q.x * 5.0) * smoothstep(-0.2, -0.9, q.y) * 0.18;
+        bottomFlare *= edgeFade;
+        float alpha = saturate(energy * 0.92 + glow + bottomFlare);
+        if (alpha < 0.008) discard_fragment();
+        return float4(color * (energy * 1.35 + glow + bottomFlare), alpha);
+    }
+    """#
 }
 
 private final class LauncherSessionDocument: NSView {
@@ -375,7 +320,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
 
     static func keyboardSelectionSelfTest() -> Bool {
         let rows = [0, 3, 5, 8, 11]
-        return PortalTendrilView.pathSelfTest()
+        return PortalTendrilView.rendererSelfTest()
             && dismissalAnimationSelfTest()
             && remoteAddButtonSelfTest()
             && escapeSelfTest()

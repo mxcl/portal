@@ -4190,21 +4190,15 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         updateButton.target = self
         updateButton.action = #selector(installStagedUpdate(_:))
         updateButton.isHidden = true
-        trafficLightBackdrop.material = .headerView
+        trafficLightBackdrop.material = .windowBackground
         trafficLightBackdrop.blendingMode = .withinWindow
         trafficLightBackdrop.state = .active
+        trafficLightBackdrop.setValue(true, forKey: "clear")
         trafficLightBackdrop.translatesAutoresizingMaskIntoConstraints = false
-        trafficLightBackdrop.maskImage = NSImage(size: NSSize(width: 220, height: 120), flipped: false) { rect in
-            guard let gradient = NSGradient(colorsAndLocations: (.white, 0), (.white, 0.5), (.clear, 1))
+        trafficLightBackdrop.maskImage = NSImage(size: NSSize(width: 1, height: 120), flipped: false) { rect in
+            guard let gradient = NSGradient(colorsAndLocations: (.clear, 0), (.white, 1))
             else { return false }
-            let center = NSPoint(x: 92, y: rect.maxY - 12)
-            gradient.draw(
-                fromCenter: center,
-                radius: 0,
-                toCenter: center,
-                radius: 100,
-                options: []
-            )
+            gradient.draw(from: .zero, to: NSPoint(x: 0, y: rect.maxY), options: [])
             return true
         }
         titleTabBorderView.tabStack = titleTabStack
@@ -4259,8 +4253,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             updateButtonWidthConstraint,
 
             trafficLightBackdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            trafficLightBackdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             trafficLightBackdrop.topAnchor.constraint(equalTo: view.topAnchor),
-            trafficLightBackdrop.widthAnchor.constraint(equalToConstant: 220),
             trafficLightBackdrop.heightAnchor.constraint(equalToConstant: 120),
 
             contentContainer.leadingAnchor.constraint(

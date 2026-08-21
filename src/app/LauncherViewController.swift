@@ -420,9 +420,16 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         controller.moveSessionSelection(columns: -sessionColumnCount)
         controller.moveSessionSelection(columns: -sessionColumnCount)
         controller.activateSelectionOrInput()
-        return opened?.sessionRef.location == candidate.sessionRef.location
+        let openedRemoteSession = opened?.sessionRef.location == candidate.sessionRef.location
             && opened?.sessionRef.sessionID != candidate.sessionRef.sessionID
             && opened?.action == .createRelay
+        controller.moveSessionSelection(columns: sessionColumnCount)
+        controller.moveSessionSelection(columns: sessionColumnCount)
+        return openedRemoteSession && controller.selectedSessionRef == nil
+            && controller.sessionButtons.allSatisfy {
+                ($0 as? SessionCandidateButton)?.isKeyboardSelected != true
+                    && ($0 as? SessionHeaderAddButton)?.isKeyboardSelected != true
+            }
     }
 
     private static func escapeSelfTest() -> Bool {
@@ -901,7 +908,13 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             delta: delta,
             rowStarts: sessionRowStarts,
             count: sessionButtons.count
-        ) else { return }
+        ) else {
+            if delta == Self.sessionColumnCount {
+                selectedSessionRef = nil
+                sessionButtons.forEach { setKeyboardSelected(false, on: $0) }
+            }
+            return
+        }
         sessionButtons.forEach { setKeyboardSelected(false, on: $0) }
         let button = sessionButtons[destination]
         setKeyboardSelected(true, on: button)

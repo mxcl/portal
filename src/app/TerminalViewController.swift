@@ -4065,7 +4065,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let titleTabBorderView = TitleTabBorderView()
     private let newTabButton = TitleAddButton(frame: .zero)
     private let updateButton = TitleUpdateButton(frame: .zero)
-    private let promptButton = NSButton(frame: .zero)
+    private let trafficLightBackdrop = NonHitTestingVisualEffectView()
     private let contentContainer = NSView()
     private let resizeTooltipView = ResizeMetricsTooltipView()
     private let completionEngine = PortalCompletionEngine()
@@ -4190,18 +4190,23 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         updateButton.target = self
         updateButton.action = #selector(installStagedUpdate(_:))
         updateButton.isHidden = true
-        promptButton.image = NSImage(
-            systemSymbolName: "chevron.backward",
-            accessibilityDescription: "Back to prompt"
-        )
-        promptButton.title = ""
-        promptButton.imagePosition = .imageOnly
-        promptButton.bezelStyle = .texturedRounded
-        promptButton.target = self
-        promptButton.action = #selector(showLauncher(_:))
-        promptButton.toolTip = "Back to prompt"
-        promptButton.setAccessibilityLabel("Back to prompt")
-        promptButton.translatesAutoresizingMaskIntoConstraints = false
+        trafficLightBackdrop.material = .headerView
+        trafficLightBackdrop.blendingMode = .withinWindow
+        trafficLightBackdrop.state = .active
+        trafficLightBackdrop.translatesAutoresizingMaskIntoConstraints = false
+        trafficLightBackdrop.maskImage = NSImage(size: NSSize(width: 220, height: 120), flipped: false) { rect in
+            guard let gradient = NSGradient(colorsAndLocations: (.white, 0), (.white, 0.5), (.clear, 1))
+            else { return false }
+            let center = NSPoint(x: 92, y: rect.maxY - 12)
+            gradient.draw(
+                fromCenter: center,
+                radius: 0,
+                toCenter: center,
+                radius: 100,
+                options: []
+            )
+            return true
+        }
         titleTabBorderView.tabStack = titleTabStack
         titleTabStack.isHidden = !showsTabStrip
         titleTabBorderView.isHidden = !showsTabStrip
@@ -4214,8 +4219,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         view.addSubview(titleTabBorderView)
         view.addSubview(updateButton)
         view.addSubview(contentContainer)
+        view.addSubview(trafficLightBackdrop)
         view.addSubview(resizeTooltipView)
-        view.addSubview(promptButton)
         titleTabStack.addArrangedSubview(newTabButton)
         updateTitleSegmentCornerMasks()
 
@@ -4245,7 +4250,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             newTabButton.heightAnchor.constraint(equalToConstant: TahoeGlassPalette.titleTabHeight),
             newTabButton.widthAnchor.constraint(equalTo: newTabButton.heightAnchor),
 
-            updateButton.trailingAnchor.constraint(equalTo: promptButton.leadingAnchor, constant: -8),
+            updateButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             updateButton.topAnchor.constraint(
                 equalTo: view.topAnchor,
                 constant: (TahoeGlassPalette.titleBarHeight - TitleUpdateButton.visibleHeight) / 2
@@ -4253,13 +4258,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             updateButton.heightAnchor.constraint(equalToConstant: TitleUpdateButton.visibleHeight),
             updateButtonWidthConstraint,
 
-            promptButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            promptButton.topAnchor.constraint(
-                equalTo: view.topAnchor,
-                constant: (TahoeGlassPalette.titleBarHeight - 28) / 2
-            ),
-            promptButton.widthAnchor.constraint(equalToConstant: 32),
-            promptButton.heightAnchor.constraint(equalToConstant: 28),
+            trafficLightBackdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            trafficLightBackdrop.topAnchor.constraint(equalTo: view.topAnchor),
+            trafficLightBackdrop.widthAnchor.constraint(equalToConstant: 220),
+            trafficLightBackdrop.heightAnchor.constraint(equalToConstant: 120),
 
             contentContainer.leadingAnchor.constraint(
                 equalTo: view.leadingAnchor
@@ -4362,10 +4364,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
         tab.inputView.string = command
         submitCommand(in: tab)
-    }
-
-    @objc private func showLauncher(_ sender: Any?) {
-        onShowLauncher?()
     }
 
     func setUpdateStaged(_ isStaged: Bool) {

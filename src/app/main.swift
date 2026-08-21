@@ -339,7 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         displayedController = controller
 
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            window.standardWindowButton(button)?.isHidden = true
+            window.standardWindowButton(button)?.isHidden = asLauncher
         }
         window.hasShadow = !asLauncher
         if asLauncher {

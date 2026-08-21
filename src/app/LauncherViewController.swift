@@ -618,7 +618,12 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         radialWarp.center = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
         radialWarp.radius = Float(hypot(layer.bounds.width, layer.bounds.height))
         radialWarp.scale = 0
-        view.contentFilters = [radialWarp]
+
+        let radialStreaks = CIFilter.zoomBlur()
+        radialStreaks.name = "eventHorizon"
+        radialStreaks.center = radialWarp.center
+        radialStreaks.amount = 0
+        view.contentFilters = [radialWarp, radialStreaks]
 
         let transform = CAKeyframeAnimation(keyPath: "transform")
         transform.values = Self.dismissalTransforms.map { NSValue(caTransform3D: $0) }
@@ -629,15 +634,19 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         )
 
         let opacity = CAKeyframeAnimation(keyPath: "opacity")
-        opacity.values = [1, 0.98, 0.62, 0]
+        opacity.values = [1, 1, 0.86, 0]
         opacity.keyTimes = transform.keyTimes
 
         let warp = CAKeyframeAnimation(keyPath: "filters.singularity.inputScale")
-        warp.values = [0, -0.08, -0.58, -1]
+        warp.values = [0, -0.12, -0.72, -1]
         warp.keyTimes = transform.keyTimes
 
+        let streaks = CAKeyframeAnimation(keyPath: "filters.eventHorizon.inputAmount")
+        streaks.values = [0, 12, 48, 84]
+        streaks.keyTimes = transform.keyTimes
+
         let collapse = CAAnimationGroup()
-        collapse.animations = [transform, opacity, warp]
+        collapse.animations = [transform, opacity, warp, streaks]
         collapse.duration = Self.dismissalDuration
         collapse.fillMode = .forwards
         collapse.isRemovedOnCompletion = false
@@ -653,7 +662,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         view.contentFilters = []
     }
 
-    private static let dismissalTransforms = [1.0, 0.84, 0.34, 0.006].map {
+    private static let dismissalTransforms = [1.0, 0.98, 0.62, 0.006].map {
         CATransform3DMakeScale($0, $0, 1)
     }
 

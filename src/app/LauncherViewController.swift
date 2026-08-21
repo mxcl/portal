@@ -85,11 +85,12 @@ private final class PortalTendrilView: NSView {
         }
         sparkLayers.removeAll()
 
-        for strand in 0..<3 {
+        for index in 0..<3 {
+            let strand = index + 1
             auraMask.addSublayer(shapeLayer(
                 path: Self.tendrilPath(in: bounds, strand: strand),
-                lineWidth: CGFloat(12 - strand * 3),
-                opacity: Float(0.055 + Double(strand) * 0.025)
+                lineWidth: CGFloat(12 - index * 3),
+                opacity: Float(0.055 + Double(index) * 0.025)
             ))
         }
         for strand in 0..<11 {
@@ -159,7 +160,7 @@ private final class PortalTendrilView: NSView {
 
     private static func tendrilPath(in bounds: CGRect, strand: Int) -> CGPath {
         let path = CGMutablePath()
-        let inset = PortalLauncherAppearance.effectOutset - 5 + CGFloat(strand % 5) * 2
+        let inset = PortalLauncherAppearance.effectOutset - 4 + CGFloat(strand % 5) * 2
         let rect = bounds.insetBy(dx: inset, dy: inset)
         let radius = min(14, rect.height / 2)
         let phase = CGFloat(strand) * 1.731

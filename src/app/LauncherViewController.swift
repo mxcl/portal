@@ -37,7 +37,9 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     private var rows: [Row] = []
     private var sessionButtons: [SessionCandidateButton] = []
     private var sessionCandidates: [SessionRef: SessionPickerCandidate] = [:]
+    private var renderedSnapshot: SessionPickerSnapshot?
     private var selectedSessionRef: SessionRef?
+    private var sessionMouseDownMonitor: Any?
     private var completionSerial = 0
 
     static func keyboardSelectionSelfTest() -> Bool {
@@ -115,11 +117,10 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         NSLayoutConstraint.activate([
             input.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
             input.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            input.topAnchor.constraint(equalTo: content.topAnchor),
-            input.heightAnchor.constraint(equalToConstant: 56),
+            input.centerYAnchor.constraint(equalTo: content.topAnchor, constant: 28),
             separator.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            separator.topAnchor.constraint(equalTo: input.bottomAnchor),
+            separator.topAnchor.constraint(equalTo: content.topAnchor, constant: 56),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             scroll.topAnchor.constraint(equalTo: separator.bottomAnchor),
@@ -133,7 +134,25 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        sessionMouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) {
+            [weak self] event in
+            guard let self,
+                  event.window === self.view.window,
+                  !self.sessionScroll.isHidden,
+                  let button = self.sessionButtons.first(where: {
+                      $0.bounds.contains($0.convert(event.locationInWindow, from: nil))
+                  })
+            else { return event }
+            self.openSessionCard(button)
+            return nil
+        }
         refreshSessions()
+    }
+
+    deinit {
+        if let sessionMouseDownMonitor {
+            NSEvent.removeMonitor(sessionMouseDownMonitor)
+        }
     }
 
     override func viewDidAppear() {
@@ -299,6 +318,8 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     private func renderSessions(_ snapshot: SessionPickerSnapshot) {
+        guard snapshot != renderedSnapshot else { return }
+        renderedSnapshot = snapshot
         sessionCandidates = Dictionary(uniqueKeysWithValues: snapshot.sections.flatMap { section in
             section.items.map { ($0.candidate.sessionRef, $0.candidate) }
         })

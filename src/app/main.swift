@@ -275,7 +275,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             terminalFrame = terminalFrame ?? window.frame
             window.styleMask.remove([.resizable, .miniaturizable])
             window.level = .floating
-            resizeLauncher(to: max(AppWindowMetrics.launcherHeight, controller.view.fittingSize.height))
+            resizeLauncher(
+                to: max(AppWindowMetrics.launcherHeight, controller.view.fittingSize.height),
+                repositions: true
+            )
         } else {
             window.styleMask.insert([.resizable, .miniaturizable])
             window.level = .normal
@@ -284,7 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         }
     }
 
-    private func resizeLauncher(to height: CGFloat) {
+    private func resizeLauncher(to height: CGFloat, repositions: Bool = false) {
         guard let window, displayedController === launcherController else { return }
         let contentHeight = min(max(108, height), 56 + 8 * 52)
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
@@ -297,7 +300,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             width: AppWindowMetrics.launcherWidth,
             height: contentHeight
         )
-        window.setFrame(NSWindow.frameRect(forContentRect: contentRect, styleMask: window.styleMask), display: true, animate: window.isVisible)
+        var frame = NSWindow.frameRect(forContentRect: contentRect, styleMask: window.styleMask)
+        if !repositions {
+            frame.origin = NSPoint(x: window.frame.minX, y: window.frame.maxY - frame.height)
+        }
+        window.setFrame(frame, display: true, animate: window.isVisible)
     }
 
     private func launchApplication(_ suggestion: CompletionSuggestion) {

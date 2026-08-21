@@ -3396,7 +3396,7 @@ private final class TerminalOutputProcessor {
     }
 }
 
-final class SessionCandidateButton: NSControl {
+final class SessionCandidateButton: NSButton {
     let sessionRef: SessionRef
     let sessionID: String
     private let iconView = NSImageView()
@@ -3415,6 +3415,10 @@ final class SessionCandidateButton: NSControl {
         self.sessionRef = sessionRef
         self.sessionID = sessionRef.sessionID
         super.init(frame: .zero)
+        self.title = ""
+        isBordered = false
+        focusRingType = .none
+        setButtonType(.momentaryPushIn)
         wantsLayer = true
         layer?.cornerRadius = 8
         layer?.backgroundColor = NSColor.clear.cgColor
@@ -3483,6 +3487,7 @@ final class SessionCandidateButton: NSControl {
 
         setAccessibilityValue(metadata)
         let subtitleText = subtitle ?? ""
+        setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(title)
 
@@ -3519,24 +3524,9 @@ final class SessionCandidateButton: NSControl {
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
-    override var acceptsFirstResponder: Bool { true }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         bounds.contains(point) ? self : nil
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        guard isEnabled else { return }
-        if event.modifierFlags.contains(.control), let menu {
-            NSMenu.popUpContextMenu(menu, with: event, for: self)
-            return
-        }
-        guard let action else { return }
-        sendAction(action, to: target)
     }
 
     override func rightMouseDown(with event: NSEvent) {

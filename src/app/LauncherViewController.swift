@@ -360,7 +360,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     private let completionQueue = DispatchQueue(label: "dev.mxcl.portal.launcher-completion", qos: .userInitiated)
     private let sessionModel = SessionPickerModel()
     private var rows: [Row] = []
-    private var sessionButtons: [SessionCandidateButton] = []
+    private var sessionButtons: [NSControl] = []
     private var sessionRowStarts: [Int] = []
     private var sessionCandidates: [SessionRef: SessionPickerCandidate] = [:]
     private var renderedSnapshot: SessionPickerSnapshot?
@@ -398,20 +398,28 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         guard candidates == relayCandidates(from: [mac], localMacID: "local", now: now),
               let candidate = candidates.first(where: { $0.action == .createRelay })
         else { return false }
+        var existing = candidate
+        existing.sessionRef.sessionID = "existing"
+        existing.action = .attach
         let controller = LauncherViewController()
         controller.renderSessions(SessionPickerSnapshot(sections: [
             SessionPickerSection(
                 location: candidate.sessionRef.location,
                 title: candidate.hostTitle,
                 newSession: candidate,
-                items: []
+                items: [SessionPickerItem(
+                    candidate: existing,
+                    title: "~/project",
+                    subtitle: nil,
+                    metadata: "1 command"
+                )]
             )
         ]))
         var opened: SessionPickerCandidate?
         controller.onOpenSession = { opened = $0 }
-        let button = (controller.sessionStack.arrangedSubviews.first as? NSStackView)?
-            .arrangedSubviews.first { ($0 as? NSButton)?.toolTip == "New session on Remote" } as? NSButton
-        button?.performClick(nil)
+        controller.moveSessionSelection(columns: -sessionColumnCount)
+        controller.moveSessionSelection(columns: -sessionColumnCount)
+        controller.activateSelectionOrInput()
         return opened?.sessionRef.location == candidate.sessionRef.location
             && opened?.sessionRef.sessionID != candidate.sessionRef.sessionID
             && opened?.action == .createRelay
@@ -547,7 +555,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             guard let self,
                   event.window === self.view.window,
                   !self.sessionScroll.isHidden,
-                  let button = self.sessionButtons.first(where: {
+                  let button = self.sessionButtons.compactMap({ $0 as? SessionCandidateButton }).first(where: {
                       $0.bounds.contains($0.convert(event.locationInWindow, from: nil))
                   })
             else { return event }
@@ -571,7 +579,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     func reset() {
         completionSerial += 1
         selectedSessionRef = nil
-        sessionButtons.forEach { $0.isKeyboardSelected = false }
+        sessionButtons.forEach { setKeyboardSelected(false, on: $0) }
         input.stringValue = ""
         refreshSessions()
         view.window?.makeFirstResponder(input)
@@ -762,7 +770,10 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
                 )
                 button.target = self
                 button.action = #selector(openNewSession(_:))
+                button.isKeyboardSelected = candidate.sessionRef == selectedSessionRef
                 headerStack.addArrangedSubview(button)
+                sessionRowStarts.append(sessionButtons.count)
+                sessionButtons.append(button)
             }
             sessionStack.addArrangedSubview(headerStack)
 
@@ -883,7 +894,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     private func moveSessionSelection(columns delta: Int) {
         guard !sessionButtons.isEmpty else { return }
         let current = selectedSessionRef.flatMap { selected in
-            sessionButtons.firstIndex { $0.sessionRef == selected }
+            sessionButtons.firstIndex { sessionRef(for: $0) == selected }
         }
         guard let destination = Self.sessionSelectionDestination(
             current: current,
@@ -891,11 +902,21 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             rowStarts: sessionRowStarts,
             count: sessionButtons.count
         ) else { return }
-        sessionButtons.forEach { $0.isKeyboardSelected = false }
+        sessionButtons.forEach { setKeyboardSelected(false, on: $0) }
         let button = sessionButtons[destination]
-        button.isKeyboardSelected = true
-        selectedSessionRef = button.sessionRef
+        setKeyboardSelected(true, on: button)
+        selectedSessionRef = sessionRef(for: button)
         button.scrollToVisible(button.bounds)
+    }
+
+    private func sessionRef(for button: NSControl) -> SessionRef? {
+        (button as? SessionCandidateButton)?.sessionRef
+            ?? (button as? SessionHeaderAddButton)?.sessionRef
+    }
+
+    private func setKeyboardSelected(_ selected: Bool, on button: NSControl) {
+        (button as? SessionCandidateButton)?.isKeyboardSelected = selected
+        (button as? SessionHeaderAddButton)?.isKeyboardSelected = selected
     }
 
     private static func sessionSelectionDestination(
@@ -930,8 +951,8 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     private func activateSelectionOrInput() {
         if input.stringValue.isEmpty,
            let selectedSessionRef,
-           let candidate = sessionCandidates[selectedSessionRef] {
-            onOpenSession?(candidate)
+           let button = sessionButtons.first(where: { sessionRef(for: $0) == selectedSessionRef }) {
+            button.performClick(nil)
             return
         }
         if !input.stringValue.isEmpty, rows.indices.contains(table.selectedRow) {

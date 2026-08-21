@@ -673,6 +673,12 @@ private final class TahoeGlassRootView: NSView {
     var onLayout: (() -> Void)?
     var onUpdateButtonMouseDown: (() -> Void)?
     var updateButtonFrame: CGRect?
+    var showsTopBar = true {
+        didSet {
+            topBarLayer.isHidden = !showsTopBar
+            topBarSeparatorLayer.isHidden = !showsTopBar
+        }
+    }
 
     var activeTabFrame: CGRect? {
         didSet {
@@ -4142,6 +4148,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     override func loadView() {
         let rootView = TahoeGlassRootView()
         rootView.backgroundBlurEffect = backgroundBlurEffect
+        rootView.showsTopBar = showsTabStrip
         rootView.onLayout = { [weak self] in
             self?.handleRootLayout()
         }

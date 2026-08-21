@@ -56,6 +56,10 @@ private enum AppWindowMetrics {
     static let launcherWidth: CGFloat = 720 + PortalLauncherAppearance.effectOutset * 2
     static let launcherHeight: CGFloat = 420 + PortalLauncherAppearance.effectOutset * 2
 
+    static func launcherHeight(preferred: CGFloat?) -> CGFloat {
+        preferred ?? launcherHeight
+    }
+
     static func terminalFrame(remembering remembered: NSRect?, around launcher: NSRect) -> NSRect {
         remembered ?? NSRect(
             x: launcher.midX - defaultContentSize.width / 2,
@@ -71,6 +75,8 @@ private enum AppWindowMetrics {
         let initial = terminalFrame(remembering: nil, around: launcher)
         return initial.midX == launcher.midX && initial.midY == launcher.midY
             && terminalFrame(remembering: remembered, around: launcher) == remembered
+            && launcherHeight(preferred: 600) == 600
+            && launcherHeight(preferred: nil) == launcherHeight
     }
 }
 
@@ -317,7 +323,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             window.styleMask.remove([.resizable, .miniaturizable])
             window.level = .floating
             resizeLauncher(
-                to: max(AppWindowMetrics.launcherHeight, controller.view.fittingSize.height),
+                to: AppWindowMetrics.launcherHeight(preferred: launcherController?.sessionHeight.map {
+                    $0 + PortalLauncherAppearance.effectOutset * 2
+                }),
                 repositions: true
             )
         } else {

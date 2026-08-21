@@ -349,6 +349,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     var onLaunchApplication: ((CompletionSuggestion) -> Void)?
     var onCancel: (() -> Void)?
     var onHeightChanged: ((CGFloat) -> Void)?
+    private(set) var sessionHeight: CGFloat?
 
     private let input = NSTextField()
     private let table = NSTableView()
@@ -820,7 +821,9 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             self.selectedSessionRef = nil
         }
         sessionDocument.layoutSubtreeIfNeeded()
-        onHeightChanged?(57 + sessionStack.fittingSize.height)
+        let height = 57 + sessionStack.fittingSize.height
+        sessionHeight = snapshot.sections.isEmpty ? nil : height
+        onHeightChanged?(height)
     }
 
     @objc private func openSessionCard(_ sender: SessionCandidateButton) {

@@ -4559,6 +4559,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             interruptCommand(in: tab)
             return true
         }
+        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            onShowLauncher?()
+            return true
+        }
 
         if commandSelector == #selector(NSResponder.insertTab(_:)) {
             requestCompletion(in: tab, mode: .explicit)

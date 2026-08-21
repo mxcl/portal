@@ -431,7 +431,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showLauncher()
+        if displayedController == nil {
+            showLauncher()
+        } else {
+            window?.deminiaturize(nil)
+            window?.makeKeyAndOrderFront(nil)
+        }
         return true
     }
 

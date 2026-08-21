@@ -312,6 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             window.standardWindowButton(button)?.isHidden = true
         }
+        window.hasShadow = !asLauncher
         if asLauncher {
             window.styleMask.remove([.resizable, .miniaturizable])
             window.level = .floating

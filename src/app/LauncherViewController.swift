@@ -229,6 +229,15 @@ private final class PortalTendrilView: MTKView, MTKViewDelegate {
         float wisps = exp(-abs(distance - 9.0 - (flow - 0.5) * 12.0) * 0.5)
             * (pulseA * 0.75 + pulseB * 0.55) * wispFade;
 
+        float stillTime = u.time * 0.08;
+        float ringInner = exp(-abs(distance + 4.5 - sin(angle * 3.0 + stillTime * 0.41) * 0.28) * 2.35) * 0.42;
+        float ringMiddle = exp(-abs(distance + 0.8 - sin(angle * 4.0 - stillTime * 0.31) * 0.22) * 2.55) * 0.38;
+        float ringOuter = exp(-abs(distance - 3.8 - sin(angle * 2.0 + stillTime * 0.23) * 0.34) * 2.15) * 0.34;
+        float rings = ringInner + ringMiddle + ringOuter;
+        float3 ringColor = ringInner * float3(0.08, 0.68, 1.0)
+            + ringMiddle * float3(0.42, 0.42, 1.0)
+            + ringOuter * float3(0.88, 0.16, 1.0);
+
         float cellA = floor(turn * 72.0);
         float seedA = hash21(float2(cellA, 19.0));
         float lifeA = fract(seedA + time * (0.09 + seedA * 0.08));
@@ -258,13 +267,15 @@ private final class PortalTendrilView: MTKView, MTKViewDelegate {
 
         float edgeFade = 1.0 - smoothstep(11.5, 13.8, distance);
         energy *= edgeFade;
+        rings *= edgeFade;
+        ringColor *= edgeFade;
         float glow = exp(-abs(distance) * 0.22) * 0.22 * edgeFade;
         float bottomFlare = exp(-abs(distance) * 0.3)
             * exp(-q.x * q.x * 5.0) * smoothstep(-0.2, -0.9, q.y) * 0.18;
         bottomFlare *= edgeFade;
-        float alpha = saturate(energy * 0.92 + glow + bottomFlare);
+        float alpha = saturate(energy * 0.92 + rings * 0.9 + glow + bottomFlare);
         if (alpha < 0.008) discard_fragment();
-        return float4(color * (energy * 1.35 + glow + bottomFlare), alpha);
+        return float4(color * (energy * 1.35 + glow + bottomFlare) + ringColor * 1.2, alpha);
     }
     """#
 }

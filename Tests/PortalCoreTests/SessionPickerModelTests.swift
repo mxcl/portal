@@ -95,6 +95,26 @@ struct SessionPickerModelTests {
         #expect(!create.canExit)
     }
 
+    @Test("session search prefers an exact working-directory name")
+    func sessionSearch() {
+        let av = candidate(id: "av", host: "This Mac", date: 1, location: .local)
+        let avTap = candidate(id: "av.tap", host: "This Mac", date: 2, location: .local)
+        let snapshot = SessionPickerSnapshot(sections: [
+            SessionPickerSection(
+                location: .local,
+                title: "This Mac",
+                newSession: nil,
+                items: [
+                    SessionPickerItem(candidate: avTap, title: "~/src/av.tap", subtitle: nil, metadata: ""),
+                    SessionPickerItem(candidate: av, title: "./scripts/publish.sh", subtitle: "~/src/av", metadata: ""),
+                ]
+            )
+        ])
+
+        #expect(snapshot.matchingItems("av").map(\.candidate.sessionRef.sessionID) == ["av", "av.tap"])
+        #expect(snapshot.matchingItems("missing").isEmpty)
+    }
+
     @MainActor
     @Test("loads relay sessions")
     func loadsRelaySessions() async throws {

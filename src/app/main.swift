@@ -470,6 +470,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         }
     }
 
+    func windowDidResignKey(_ notification: Notification) {
+        guard notification.object as? NSWindow === window,
+              displayedController === launcherController
+        else { return }
+        hideWindow()
+    }
+
     func windowWillStartLiveResize(_ notification: Notification) {
         guard notification.object as? NSWindow === window else { return }
         controller?.beginWindowResizeTooltip()

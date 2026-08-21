@@ -40,6 +40,31 @@ struct SessionPickerSection: Equatable, Sendable {
 
 struct SessionPickerSnapshot: Equatable, Sendable {
     var sections: [SessionPickerSection]
+
+    func matchingItems(_ query: String) -> [SessionPickerItem] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        return sections.flatMap(\.items).enumerated().compactMap {
+            offset, item -> (rank: Int, offset: Int, item: SessionPickerItem)? in
+            let fields = [item.title, item.subtitle, item.candidate.cwd].compactMap { $0 }
+            let cwdName = URL(fileURLWithPath: item.candidate.cwd).lastPathComponent
+            let rank: Int
+            if cwdName.caseInsensitiveCompare(query) == .orderedSame {
+                rank = 0
+            } else if fields.contains(where: { $0.caseInsensitiveCompare(query) == .orderedSame }) {
+                rank = 1
+            } else if fields.contains(where: { $0.range(of: query, options: [.caseInsensitive, .anchored]) != nil }) {
+                rank = 2
+            } else if fields.contains(where: { $0.localizedCaseInsensitiveContains(query) }) {
+                rank = 3
+            } else {
+                return nil
+            }
+            return (rank, offset, item)
+        }.sorted {
+            ($0.rank, $0.offset) < ($1.rank, $1.offset)
+        }.map(\.item)
+    }
 }
 
 @MainActor

@@ -10,12 +10,13 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     private static let sessionColumnCount = 3
 
     private enum Row {
+        case session(SessionPickerItem)
         case completion(CompletionSuggestion)
         case message(String)
 
         var isSelectable: Bool {
             switch self {
-            case .completion: true
+            case .session, .completion: true
             case .message: false
             }
         }
@@ -208,6 +209,12 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard rows.indices.contains(row) else { return nil }
         switch rows[row] {
+        case .session(let item):
+            return resultCell(
+                title: item.subtitle ?? item.title,
+                detail: item.subtitle == nil ? item.metadata : "\(item.title) · \(item.metadata)",
+                icon: NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)
+            )
         case .message(let message):
             let label = NSTextField(labelWithString: message)
             label.font = .systemFont(ofSize: 12)
@@ -325,15 +332,15 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             loadRelay: { await Self.relayCandidates() },
             isAvailable: { _ in true },
             onUpdate: { [weak self] snapshot in
-                guard let self, self.input.stringValue.isEmpty else { return }
+                guard let self, snapshot != self.renderedSnapshot else { return }
+                self.renderedSnapshot = snapshot
+                guard self.input.stringValue.isEmpty else { return }
                 self.renderSessions(snapshot)
             }
         )
     }
 
     private func renderSessions(_ snapshot: SessionPickerSnapshot) {
-        guard snapshot != renderedSnapshot else { return }
-        renderedSnapshot = snapshot
         sessionCandidates = Dictionary(uniqueKeysWithValues: snapshot.sections.flatMap { section in
             section.items.map { ($0.candidate.sessionRef, $0.candidate) }
         })
@@ -398,6 +405,8 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     private func refreshCompletions(_ query: String) {
         scroll.isHidden = false
         sessionScroll.isHidden = true
+        rows = matchingSessionRows(query)
+        reloadRows(selectsFirst: !rows.isEmpty)
         completionSerial += 1
         let serial = completionSerial
         let cancellation = CompletionCancellation()
@@ -422,13 +431,17 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
                       serial == self.completionSerial,
                       self.input.stringValue == query
                 else { return }
-                self.rows = result.suggestions.map(Row.completion)
+                self.rows = self.matchingSessionRows(query) + result.suggestions.map(Row.completion)
                 if self.rows.isEmpty {
                     self.rows = [.message("Return to run “\(query)”")]
                 }
                 self.reloadRows(selectsFirst: true)
             }
         }
+    }
+
+    private func matchingSessionRows(_ query: String) -> [Row] {
+        renderedSnapshot?.matchingItems(query).map(Row.session) ?? []
     }
 
     private func reloadRows(selectsFirst: Bool = false) {
@@ -508,6 +521,9 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         }
         if !input.stringValue.isEmpty, rows.indices.contains(table.selectedRow) {
             switch rows[table.selectedRow] {
+            case .session(let item):
+                onOpenSession?(item.candidate)
+                return
             case .completion(let suggestion):
                 if suggestion.kind == .application {
                     input.stringValue = suggestion.insertText

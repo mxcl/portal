@@ -36,6 +36,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     private let sessionModel = SessionPickerModel()
     private var rows: [Row] = []
     private var sessionButtons: [SessionCandidateButton] = []
+    private var sessionRowStarts: [Int] = []
     private var sessionCandidates: [SessionRef: SessionPickerCandidate] = [:]
     private var renderedSnapshot: SessionPickerSnapshot?
     private var selectedSessionRef: SessionRef?
@@ -43,11 +44,16 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     private var completionSerial = 0
 
     static func keyboardSelectionSelfTest() -> Bool {
-        sessionSelectionDestination(current: nil, delta: 4, count: 6) == 0
-            && sessionSelectionDestination(current: nil, delta: -4, count: 6) == 5
-            && sessionSelectionDestination(current: 0, delta: 4, count: 6) == 4
-            && sessionSelectionDestination(current: 4, delta: -1, count: 6) == nil
-            && sessionSelectionDestination(current: 3, delta: 1, count: 6) == nil
+        let rows = [0, 4, 5, 9]
+        return sessionSelectionDestination(current: nil, delta: -4, rowStarts: rows, count: 13) == 9
+            && sessionSelectionDestination(current: 8, delta: -1, rowStarts: rows, count: 13) == 7
+            && sessionSelectionDestination(current: 5, delta: -1, rowStarts: rows, count: 13) == nil
+            && sessionSelectionDestination(current: 5, delta: 1, rowStarts: rows, count: 13) == 6
+            && sessionSelectionDestination(current: 8, delta: 1, rowStarts: rows, count: 13) == nil
+            && sessionSelectionDestination(current: 11, delta: -4, rowStarts: rows, count: 13) == 7
+            && sessionSelectionDestination(current: 8, delta: -4, rowStarts: rows, count: 13) == 4
+            && sessionSelectionDestination(current: 4, delta: 4, rowStarts: rows, count: 13) == 5
+            && sessionSelectionDestination(current: 7, delta: 4, rowStarts: rows, count: 13) == 11
     }
 
     override func loadView() {
@@ -103,8 +109,12 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         sessionScroll.drawsBackground = false
         sessionScroll.hasVerticalScroller = true
         sessionScroll.autohidesScrollers = true
+        sessionScroll.verticalScrollElasticity = .none
         sessionScroll.translatesAutoresizingMaskIntoConstraints = false
-        sessionDocument.widthAnchor.constraint(equalTo: sessionScroll.contentView.widthAnchor).isActive = true
+        NSLayoutConstraint.activate([
+            sessionDocument.topAnchor.constraint(equalTo: sessionScroll.contentView.topAnchor),
+            sessionDocument.widthAnchor.constraint(equalTo: sessionScroll.contentView.widthAnchor),
+        ])
 
         let separator = NSBox()
         separator.boxType = .separator
@@ -324,6 +334,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             section.items.map { ($0.candidate.sessionRef, $0.candidate) }
         })
         sessionButtons.removeAll()
+        sessionRowStarts.removeAll()
         for view in sessionStack.arrangedSubviews {
             sessionStack.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -347,6 +358,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             }
 
             for start in stride(from: 0, to: section.items.count, by: 4) {
+                sessionRowStarts.append(sessionButtons.count)
                 let buttons = section.items[start..<min(start + 4, section.items.count)].map { item in
                     let button = SessionCandidateButton(
                         sessionRef: item.candidate.sessionRef,
@@ -444,6 +456,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         guard let destination = Self.sessionSelectionDestination(
             current: current,
             delta: delta,
+            rowStarts: sessionRowStarts,
             count: sessionButtons.count
         ) else { return }
         sessionButtons.forEach { $0.isKeyboardSelected = false }
@@ -456,13 +469,22 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     private static func sessionSelectionDestination(
         current: Int?,
         delta: Int,
+        rowStarts: [Int],
         count: Int
     ) -> Int? {
-        guard count > 0 else { return nil }
-        guard let current else { return delta < 0 ? count - 1 : 0 }
-        if delta == -1, current.isMultiple(of: 4) { return nil }
-        if delta == 1, current % 4 == 3 { return nil }
-        return min(max(0, current + delta), count - 1)
+        guard count > 0, !rowStarts.isEmpty else { return nil }
+        guard let current else {
+            return delta == -1 ? count - 1 : delta < 0 ? rowStarts.last : 0
+        }
+        guard let row = rowStarts.lastIndex(where: { $0 <= current }) else { return nil }
+        let rowEnd = (rowStarts.indices.contains(row + 1) ? rowStarts[row + 1] : count) - 1
+        if delta == -1 { return current > rowStarts[row] ? current - 1 : nil }
+        if delta == 1 { return current < rowEnd ? current + 1 : nil }
+
+        let targetRow = row + (delta < 0 ? -1 : 1)
+        guard rowStarts.indices.contains(targetRow) else { return nil }
+        let targetEnd = (rowStarts.indices.contains(targetRow + 1) ? rowStarts[targetRow + 1] : count) - 1
+        return min(rowStarts[targetRow] + current - rowStarts[row], targetEnd)
     }
 
     private func acceptSelectedCompletion() {

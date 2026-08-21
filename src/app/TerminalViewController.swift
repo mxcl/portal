@@ -4028,6 +4028,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var sessionPickerCandidatesByTab: [UUID: [SessionRef: SessionPickerCandidate]] = [:]
     private var sessionPickerModelsByTab: [UUID: SessionPickerModel] = [:]
     var onInstallStagedUpdate: (() -> Void)?
+    var onShowLauncher: (() -> Void)?
     var onSetRemoteAccessEnabled: ((Bool) -> Bool)?
     var remoteAccessEnabled = false {
         didSet {
@@ -4047,6 +4048,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let titleTabBorderView = TitleTabBorderView()
     private let newTabButton = TitleAddButton(frame: .zero)
     private let updateButton = TitleUpdateButton(frame: .zero)
+    private let promptButton = NSButton(frame: .zero)
     private let contentContainer = NSView()
     private let resizeTooltipView = ResizeMetricsTooltipView()
     private let completionEngine = PortalCompletionEngine()
@@ -4169,6 +4171,18 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         updateButton.target = self
         updateButton.action = #selector(installStagedUpdate(_:))
         updateButton.isHidden = true
+        promptButton.image = NSImage(
+            systemSymbolName: "chevron.backward",
+            accessibilityDescription: "Back to prompt"
+        )
+        promptButton.title = ""
+        promptButton.imagePosition = .imageOnly
+        promptButton.bezelStyle = .texturedRounded
+        promptButton.target = self
+        promptButton.action = #selector(showLauncher(_:))
+        promptButton.toolTip = "Back to prompt"
+        promptButton.setAccessibilityLabel("Back to prompt")
+        promptButton.translatesAutoresizingMaskIntoConstraints = false
         titleTabBorderView.tabStack = titleTabStack
         titleTabStack.isHidden = !showsTabStrip
         titleTabBorderView.isHidden = !showsTabStrip
@@ -4182,6 +4196,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         view.addSubview(updateButton)
         view.addSubview(contentContainer)
         view.addSubview(resizeTooltipView)
+        view.addSubview(promptButton)
         titleTabStack.addArrangedSubview(newTabButton)
         updateTitleSegmentCornerMasks()
 
@@ -4211,13 +4226,21 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             newTabButton.heightAnchor.constraint(equalToConstant: TahoeGlassPalette.titleTabHeight),
             newTabButton.widthAnchor.constraint(equalTo: newTabButton.heightAnchor),
 
-            updateButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            updateButton.trailingAnchor.constraint(equalTo: promptButton.leadingAnchor, constant: -8),
             updateButton.topAnchor.constraint(
                 equalTo: view.topAnchor,
                 constant: (TahoeGlassPalette.titleBarHeight - TitleUpdateButton.visibleHeight) / 2
             ),
             updateButton.heightAnchor.constraint(equalToConstant: TitleUpdateButton.visibleHeight),
             updateButtonWidthConstraint,
+
+            promptButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            promptButton.topAnchor.constraint(
+                equalTo: view.topAnchor,
+                constant: (TahoeGlassPalette.titleBarHeight - 28) / 2
+            ),
+            promptButton.widthAnchor.constraint(equalToConstant: 32),
+            promptButton.heightAnchor.constraint(equalToConstant: 28),
 
             contentContainer.leadingAnchor.constraint(
                 equalTo: view.leadingAnchor
@@ -4247,7 +4270,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             self?.acceptCompletionSelection(suggestion)
         }
         restoreSessionState()
-        installTabMouseDownMonitor()
+        if showsTabStrip {
+            installTabMouseDownMonitor()
+        }
         installSessionPickerMouseDownMonitor()
         installCommandFocusMonitor()
     }
@@ -4318,6 +4343,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
         tab.inputView.string = command
         submitCommand(in: tab)
+    }
+
+    @objc private func showLauncher(_ sender: Any?) {
+        onShowLauncher?()
     }
 
     func setUpdateStaged(_ isStaged: Bool) {
@@ -6153,6 +6182,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func updateActiveTabCutoutFrame() {
         guard let rootView = view as? TahoeGlassRootView else { return }
+        guard showsTabStrip else {
+            rootView.tabStripFrame = nil
+            rootView.activeTabFrame = nil
+            return
+        }
         rootView.tabStripFrame = titleTabStack.convert(titleTabStack.bounds, to: rootView)
         guard let activeTabID,
               let button = tabButtons[activeTabID],

@@ -157,6 +157,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         controller.onInstallStagedUpdate = { [weak self] in
             self?.confirmInstallStagedUpdate()
         }
+        controller.onShowLauncher = { [weak self] in
+            self?.showLauncher()
+        }
         controller.remoteAccessEnabled = remoteAccessController.isEnabled
         controller.onSetRemoteAccessEnabled = { [weak self] enabled in
             self?.setRemoteAccessEnabled(enabled) ?? false
@@ -266,7 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         displayedController = controller
 
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            window.standardWindowButton(button)?.isHidden = asLauncher
+            window.standardWindowButton(button)?.isHidden = true
         }
         if asLauncher {
             terminalFrame = terminalFrame ?? window.frame

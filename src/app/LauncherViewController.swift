@@ -372,6 +372,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         let rows = [0, 3, 5, 8, 11]
         return PortalTendrilView.pathSelfTest()
             && remoteAddButtonSelfTest()
+            && escapeSelfTest()
             && sessionSelectionDestination(current: nil, delta: -3, rowStarts: rows, count: 13) == 11
             && sessionSelectionDestination(current: 7, delta: -1, rowStarts: rows, count: 13) == 6
             && sessionSelectionDestination(current: 5, delta: -1, rowStarts: rows, count: 13) == nil
@@ -414,6 +415,27 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         return opened?.sessionRef.location == candidate.sessionRef.location
             && opened?.sessionRef.sessionID != candidate.sessionRef.sessionID
             && opened?.action == .createRelay
+    }
+
+    private static func escapeSelfTest() -> Bool {
+        let controller = LauncherViewController()
+        controller.input.stringValue = "query"
+        var canceled = false
+        controller.onCancel = { canceled = true }
+        let handled = controller.control(
+            controller.input,
+            textView: NSTextView(),
+            doCommandBy: #selector(NSResponder.cancelOperation(_:))
+        )
+        let reset = handled && controller.input.stringValue.isEmpty && !canceled
+            && controller.scroll.isHidden && !controller.sessionScroll.isHidden
+        _ = controller.control(
+            controller.input,
+            textView: NSTextView(),
+            doCommandBy: #selector(NSResponder.cancelOperation(_:))
+        )
+        controller.suspend()
+        return reset && canceled
     }
 
     override func loadView() {
@@ -631,7 +653,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         case #selector(NSResponder.insertNewline(_:)):
             activateSelectionOrInput()
         case #selector(NSResponder.cancelOperation(_:)):
-            onCancel?()
+            if input.stringValue.isEmpty { onCancel?() } else { reset() }
         default:
             return false
         }

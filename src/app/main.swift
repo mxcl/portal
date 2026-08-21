@@ -55,6 +55,23 @@ private enum AppWindowMetrics {
     static let minimumContentSize = NSSize(width: 760, height: 480)
     static let launcherWidth: CGFloat = 720 + PortalLauncherAppearance.effectOutset * 2
     static let launcherHeight: CGFloat = 420 + PortalLauncherAppearance.effectOutset * 2
+
+    static func terminalFrame(remembering remembered: NSRect?, around launcher: NSRect) -> NSRect {
+        remembered ?? NSRect(
+            x: launcher.midX - defaultContentSize.width / 2,
+            y: launcher.midY - defaultContentSize.height / 2,
+            width: defaultContentSize.width,
+            height: defaultContentSize.height
+        )
+    }
+
+    static func terminalFrameSelfTest() -> Bool {
+        let launcher = NSRect(x: 300, y: 200, width: 720, height: 420)
+        let remembered = NSRect(x: 40, y: 80, width: 900, height: 600)
+        let initial = terminalFrame(remembering: nil, around: launcher)
+        return initial.midX == launcher.midX && initial.midY == launcher.midY
+            && terminalFrame(remembering: remembered, around: launcher) == remembered
+    }
 }
 
 @MainActor
@@ -70,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var launcherController: LauncherViewController?
     private weak var displayedController: NSViewController?
     private var terminalFrame: NSRect?
+    private var sessionFrames: [SessionRef: NSRect] = [:]
     private var titleToolbar: NSToolbar?
     private var pendingOpenURLs: [URL] = []
     private var stagedUpdate: Update?
@@ -85,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     private var hotKeyHandler: EventHandlerRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        assert(AppWindowMetrics.terminalFrameSelfTest())
         NSApp.mainMenu = makeMainMenu()
         guard prepareSessionService() else {
             NSApp.terminate(nil)
@@ -231,6 +250,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
         guard let controller else { return }
         if displayedController === controller {
             terminalFrame = window?.frame
+            if let sessionRef = controller.activeSessionRef, let terminalFrame {
+                sessionFrames[sessionRef] = terminalFrame
+            }
             controller.view.removeFromSuperview()
             displayedController = nil
         }
@@ -254,6 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
     }
 
     private func openTerminal(session candidate: SessionPickerCandidate) {
+        terminalFrame = sessionFrames[candidate.sessionRef]
         if controller?.activeSessionRef == candidate.sessionRef, let controller {
             display(controller, asLauncher: false)
             controller.windowDidAttach()
@@ -290,7 +313,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             window.standardWindowButton(button)?.isHidden = true
         }
         if asLauncher {
-            terminalFrame = terminalFrame ?? window.frame
             window.styleMask.remove([.resizable, .miniaturizable])
             window.level = .floating
             resizeLauncher(
@@ -301,7 +323,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
             window.styleMask.insert([.resizable, .miniaturizable])
             window.level = .normal
             window.contentMinSize = AppWindowMetrics.minimumContentSize
-            window.setFrame(terminalFrame ?? NSRect(origin: window.frame.origin, size: AppWindowMetrics.defaultContentSize), display: true, animate: true)
+            window.setFrame(
+                AppWindowMetrics.terminalFrame(remembering: terminalFrame, around: window.frame),
+                display: true,
+                animate: true
+            )
         }
     }
 

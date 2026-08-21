@@ -13,9 +13,17 @@ private enum LauncherHotKey: String, CaseIterable {
     case commandSpace
 
     static let defaultsKey = "launcherHotKey"
+    private static let didMigrateFunctionGraveDefaultKey = "didMigrateFunctionGraveDefault"
 
     static var preferred: LauncherHotKey {
-        UserDefaults.standard.string(forKey: defaultsKey).flatMap(Self.init(rawValue:)) ?? .functionGrave
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: didMigrateFunctionGraveDefaultKey) {
+            defaults.set(true, forKey: didMigrateFunctionGraveDefaultKey)
+            if defaults.string(forKey: defaultsKey) == optionSpace.rawValue {
+                defaults.removeObject(forKey: defaultsKey)
+            }
+        }
+        return defaults.string(forKey: defaultsKey).flatMap(Self.init(rawValue:)) ?? .functionGrave
     }
 
     var title: String {

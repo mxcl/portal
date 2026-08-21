@@ -370,6 +370,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     static func keyboardSelectionSelfTest() -> Bool {
         let rows = [0, 3, 5, 8, 11]
         return PortalTendrilView.pathSelfTest()
+            && remoteAddButtonSelfTest()
             && sessionSelectionDestination(current: nil, delta: -3, rowStarts: rows, count: 13) == 11
             && sessionSelectionDestination(current: 7, delta: -1, rowStarts: rows, count: 13) == 6
             && sessionSelectionDestination(current: 5, delta: -1, rowStarts: rows, count: 13) == nil
@@ -379,6 +380,39 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             && sessionSelectionDestination(current: 7, delta: -3, rowStarts: rows, count: 13) == 4
             && sessionSelectionDestination(current: 4, delta: 3, rowStarts: rows, count: 13) == 6
             && sessionSelectionDestination(current: 6, delta: 3, rowStarts: rows, count: 13) == 9
+    }
+
+    private static func remoteAddButtonSelfTest() -> Bool {
+        let now = Date()
+        let mac = RemoteMac(
+            id: "remote",
+            name: "Remote",
+            online: true,
+            lastSeen: now,
+            homeDirectory: "~",
+            sessions: []
+        )
+        let candidates = relayCandidates(from: [mac], localMacID: "local", now: now)
+        guard candidates == relayCandidates(from: [mac], localMacID: "local", now: now),
+              let candidate = candidates.first(where: { $0.action == .createRelay })
+        else { return false }
+        let controller = LauncherViewController()
+        controller.renderSessions(SessionPickerSnapshot(sections: [
+            SessionPickerSection(
+                location: candidate.sessionRef.location,
+                title: candidate.hostTitle,
+                newSession: candidate,
+                items: []
+            )
+        ]))
+        var opened: SessionPickerCandidate?
+        controller.onOpenSession = { opened = $0 }
+        let button = (controller.sessionStack.arrangedSubviews.first as? NSStackView)?
+            .arrangedSubviews.first { ($0 as? NSButton)?.toolTip == "New session on Remote" } as? NSButton
+        button?.performClick(nil)
+        return opened?.sessionRef.location == candidate.sessionRef.location
+            && opened?.sessionRef.sessionID != candidate.sessionRef.sessionID
+            && opened?.action == .createRelay
     }
 
     override func loadView() {
@@ -644,7 +678,9 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         sessionScroll.isHidden = false
         let hostname = Host.current().localizedName ?? "This Mac"
         sessionModel.refresh(
-            initial: renderedSnapshot?.sections.flatMap { $0.items.map(\.candidate) } ?? [],
+            initial: renderedSnapshot?.sections.flatMap {
+                $0.items.map(\.candidate) + [$0.newSession].compactMap { $0 }
+            } ?? [],
             excluding: [],
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
             loadLocal: {
@@ -678,7 +714,8 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
 
     private func renderSessions(_ snapshot: SessionPickerSnapshot) {
         sessionCandidates = Dictionary(uniqueKeysWithValues: snapshot.sections.flatMap { section in
-            section.items.map { ($0.candidate.sessionRef, $0.candidate) }
+            (section.items.map(\.candidate) + [section.newSession].compactMap { $0 })
+                .map { ($0.sessionRef, $0) }
         })
         sessionButtons.removeAll()
         sessionRowStarts.removeAll()
@@ -691,7 +728,20 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             let header = NSTextField(labelWithString: section.title.uppercased())
             header.font = .systemFont(ofSize: 10, weight: .semibold)
             header.textColor = .secondaryLabelColor
-            sessionStack.addArrangedSubview(header)
+            let headerStack = NSStackView(views: [header])
+            headerStack.orientation = .horizontal
+            headerStack.alignment = .centerY
+            headerStack.spacing = 4
+            if let candidate = section.newSession {
+                let button = SessionHeaderAddButton(
+                    sessionRef: candidate.sessionRef,
+                    hostName: section.title
+                )
+                button.target = self
+                button.action = #selector(openNewSession(_:))
+                headerStack.addArrangedSubview(button)
+            }
+            sessionStack.addArrangedSubview(headerStack)
 
             if section.items.isEmpty {
                 let empty = NSTextField(labelWithString: "No active sessions")
@@ -735,6 +785,12 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     @objc private func openSessionCard(_ sender: SessionCandidateButton) {
         guard let candidate = sessionCandidates[sender.sessionRef] else { return }
         selectedSessionRef = sender.sessionRef
+        onOpenSession?(candidate)
+    }
+
+    @objc private func openNewSession(_ sender: SessionHeaderAddButton) {
+        guard var candidate = sessionCandidates[sender.sessionRef] else { return }
+        candidate.sessionRef.sessionID = UUID().uuidString
         onOpenSession?(candidate)
     }
 
@@ -886,13 +942,37 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
 
         let now = Date()
         let localMacID = MacRemoteAccessController.macID()
-        return catalog.macs
+        return relayCandidates(from: catalog.macs, localMacID: localMacID, now: now)
+    }
+
+    private static func relayCandidates(
+        from macs: [RemoteMac],
+        localMacID: String,
+        now: Date
+    ) -> [SessionPickerCandidate] {
+        macs
             .filter { $0.id != localMacID && $0.online && now.timeIntervalSince($0.lastSeen) < 10 }
             .flatMap { mac in
-                mac.sessions.map { session in
+                let location = SessionLocation.relayMac(mac.id)
+                let newSession = SessionPickerCandidate(
+                    sessionRef: SessionRef(
+                        location: location,
+                        sessionID: "new-session",
+                        hostName: mac.name
+                    ),
+                    hostTitle: mac.name,
+                    title: "New session",
+                    cwd: mac.homeDirectory ?? "/",
+                    isClosed: false,
+                    createdAt: nil,
+                    commandCount: 0,
+                    commandHistory: [],
+                    action: .createRelay
+                )
+                return [newSession] + mac.sessions.map { session in
                     SessionPickerCandidate(
                         sessionRef: SessionRef(
-                            location: .relayMac(mac.id),
+                            location: location,
                             sessionID: session.sessionID,
                             hostName: mac.name
                         ),

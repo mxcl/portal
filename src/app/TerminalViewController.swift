@@ -3572,7 +3572,7 @@ final class SessionCandidateButton: NSButton {
     }
 }
 
-private final class SessionHeaderAddButton: NSButton {
+final class SessionHeaderAddButton: NSButton {
     let sessionRef: SessionRef
     private var hoverTrackingArea: NSTrackingArea?
     private var isHovering = false {

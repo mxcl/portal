@@ -262,8 +262,9 @@ private final class PortalTendrilView: NSView {
         let path = CGMutablePath()
         let rect = bounds.insetBy(dx: PortalLauncherAppearance.effectOutset, dy: PortalLauncherAppearance.effectOutset)
         let starts: [CGFloat] = [0.025, 0.14, 0.25, 0.36, 0.485, 0.6, 0.72, 0.84]
+        let spans: [CGFloat] = [0.036, 0.082, 0.052, 0.115, 0.044, 0.094, 0.062, 0.075]
         let start = starts[index % starts.count]
-        let span = 0.065 + CGFloat(index % 3) * 0.012
+        let span = spans[index % spans.count]
 
         for sample in 0...28 {
             let progress = CGFloat(sample) / 28

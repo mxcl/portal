@@ -610,6 +610,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             completion()
             return
         }
+        Self.centerAnimationAnchor(of: layer)
 
         let transform = CAKeyframeAnimation(keyPath: "transform")
         transform.values = Self.dismissalTransforms.map { NSValue(caTransform3D: $0) }
@@ -659,12 +660,29 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         )
     }
 
+    private static func centerAnimationAnchor(of layer: CALayer) {
+        let frame = layer.frame
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        layer.position = CGPoint(x: frame.midX, y: frame.midY)
+        CATransaction.commit()
+    }
+
     private static func dismissalAnimationSelfTest() -> Bool {
+        let layer = CALayer()
+        layer.anchorPoint = .zero
+        layer.frame = CGRect(x: 12, y: 18, width: 720, height: 420)
+        let frame = layer.frame
+        centerAnimationAnchor(of: layer)
         guard dismissalDuration == 0.3,
               dismissalTransforms.count == 4,
               let final = dismissalTransforms.last
         else { return false }
-        return abs(final.m11) < 0.01 && abs(final.m22) < 0.01
+        return layer.anchorPoint == CGPoint(x: 0.5, y: 0.5)
+            && layer.frame == frame
+            && abs(final.m11) < 0.01
+            && abs(final.m22) < 0.01
     }
 
     func showError(_ message: String) {

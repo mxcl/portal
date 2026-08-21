@@ -102,6 +102,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
+        scroll.automaticallyAdjustsContentInsets = false
         scroll.isHidden = true
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
@@ -109,6 +110,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         sessionScroll.drawsBackground = false
         sessionScroll.hasVerticalScroller = true
         sessionScroll.autohidesScrollers = true
+        sessionScroll.automaticallyAdjustsContentInsets = false
         sessionScroll.verticalScrollElasticity = .none
         sessionScroll.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([

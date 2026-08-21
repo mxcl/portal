@@ -9,24 +9,30 @@ enum PortalLauncherAppearance {
 @MainActor
 private final class PortalTendrilView: NSView {
     private let aura = CAGradientLayer()
+    private let wisps = CAGradientLayer()
     private let strands = CAGradientLayer()
     private let sparks = CAGradientLayer()
     private let auraMask = CALayer()
+    private let wispMask = CALayer()
     private let strandMask = CALayer()
     private let sparkMask = CALayer()
+    private var wispLayers: [CAShapeLayer] = []
     private var sparkLayers: [CAShapeLayer] = []
     private var renderedSize = CGSize.zero
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        [aura, strands, sparks].forEach(configureGradient)
+        [aura, wisps, strands, sparks].forEach(configureGradient)
         aura.mask = auraMask
+        wisps.mask = wispMask
         strands.mask = strandMask
         sparks.mask = sparkMask
         aura.opacity = 0.5
+        wisps.opacity = 0.75
         strands.opacity = 0.9
         layer?.addSublayer(aura)
+        layer?.addSublayer(wisps)
         layer?.addSublayer(strands)
         layer?.addSublayer(sparks)
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -53,7 +59,7 @@ private final class PortalTendrilView: NSView {
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for gradient in [aura, strands, sparks] {
+        for gradient in [aura, wisps, strands, sparks] {
             gradient.frame = bounds
             gradient.mask?.frame = bounds
         }
@@ -65,7 +71,9 @@ private final class PortalTendrilView: NSView {
     static func pathSelfTest() -> Bool {
         let bounds = CGRect(x: 0, y: 0, width: 720, height: 420)
         let box = tendrilPath(in: bounds, strand: 2).boundingBoxOfPath
+        let wispBox = wispPath(in: bounds, index: 3).boundingBoxOfPath
         return box.width > 690 && box.height > 390 && bounds.contains(box)
+            && !wispBox.isEmpty && bounds.contains(wispBox) && box.intersects(wispBox)
     }
 
     private func configureGradient(_ gradient: CAGradientLayer) {
@@ -80,9 +88,10 @@ private final class PortalTendrilView: NSView {
     }
 
     private func rebuildTendrils() {
-        [auraMask, strandMask, sparkMask].forEach { mask in
+        [auraMask, wispMask, strandMask, sparkMask].forEach { mask in
             mask.sublayers?.forEach { $0.removeFromSuperlayer() }
         }
+        wispLayers.removeAll()
         sparkLayers.removeAll()
 
         for index in 0..<3 {
@@ -99,6 +108,15 @@ private final class PortalTendrilView: NSView {
                 lineWidth: 0.55 + CGFloat(strand % 4) * 0.28,
                 opacity: 0.24 + Float(strand % 5) * 0.1
             ))
+        }
+        for index in 0..<8 {
+            let wisp = shapeLayer(
+                path: Self.wispPath(in: bounds, index: index),
+                lineWidth: 0.7 + CGFloat(index % 3) * 0.25,
+                opacity: 0.42 + Float(index % 4) * 0.09
+            )
+            wispMask.addSublayer(wisp)
+            wispLayers.append(wisp)
         }
         for strand in 0..<6 {
             let spark = shapeLayer(
@@ -129,7 +147,8 @@ private final class PortalTendrilView: NSView {
     }
 
     private func updateAnimations() {
-        [aura, strands, sparks].forEach { $0.removeAllAnimations() }
+        [aura, wisps, strands, sparks].forEach { $0.removeAllAnimations() }
+        wispLayers.forEach { $0.removeAllAnimations() }
         sparkLayers.forEach { $0.removeAllAnimations() }
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
 
@@ -149,10 +168,49 @@ private final class PortalTendrilView: NSView {
         shimmer.repeatCount = .infinity
         strands.add(shimmer, forKey: "portal-shimmer")
 
+        for (index, wisp) in wispLayers.enumerated() {
+            let start = CAKeyframeAnimation(keyPath: "strokeStart")
+            start.values = [0, 0, 0.38, 0.76, 1]
+            start.keyTimes = [0, 0.18, 0.52, 0.8, 1]
+
+            let end = CAKeyframeAnimation(keyPath: "strokeEnd")
+            end.values = [0.12, 0.52, 0.86, 1, 1]
+            end.keyTimes = start.keyTimes
+
+            let fade = CAKeyframeAnimation(keyPath: "opacity")
+            fade.values = [0, 0.9, 0.72, 0.28, 0]
+            fade.keyTimes = start.keyTimes
+
+            let drift = CAAnimationGroup()
+            drift.animations = [start, end, fade]
+            drift.duration = 4.8 + Double(index % 4) * 0.65
+            drift.timeOffset = Double(index) * 0.57
+            drift.repeatCount = .infinity
+            wisp.add(drift, forKey: "portal-wisp")
+        }
+
+        let pacing: [[Double]] = [
+            [0, 0.08, 0.46, 0.62, 1],
+            [0, 0.24, 0.39, 0.79, 1],
+            [0, 0.13, 0.55, 0.73, 1],
+        ]
+        let keyTimes = [0.0, 0.2, 0.45, 0.72, 1.0].map { NSNumber(value: $0) }
         for (index, spark) in sparkLayers.enumerated() {
-            let travel = CABasicAnimation(keyPath: "lineDashPhase")
-            travel.byValue = index.isMultiple(of: 2) ? -109 : 109
-            travel.duration = 2.8 + Double(index) * 0.58
+            let cycle = spark.lineDashPattern?.reduce(CGFloat.zero) { $0 + CGFloat(truncating: $1) } ?? 109
+            let direction: CGFloat = index.isMultiple(of: 2) ? -1 : 1
+            let travel = CAKeyframeAnimation(keyPath: "lineDashPhase")
+            travel.values = pacing[index % pacing.count].map {
+                NSNumber(value: Double(direction * cycle) * $0)
+            }
+            travel.keyTimes = keyTimes
+            travel.timingFunctions = [
+                CAMediaTimingFunction(name: .easeIn),
+                CAMediaTimingFunction(name: .easeOut),
+                CAMediaTimingFunction(name: .easeInEaseOut),
+                CAMediaTimingFunction(name: .easeOut),
+            ]
+            travel.duration = 3.4 + Double(index) * 0.47
+            travel.timeOffset = Double(index) * 0.43
             travel.repeatCount = .infinity
             spark.add(travel, forKey: "portal-travel")
         }
@@ -185,6 +243,33 @@ private final class PortalTendrilView: NSView {
             sample == 0 ? path.move(to: p) : path.addLine(to: p)
         }
         path.closeSubpath()
+        return path
+    }
+
+    private static func wispPath(in bounds: CGRect, index: Int) -> CGPath {
+        let path = CGMutablePath()
+        let rect = bounds.insetBy(dx: PortalLauncherAppearance.effectOutset, dy: PortalLauncherAppearance.effectOutset)
+        let starts: [CGFloat] = [0.025, 0.14, 0.25, 0.36, 0.485, 0.6, 0.72, 0.84]
+        let start = starts[index % starts.count]
+        let span = 0.065 + CGFloat(index % 3) * 0.012
+
+        for sample in 0...28 {
+            let progress = CGFloat(sample) / 28
+            let fraction = start + span * progress
+            let position = point(on: rect, radius: 14, fraction: fraction)
+            let neighbor = point(on: rect, radius: 14, fraction: fraction + 0.001)
+            let tangent = CGPoint(x: neighbor.x - position.x, y: neighbor.y - position.y)
+            let length = max(0.001, hypot(tangent.x, tangent.y))
+            let normal = CGPoint(x: -tangent.y / length, y: tangent.x / length)
+            let envelope = sin(.pi * progress)
+            let lift = 1.2 + envelope * (2.4 + CGFloat(index % 4) * 1.05)
+            let flutter = sin(progress * .pi * CGFloat(3 + index % 3) + CGFloat(index)) * envelope * 0.65
+            let p = CGPoint(
+                x: position.x + normal.x * (lift + flutter),
+                y: position.y + normal.y * (lift + flutter)
+            )
+            sample == 0 ? path.move(to: p) : path.addLine(to: p)
+        }
         return path
     }
 

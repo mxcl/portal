@@ -673,6 +673,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         default:
             return false
         }
+        NSCursor.setHiddenUntilMouseMoves(false)
         return true
     }
 

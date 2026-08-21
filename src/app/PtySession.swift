@@ -231,6 +231,7 @@ final class PtySession {
     private var transport: (any SessionTransport)?
     private var protocolDecoder = SessionWireProtocol.Decoder()
     private var treatsNextOutputAsLegacyHistory = false
+    private var isInterruptReconciliationScheduled = false
     private let lifecycleLock = NSLock()
     private var isStopped = false
     private var didReportExit = false
@@ -363,6 +364,9 @@ final class PtySession {
 
     func sendInterrupt() {
         send(.interrupt)
+        queue.async { [weak self] in
+            self?.scheduleInterruptReconciliation()
+        }
     }
 
     func clearHistory() {
@@ -710,6 +714,34 @@ final class PtySession {
             try transport?.send(line)
         } catch {
             reportExit(-1)
+        }
+    }
+
+    private func scheduleInterruptReconciliation() {
+        guard !isInterruptReconciliationScheduled else { return }
+        isInterruptReconciliationScheduled = true
+        queue.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self, !self.hasStopped() else { return }
+            do {
+                let event = try Self.sendSingleResponseCommand(
+                    .list,
+                    location: self.sessionRef.location,
+                    localNamespace: self.daemonIdentity.namespace,
+                    startsLocalDaemon: false
+                )
+                guard case .sessions(let data) = event,
+                      let session = try JSONDecoder().decode([SessionMetadata].self, from: data)
+                        .first(where: { $0.sessionID == self.wireSessionID }),
+                      session.runningCommand != nil
+                else {
+                    self.isInterruptReconciliationScheduled = false
+                    return
+                }
+                self.isInterruptReconciliationScheduled = false
+                self.scheduleInterruptReconciliation()
+            } catch {
+                self.isInterruptReconciliationScheduled = false
+            }
         }
     }
 

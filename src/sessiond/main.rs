@@ -218,6 +218,7 @@ struct Session {
     master_fd: RawFd,
     child_pid: pid_t,
     exited: AtomicBool,
+    interrupt_reconciliation_running: AtomicBool,
     attached_client_count: AtomicUsize,
     terminal: Mutex<TerminalState>,
     metadata: Mutex<SessionMetadata>,
@@ -327,6 +328,7 @@ impl Session {
             master_fd,
             child_pid: pid,
             exited: AtomicBool::new(false),
+            interrupt_reconciliation_running: AtomicBool::new(false),
             attached_client_count: AtomicUsize::new(0),
             terminal: Mutex::new(TerminalState::new(size.ws_row, size.ws_col)),
             metadata: Mutex::new(SessionMetadata::new(request)),
@@ -483,18 +485,24 @@ impl Session {
 
     fn interrupt(self: &Arc<Self>) {
         self.write_input(&[0x03]);
+        if self
+            .interrupt_reconciliation_running
+            .swap(true, Ordering::SeqCst)
+        {
+            return;
+        }
         let session = self.clone();
         thread::spawn(move || {
-            for _ in 0..200 {
+            while !session.exited.load(Ordering::SeqCst) {
                 thread::sleep(std::time::Duration::from_millis(10));
-                if session.exited.load(Ordering::SeqCst) {
-                    return;
-                }
                 if shell_is_foreground(&session) {
                     session.report_interrupted_command_completion();
-                    return;
+                    break;
                 }
             }
+            session
+                .interrupt_reconciliation_running
+                .store(false, Ordering::SeqCst);
         });
     }
 
@@ -1612,17 +1620,19 @@ mod tests {
         let setup_complete = wait_for_history(&session, b"__PORTAL_SETUP__", 2);
         if setup_complete {
             session.write_input(
-                b"printf '\\033]133;C;test\\a'; sleep 30; printf '\\033]133;D;0\\a'\n",
+                b"printf '\\033]133;C;test\\a'; /usr/bin/perl -e '$SIG{INT}=sub { select undef,undef,undef,3; $SIG{INT}=q(DEFAULT); kill q(INT),$$ }; print qq(__PORTAL_DELAY_READY__\\n); sleep 30'; printf '\\033]133;D;0\\a'\n",
             );
         }
         let command_started =
             setup_complete && wait_for_history(&session, COMMAND_STARTED_MARKER, 1);
-        if command_started {
+        let child_ready =
+            command_started && wait_for_history(&session, b"__PORTAL_DELAY_READY__", 1);
+        if child_ready {
             session.interrupt();
         }
-        let completion_reported = command_started
+        let completion_reported = child_ready
             && loop {
-                match events.recv_timeout(Duration::from_secs(3)) {
+                match events.recv_timeout(Duration::from_secs(5)) {
                     Ok(SessionEvent::Output { bytes, .. })
                         if bytes == INTERRUPTED_COMMAND_FINISHED_MARKER =>
                     {
@@ -1636,6 +1646,7 @@ mod tests {
 
         assert!(setup_complete, "test shell did not finish setup");
         assert!(command_started, "test command did not start");
+        assert!(child_ready, "delayed interrupt test program did not start");
         assert!(
             completion_reported,
             "shell became idle without reporting the interrupted command's completion"
@@ -1712,6 +1723,7 @@ mod tests {
             master_fd: -1,
             child_pid: 0,
             exited: AtomicBool::new(false),
+            interrupt_reconciliation_running: AtomicBool::new(false),
             attached_client_count: AtomicUsize::new(0),
             terminal: Mutex::new({
                 let mut terminal = TerminalState::new(24, 80);

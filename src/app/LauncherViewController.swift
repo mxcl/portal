@@ -543,7 +543,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         sessionScroll.isHidden = false
         let hostname = Host.current().localizedName ?? "This Mac"
         sessionModel.refresh(
-            initial: [],
+            initial: renderedSnapshot?.sections.flatMap { $0.items.map(\.candidate) } ?? [],
             excluding: [],
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
             loadLocal: {

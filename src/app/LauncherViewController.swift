@@ -601,7 +601,12 @@ final class LauncherViewController: NSViewController, NSTextFieldDelegate {
         radialStreaks.name = "eventHorizon"
         radialStreaks.center = radialWarp.center
         radialStreaks.amount = 0
-        view.contentFilters = [radialWarp, radialStreaks]
+
+        let warpWake = CIFilter.motionBlur()
+        warpWake.name = "warpWake"
+        warpWake.radius = 0
+        warpWake.angle = 0
+        view.contentFilters = [radialWarp, radialStreaks, warpWake]
 
         let transform = CAKeyframeAnimation(keyPath: "transform")
         transform.values = Self.dismissalTransforms.map { NSValue(caTransform3D: $0) }
@@ -623,8 +628,12 @@ final class LauncherViewController: NSViewController, NSTextFieldDelegate {
         streaks.values = [0, 12, 48, 84]
         streaks.keyTimes = transform.keyTimes
 
+        let wake = CAKeyframeAnimation(keyPath: "filters.warpWake.inputRadius")
+        wake.values = [0, 4, 24, 52]
+        wake.keyTimes = transform.keyTimes
+
         let collapse = CAAnimationGroup()
-        collapse.animations = [transform, opacity, warp, streaks]
+        collapse.animations = [transform, opacity, warp, streaks, wake]
         collapse.duration = Self.dismissalDuration
         collapse.fillMode = .forwards
         collapse.isRemovedOnCompletion = false
@@ -640,9 +649,12 @@ final class LauncherViewController: NSViewController, NSTextFieldDelegate {
         view.contentFilters = []
     }
 
-    private static let dismissalTransforms = [1.0, 0.98, 0.62, 0.006].map {
-        CATransform3DMakeScale($0, $0, 1)
-    }
+    private static let dismissalTransforms = [
+        CATransform3DMakeScale(1, 1, 1),
+        CATransform3DMakeScale(1.04, 0.96, 1),
+        CATransform3DMakeScale(1.18, 0.42, 1),
+        CATransform3DMakeScale(0.006, 0.006, 1),
+    ]
 
     private static func centerAnimationAnchor(of layer: CALayer) {
         let frame = layer.frame

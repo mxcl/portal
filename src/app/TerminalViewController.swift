@@ -4199,14 +4199,16 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         trafficLightBackdrop.material = .windowBackground
         trafficLightBackdrop.blendingMode = .withinWindow
         trafficLightBackdrop.state = .active
-        trafficLightBackdrop.setValue(true, forKey: "clear")
         trafficLightBackdrop.translatesAutoresizingMaskIntoConstraints = false
-        trafficLightBackdrop.maskImage = NSImage(size: NSSize(width: 1, height: 120), flipped: false) { rect in
+        let trafficLightMask = NSImage(size: NSSize(width: 3, height: 120), flipped: false) { rect in
             guard let gradient = NSGradient(colorsAndLocations: (.clear, 0), (.white, 1))
             else { return false }
             gradient.draw(from: .zero, to: NSPoint(x: 0, y: rect.maxY), options: [])
             return true
         }
+        trafficLightMask.capInsets = NSEdgeInsets(top: 0, left: 1, bottom: 0, right: 1)
+        trafficLightMask.resizingMode = .stretch
+        trafficLightBackdrop.maskImage = trafficLightMask
         titleTabBorderView.tabStack = titleTabStack
         titleTabStack.isHidden = !showsTabStrip
         titleTabBorderView.isHidden = !showsTabStrip

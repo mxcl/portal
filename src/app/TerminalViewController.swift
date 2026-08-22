@@ -3437,7 +3437,13 @@ final class SessionCandidateButton: NSButton {
         didSet { updateAppearance() }
     }
 
-    init(sessionRef: SessionRef, title: String, subtitle: String?, metadata: String) {
+    init(
+        sessionRef: SessionRef,
+        title: String,
+        subtitle: String?,
+        metadata: String,
+        icon: NSImage? = nil
+    ) {
         self.sessionRef = sessionRef
         self.sessionID = sessionRef.sessionID
         super.init(frame: .zero)
@@ -3450,8 +3456,8 @@ final class SessionCandidateButton: NSButton {
         layer?.backgroundColor = NSColor.clear.cgColor
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        iconView.image = Bundle.main.image(forResource: NSImage.Name("session-icon"))
-        iconView.image?.isTemplate = true
+        iconView.image = icon ?? Bundle.main.image(forResource: NSImage.Name("session-icon"))
+        iconView.image?.isTemplate = icon == nil
         iconView.contentTintColor = TahoeGlassPalette.titleTextActive
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)

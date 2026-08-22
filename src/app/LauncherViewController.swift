@@ -306,7 +306,7 @@ private final class LauncherSessionDocument: NSView {
 }
 
 @MainActor
-final class LauncherViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
+final class LauncherViewController: NSViewController, NSTextFieldDelegate {
     static let dismissalDuration: CFTimeInterval = 0.3
     private static let dismissalAnimationKey = "portal-singularity"
 
@@ -333,8 +333,6 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     private(set) var sessionHeight: CGFloat?
 
     private let input = NSTextField()
-    private let table = NSTableView()
-    private let scroll = NSScrollView()
     private let sessionScroll = NSScrollView()
     private let sessionDocument = LauncherSessionDocument()
     private let sessionStack = NSStackView()
@@ -343,6 +341,8 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     private let sessionModel = SessionPickerModel()
     private var rows: [Row] = []
     private var sessionButtons: [NSControl] = []
+    private var resultButtons: [SessionCandidateButton] = []
+    private var selectedResultRow: Int?
     private var sessionRowStarts: [Int] = []
     private var sessionCandidates: [SessionRef: SessionPickerCandidate] = [:]
     private var renderedSnapshot: SessionPickerSnapshot?
@@ -357,6 +357,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             && remoteAddButtonSelfTest()
             && escapeSelfTest()
             && completionResizeSelfTest()
+            && resultCardSelfTest()
             && sessionSelectionDestination(current: nil, delta: -3, rowStarts: rows, count: 13) == 11
             && sessionSelectionDestination(current: 7, delta: -1, rowStarts: rows, count: 13) == 6
             && sessionSelectionDestination(current: 5, delta: -1, rowStarts: rows, count: 13) == nil
@@ -427,7 +428,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             doCommandBy: #selector(NSResponder.cancelOperation(_:))
         )
         let reset = handled && controller.input.stringValue.isEmpty && !canceled
-            && controller.scroll.isHidden && !controller.sessionScroll.isHidden
+            && !controller.sessionScroll.isHidden
         _ = controller.control(
             controller.input,
             textView: NSTextView(),
@@ -443,6 +444,15 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         controller.onHeightChanged = { _ in resizeCount += 1 }
         controller.reloadRows()
         return resizeCount == 0
+    }
+
+    private static func resultCardSelfTest() -> Bool {
+        let controller = LauncherViewController()
+        controller.rows = (0..<4).map { .message("result \($0)") }
+        controller.reloadRows()
+        return controller.resultButtons.count == 4
+            && controller.sessionStack.arrangedSubviews.count == 2
+            && controller.sessionStack.arrangedSubviews.allSatisfy { $0 is SessionCandidateRowView }
     }
 
     override func loadView() {
@@ -465,18 +475,6 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         input.setAccessibilityLabel("Portal command launcher")
         input.translatesAutoresizingMaskIntoConstraints = false
 
-        let column = NSTableColumn(identifier: .init("result"))
-        column.resizingMask = .autoresizingMask
-        table.addTableColumn(column)
-        table.headerView = nil
-        table.backgroundColor = .clear
-        table.intercellSpacing = .zero
-        table.selectionHighlightStyle = .regular
-        table.dataSource = self
-        table.delegate = self
-        table.target = self
-        table.action = #selector(openSelectedRow(_:))
-
         sessionDocument.translatesAutoresizingMaskIntoConstraints = false
         sessionStack.orientation = .vertical
         sessionStack.alignment = .leading
@@ -490,14 +488,6 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             sessionStack.topAnchor.constraint(equalTo: sessionDocument.topAnchor),
             sessionStack.bottomAnchor.constraint(equalTo: sessionDocument.bottomAnchor),
         ])
-
-        scroll.documentView = table
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.automaticallyAdjustsContentInsets = false
-        scroll.isHidden = true
-        scroll.translatesAutoresizingMaskIntoConstraints = false
 
         sessionScroll.documentView = sessionDocument
         sessionScroll.drawsBackground = false
@@ -517,7 +507,6 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
 
         content.addSubview(input)
         content.addSubview(separator)
-        content.addSubview(scroll)
         content.addSubview(sessionScroll)
         let tendrils = PortalTendrilView()
         tendrils.translatesAutoresizingMaskIntoConstraints = false
@@ -533,10 +522,6 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             separator.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             separator.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -56),
-            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: content.topAnchor),
-            scroll.bottomAnchor.constraint(equalTo: separator.topAnchor),
             sessionScroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             sessionScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             sessionScroll.topAnchor.constraint(equalTo: content.topAnchor),
@@ -555,11 +540,17 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             guard let self,
                   event.window === self.view.window,
                   !self.sessionScroll.isHidden,
-                  let button = self.sessionButtons.compactMap({ $0 as? SessionCandidateButton }).first(where: {
+                  let button = (self.resultButtons.isEmpty
+                      ? self.sessionButtons.compactMap { $0 as? SessionCandidateButton }
+                      : self.resultButtons).first(where: {
                       $0.bounds.contains($0.convert(event.locationInWindow, from: nil))
                   })
             else { return event }
-            self.openSessionCard(button)
+            if self.resultButtons.contains(where: { $0 === button }) {
+                self.openResultCard(button)
+            } else {
+                self.openSessionCard(button)
+            }
             return nil
         }
         refreshSessions()
@@ -579,6 +570,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     func reset() {
         completionSerial += 1
         selectedSessionRef = nil
+        selectedResultRow = nil
         sessionButtons.forEach { setKeyboardSelected(false, on: $0) }
         input.stringValue = ""
         refreshSessions()
@@ -679,46 +671,8 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     func showError(_ message: String) {
-        scroll.isHidden = false
-        sessionScroll.isHidden = true
         rows = [.message(message)]
         reloadRows()
-    }
-
-    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
-
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        return 52
-    }
-
-    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-        rows.indices.contains(row) && rows[row].isSelectable
-    }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard rows.indices.contains(row) else { return nil }
-        switch rows[row] {
-        case .session(let item):
-            return resultCell(
-                title: item.subtitle ?? item.title,
-                detail: item.subtitle == nil ? item.metadata : "\(item.title) · \(item.metadata)",
-                icon: NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)
-            )
-        case .message(let message):
-            let label = NSTextField(labelWithString: message)
-            label.font = .systemFont(ofSize: 12)
-            label.textColor = .secondaryLabelColor
-            return label
-        case .completion(let suggestion):
-            let icon = suggestion.kind == .application
-                ? NSWorkspace.shared.icon(forFile: suggestion.source)
-                : NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)
-            return resultCell(
-                title: suggestion.displayText,
-                detail: suggestion.description ?? suggestion.source,
-                icon: icon
-            )
-        }
     }
 
     func controlTextDidChange(_ obj: Notification) {
@@ -757,45 +711,10 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
         return true
     }
 
-    @objc private func openSelectedRow(_ sender: Any?) {
-        activateSelectionOrInput()
-    }
-
-    private func resultCell(title: String, detail: String, icon: NSImage?) -> NSTableCellView {
-        let cell = NSTableCellView()
-        let image = NSImageView()
-        image.image = icon
-        image.imageScaling = .scaleProportionallyDown
-        image.translatesAutoresizingMaskIntoConstraints = false
-        let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
-        titleLabel.lineBreakMode = .byTruncatingTail
-        let detailLabel = NSTextField(labelWithString: detail)
-        detailLabel.font = .systemFont(ofSize: 11)
-        detailLabel.textColor = .secondaryLabelColor
-        detailLabel.lineBreakMode = .byTruncatingTail
-        let labels = NSStackView(views: [titleLabel, detailLabel])
-        labels.orientation = .vertical
-        labels.alignment = .leading
-        labels.spacing = 1
-        labels.translatesAutoresizingMaskIntoConstraints = false
-        cell.addSubview(image)
-        cell.addSubview(labels)
-        NSLayoutConstraint.activate([
-            image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 12),
-            image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            image.widthAnchor.constraint(equalToConstant: 28),
-            image.heightAnchor.constraint(equalToConstant: 28),
-            labels.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 10),
-            labels.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -12),
-            labels.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-        ])
-        return cell
-    }
 
     private func refreshSessions() {
-        scroll.isHidden = true
         sessionScroll.isHidden = false
+        if let renderedSnapshot { renderSessions(renderedSnapshot) }
         let hostname = Host.current().localizedName ?? "This Mac"
         sessionModel.refresh(
             initial: renderedSnapshot?.sections.flatMap {
@@ -838,11 +757,9 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
                 .map { ($0.sessionRef, $0) }
         })
         sessionButtons.removeAll()
+        resultButtons.removeAll()
         sessionRowStarts.removeAll()
-        for view in sessionStack.arrangedSubviews {
-            sessionStack.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
+        clearCards()
 
         for section in snapshot.sections {
             let header = NSTextField(labelWithString: section.title.uppercased())
@@ -920,8 +837,7 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     private func refreshCompletions(_ query: String) {
-        scroll.isHidden = false
-        sessionScroll.isHidden = true
+        sessionScroll.isHidden = false
         rows = matchingSessionRows(query)
         reloadRows(selectsFirst: !rows.isEmpty)
         completionSerial += 1
@@ -962,20 +878,79 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     private func reloadRows(selectsFirst: Bool = false) {
-        table.reloadData()
         if selectsFirst, let row = rows.firstIndex(where: \.isSelectable) {
-            table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            selectedResultRow = row
+        } else if selectedResultRow.map({ rows.indices.contains($0) && rows[$0].isSelectable }) != true {
+            selectedResultRow = nil
+        }
+
+        clearCards()
+        resultButtons = rows.indices.map { index in
+            let button: SessionCandidateButton
+            switch rows[index] {
+            case .session(let item):
+                button = SessionCandidateButton(
+                    sessionRef: item.candidate.sessionRef,
+                    title: item.title,
+                    subtitle: item.subtitle,
+                    metadata: item.metadata
+                )
+            case .completion(let suggestion):
+                button = SessionCandidateButton(
+                    sessionRef: .local("launcher-result-\(index)"),
+                    title: suggestion.displayText,
+                    subtitle: nil,
+                    metadata: suggestion.description ?? suggestion.source,
+                    icon: suggestion.kind == .application
+                        ? NSWorkspace.shared.icon(forFile: suggestion.source)
+                        : nil
+                )
+            case .message(let message):
+                button = SessionCandidateButton(
+                    sessionRef: .local("launcher-result-\(index)"),
+                    title: message,
+                    subtitle: nil,
+                    metadata: ""
+                )
+            }
+            button.tag = index
+            button.target = self
+            button.action = #selector(openResultCard(_:))
+            button.isEnabled = rows[index].isSelectable
+            button.isKeyboardSelected = index == selectedResultRow
+            return button
+        }
+        for start in stride(from: 0, to: resultButtons.count, by: Self.sessionColumnCount) {
+            let buttons = Array(resultButtons[start..<min(start + Self.sessionColumnCount, resultButtons.count)])
+            let row = SessionCandidateRowView(buttons: buttons, columnCount: Self.sessionColumnCount)
+            sessionStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: sessionStack.widthAnchor).isActive = true
         }
     }
 
     private func moveSelection(_ offset: Int) {
         let selectable = rows.indices.filter { rows[$0].isSelectable }
         guard !selectable.isEmpty else { return }
-        let current = table.selectedRow
-        let index = selectable.firstIndex(of: current) ?? (offset > 0 ? -1 : 0)
+        let index = selectedResultRow.flatMap { selectable.firstIndex(of: $0) } ?? (offset > 0 ? -1 : 0)
         let next = (index + offset + selectable.count) % selectable.count
-        table.selectRowIndexes(IndexSet(integer: selectable[next]), byExtendingSelection: false)
-        table.scrollRowToVisible(selectable[next])
+        selectedResultRow = selectable[next]
+        resultButtons.forEach { $0.isKeyboardSelected = $0.tag == selectedResultRow }
+        if let button = resultButtons.first(where: { $0.tag == selectedResultRow }) {
+            button.scrollToVisible(button.bounds)
+        }
+    }
+
+    @objc private func openResultCard(_ sender: SessionCandidateButton) {
+        guard rows.indices.contains(sender.tag), rows[sender.tag].isSelectable else { return }
+        selectedResultRow = sender.tag
+        activateSelectionOrInput()
+    }
+
+    private func clearCards() {
+        for view in sessionStack.arrangedSubviews {
+            sessionStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
     }
 
     private func moveSessionSelection(columns delta: Int) {
@@ -1034,8 +1009,8 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     private func acceptSelectedCompletion() {
-        guard rows.indices.contains(table.selectedRow),
-              case .completion(let suggestion) = rows[table.selectedRow]
+        guard let selectedResultRow, rows.indices.contains(selectedResultRow),
+              case .completion(let suggestion) = rows[selectedResultRow]
         else { return }
         input.stringValue = suggestion.insertText
         refreshCompletions(input.stringValue)
@@ -1048,8 +1023,10 @@ final class LauncherViewController: NSViewController, NSTableViewDataSource, NST
             button.performClick(nil)
             return
         }
-        if !input.stringValue.isEmpty, rows.indices.contains(table.selectedRow) {
-            switch rows[table.selectedRow] {
+        if !input.stringValue.isEmpty,
+           let selectedResultRow,
+           rows.indices.contains(selectedResultRow) {
+            switch rows[selectedResultRow] {
             case .session(let item):
                 onOpenSession?(item.candidate)
                 return

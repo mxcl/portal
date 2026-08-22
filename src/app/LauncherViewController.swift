@@ -615,14 +615,14 @@ final class LauncherViewController: NSViewController, NSTextFieldDelegate {
 
         let transform = CAKeyframeAnimation(keyPath: "transform")
         transform.values = Self.dismissalTransforms.map { NSValue(caTransform3D: $0) }
-        transform.keyTimes = [0, 0.32, 0.78, 1]
+        transform.keyTimes = [0, 0.3333333333333333, 0.6666666666666666, 1]
         transform.timingFunctions = Array(
             repeating: CAMediaTimingFunction(name: .easeIn),
             count: Self.dismissalTransforms.count - 1
         )
 
         let opacity = CAKeyframeAnimation(keyPath: "opacity")
-        opacity.values = [1, 1, 0.86, 0]
+        opacity.values = [1, 1, 1, 0]
         opacity.keyTimes = transform.keyTimes
 
         let warp = CAKeyframeAnimation(keyPath: "filters.singularity.inputScale")
@@ -630,15 +630,15 @@ final class LauncherViewController: NSViewController, NSTextFieldDelegate {
         warp.keyTimes = transform.keyTimes
 
         let streaks = CAKeyframeAnimation(keyPath: "filters.eventHorizon.inputAmount")
-        streaks.values = [0, 12, 48, 84]
+        streaks.values = [0, 12, 84, 0]
         streaks.keyTimes = transform.keyTimes
 
         let wake = CAKeyframeAnimation(keyPath: "filters.warpWake.inputRadius")
-        wake.values = [0, 4, 24, 52]
+        wake.values = [0, 4, 52, 0]
         wake.keyTimes = transform.keyTimes
 
         let verticalWakeAnimation = CAKeyframeAnimation(keyPath: "filters.verticalWake.inputRadius")
-        verticalWakeAnimation.values = [0, 2, 12, 30]
+        verticalWakeAnimation.values = [0, 2, 30, 0]
         verticalWakeAnimation.keyTimes = transform.keyTimes
 
         let collapse = CAAnimationGroup()

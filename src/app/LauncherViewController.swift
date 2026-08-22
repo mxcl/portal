@@ -230,13 +230,34 @@ private final class PortalTendrilView: MTKView, MTKViewDelegate {
             * (pulseA * 0.75 + pulseB * 0.55) * wispFade;
 
         float stillTime = u.time * 0.08;
-        float ringInner = exp(-abs(distance + 4.5 - sin(angle * 3.0 + stillTime * 0.41) * 0.28) * 2.35) * 0.42;
-        float ringMiddle = exp(-abs(distance + 0.8 - sin(angle * 4.0 - stillTime * 0.31) * 0.22) * 2.55) * 0.38;
-        float ringOuter = exp(-abs(distance - 3.8 - sin(angle * 2.0 + stillTime * 0.23) * 0.34) * 2.15) * 0.34;
-        float rings = ringInner + ringMiddle + ringOuter;
-        float3 ringColor = ringInner * float3(0.08, 0.68, 1.0)
-            + ringMiddle * float3(0.42, 0.42, 1.0)
-            + ringOuter * float3(0.88, 0.16, 1.0);
+        float ringNoise = fbm(float2(angle * 9.0 + stillTime * 0.11, stillTime * 0.17));
+        float ringDrift = (ringNoise - 0.5) * 0.65;
+        float ringA = exp(-abs(distance + 5.7 - ringDrift - sin(angle * 3.0 + stillTime * 0.41) * 0.18) * 2.4) * 0.30;
+        float ringB = exp(-abs(distance + 3.4 - ringDrift - sin(angle * 5.0 - stillTime * 0.29) * 0.16) * 2.55) * 0.28;
+        float ringC = exp(-abs(distance + 1.1 - ringDrift - sin(angle * 4.0 + stillTime * 0.23) * 0.20) * 2.35) * 0.31;
+        float ringD = exp(-abs(distance - 1.2 - ringDrift - sin(angle * 6.0 - stillTime * 0.19) * 0.17) * 2.5) * 0.27;
+        float ringE = exp(-abs(distance - 3.5 - ringDrift - sin(angle * 2.0 + stillTime * 0.31) * 0.24) * 2.3) * 0.29;
+        float ringF = exp(-abs(distance - 5.8 - ringDrift - sin(angle * 3.0 - stillTime * 0.17) * 0.28) * 2.15) * 0.25;
+        float rings = ringA + ringB + ringC + ringD + ringE + ringF;
+        float3 ringColor = ringA * float3(0.05, 0.63, 1.0)
+            + ringB * float3(0.15, 0.54, 1.0)
+            + ringC * float3(0.33, 0.43, 1.0)
+            + ringD * float3(0.55, 0.32, 1.0)
+            + ringE * float3(0.76, 0.22, 1.0)
+            + ringF * float3(0.93, 0.12, 1.0);
+        float fuzzNoise = pow(noise21(float2(turn * 110.0 + stillTime * 0.13, distance * 1.3 - stillTime * 0.19)), 4.0);
+        float ringFuzz = (exp(-abs(distance + 5.7 - ringDrift) * 0.62)
+            + exp(-abs(distance + 3.4 - ringDrift) * 0.62)
+            + exp(-abs(distance + 1.1 - ringDrift) * 0.62)
+            + exp(-abs(distance - 1.2 - ringDrift) * 0.62)
+            + exp(-abs(distance - 3.5 - ringDrift) * 0.62)
+            + exp(-abs(distance - 5.8 - ringDrift) * 0.62)) * fuzzNoise * 0.07;
+        rings += ringFuzz;
+        ringColor += ringFuzz * mix(
+            float3(0.08, 0.68, 1.0),
+            float3(0.9, 0.14, 1.0),
+            smoothstep(-0.75, 0.75, q.x)
+        );
 
         float cellA = floor(turn * 72.0);
         float seedA = hash21(float2(cellA, 19.0));

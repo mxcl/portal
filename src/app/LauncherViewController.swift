@@ -606,7 +606,12 @@ final class LauncherViewController: NSViewController, NSTextFieldDelegate {
         warpWake.name = "warpWake"
         warpWake.radius = 0
         warpWake.angle = 0
-        view.contentFilters = [radialWarp, radialStreaks, warpWake]
+
+        let verticalWake = CIFilter.motionBlur()
+        verticalWake.name = "verticalWake"
+        verticalWake.radius = 0
+        verticalWake.angle = .pi / 2
+        view.contentFilters = [radialWarp, radialStreaks, warpWake, verticalWake]
 
         let transform = CAKeyframeAnimation(keyPath: "transform")
         transform.values = Self.dismissalTransforms.map { NSValue(caTransform3D: $0) }
@@ -632,8 +637,12 @@ final class LauncherViewController: NSViewController, NSTextFieldDelegate {
         wake.values = [0, 4, 24, 52]
         wake.keyTimes = transform.keyTimes
 
+        let verticalWakeAnimation = CAKeyframeAnimation(keyPath: "filters.verticalWake.inputRadius")
+        verticalWakeAnimation.values = [0, 2, 12, 30]
+        verticalWakeAnimation.keyTimes = transform.keyTimes
+
         let collapse = CAAnimationGroup()
-        collapse.animations = [transform, opacity, warp, streaks, wake]
+        collapse.animations = [transform, opacity, warp, streaks, wake, verticalWakeAnimation]
         collapse.duration = Self.dismissalDuration
         collapse.fillMode = .forwards
         collapse.isRemovedOnCompletion = false

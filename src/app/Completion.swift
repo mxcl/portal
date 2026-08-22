@@ -893,9 +893,13 @@ final class PortalCompletionEngine: @unchecked Sendable {
         let suggestion = engine.applicationSuggestion(
             for: URL(fileURLWithPath: "/Applications/O'Brien App.app")
         )
+        let roots = engine.applicationSearchRoots.map(\.path)
         return suggestion.displayText == "O'Brien App"
             && suggestion.insertText == "open /Applications/O\\'Brien\\ App.app"
             && suggestion.kind == .application
+            && roots.contains("/Network/Applications")
+            && roots.contains("/System/Library/CoreServices/Applications")
+            && roots.allSatisfy { !$0.hasPrefix("/Volumes/") }
     }
 
     func completions(for request: CompletionRequest) -> CompletionResult {
@@ -1505,16 +1509,11 @@ final class PortalCompletionEngine: @unchecked Sendable {
     }
 
     private func discoverApplications() -> [CompletionSuggestion] {
-        let roots = [
-            fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true),
-            URL(fileURLWithPath: "/Applications", isDirectory: true),
-            URL(fileURLWithPath: "/System/Applications", isDirectory: true),
-        ]
         let portalURL = Bundle.main.bundleURL.standardizedFileURL
         var seen = Set<URL>()
         var suggestions: [CompletionSuggestion] = []
 
-        for root in roots {
+        for root in applicationSearchRoots {
             guard let enumerator = fileManager.enumerator(
                 at: root,
                 includingPropertiesForKeys: [.isApplicationKey],
@@ -1530,6 +1529,12 @@ final class PortalCompletionEngine: @unchecked Sendable {
             }
         }
         return suggestions
+    }
+
+    private var applicationSearchRoots: [URL] {
+        fileManager.urls(for: .applicationDirectory, in: .allDomainsMask) + [
+            URL(fileURLWithPath: "/System/Library/CoreServices/Applications", isDirectory: true)
+        ]
     }
 
     private func applicationSuggestion(for url: URL) -> CompletionSuggestion {

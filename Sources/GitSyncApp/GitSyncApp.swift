@@ -34,7 +34,10 @@ final class AppModel: ObservableObject {
     @Published var overlappingRepositories: [String] = []
     @Published var showingOverlapConfirmation = false
 
-    var canStop: Bool { isRunning || SMAppService.mainApp.status != .notRegistered }
+    private var loginItemRegistered: Bool {
+        SMAppService.mainApp.status == .enabled || SMAppService.mainApp.status == .requiresApproval
+    }
+    var canStop: Bool { isRunning || loginItemRegistered }
     var configurationLocked: Bool { isRunning || isChecking || showingOverlapConfirmation }
     var menuLogs: [String] {
         logs.suffix(8).reversed().map { $0.count > 90 ? String($0.prefix(89)) + "…" : $0 }
@@ -116,7 +119,7 @@ final class AppModel: ObservableObject {
     func stop() {
         stopProcess()
         do {
-            if SMAppService.mainApp.status != .notRegistered {
+            if loginItemRegistered {
                 try SMAppService.mainApp.unregister()
             }
             status = root.isEmpty ? "Not configured" : "Stopped"
@@ -133,7 +136,7 @@ final class AppModel: ObservableObject {
     }
 
     private func install(_ configuration: Configuration) throws {
-        if SMAppService.mainApp.status == .notRegistered {
+        if SMAppService.mainApp.status == .notRegistered || SMAppService.mainApp.status == .notFound {
             try SMAppService.mainApp.register()
         }
         try launch(configuration: configuration)

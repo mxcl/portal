@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 enum Git {
     static func run(_ arguments: [String], input: Data = Data(), allowFailure: Bool = false) throws -> Data {
@@ -17,10 +22,13 @@ enum Git {
         DispatchQueue.global().async { output = stdout.fileHandleForReading.readDataToEndOfFile(); group.leave() }
         group.enter()
         DispatchQueue.global().async { error = stderr.fileHandleForReading.readDataToEndOfFile(); group.leave() }
-        DispatchQueue.global().async {
-            if !input.isEmpty { try? stdin.fileHandleForWriting.write(contentsOf: input) }
-            try? stdin.fileHandleForWriting.close()
-        }
+        #if canImport(Darwin)
+        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        #elseif canImport(Glibc)
+        _ = signal(SIGPIPE, SIG_IGN)
+        #endif
+        if !input.isEmpty { try? stdin.fileHandleForWriting.write(contentsOf: input) }
+        try? stdin.fileHandleForWriting.close()
         process.waitUntilExit()
         group.wait()
 

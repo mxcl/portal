@@ -8,6 +8,14 @@ func defaultPeerExecutable() {
     #expect(configuration.remoteExecutable == "/Applications/Git Sync.app/Contents/Resources/git-sync")
 }
 
+@Test("git stdin finishes before process cleanup")
+func gitInputWriterLifetime() throws {
+    let input = Data(repeating: 0, count: 8 * 1024 * 1024)
+    for _ in 0..<20 {
+        _ = try Git.run(["--version"], input: input, allowFailure: true)
+    }
+}
+
 private func git(_ arguments: [String], input: String? = nil) throws -> String {
     let process = Process(), output = Pipe(), error = Pipe(), stdin = Pipe()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")

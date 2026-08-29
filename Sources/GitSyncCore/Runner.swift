@@ -7,7 +7,7 @@ public enum Runner {
         while true {
             let process = Process(), input = Pipe(), output = Pipe()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-            let command = [
+            let command = "PATH=\"$HOME/.local/bin:$PATH\" exec " + [
                 configuration.remoteExecutable, "daemon", "--stdio", "--root",
                 configuration.remoteRoot,
             ].map(shellQuote).joined(separator: " ")

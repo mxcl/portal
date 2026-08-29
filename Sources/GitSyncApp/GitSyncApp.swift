@@ -9,12 +9,13 @@ struct GitSyncApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        MenuBarExtra {
-            ContentView(model: model)
-        } label: {
-            Label("Git Sync", systemImage: model.isRunning ? "arrow.triangle.2.circlepath" : "arrow.triangle.2.circlepath.circle")
+        MenuBarExtra("Git Sync", systemImage: model.isRunning ? "arrow.triangle.2.circlepath" : "arrow.triangle.2.circlepath.circle") {
+            StatusMenu(model: model)
         }
-        .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView(model: model)
+        }
     }
 }
 
@@ -34,6 +35,10 @@ final class AppModel: ObservableObject {
     @Published var showingOverlapConfirmation = false
 
     var canStop: Bool { isRunning || SMAppService.mainApp.status != .notRegistered }
+    var configurationLocked: Bool { isRunning || isChecking || showingOverlapConfirmation }
+    var menuLogs: [String] {
+        logs.suffix(8).reversed().map { $0.count > 90 ? String($0.prefix(89)) + "…" : $0 }
+    }
 
     private let label = "dev.mxcl.git-sync"
     private let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -68,6 +73,7 @@ final class AppModel: ObservableObject {
     }
 
     func start() {
+        guard !configurationLocked else { return }
         do {
             let configuration = currentConfiguration()
             try configuration.validate()
@@ -219,84 +225,100 @@ final class AppModel: ObservableObject {
     }
 }
 
-struct ContentView: View {
+struct StatusMenu: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            if model.showingOverlapConfirmation { overlapConfirmation } else { mainContent }
+        Text(model.status)
+
+        if !model.menuLogs.isEmpty {
+            Divider()
+            Section("Transfers") {
+                ForEach(Array(model.menuLogs.enumerated()), id: \.offset) {
+                    Text($0.element)
+                }
+            }
         }
-        .frame(width: 460, height: 620)
+
+        Divider()
+        if model.canStop {
+            Button("Stop Sync", action: model.stop)
+        } else {
+            Button("Start Sync…", action: openSettings)
+        }
+        Button("Settings…", action: openSettings)
+            .keyboardShortcut(",", modifiers: .command)
+        if model.status.contains("approval") {
+            Button("Login Items…", action: model.openLoginItems)
+        }
+        Divider()
+        Button("Quit Git Sync", action: model.quit)
     }
 
-    private var mainContent: some View {
-        VStack(spacing: 0) {
-            Form {
-                Section("This Mac") {
-                    HStack {
-                        TextField("Projects folder", text: $model.root)
-                        Button("Choose…", action: model.chooseRoot)
-                    }
-                    TextField("Machine name", text: $model.machine)
-                }
-                Section("SSH Peer") {
-                    TextField("Host", text: $model.peer)
-                    TextField("Projects folder on peer", text: $model.remoteRoot)
-                    TextField("git-sync on peer", text: $model.remoteExecutable)
-                }
-                Section("Status") {
-                    Label(model.status, systemImage: model.isRunning ? "arrow.triangle.2.circlepath" : "pause.circle")
-                    if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
-                    HStack {
-                        Button(model.isChecking ? "Checking…" : "Save & Start", action: model.start)
-                            .keyboardShortcut(.defaultAction)
-                            .disabled(model.isChecking)
-                        Button("Stop", action: model.stop).disabled(!model.canStop)
-                        if model.status.contains("approval") {
-                            Button("Login Items…", action: model.openLoginItems)
-                        }
-                    }
-                }
-            }
-            .formStyle(.grouped)
-
-            Divider()
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Transfers").font(.headline)
-                if model.logs.isEmpty {
-                    Text("No transfer activity yet").foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                } else {
-                    List(Array(model.logs.reversed().enumerated()), id: \.offset) {
-                        Text($0.element).font(.caption.monospaced()).textSelection(.enabled)
-                    }
-                    .listStyle(.plain)
-                }
-            }
-            .padding(12)
-            .frame(height: 210)
-
-            Divider()
-            HStack {
-                Spacer()
-                Button("Quit Git Sync", action: model.quit)
-            }
-            .padding(10)
-        }
+    private func openSettings() {
+        NSApplication.shared.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
+}
 
-    private var overlapConfirmation: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Confirm \(model.overlappingRepositories.count) Matches").font(.title2.bold())
-            Text("These repositories exist on both machines. They will be treated as the same repositories; local branches and working files will not be changed.")
-            List(model.overlappingRepositories, id: \.self) { Text($0) }
-            HStack {
-                Button("Cancel", action: model.cancelOverlap)
-                Spacer()
-                Button("Sync Anyway", action: model.confirmOverlap).keyboardShortcut(.defaultAction)
+struct SettingsView: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        Form {
+            Section("This Mac") {
+                HStack {
+                    TextField("Projects folder", text: $model.root)
+                    Button("Choose…", action: model.chooseRoot)
+                }
+                TextField("Machine name", text: $model.machine)
+            }
+            .disabled(model.configurationLocked)
+
+            Section("SSH Peer") {
+                TextField("Host", text: $model.peer)
+                TextField("Projects folder on peer", text: $model.remoteRoot)
+                TextField("git-sync on peer", text: $model.remoteExecutable)
+            }
+            .disabled(model.configurationLocked)
+
+            Section("Status") {
+                Label(model.status, systemImage: model.isRunning ? "arrow.triangle.2.circlepath" : "pause.circle")
+                if model.isRunning {
+                    Text("Stop syncing before changing configuration.")
+                        .foregroundStyle(.secondary)
+                }
+                if let error = model.error {
+                    Text(error).foregroundStyle(.red).textSelection(.enabled)
+                }
+                HStack {
+                    Button(model.isChecking ? "Checking…" : "Save & Start", action: model.start)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(model.configurationLocked)
+                    if model.canStop {
+                        Button("Stop Sync", action: model.stop)
+                    }
+                }
             }
         }
-        .padding()
+        .formStyle(.grouped)
+        .frame(width: 520, height: 420)
+        .sheet(isPresented: $model.showingOverlapConfirmation) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Confirm \(model.overlappingRepositories.count) Matches").font(.title2.bold())
+                Text("These repositories exist on both machines. They will be treated as the same repositories; local branches and working files will not be changed.")
+                List(model.overlappingRepositories, id: \.self) { Text($0) }
+                HStack {
+                    Button("Cancel", action: model.cancelOverlap)
+                        .keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button("Sync Anyway", action: model.confirmOverlap)
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding()
+            .frame(width: 480, height: 360)
+            .interactiveDismissDisabled()
+        }
     }
 }
 #else

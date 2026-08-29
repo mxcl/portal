@@ -13,7 +13,7 @@ stage=$(mktemp -d "${TMPDIR:-/tmp}/git-sync-install.XXXXXX")
 trap 'rm -rf "$stage"' EXIT HUP INT TERM
 
 cd "$repo_dir"
-swift build -c release --product git-sync --product GitSync
+swift build -c release
 
 app="$stage/Git Sync.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$(dirname -- "$destination")"

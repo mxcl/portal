@@ -35,7 +35,8 @@ public final class SyncSession {
         }
 
         while !isStopped {
-            Watcher.wait(root: root, repositories: Array(repositories.values))
+            lock.lock(); let watched = Array(repositories.values); lock.unlock()
+            Watcher.wait(root: root, repositories: watched)
             guard !isStopped else { break }
             do {
                 let oldNames = Set(repositories.keys)
@@ -72,7 +73,7 @@ public final class SyncSession {
                     throw SyncError.invalidProtocol("INVENTORY is incomplete")
                 }
                 try Validator.project(name)
-                known.forEach { try? Validator.oid($0) }
+                for oid in known { try Validator.oid(oid) }
                 lock.lock(); peerKnown[name] = Set(known); let repository = repositories[name]; lock.unlock()
                 if let repository { try sendUpdates(for: repository, full: true) }
             case "update":

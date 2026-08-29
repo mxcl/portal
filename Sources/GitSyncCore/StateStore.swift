@@ -54,10 +54,14 @@ public final class StateStore {
         return document.inbound[key(peer, repository, ref)] ?? 0
     }
 
-    public func accept(generation: UInt64, peer: String, repository: String, ref: String) throws {
+    @discardableResult
+    public func accept(generation: UInt64, peer: String, repository: String, ref: String) throws -> Bool {
         lock.lock(); defer { lock.unlock() }
-        document.inbound[key(peer, repository, ref)] = generation
+        let itemKey = key(peer, repository, ref)
+        guard generation > (document.inbound[itemKey] ?? 0) else { return false }
+        document.inbound[itemKey] = generation
         try save()
+        return true
     }
 
     private func key(_ machine: String, _ repository: String, _ ref: String) -> String {

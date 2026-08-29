@@ -53,7 +53,6 @@ hook, Git remote, or filesystem mirroring is used.
 
 ```console
 $ swift test
-$ ./Tests/integration.sh
 ```
 
 See [DESIGN.md](DESIGN.md) for the protocol, state model, and failure analysis.

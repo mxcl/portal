@@ -19,7 +19,7 @@ private func git(_ arguments: [String], input: String? = nil) throws -> String {
     return String(decoding: stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-private struct Fixture {
+private final class Fixture {
     let root: URL
     let a: URL
     let b: URL
@@ -39,6 +39,8 @@ private struct Fixture {
         _ = try git(["-C", a.appendingPathComponent("project").path, "add", "file.txt"])
         _ = try git(["-C", a.appendingPathComponent("project").path, "commit", "-qm", "initial"])
     }
+
+    deinit { try? FileManager.default.removeItem(at: root) }
 
     func cloneToB() throws {
         _ = try git(["clone", "-q", a.appendingPathComponent("project").path, b.appendingPathComponent("project").path])
@@ -113,7 +115,108 @@ func generationsPersist() throws {
     let fixture = try Fixture()
     let store = try StateStore(url: fixture.state)
     try store.accept(generation: 2, peer: "A", repository: "project", ref: "refs/heads/main")
+    #expect(try !store.accept(generation: 1, peer: "A", repository: "project", ref: "refs/heads/main"))
     #expect(store.acceptedGeneration(peer: "A", repository: "project", ref: "refs/heads/main") == 2)
     let reopened = try StateStore(url: fixture.state)
     #expect(reopened.acceptedGeneration(peer: "A", repository: "project", ref: "refs/heads/main") == 2)
+}
+
+@Test("divergent branches remain independent and available on both machines")
+func divergentBranches() throws {
+    let fixture = try Fixture(); try fixture.cloneToB()
+    let a = fixture.a.appendingPathComponent("project"), b = fixture.b.appendingPathComponent("project")
+    _ = try git(["-C", b.path, "config", "user.name", "Test"])
+    _ = try git(["-C", b.path, "config", "user.email", "test@example.com"])
+    try Data("from A\n".utf8).write(to: a.appendingPathComponent("a.txt"))
+    _ = try git(["-C", a.path, "add", "a.txt"]); _ = try git(["-C", a.path, "commit", "-qm", "A"])
+    try Data("from B\n".utf8).write(to: b.appendingPathComponent("b.txt"))
+    _ = try git(["-C", b.path, "add", "b.txt"]); _ = try git(["-C", b.path, "commit", "-qm", "B"])
+    let aMain = try git(["-C", a.path, "rev-parse", "main"]), bMain = try git(["-C", b.path, "rev-parse", "main"])
+
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A", stateURL: fixture.root.appendingPathComponent("A-state"))
+    try OneShot.sync(sourceRoot: fixture.b, destinationRoot: fixture.a, machine: "B", stateURL: fixture.root.appendingPathComponent("B-state"))
+
+    #expect(try git(["-C", a.path, "rev-parse", "main"]) == aMain)
+    #expect(try git(["-C", b.path, "rev-parse", "main"]) == bMain)
+    #expect(try git(["-C", a.path, "rev-parse", "refs/remotes/sync/B/main"]) == bMain)
+    #expect(try git(["-C", b.path, "rev-parse", "refs/remotes/sync/A/main"]) == aMain)
+}
+
+@Test("force update moves only the peer ref")
+func forceUpdate() throws {
+    let fixture = try Fixture(); try fixture.cloneToB()
+    let a = fixture.a.appendingPathComponent("project"), b = fixture.b.appendingPathComponent("project")
+    let state = fixture.root.appendingPathComponent("force-state")
+    let initial = try git(["-C", a.path, "rev-parse", "main"])
+    for number in 1...2 {
+        try Data("\(number)\n".utf8).write(to: a.appendingPathComponent("rewrite.txt"))
+        _ = try git(["-C", a.path, "add", "rewrite.txt"]); _ = try git(["-C", a.path, "commit", "-qm", "old \(number)"])
+    }
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A", stateURL: state)
+    let oldTip = try git(["-C", b.path, "rev-parse", "refs/remotes/sync/A/main"])
+    _ = try git(["-C", a.path, "switch", "-qc", "new-base", initial])
+    try Data("new base\n".utf8).write(to: a.appendingPathComponent("base.txt"))
+    _ = try git(["-C", a.path, "add", "base.txt"]); _ = try git(["-C", a.path, "commit", "-qm", "new base"])
+    _ = try git(["-C", a.path, "switch", "-q", "main"])
+    _ = try git(["-C", a.path, "rebase", "--onto", "new-base", initial, "main"])
+    let newTip = try git(["-C", a.path, "rev-parse", "main"]), localMain = try git(["-C", b.path, "rev-parse", "main"])
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A", stateURL: state)
+    #expect(try git(["-C", b.path, "rev-parse", "refs/remotes/sync/A/main"]) == newTip)
+    #expect(try git(["-C", b.path, "rev-parse", "main"]) == localMain)
+    #expect(try git(["-C", b.path, "cat-file", "-t", oldTip]) == "commit")
+}
+
+@Test("synchronization remains safe during destination garbage collection")
+func concurrentGarbageCollection() throws {
+    let fixture = try Fixture(); try fixture.cloneToB()
+    let a = fixture.a.appendingPathComponent("project"), b = fixture.b.appendingPathComponent("project")
+    let localMain = try git(["-C", b.path, "rev-parse", "main"])
+    for number in 1...12 {
+        try Data(String(repeating: "\(number)-payload\n", count: 500).utf8)
+            .write(to: a.appendingPathComponent("payload.txt"))
+        _ = try git(["-C", a.path, "add", "payload.txt"])
+        _ = try git(["-C", a.path, "commit", "-qm", "commit \(number)"])
+    }
+    let gc = Process()
+    gc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    gc.arguments = ["git", "-C", b.path, "gc", "--aggressive"]
+    gc.standardOutput = FileHandle.nullDevice; gc.standardError = FileHandle.nullDevice
+    try gc.run()
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A", stateURL: fixture.state)
+    gc.waitUntilExit()
+
+    #expect(gc.terminationStatus == 0)
+    #expect(try git(["-C", b.path, "rev-parse", "main"]) == localMain)
+    #expect(try git(["-C", b.path, "fsck", "--no-dangling"]).isEmpty)
+    #expect(try git(["-C", b.path, "rev-parse", "refs/remotes/sync/A/main"]) == git(["-C", a.path, "rev-parse", "main"]))
+}
+
+@Test("an interrupted pack leaves refs and repository integrity unchanged")
+func interruptedPack() throws {
+    let fixture = try Fixture(); try fixture.cloneToB()
+    let source = try #require(Repository.discover(in: fixture.a).first)
+    let destination = try #require(Repository.discover(in: fixture.b).first)
+    let oid = try git(["-C", source.url.path, "rev-parse", "main"])
+    let pack = try source.pack(oid: oid, excluding: [])
+    let before = try git(["-C", destination.url.path, "show-ref"])
+    #expect(throws: (any Error).self) {
+        try destination.install(pack: pack.prefix(pack.count / 2), target: oid)
+    }
+    #expect(try git(["-C", destination.url.path, "show-ref"]) == before)
+    #expect(try git(["-C", destination.url.path, "fsck", "--no-dangling"]).isEmpty)
+}
+
+@Test("tags and stash use machine-specific namespaces")
+func tagsAndStash() throws {
+    let fixture = try Fixture()
+    let source = fixture.a.appendingPathComponent("project")
+    _ = try git(["-C", source.path, "tag", "v1"])
+    try Data("stash\n".utf8).write(to: source.appendingPathComponent("file.txt"))
+    _ = try git(["-C", source.path, "stash", "push", "-qm", "test stash"])
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A", stateURL: fixture.state)
+    let destination = fixture.b.appendingPathComponent("project")
+    #expect(try git(["-C", destination.path, "rev-parse", "refs/sync/A/tags/v1"]) == git(["-C", source.path, "rev-parse", "refs/tags/v1"]))
+    #expect(try git(["-C", destination.path, "rev-parse", "refs/sync/A/stash"]) == git(["-C", source.path, "rev-parse", "refs/stash"]))
+    #expect((try? git(["-C", destination.path, "rev-parse", "--verify", "refs/tags/v1"])) == nil)
+    #expect((try? git(["-C", destination.path, "rev-parse", "--verify", "refs/stash"])) == nil)
 }

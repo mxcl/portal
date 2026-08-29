@@ -220,3 +220,53 @@ func tagsAndStash() throws {
     #expect((try? git(["-C", destination.path, "rev-parse", "--verify", "refs/tags/v1"])) == nil)
     #expect((try? git(["-C", destination.path, "rev-parse", "--verify", "refs/stash"])) == nil)
 }
+
+@Test("framed session creates and synchronizes a peer project")
+func framedSession() throws {
+    let fixture = try Fixture()
+    let aToB = Pipe(), bToA = Pipe()
+    let a = try SyncSession(root: fixture.a, machine: "A",
+                            input: bToA.fileHandleForReading, output: aToB.fileHandleForWriting,
+                            stateURL: fixture.root.appendingPathComponent("session-A"))
+    let b = try SyncSession(root: fixture.b, machine: "B",
+                            input: aToB.fileHandleForReading, output: bToA.fileHandleForWriting,
+                            stateURL: fixture.root.appendingPathComponent("session-B"))
+    let sessions = DispatchGroup()
+    for session in [a, b] {
+        sessions.enter()
+        DispatchQueue.global().async { defer { sessions.leave() }; try? session.run() }
+    }
+
+    let destination = fixture.b.appendingPathComponent("project")
+    let expected = try git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"])
+    let deadline = Date().addingTimeInterval(10)
+    var received: String?
+    while Date() < deadline, received == nil {
+        received = try? git(["-C", destination.path, "rev-parse", "refs/remotes/sync/A/main"])
+        if received == nil { Thread.sleep(forTimeInterval: 0.05) }
+    }
+    #expect(received == expected)
+    #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent(".git").path))
+    #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("file.txt").path))
+
+    _ = try git(["-C", destination.path, "config", "user.name", "Test"])
+    _ = try git(["-C", destination.path, "config", "user.email", "test@example.com"])
+    _ = try git(["-C", destination.path, "switch", "-qc", "main", "refs/remotes/sync/A/main"])
+    try Data("from B\n".utf8).write(to: destination.appendingPathComponent("from-b.txt"))
+    _ = try git(["-C", destination.path, "add", "from-b.txt"])
+    _ = try git(["-C", destination.path, "commit", "-qm", "from B"])
+    let expectedFromB = try git(["-C", destination.path, "rev-parse", "main"])
+    let reverseDeadline = Date().addingTimeInterval(10)
+    var reverse: String?
+    while Date() < reverseDeadline, reverse != expectedFromB {
+        reverse = try? git(["-C", fixture.a.appendingPathComponent("project").path,
+                            "rev-parse", "refs/remotes/sync/B/main"])
+        if reverse != expectedFromB { Thread.sleep(forTimeInterval: 0.05) }
+    }
+    #expect(reverse == expectedFromB)
+
+    try? aToB.fileHandleForWriting.close(); try? bToA.fileHandleForWriting.close()
+    try Data().write(to: fixture.a.appendingPathComponent("wake"))
+    try Data().write(to: fixture.b.appendingPathComponent("wake"))
+    #expect(sessions.wait(timeout: .now() + 5) == .success)
+}

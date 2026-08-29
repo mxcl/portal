@@ -1,8 +1,14 @@
 import Foundation
 import GitSyncWatch
+#if os(Linux)
+import Glibc
+#else
+import Darwin
+#endif
 
 public enum Watcher {
-    public static func wait(root: URL, repositories: [Repository], timeout: TimeInterval = 30) {
+    // ponytail: one-shot watches reconcile every 2s; keep persistent descriptors if large roots make scans expensive.
+    public static func wait(root: URL, repositories: [Repository], timeout: TimeInterval = 2) {
         var urls = [root]
         for repository in repositories {
             guard let common = repository.commonDirectory else { continue }

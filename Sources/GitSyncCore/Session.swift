@@ -64,9 +64,11 @@ public final class SyncSession {
                 logger("connected to \(peer)")
             case "catalog":
                 for name in message.repositories ?? [] {
+                    lock.lock(); let isNew = repositories[name] == nil; lock.unlock()
                     let repository = try Repository.ensure(name: name, in: root)
                     lock.lock(); repositories[name] = repository; lock.unlock()
                     try connection.send(.inventory(name, known: repository.knownOIDs()))
+                    if isNew { try connection.send(.catalog([name])) }
                 }
             case "inventory":
                 guard let name = message.repository, let known = message.known else {

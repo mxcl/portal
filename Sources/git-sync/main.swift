@@ -1,5 +1,10 @@
 import Foundation
 import GitSyncCore
+#if os(Linux)
+import Glibc
+#else
+import Darwin
+#endif
 
 func value(_ name: String, in arguments: [String]) -> String? {
     guard let index = arguments.firstIndex(of: name), arguments.indices.contains(index + 1) else { return nil }

@@ -1,16 +1,45 @@
 import Foundation
 
 public enum Runner {
+    public static func overlappingRepositories(_ configuration: Configuration) throws -> [String] {
+        try configuration.validate()
+        let local = try Repository.discover(in: configuration.expandedRoot).map(\.name)
+        let process = Process(), output = Pipe(), error = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = [
+            "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-T", "--",
+            configuration.peer,
+            remoteCommand(configuration.remoteExecutable, ["list", "--root", configuration.remoteRoot]),
+        ]
+        process.standardOutput = output
+        process.standardError = error
+        try process.run()
+        process.waitUntilExit()
+        let stdout = output.fileHandleForReading.readDataToEndOfFile()
+        let stderr = error.fileHandleForReading.readDataToEndOfFile()
+        guard process.terminationStatus == 0 else {
+            throw SyncError.invalidConfiguration(
+                "Could not inspect the peer: " + String(decoding: stderr, as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        let remote = try JSONDecoder().decode([String].self, from: stdout)
+        for name in remote { try Validator.project(name) }
+        return overlap(local: local, remote: remote)
+    }
+
+    public static func overlap(local: [String], remote: [String]) -> [String] {
+        Array(Set(local).intersection(remote)).sorted()
+    }
+
     public static func connect(_ configuration: Configuration, stateURL: URL,
                                logger: @escaping (String) -> Void = { _ in }) throws {
         try configuration.validate()
         while true {
             let process = Process(), input = Pipe(), output = Pipe()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-            let command = "PATH=\"$HOME/.local/bin:$PATH\" exec " + [
-                configuration.remoteExecutable, "daemon", "--stdio", "--root",
-                configuration.remoteRoot,
-            ].map(shellQuote).joined(separator: " ")
+            let command = remoteCommand(configuration.remoteExecutable,
+                                        ["daemon", "--stdio", "--root", configuration.remoteRoot])
             process.arguments = ["-T", "--", configuration.peer, command]
             process.standardInput = input
             process.standardOutput = output
@@ -39,6 +68,10 @@ public enum Runner {
 
     private static func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func remoteCommand(_ executable: String, _ arguments: [String]) -> String {
+        "PATH=\"$HOME/.local/bin:$PATH\" exec " + ([executable] + arguments).map(shellQuote).joined(separator: " ")
     }
 }
 

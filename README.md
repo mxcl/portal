@@ -14,7 +14,8 @@ $ git-sync run \
 
 Every immediate child of `~/src` that Git recognizes as a repository is
 synchronized. A missing project is initialized at the peer as an empty folder
-containing `.git`; files are not checked out.
+containing `.git`; files are not checked out. Before first sync, the Mac app
+lists repository names already present on both machines and requires confirmation.
 
 ```console
 $ git log sync/linux/main

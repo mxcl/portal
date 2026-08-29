@@ -121,6 +121,11 @@ func generationsPersist() throws {
     #expect(reopened.acceptedGeneration(peer: "A", repository: "project", ref: "refs/heads/main") == 2)
 }
 
+@Test("preflight returns only sorted repository name matches")
+func preflightOverlap() {
+    #expect(Runner.overlap(local: ["z", "shared", "a"], remote: ["shared", "other", "a"]) == ["a", "shared"])
+}
+
 @Test("divergent branches remain independent and available on both machines")
 func divergentBranches() throws {
     let fixture = try Fixture(); try fixture.cloneToB()

@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Configuration: Codable, Equatable {
+public struct Configuration: Codable, Equatable, Sendable {
     public var root: String
     public var machine: String
     public var peer: String

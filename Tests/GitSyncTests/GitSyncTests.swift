@@ -2,6 +2,12 @@ import Foundation
 import Testing
 @testable import GitSyncCore
 
+@Test("peer executable defaults to the installed app bundle")
+func defaultPeerExecutable() {
+    let configuration = Configuration(root: "/", machine: "mac", peer: "peer", remoteRoot: "/tmp")
+    #expect(configuration.remoteExecutable == "/Applications/Git Sync.app/Contents/Resources/git-sync")
+}
+
 private func git(_ arguments: [String], input: String? = nil) throws -> String {
     let process = Process(), output = Pipe(), error = Pipe(), stdin = Pipe()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")

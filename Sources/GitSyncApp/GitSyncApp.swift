@@ -33,6 +33,8 @@ final class AppModel: ObservableObject {
     @Published var overlappingRepositories: [String] = []
     @Published var showingOverlapConfirmation = false
 
+    var canStop: Bool { isRunning || SMAppService.mainApp.status != .notRegistered }
+
     private let label = "dev.mxcl.git-sync"
     private let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("GitSync", isDirectory: true)
@@ -249,7 +251,7 @@ struct ContentView: View {
                         Button(model.isChecking ? "Checking…" : "Save & Start", action: model.start)
                             .keyboardShortcut(.defaultAction)
                             .disabled(model.isChecking)
-                        Button("Stop", action: model.stop).disabled(!model.isRunning)
+                        Button("Stop", action: model.stop).disabled(!model.canStop)
                         if model.status.contains("approval") {
                             Button("Login Items…", action: model.openLoginItems)
                         }

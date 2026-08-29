@@ -7,7 +7,7 @@ if [ "$(uname -s)" != Darwin ]; then
 fi
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-destination=${1:-"$HOME/Applications/Git Sync.app"}
+destination=${1:-"/Applications/Git Sync.app"}
 build_dir="$repo_dir/.build/release"
 stage=$(mktemp -d "${TMPDIR:-/tmp}/git-sync-install.XXXXXX")
 trap 'rm -rf "$stage"' EXIT HUP INT TERM
@@ -25,5 +25,8 @@ codesign --force --sign - --options runtime "$app/Contents/Resources/git-sync"
 codesign --force --sign - --options runtime "$app/Contents/MacOS/GitSync"
 codesign --force --sign - --options runtime "$app"
 /usr/bin/ditto "$app" "$destination"
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$destination/Contents/Resources/git-sync" "$HOME/.local/bin/git-sync"
 
 echo "Installed $destination"
+echo "Linked $HOME/.local/bin/git-sync"

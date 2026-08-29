@@ -244,9 +244,9 @@ struct StatusMenu: View {
         if model.canStop {
             Button("Stop Sync", action: model.stop)
         } else {
-            Button("Start Sync…", action: openSettings)
+            settingsLink("Start Sync…")
         }
-        Button("Settings…", action: openSettings)
+        settingsLink("Settings…")
             .keyboardShortcut(",", modifiers: .command)
         if model.status.contains("approval") {
             Button("Login Items…", action: model.openLoginItems)
@@ -255,8 +255,16 @@ struct StatusMenu: View {
         Button("Quit Git Sync", action: model.quit)
     }
 
-    private func openSettings() {
-        NSApplication.shared.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    @ViewBuilder
+    private func settingsLink(_ title: String) -> some View {
+        if #available(macOS 14.0, *) {
+            SettingsLink { Text(title) }
+        } else {
+            Button(title) {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                NSApplication.shared.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            }
+        }
     }
 }
 

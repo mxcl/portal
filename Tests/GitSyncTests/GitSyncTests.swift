@@ -123,7 +123,8 @@ func generationsPersist() throws {
 
 @Test("preflight returns only sorted repository name matches")
 func preflightOverlap() {
-    #expect(Runner.overlap(local: ["z", "shared", "a"], remote: ["shared", "other", "a"]) == ["a", "shared"])
+    #expect(Runner.overlap(local: ["z", "shared", "a", "shādoe"],
+                          remote: ["shared", "other", "a", "shādoe"]) == ["a", "shared", "shādoe"])
 }
 
 @Test("divergent branches remain independent and available on both machines")

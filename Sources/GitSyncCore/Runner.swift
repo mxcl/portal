@@ -29,7 +29,9 @@ public enum Runner {
     }
 
     public static func overlap(local: [String], remote: [String]) -> [String] {
-        Array(Set(local).intersection(remote)).sorted()
+        let local = Set(local.map(\.precomposedStringWithCanonicalMapping))
+        let remote = Set(remote.map(\.precomposedStringWithCanonicalMapping))
+        return Array(local.intersection(remote)).sorted()
     }
 
     public static func connect(_ configuration: Configuration, stateURL: URL,

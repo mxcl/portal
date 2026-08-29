@@ -10,14 +10,16 @@ public struct Repository: Equatable {
             options: [.skipsHiddenFiles]
         )
         return children.compactMap { child in
+            let name = child.lastPathComponent.precomposedStringWithCanonicalMapping
             guard (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
                   Git.succeeds(["-C", child.path, "rev-parse", "--git-dir"]),
-                  (try? Validator.project(child.lastPathComponent)) != nil else { return nil }
-            return Repository(name: child.lastPathComponent, url: child)
+                  (try? Validator.project(name)) != nil else { return nil }
+            return Repository(name: name, url: child)
         }.sorted { $0.name < $1.name }
     }
 
     public static func ensure(name: String, in root: URL) throws -> Repository {
+        let name = name.precomposedStringWithCanonicalMapping
         try Validator.project(name)
         let url = root.appendingPathComponent(name, isDirectory: true)
         if !Git.succeeds(["-C", url.path, "rev-parse", "--git-dir"]) {

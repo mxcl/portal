@@ -14,6 +14,12 @@ enum Git {
         process.standardInput = stdin
         process.standardOutput = stdout
         process.standardError = stderr
+        let handles = [
+            stdin.fileHandleForReading, stdin.fileHandleForWriting,
+            stdout.fileHandleForReading, stdout.fileHandleForWriting,
+            stderr.fileHandleForReading, stderr.fileHandleForWriting,
+        ]
+        defer { handles.forEach { try? $0.close() } }
         try process.run()
 
         let group = DispatchGroup()

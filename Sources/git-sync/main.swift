@@ -58,7 +58,7 @@ do {
                 machine: try required("--machine", in: arguments),
                 peer: try required("--peer", in: arguments),
                 remoteRoot: try required("--remote-root", in: arguments),
-                remoteExecutable: value("--remote-executable", in: arguments) ?? "git-sync"
+                remoteExecutable: value("--remote-executable", in: arguments) ?? Configuration.defaultRemoteExecutable
             )
         }
         try Runner.connect(configuration, stateURL: stateURL, logger: log)

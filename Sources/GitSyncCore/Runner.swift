@@ -73,7 +73,7 @@ public enum Runner {
     }
 
     private static func remoteCommand(_ executable: String, _ arguments: [String]) -> String {
-        "PATH=\"$HOME/.local/bin:$PATH\" exec " + ([executable] + arguments).map(shellQuote).joined(separator: " ")
+        "exec " + ([executable] + arguments).map(shellQuote).joined(separator: " ")
     }
 }
 

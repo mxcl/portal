@@ -1,6 +1,8 @@
 import Foundation
 
 public struct Configuration: Codable, Equatable, Sendable {
+    public static let defaultRemoteExecutable = "/Applications/Git Sync.app/Contents/Resources/git-sync"
+
     public var root: String
     public var machine: String
     public var peer: String
@@ -8,7 +10,7 @@ public struct Configuration: Codable, Equatable, Sendable {
     public var remoteExecutable: String
 
     public init(root: String, machine: String, peer: String, remoteRoot: String,
-                remoteExecutable: String = "git-sync") {
+                remoteExecutable: String = Configuration.defaultRemoteExecutable) {
         self.root = root
         self.machine = machine
         self.peer = peer

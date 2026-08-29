@@ -32,12 +32,11 @@ Branches appear at `refs/remotes/sync/<machine>/…`, tags at
 $ ./scripts/install.sh
 ```
 
-This builds and installs `Git Sync.app` in `/Applications` and links its CLI
-to `~/.local/bin/git-sync`. Open it, choose
-the one parent folder, enter the SSH peer and its parent folder, then start the
-background agent. Install `git-sync` on the peer too; it must be discoverable
-by the remote SSH login as `git-sync` (or set an absolute remote executable in
-the app).
+This builds, Developer ID signs, and installs the menu-bar-only `Git Sync.app`
+in `/Applications`. Open it, choose the one parent folder, enter the SSH peer
+and its parent folder, then start syncing. The app launches at login and shows
+live transfer logs in its menu. It uses the copy of `git-sync` inside the peer's
+`/Applications/Git Sync.app`; its path can be changed in the menu when needed.
 
 ## Linux / CLI install
 

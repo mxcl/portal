@@ -9,6 +9,7 @@ fi
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 destination=${1:-"/Applications/Git Sync.app"}
 build_dir="$repo_dir/.build/release"
+signing_identity=${GIT_SYNC_SIGNING_IDENTITY:-"Developer ID Application: Max Howell (ZU76A67LGU)"}
 stage=$(mktemp -d "${TMPDIR:-/tmp}/git-sync-install.XXXXXX")
 trap 'rm -rf "$stage"' EXIT HUP INT TERM
 
@@ -21,12 +22,20 @@ cp "$build_dir/GitSync" "$app/Contents/MacOS/GitSync"
 cp "$build_dir/git-sync" "$app/Contents/Resources/git-sync"
 cp "$repo_dir/app/Info.plist" "$app/Contents/Info.plist"
 
-codesign --force --sign - --options runtime "$app/Contents/Resources/git-sync"
-codesign --force --sign - --options runtime "$app/Contents/MacOS/GitSync"
-codesign --force --sign - --options runtime "$app"
+if ! security find-identity -v -p codesigning | grep -Fq "\"$signing_identity\""; then
+  echo "Code-signing identity not found: $signing_identity" >&2
+  exit 1
+fi
+
+codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/Resources/git-sync"
+codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/MacOS/GitSync"
+codesign --force --sign "$signing_identity" --options runtime --timestamp "$app"
 /usr/bin/ditto "$app" "$destination"
-mkdir -p "$HOME/.local/bin"
-ln -sfn "$destination/Contents/Resources/git-sync" "$HOME/.local/bin/git-sync"
+codesign --verify --deep --strict --verbose=2 "$destination"
+
+cli_link="$HOME/.local/bin/git-sync"
+if [ -L "$cli_link" ] && [ "$(readlink "$cli_link")" = "$destination/Contents/Resources/git-sync" ]; then
+  rm "$cli_link"
+fi
 
 echo "Installed $destination"
-echo "Linked $HOME/.local/bin/git-sync"

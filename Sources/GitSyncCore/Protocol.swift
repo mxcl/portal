@@ -22,6 +22,16 @@ struct WireMessage: Codable {
     static func hello(_ machine: String, epoch: String) -> WireMessage {
         WireMessage(type: "hello", version: protocolVersion, machine: machine, epoch: epoch)
     }
+
+    func validatedHello() throws -> (machine: String, epoch: String) {
+        guard type == "hello", version == Self.protocolVersion else {
+            throw SyncError.invalidProtocol("Unsupported protocol version: \(version.map(String.init) ?? "missing")")
+        }
+        guard let machine, let epoch else { throw SyncError.invalidProtocol("HELLO is incomplete") }
+        try Validator.machine(machine); try Validator.epoch(epoch)
+        return (machine, epoch)
+    }
+
     static func catalog(_ names: [String]) -> WireMessage { WireMessage(type: "catalog", repositories: names) }
     static func inventory(_ repository: String, known: [String]) -> WireMessage {
         WireMessage(type: "inventory", repository: repository, known: known)

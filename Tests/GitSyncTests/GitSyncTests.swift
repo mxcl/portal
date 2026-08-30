@@ -26,6 +26,23 @@ func disconnectedPeerDoesNotSignal() throws {
     }
 }
 
+@Test("hello requires the current protocol and a source epoch")
+func helloValidation() throws {
+    let epoch = UUID().uuidString
+    let hello = WireMessage.hello("test", epoch: epoch)
+    let identity = try hello.validatedHello()
+    #expect(identity.machine == "test")
+    #expect(identity.epoch == epoch)
+
+    var incompatible = hello
+    incompatible.version = WireMessage.protocolVersion + 1
+    #expect(throws: (any Error).self) { try incompatible.validatedHello() }
+
+    var incomplete = hello
+    incomplete.epoch = nil
+    #expect(throws: (any Error).self) { try incomplete.validatedHello() }
+}
+
 private func git(_ arguments: [String], input: String? = nil) throws -> String {
     let process = Process(), output = Pipe(), error = Pipe(), stdin = Pipe()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")

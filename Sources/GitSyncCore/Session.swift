@@ -71,13 +71,7 @@ public final class SyncSession {
             let message = try connection.receiveMessage()
             switch message.type {
             case "hello":
-                guard message.version == WireMessage.protocolVersion else {
-                    throw SyncError.invalidProtocol("Unsupported protocol version: \(message.version.map(String.init) ?? "missing")")
-                }
-                guard let peer = message.machine, let epoch = message.epoch else {
-                    throw SyncError.invalidProtocol("HELLO is incomplete")
-                }
-                try Validator.machine(peer); try Validator.epoch(epoch)
+                let (peer, epoch) = try message.validatedHello()
                 lock.lock()
                 guard peerMachine == nil else { lock.unlock(); throw SyncError.invalidProtocol("Duplicate HELLO") }
                 peerMachine = peer; peerEpoch = epoch

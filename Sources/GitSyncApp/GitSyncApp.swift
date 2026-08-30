@@ -103,6 +103,7 @@ final class AppModel: ObservableObject {
                 }.value
                 try configuration.discoverLocal(names)
                 isChecking = false
+                error = nil
                 try save()
                 restartIfRunning()
             } catch { fail(error) }
@@ -171,6 +172,7 @@ final class AppModel: ObservableObject {
         do {
             try save()
             restartIfRunning()
+            if !isRunning { status = configuration.hosts.isEmpty ? "Add a host" : "Stopped" }
         } catch { fail(error) }
     }
 
@@ -219,10 +221,13 @@ final class AppModel: ObservableObject {
     }
 
     private func apply(_ candidate: AppConfiguration) throws {
+        let wasRunning = isRunning
         configuration = candidate
         overlappingRepositories = []
+        error = nil
         try save()
-        restartIfRunning()
+        if wasRunning { restartIfRunning() }
+        else { status = "Stopped" }
     }
 
     private func configurationChanged() {
@@ -254,14 +259,19 @@ final class AppModel: ObservableObject {
             throw SyncError.invalidConfiguration("The app bundle is missing git-sync. Re-run scripts/install.sh.")
         }
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-        for host in configuration.hosts {
-            let repositories = configuration.repositories(for: host.id)
-            guard !repositories.isEmpty else { continue }
-            let connection = Configuration(root: configuration.root, machine: configuration.machine,
-                                           peer: host.peer, remoteRoot: host.root,
-                                           remoteExecutable: host.executable, repositories: repositories)
-            try connection.validate()
-            try launch(connection, host: host, helper: helper)
+        do {
+            for host in configuration.hosts {
+                let repositories = configuration.repositories(for: host.id)
+                guard !repositories.isEmpty else { continue }
+                let connection = Configuration(root: configuration.root, machine: configuration.machine,
+                                               peer: host.peer, remoteRoot: host.root,
+                                               remoteExecutable: host.executable, repositories: repositories)
+                try connection.validate()
+                try launch(connection, host: host, helper: helper)
+            }
+        } catch {
+            stopProcesses()
+            throw error
         }
         isRunning = !syncProcesses.isEmpty
         error = nil
@@ -316,7 +326,7 @@ final class AppModel: ObservableObject {
     }
 
     private func stopProcesses() {
-        let processes = syncProcesses.values
+        let processes = Array(syncProcesses.values)
         syncProcesses.removeAll()
         for process in processes {
             process.terminationHandler = nil

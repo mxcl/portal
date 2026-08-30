@@ -215,6 +215,10 @@ func hostDiscoverySelection() throws {
     #expect(configuration.repositories(for: host.id) == ["remote", "shared"])
     configuration.folders[configuration.folders.firstIndex { $0.name == "shared" }!].hosts.remove(host.id)
     #expect(configuration.repositories(for: host.id) == ["remote"])
+
+    #expect(throws: (any Error).self) {
+        try configuration.addHost(SyncHost(machine: "A", peer: "self", root: "/tmp"), repositories: [])
+    }
 }
 
 @Test("divergent branches remain independent and available on both machines")

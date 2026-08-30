@@ -129,6 +129,9 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         guard !host.root.isEmpty, !host.executable.isEmpty else {
             throw SyncError.invalidConfiguration("Remote folder and executable are required")
         }
+        guard host.machine != machine else {
+            throw SyncError.invalidConfiguration("A host cannot use this Mac's machine name")
+        }
         guard !hosts.contains(where: { $0.peer == host.peer || $0.machine == host.machine }) else {
             throw SyncError.invalidConfiguration("That host is already added")
         }

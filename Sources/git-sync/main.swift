@@ -37,7 +37,7 @@ func defaultStateURL() -> URL {
 
 let usage = """
 Usage:
-  git-sync run --root PATH --machine NAME --peer SSH_TARGET --remote-root PATH [--remote-executable PATH] [--selective --repository NAME ...] [--state PATH]
+  git-sync run --root PATH --machine NAME --peer SSH_TARGET --remote-root PATH [--remote-machine NAME] [--remote-executable PATH] [--selective --repository NAME ...] [--state PATH]
   git-sync run --config PATH [--state PATH]
   git-sync daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--state PATH]
   git-sync list --root PATH
@@ -66,7 +66,8 @@ do {
                 peer: try required("--peer", in: arguments),
                 remoteRoot: try required("--remote-root", in: arguments),
                 remoteExecutable: value("--remote-executable", in: arguments) ?? Configuration.defaultRemoteExecutable,
-                repositories: arguments.contains("--selective") ? values("--repository", in: arguments) : nil
+                repositories: arguments.contains("--selective") ? values("--repository", in: arguments) : nil,
+                remoteMachine: value("--remote-machine", in: arguments)
             )
         }
         try Runner.connect(configuration, stateURL: stateURL, logger: log)

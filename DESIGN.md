@@ -31,6 +31,23 @@ replacement could restrict online commands. It still could not make disconnected
 multi-writer branches converge without choosing an ownership or conflict policy
 for the user.
 
+## Managed Git remotes
+
+After a peer identifies itself, Git Sync adds it to each enabled local project
+as `sync/<machine>` with URL `<ssh-target>:<remote-root>/<project>`. The remote's
+fetch mappings reuse the namespaces already owned by that peer:
+
+| Source | Destination |
+| --- | --- |
+| `refs/heads/*` | `refs/remotes/sync/<machine>/*` |
+| `refs/tags/*` | `refs/sync/<machine>/tags/*` |
+
+Automatic tag following is disabled and pruning is enabled. Stash remains a
+background-only ref because ordinary Git fetch fails when an exact optional
+source ref is absent. Configuration is repaired on reconnect; disabling or
+removing a host leaves its remote in place. A user's `git push sync/<machine>`
+is an explicit Git operation and is outside the background replication contract.
+
 ## Architecture
 
 Each `git-sync run` owns one source parent and one long-lived
@@ -137,8 +154,8 @@ process to own a state file.
   a shell command.
 
 The invariant is structural: background code has no function that writes a
-working tree, index, `HEAD`, local branch, local tag, stash, or caller-selected
-ref.
+working tree, index, `HEAD`, local branch, local tag, stash, caller-selected
+ref, or Git configuration outside `remote.sync/<machine>.*`.
 
 ## Implementation plan
 

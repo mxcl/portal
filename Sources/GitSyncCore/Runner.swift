@@ -50,7 +50,12 @@ public enum Runner {
                 let session = try SyncSession(
                     root: configuration.expandedRoot, machine: configuration.machine,
                     input: output.fileHandleForReading, output: input.fileHandleForWriting,
-                    stateURL: stateURL, repositories: configuration.repositories.map(Set.init), logger: logger
+                    stateURL: stateURL, repositories: configuration.repositories.map(Set.init),
+                    peerRepositoryLocation: configuration.remoteMachine.map {
+                        PeerRepositoryLocation(machine: $0, sshTarget: configuration.peer,
+                                               root: configuration.remoteRoot)
+                    },
+                    logger: logger
                 )
                 try session.run()
             } catch { logger("reconnecting after: \(error)") }

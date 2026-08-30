@@ -13,16 +13,18 @@ public struct Configuration: Codable, Equatable, Sendable {
     public var remoteRoot: String
     public var remoteExecutable: String
     public var repositories: [String]?
+    public var remoteMachine: String?
 
     public init(root: String, machine: String, peer: String, remoteRoot: String,
                 remoteExecutable: String = Configuration.defaultRemoteExecutable,
-                repositories: [String]? = nil) {
+                repositories: [String]? = nil, remoteMachine: String? = nil) {
         self.root = root
         self.machine = machine
         self.peer = peer
         self.remoteRoot = remoteRoot
         self.remoteExecutable = remoteExecutable
         self.repositories = repositories
+        self.remoteMachine = remoteMachine
     }
 
     public func validate() throws {
@@ -37,6 +39,7 @@ public struct Configuration: Codable, Equatable, Sendable {
             throw SyncError.invalidConfiguration("Remote folder and executable are required")
         }
         for repository in repositories ?? [] { try Validator.project(repository) }
+        if let remoteMachine { try Validator.machine(remoteMachine) }
     }
 
     public var expandedRoot: URL {
@@ -45,6 +48,31 @@ public struct Configuration: Codable, Equatable, Sendable {
 
     public static func load(_ url: URL) throws -> Configuration {
         try JSONDecoder().decode(Configuration.self, from: Data(contentsOf: url))
+    }
+}
+
+public struct PeerRepositoryLocation: Equatable, Sendable {
+    public let machine: String
+    public let sshTarget: String
+    public let root: String
+
+    public init(machine: String, sshTarget: String, root: String) {
+        self.machine = machine
+        self.sshTarget = sshTarget
+        self.root = root
+    }
+
+    func validate() throws {
+        try Validator.machine(machine)
+        guard !sshTarget.isEmpty, !sshTarget.hasPrefix("-"), !root.isEmpty else {
+            throw SyncError.invalidConfiguration("Invalid peer repository location")
+        }
+    }
+
+    func url(for repository: String) throws -> String {
+        try validate()
+        try Validator.project(repository)
+        return "\(sshTarget):\(root.hasSuffix("/") ? root : root + "/")\(repository)"
     }
 }
 

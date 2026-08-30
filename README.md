@@ -29,6 +29,11 @@ Branches appear at `refs/remotes/sync/<machine>/…`, tags at
 `refs/sync/<machine>/tags/…`, and stashes at
 `refs/sync/<machine>/stash`.
 
+Each enabled peer is also available as the Git remote `sync/<machine>`, so
+ordinary commands such as `git fetch sync/linux` and `git push sync/linux main`
+work over SSH. Git Sync configures branch and tag fetch mappings without
+changing local branches or tags.
+
 If both machines advance `main`, both histories are retained:
 
 ```text
@@ -67,9 +72,8 @@ $ install .build/release/git-sync ~/.local/bin/git-sync
 ```
 
 The peer needs ordinary SSH authentication. No listening socket, repository
-hook, Git remote, Git replacement, or filesystem mirroring is used. Git remains
-responsible for object validation, packs, garbage collection, and atomic ref
-updates.
+hook, Git replacement, or filesystem mirroring is used. Git remains responsible
+for object validation, packs, garbage collection, and atomic ref updates.
 
 ## Development
 

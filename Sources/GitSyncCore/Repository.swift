@@ -49,6 +49,20 @@ public struct Repository: Equatable {
         return String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline).map(String.init)
     }
 
+    public func configureRemote(_ peer: PeerRepositoryLocation) throws {
+        try peer.validate()
+        let remote = "sync/\(peer.machine)"
+        let key = "remote.\(remote)"
+        _ = try Git.run(["-C", url.path, "config", "--local", "--replace-all",
+                         "\(key).url", peer.url(for: name)])
+        _ = try Git.run(["-C", url.path, "config", "--local", "--replace-all",
+                         "\(key).fetch", "+refs/heads/*:refs/remotes/\(remote)/*"])
+        _ = try Git.run(["-C", url.path, "config", "--local", "--add",
+                         "\(key).fetch", "+refs/tags/*:refs/sync/\(peer.machine)/tags/*"])
+        _ = try Git.run(["-C", url.path, "config", "--local", "\(key).tagOpt", "--no-tags"])
+        _ = try Git.run(["-C", url.path, "config", "--local", "\(key).prune", "true"])
+    }
+
     public func pack(oid: String, excluding candidates: [String]) throws -> Data {
         try Validator.oid(oid)
         let known = candidates.filter { Git.succeeds(["-C", url.path, "cat-file", "-e", "\($0)^{object}"]) }

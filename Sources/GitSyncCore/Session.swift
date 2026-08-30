@@ -4,6 +4,7 @@ public final class SyncSession {
     private let root: URL
     private let machine: String
     private let includedRepositories: Set<String>?
+    private let peerRepositoryLocation: PeerRepositoryLocation?
     private let connection: FramedConnection
     private let state: StateStore
     private let logger: (String) -> Void
@@ -14,16 +15,20 @@ public final class SyncSession {
     private var peerKnown: [String: Set<String>] = [:]
     private var needsFullSync = Set<String>()
     private var repositories: [String: Repository] = [:]
+    private var configuredRemotes = Set<String>()
     private var stopped = false
 
     public init(root: URL, machine: String, input: FileHandle, output: FileHandle,
                 stateURL: URL, repositories: Set<String>? = nil,
+                peerRepositoryLocation: PeerRepositoryLocation? = nil,
                 logger: @escaping (String) -> Void = { _ in }) throws {
         try Validator.machine(machine)
         for repository in repositories ?? [] { try Validator.project(repository) }
+        try peerRepositoryLocation?.validate()
         self.root = root
         self.machine = machine
         includedRepositories = repositories
+        self.peerRepositoryLocation = peerRepositoryLocation
         connection = FramedConnection(input: input, output: output)
         state = try StateStore(url: stateURL)
         self.logger = logger
@@ -76,10 +81,16 @@ public final class SyncSession {
             switch message.type {
             case "hello":
                 let (peer, epoch) = try message.validatedHello()
+                if let peerRepositoryLocation, peer != peerRepositoryLocation.machine {
+                    throw SyncError.invalidProtocol(
+                        "Connected host is \(peer), expected \(peerRepositoryLocation.machine)"
+                    )
+                }
                 lock.lock()
                 guard peerMachine == nil else { lock.unlock(); throw SyncError.invalidProtocol("Duplicate HELLO") }
                 peerMachine = peer; peerEpoch = epoch
                 lock.unlock()
+                try configureRemotes()
                 logger("connected to \(peer)")
             case "catalog":
                 _ = try currentPeer()
@@ -87,6 +98,7 @@ public final class SyncSession {
                     try requireIncluded(name)
                     lock.lock(); let isNew = repositories[name] == nil; lock.unlock()
                     let repository = try Repository.ensure(name: name, in: root)
+                    try configureRemote(for: repository)
                     lock.lock(); repositories[name] = repository; lock.unlock()
                     sendControl(.inventory(name, known: try repository.knownOIDs()))
                     if isNew { sendControl(.catalog([name])) }
@@ -127,6 +139,7 @@ public final class SyncSession {
             sendControl(.ack(update)); return
         }
         let repository = try Repository.ensure(name: update.repository, in: root)
+        try configureRemote(for: repository)
         if let oid = update.oid {
             guard let pack else { throw SyncError.invalidProtocol("Object update has no pack") }
             try repository.install(pack: pack, target: oid)
@@ -164,7 +177,27 @@ public final class SyncSession {
 
     private func refreshCatalog() throws {
         let found = try Repository.discover(in: root).filter { includedRepositories?.contains($0.name) ?? true }
+        for repository in found { try configureRemote(for: repository) }
         lock.lock(); repositories = Dictionary(uniqueKeysWithValues: found.map { ($0.name, $0) }); lock.unlock()
+    }
+
+    private func configureRemotes() throws {
+        lock.lock(); let current = Array(repositories.values); lock.unlock()
+        for repository in current { try configureRemote(for: repository) }
+    }
+
+    private func configureRemote(for repository: Repository) throws {
+        guard let peerRepositoryLocation else { return }
+        lock.lock()
+        let shouldConfigure = peerMachine != nil && configuredRemotes.insert(repository.name).inserted
+        lock.unlock()
+        guard shouldConfigure else { return }
+        do {
+            try repository.configureRemote(peerRepositoryLocation)
+        } catch {
+            lock.lock(); configuredRemotes.remove(repository.name); lock.unlock()
+            throw error
+        }
     }
 
     private func requireIncluded(_ name: String) throws {

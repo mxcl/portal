@@ -2,6 +2,9 @@ import Foundation
 import Testing
 @testable import GitSyncCore
 
+@Suite(.serialized)
+struct GitSyncTests {
+
 @Test("peer executable defaults to the installed app bundle")
 func defaultPeerExecutable() {
     let configuration = Configuration(root: "/", machine: "mac", peer: "peer", remoteRoot: "/tmp")
@@ -41,6 +44,8 @@ func helloValidation() throws {
     var incomplete = hello
     incomplete.epoch = nil
     #expect(throws: (any Error).self) { try incomplete.validatedHello() }
+}
+
 }
 
 private func git(_ arguments: [String], input: String? = nil) throws -> String {
@@ -87,6 +92,8 @@ private final class Fixture {
         _ = try git(["clone", "-q", a.appendingPathComponent("project").path, b.appendingPathComponent("project").path])
     }
 }
+
+extension GitSyncTests {
 
 @Test("ordinary commit copies objects without touching checkout state")
 func ordinaryCommitSafety() throws {
@@ -195,6 +202,26 @@ func stateHasOneWriter() throws {
 func preflightOverlap() {
     #expect(Runner.overlap(local: ["z", "shared", "a", "shādoe"],
                           remote: ["shared", "other", "a", "shādoe"]) == ["a", "shared", "shādoe"])
+}
+
+@Test("managed Git remotes share the peer ref namespaces")
+func managedGitRemote() throws {
+    let fixture = try Fixture()
+    let repository = try #require(Repository.discover(in: fixture.a).first)
+    let peer = PeerRepositoryLocation(machine: "B", sshTarget: "b.example", root: "~/src")
+
+    try repository.configureRemote(peer)
+
+    #expect(try git(["-C", repository.url.path, "remote", "get-url", "sync/B"])
+            == "b.example:~/src/project")
+    #expect(try git(["-C", repository.url.path, "config", "--get-all", "remote.sync/B.fetch"])
+            == "+refs/heads/*:refs/remotes/sync/B/*\n+refs/tags/*:refs/sync/B/tags/*")
+    #expect(try git(["-C", repository.url.path, "config", "--get", "remote.sync/B.tagOpt"]) == "--no-tags")
+    #expect(try git(["-C", repository.url.path, "config", "--get", "remote.sync/B.prune"]) == "true")
+
+    try repository.configureRemote(PeerRepositoryLocation(machine: "B", sshTarget: "new-b", root: "/code/"))
+    #expect(try git(["-C", repository.url.path, "remote", "get-url", "sync/B"])
+            == "new-b:/code/project")
 }
 
 @Test("host discovery prepopulates locations but sync requires both hosts")
@@ -456,4 +483,6 @@ func framedSessionLargeBidirectionalPacks() throws {
     try Data().write(to: fixture.a.appendingPathComponent("wake"))
     try Data().write(to: fixture.b.appendingPathComponent("wake"))
     #expect(sessions.wait(timeout: .now() + 5) == .success)
+}
+
 }

@@ -265,7 +265,8 @@ final class AppModel: ObservableObject {
                 guard !repositories.isEmpty else { continue }
                 let connection = Configuration(root: configuration.root, machine: configuration.machine,
                                                peer: host.peer, remoteRoot: host.root,
-                                               remoteExecutable: host.executable, repositories: repositories)
+                                               remoteExecutable: host.executable, repositories: repositories,
+                                               remoteMachine: host.machine)
                 try connection.validate()
                 try launch(connection, host: host, helper: helper)
             }

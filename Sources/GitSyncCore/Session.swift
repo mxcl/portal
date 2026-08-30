@@ -46,9 +46,16 @@ public final class SyncSession {
                 if Set(repositories.keys) != oldNames {
                     try connection.send(.catalog(Array(repositories.keys).sorted()))
                 }
-                for repository in repositories.values {
+                let current = repositories.values.sorted { $0.name < $1.name }
+                var changed: [String: Set<String>] = [:]
+                for repository in current {
+                    changed[repository.name] = try sendUpdates(for: repository, full: false)
+                }
+                for repository in current {
                     lock.lock(); let full = needsFullSync.remove(repository.name) != nil; lock.unlock()
-                    try sendUpdates(for: repository, full: full)
+                    if full {
+                        _ = try sendUpdates(for: repository, full: true, excluding: changed[repository.name] ?? [])
+                    }
                 }
             } catch {
                 logger("scan failed: \(error)")
@@ -124,14 +131,19 @@ public final class SyncSession {
         }
     }
 
-    private func sendUpdates(for repository: Repository, full: Bool) throws {
+    @discardableResult
+    private func sendUpdates(for repository: Repository, full: Bool,
+                             excluding excluded: Set<String> = []) throws -> Set<String> {
         lock.lock(); let known = peerKnown[repository.name]; lock.unlock()
-        guard let known else { return }
-        for update in try state.updates(machine: machine, repository: repository.name,
-                                        refs: repository.sourceRefs(), full: full) {
+        guard let known else { return [] }
+        let updates = try state.updates(machine: machine, repository: repository.name,
+                                        refs: repository.sourceRefs(), full: full)
+            .filter { !excluded.contains($0.sourceRef) }
+        for update in updates {
             let pack = try update.oid.map { try repository.pack(oid: $0, excluding: Array(known)) }
             try connection.send(update: update, pack: pack)
         }
+        return Set(updates.map(\.sourceRef))
     }
 
     private func refreshCatalog() throws {

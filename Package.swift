@@ -4,7 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "git-sync",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS("26.0")],
     products: [
         .library(name: "GitSyncCore", targets: ["GitSyncCore"]),
         .executable(name: "git-sync", targets: ["git-sync"]),

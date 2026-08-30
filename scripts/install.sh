@@ -25,7 +25,7 @@ xcrun actool "$repo_dir/app/AppIcon.icon" \
   --compile "$app/Contents/Resources" \
   --platform macosx \
   --target-device mac \
-  --minimum-deployment-target 13.0 \
+  --minimum-deployment-target 26.0 \
   --app-icon AppIcon \
   --include-all-app-icons \
   --enable-on-demand-resources NO \

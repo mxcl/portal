@@ -1,8 +1,11 @@
 # git-sync
 
-Continuously copy Git history between your own computers over one persistent
-SSH connection. Incoming history lands in peer refs; local branches, `HEAD`,
-the index, and working files are never touched.
+Continuously exchange Git history between your own computers over one
+persistent SSH connection. `git-sync` implements a bidirectional, continuous
+fetch/push system. Each host publishes snapshots of its refs into the other
+host's peer namespace while both working repositories remain independent.
+Incoming history leaves local branches, `HEAD`, the index, and working files
+alone.
 
 ```console
 $ git-sync run \
@@ -12,10 +15,11 @@ $ git-sync run \
     --remote-root /home/max/src
 ```
 
-Every immediate child of `~/src` that Git recognizes as a repository is
-synchronized. A missing project is initialized at the peer as an empty folder
-containing `.git`; files are not checked out. Before first sync, the Mac app
-lists repository names already present on both machines and requires confirmation.
+Every immediate child of `~/src` that Git recognizes as a repository
+participates in the exchange. A missing project is initialized at the peer as
+an empty folder containing `.git`; files are not checked out. Before first sync,
+the Mac app lists repository names already present on both machines and requires
+confirmation.
 
 ```console
 $ git log sync/linux/main
@@ -25,6 +29,16 @@ $ git diff main..sync/linux/main
 Branches appear at `refs/remotes/sync/<machine>/…`, tags at
 `refs/sync/<machine>/tags/…`, and stashes at
 `refs/sync/<machine>/stash`.
+
+If both machines advance `main`, both histories are retained:
+
+```text
+machine A: refs/heads/main          machine B: refs/heads/main
+           refs/remotes/sync/B/main           refs/remotes/sync/A/main
+```
+
+You decide when to merge, rebase, reset, check out, or incorporate a
+peer ref, as you would after `git fetch`.
 
 ## Install the Mac app
 
@@ -48,7 +62,9 @@ $ install .build/release/git-sync ~/.local/bin/git-sync
 ```
 
 The peer needs ordinary SSH authentication. No listening socket, repository
-hook, Git remote, or filesystem mirroring is used.
+hook, Git remote, Git replacement, or filesystem mirroring is used. Git remains
+responsible for object validation, packs, garbage collection, and atomic ref
+updates.
 
 ## Development
 

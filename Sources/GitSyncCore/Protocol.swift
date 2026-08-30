@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 struct WireMessage: Codable {
     var type: String
@@ -32,6 +37,11 @@ final class FramedConnection {
     init(input: FileHandle, output: FileHandle) {
         self.input = input
         self.output = output
+        #if canImport(Darwin)
+        _ = fcntl(output.fileDescriptor, F_SETNOSIGPIPE, 1)
+        #elseif canImport(Glibc)
+        _ = signal(SIGPIPE, SIG_IGN)
+        #endif
     }
 
     func send(_ message: WireMessage) throws {

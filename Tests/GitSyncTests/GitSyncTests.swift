@@ -16,6 +16,14 @@ func gitInputWriterLifetime() throws {
     }
 }
 
+@Test("a disconnected peer throws instead of terminating the helper")
+func disconnectedPeerDoesNotSignal() throws {
+    let pipe = Pipe()
+    try pipe.fileHandleForReading.close()
+    let connection = FramedConnection(input: .nullDevice, output: pipe.fileHandleForWriting)
+    #expect(throws: (any Error).self) { try connection.send(.hello("test")) }
+}
+
 private func git(_ arguments: [String], input: String? = nil) throws -> String {
     let process = Process(), output = Pipe(), error = Pipe(), stdin = Pipe()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")

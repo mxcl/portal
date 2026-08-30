@@ -466,9 +466,11 @@ struct SettingsView: View {
                         TableColumn("SSH Host", value: \.peer)
                         TableColumn("Projects Folder", value: \.root)
                     }
-                    .frame(minHeight: 120, idealHeight: 150, maxHeight: 190)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .tabItem { Label("Hosts", systemImage: "desktopcomputer.and.arrow.down") }
 
-                    Text("Folders").font(.headline)
+                VStack(alignment: .leading, spacing: 12) {
                     if model.configuration.folders.isEmpty {
                         ContentUnavailableView(
                             "No Git Folders",
@@ -504,7 +506,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
+                .tabItem { Label("Folders", systemImage: "folder") }
             }
 
             Divider()

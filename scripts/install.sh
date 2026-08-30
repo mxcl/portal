@@ -21,6 +21,17 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$(dirname -- "$destina
 cp "$build_dir/GitSync" "$app/Contents/MacOS/GitSync"
 cp "$build_dir/git-sync" "$app/Contents/Resources/git-sync"
 cp "$repo_dir/app/Info.plist" "$app/Contents/Info.plist"
+xcrun actool "$repo_dir/app/AppIcon.icon" \
+  --compile "$app/Contents/Resources" \
+  --platform macosx \
+  --target-device mac \
+  --minimum-deployment-target 13.0 \
+  --app-icon AppIcon \
+  --include-all-app-icons \
+  --enable-on-demand-resources NO \
+  --output-partial-info-plist "$stage/IconInfo.plist" >/dev/null
+test -f "$app/Contents/Resources/Assets.car"
+test -f "$app/Contents/Resources/AppIcon.icns"
 
 if ! security find-identity -v -p codesigning | grep -Fq "\"$signing_identity\""; then
   echo "Code-signing identity not found: $signing_identity" >&2

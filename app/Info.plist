@@ -5,6 +5,8 @@
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleExecutable</key><string>GitSync</string>
     <key>CFBundleIdentifier</key><string>dev.mxcl.git-sync</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>Git Sync</string>
     <key>CFBundlePackageType</key><string>APPL</string>

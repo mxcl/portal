@@ -16,6 +16,7 @@ struct GitSyncApp: App {
         Settings {
             SettingsView(model: model)
         }
+        .defaultSize(width: 880, height: 640)
         .windowResizability(.contentMinSize)
     }
 }
@@ -396,6 +397,7 @@ final class AppModel: ObservableObject {
 
 struct StatusMenu: View {
     @ObservedObject var model: AppModel
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Text(model.status)
@@ -415,28 +417,9 @@ struct StatusMenu: View {
     }
 
     private func settingsLink(_ title: String) -> some View {
-        Group {
-            if #available(macOS 14.0, *) {
-                ForegroundSettingsButton(title: title)
-            } else {
-                Button(title) {
-                    NSApplication.shared.activate(ignoringOtherApps: true)
-                    NSApplication.shared.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                }
-            }
-        }
-    }
-}
-
-@available(macOS 14.0, *)
-private struct ForegroundSettingsButton: View {
-    @Environment(\.openSettings) private var openSettings
-    let title: String
-
-    var body: some View {
         Button(title) {
-            NSApplication.shared.activate(ignoringOtherApps: true)
             openSettings()
+            NSApplication.shared.activate()
         }
     }
 }
@@ -445,84 +428,105 @@ struct SettingsView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading) {
-            Form {
-                Section("This Mac") {
-                    HStack {
-                        TextField("Projects folder", text: $model.configuration.root)
-                        Button("Choose…", action: model.chooseRoot)
-                        Button("Refresh", action: model.refreshLocal)
-                            .disabled(model.configuration.root.isEmpty || model.isChecking)
-                    }
-                    TextField("Machine name", text: $model.configuration.machine)
-                }
-                .disabled(model.configurationLocked)
-            }
-            .formStyle(.grouped)
-
-            GroupBox("Hosts") {
-                Table(model.configuration.hosts, selection: $model.selectedHostID) {
-                    TableColumn("Machine", value: \.machine)
-                    TableColumn("SSH Host", value: \.peer)
-                    TableColumn("Projects Folder", value: \.root)
-                }
-                HStack {
-                    Button(action: model.beginAddingHost) { Label("Add Host", systemImage: "plus") }
-                    Button(action: model.removeSelectedHost) { Label("Remove Host", systemImage: "minus") }
-                        .disabled(model.selectedHostID == nil)
-                    Spacer()
-                    if model.isChecking { ProgressView().controlSize(.small) }
-                }
-            }
-
-            GroupBox("Folders") {
-                if model.configuration.folders.isEmpty {
-                    VStack {
-                        Label("No Git Folders", systemImage: "folder")
-                            .font(.headline)
-                        Text("Choose the parent folder that contains your repositories.")
+        VStack(spacing: 12) {
+            TabView {
+                Form {
+                    Section("Projects") {
+                        HStack {
+                            TextField("Projects folder", text: $model.configuration.root)
+                            Button("Choose…", action: model.chooseRoot)
+                            Button("Refresh", action: model.refreshLocal)
+                                .disabled(model.configuration.root.isEmpty || model.isChecking)
+                        }
+                        Text("Choose the folder that contains this Mac’s Git repositories.")
                             .foregroundStyle(.secondary)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    Table(model.configuration.folders) {
-                        TableColumn("Folder", value: \.name)
-                        TableColumn("This Mac") { folder in
-                            Toggle(model.configuration.machine, isOn: Binding(
-                                get: { folder.isLocal },
-                                set: { model.setLocal($0, folder: folder.name) }
-                            ))
-                            .toggleStyle(.checkbox)
-                        }
-                        TableColumn("Other Hosts") { folder in
-                            HStack {
-                                ForEach(model.configuration.hosts) { host in
-                                    Toggle(host.machine, isOn: Binding(
-                                        get: { folder.hosts.contains(host.id) },
-                                        set: { model.setHost(host.id, enabled: $0, folder: folder.name) }
-                                    ))
-                                    .toggleStyle(.checkbox)
+                    Section("Identity") {
+                        TextField("Machine name", text: $model.configuration.machine)
+                        Text("This name identifies the Mac to your other hosts.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .formStyle(.grouped)
+                .disabled(model.configurationLocked)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .tabItem { Label("This Mac", systemImage: "desktopcomputer") }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Hosts").font(.headline)
+                        Spacer()
+                        if model.isChecking { ProgressView().controlSize(.small) }
+                        Button(action: model.beginAddingHost) { Label("Add Host", systemImage: "plus") }
+                        Button(action: model.removeSelectedHost) { Label("Remove Host", systemImage: "minus") }
+                            .disabled(model.selectedHostID == nil)
+                    }
+                    Table(model.configuration.hosts, selection: $model.selectedHostID) {
+                        TableColumn("Machine", value: \.machine)
+                        TableColumn("SSH Host", value: \.peer)
+                        TableColumn("Projects Folder", value: \.root)
+                    }
+                    .frame(minHeight: 120, idealHeight: 150, maxHeight: 190)
+
+                    Text("Folders").font(.headline)
+                    if model.configuration.folders.isEmpty {
+                        ContentUnavailableView(
+                            "No Git Folders",
+                            systemImage: "folder",
+                            description: Text("Choose the parent folder that contains your repositories.")
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        Table(model.configuration.folders) {
+                            TableColumn("Folder", value: \.name)
+                            TableColumn("This Mac") { folder in
+                                Toggle(model.configuration.machine, isOn: Binding(
+                                    get: { folder.isLocal },
+                                    set: { model.setLocal($0, folder: folder.name) }
+                                ))
+                                .toggleStyle(.checkbox)
+                            }
+                            TableColumn("Other Hosts") { folder in
+                                HStack {
+                                    ForEach(model.configuration.hosts) { host in
+                                        Toggle(host.machine, isOn: Binding(
+                                            get: { folder.hosts.contains(host.id) },
+                                            set: { model.setHost(host.id, enabled: $0, folder: folder.name) }
+                                        ))
+                                        .toggleStyle(.checkbox)
+                                    }
                                 }
                             }
                         }
                     }
+                    Text("A folder syncs with a host only while both checkboxes are selected.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
-                Text("A folder syncs with a host only while both checkboxes are selected.")
-                    .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
             }
+
+            Divider()
 
             HStack {
                 Label(model.status, systemImage: model.isRunning ? "arrow.triangle.2.circlepath" : "pause.circle")
-                if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                        .textSelection(.enabled)
+                }
                 Spacer()
+                if model.canStop { Button("Stop Sync", action: model.stop) }
                 Button(model.isChecking ? "Checking…" : "Save & Start", action: model.start)
                     .keyboardShortcut(.defaultAction)
                     .disabled(model.isChecking || model.isRunning)
-                if model.canStop { Button("Stop Sync", action: model.stop) }
             }
         }
         .scenePadding()
-        .frame(minWidth: 760, minHeight: 560)
+        .frame(minWidth: 720, minHeight: 520)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sheet(isPresented: $model.showingAddHost) { AddHostView(model: model) }
         .sheet(isPresented: $model.showingOverlapConfirmation) {
             VStack(alignment: .leading) {

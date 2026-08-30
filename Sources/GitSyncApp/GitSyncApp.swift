@@ -113,7 +113,7 @@ final class AppModel: ObservableObject {
         showingOverlapConfirmation = false
         pendingConfiguration = nil
         overlappingRepositories = []
-        status = isRunning ? "Synchronizing" : "Stopped"
+        status = isRunning ? "Standing By" : "Stopped"
     }
 
     func stop() {
@@ -177,7 +177,7 @@ final class AppModel: ObservableObject {
         syncProcess = process
         isRunning = true
         error = nil
-        status = SMAppService.mainApp.status == .requiresApproval ? "Synchronizing — login approval required" : "Synchronizing"
+        status = SMAppService.mainApp.status == .requiresApproval ? "Standing By — login approval required" : "Standing By"
         appendLog("Started sync with \(configuration.peer)")
     }
 
@@ -208,7 +208,7 @@ final class AppModel: ObservableObject {
     private func fail(_ error: Error) {
         isChecking = false
         self.error = String(describing: error)
-        status = isRunning ? "Synchronizing" : "Stopped"
+        status = isRunning ? "Standing By" : "Stopped"
         appendLog("Error: \(error)")
     }
 

@@ -16,6 +16,7 @@ struct GitSyncApp: App {
         Settings {
             SettingsView(model: model)
         }
+        .windowResizability(.contentMinSize)
     }
 }
 
@@ -413,15 +414,10 @@ struct StatusMenu: View {
         Button("Quit Git Sync", action: model.quit)
     }
 
-    @ViewBuilder
     private func settingsLink(_ title: String) -> some View {
-        if #available(macOS 14.0, *) {
-            SettingsLink { Text(title) }
-        } else {
-            Button(title) {
-                NSApplication.shared.activate(ignoringOtherApps: true)
-                NSApplication.shared.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            }
+        Button(title) {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            NSApplication.shared.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         }
     }
 }
@@ -507,7 +503,7 @@ struct SettingsView: View {
             }
         }
         .scenePadding()
-        .frame(width: 760, height: 560)
+        .frame(minWidth: 760, minHeight: 560)
         .sheet(isPresented: $model.showingAddHost) { AddHostView(model: model) }
         .sheet(isPresented: $model.showingOverlapConfirmation) {
             VStack(alignment: .leading) {

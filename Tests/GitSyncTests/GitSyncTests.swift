@@ -290,3 +290,52 @@ func framedSession() throws {
     try Data().write(to: fixture.b.appendingPathComponent("wake"))
     #expect(sessions.wait(timeout: .now() + 5) == .success)
 }
+
+@Test("framed sessions synchronize large projects in both directions")
+func framedSessionLargeBidirectionalPacks() throws {
+    let fixture = try Fixture()
+    let other = fixture.b.appendingPathComponent("other")
+    try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+    _ = try git(["init", "-q", "-b", "main", other.path])
+    for repository in [fixture.a.appendingPathComponent("project"), other] {
+        _ = try git(["-C", repository.path, "config", "user.name", "Test"])
+        _ = try git(["-C", repository.path, "config", "user.email", "test@example.com"])
+        try Data((0..<512 * 1024).map { _ in UInt8.random(in: .min ... .max) })
+            .write(to: repository.appendingPathComponent("payload.bin"))
+        _ = try git(["-C", repository.path, "add", "payload.bin"])
+        _ = try git(["-C", repository.path, "commit", "-qm", "large payload"])
+    }
+
+    let aToB = Pipe(), bToA = Pipe()
+    let a = try SyncSession(root: fixture.a, machine: "A",
+                            input: bToA.fileHandleForReading, output: aToB.fileHandleForWriting,
+                            stateURL: fixture.root.appendingPathComponent("session-A"))
+    let b = try SyncSession(root: fixture.b, machine: "B",
+                            input: aToB.fileHandleForReading, output: bToA.fileHandleForWriting,
+                            stateURL: fixture.root.appendingPathComponent("session-B"))
+    let sessions = DispatchGroup()
+    for session in [a, b] {
+        sessions.enter()
+        DispatchQueue.global().async { defer { sessions.leave() }; try? session.run() }
+    }
+
+    let expectedA = try git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"])
+    let expectedB = try git(["-C", other.path, "rev-parse", "main"])
+    let deadline = Date().addingTimeInterval(5)
+    var receivedA: String?, receivedB: String?
+    while Date() < deadline, receivedA != expectedA || receivedB != expectedB {
+        receivedA = try? git(["-C", fixture.b.appendingPathComponent("project").path,
+                              "rev-parse", "refs/remotes/sync/A/main"])
+        receivedB = try? git(["-C", fixture.a.appendingPathComponent("other").path,
+                              "rev-parse", "refs/remotes/sync/B/main"])
+        if receivedA != expectedA || receivedB != expectedB { Thread.sleep(forTimeInterval: 0.05) }
+    }
+
+    #expect(receivedA == expectedA)
+    #expect(receivedB == expectedB)
+    guard receivedA == expectedA, receivedB == expectedB else { return }
+    try? aToB.fileHandleForWriting.close(); try? bToA.fileHandleForWriting.close()
+    try Data().write(to: fixture.a.appendingPathComponent("wake"))
+    try Data().write(to: fixture.b.appendingPathComponent("wake"))
+    #expect(sessions.wait(timeout: .now() + 5) == .success)
+}

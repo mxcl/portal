@@ -7,8 +7,10 @@ public final class SyncSession {
     private let state: StateStore
     private let logger: (String) -> Void
     private let lock = NSLock()
+    private let controlQueue = DispatchQueue(label: "git-sync.control")
     private var peerMachine: String?
     private var peerKnown: [String: Set<String>] = [:]
+    private var needsFullSync = Set<String>()
     private var repositories: [String: Repository] = [:]
     private var stopped = false
 
@@ -44,7 +46,10 @@ public final class SyncSession {
                 if Set(repositories.keys) != oldNames {
                     try connection.send(.catalog(Array(repositories.keys).sorted()))
                 }
-                for repository in repositories.values { try sendUpdates(for: repository, full: false) }
+                for repository in repositories.values {
+                    lock.lock(); let full = needsFullSync.remove(repository.name) != nil; lock.unlock()
+                    try sendUpdates(for: repository, full: full)
+                }
             } catch {
                 logger("scan failed: \(error)")
             }
@@ -67,8 +72,8 @@ public final class SyncSession {
                     lock.lock(); let isNew = repositories[name] == nil; lock.unlock()
                     let repository = try Repository.ensure(name: name, in: root)
                     lock.lock(); repositories[name] = repository; lock.unlock()
-                    try connection.send(.inventory(name, known: repository.knownOIDs()))
-                    if isNew { try connection.send(.catalog([name])) }
+                    sendControl(.inventory(name, known: try repository.knownOIDs()))
+                    if isNew { sendControl(.catalog([name])) }
                 }
             case "inventory":
                 guard let name = message.repository, let known = message.known else {
@@ -76,8 +81,7 @@ public final class SyncSession {
                 }
                 try Validator.project(name)
                 for oid in known { try Validator.oid(oid) }
-                lock.lock(); peerKnown[name] = Set(known); let repository = repositories[name]; lock.unlock()
-                if let repository { try sendUpdates(for: repository, full: true) }
+                lock.lock(); peerKnown[name] = Set(known); needsFullSync.insert(name); lock.unlock()
             case "update":
                 guard let update = message.update else { throw SyncError.invalidProtocol("UPDATE is incomplete") }
                 let pack = update.oid == nil ? nil : try connection.receivePack()
@@ -98,7 +102,7 @@ public final class SyncSession {
         try Validator.sourceRef(update.sourceRef)
         let peer = try currentPeer()
         if update.generation <= state.acceptedGeneration(peer: peer, repository: update.repository, ref: update.sourceRef) {
-            try connection.send(.ack(update)); return
+            sendControl(.ack(update)); return
         }
         let repository = try Repository.ensure(name: update.repository, in: root)
         if let oid = update.oid {
@@ -109,8 +113,15 @@ public final class SyncSession {
         try writer.apply(sourceRef: update.sourceRef, oid: update.oid)
         try writer.pruneExpired()
         try state.accept(generation: update.generation, peer: peer, repository: update.repository, ref: update.sourceRef)
-        try connection.send(.ack(update))
+        sendControl(.ack(update))
         logger("\(update.repository): \(update.sourceRef) -> \(update.oid?.prefix(12) ?? "deleted")")
+    }
+
+    private func sendControl(_ message: WireMessage) {
+        controlQueue.async { [self] in
+            do { try connection.send(message) }
+            catch { logger("session ended: \(error)"); setStopped() }
+        }
     }
 
     private func sendUpdates(for repository: Repository, full: Bool) throws {

@@ -1,31 +1,22 @@
 import Foundation
 
 public enum Runner {
+    public static func inspectPeer(_ configuration: Configuration) throws -> PeerInspection {
+        try configuration.validate()
+        let data = try runRemote(
+            configuration,
+            arguments: ["inspect", "--root", configuration.remoteRoot]
+        )
+        let inspection = try JSONDecoder().decode(PeerInspection.self, from: data)
+        try Validator.machine(inspection.machine)
+        for name in inspection.repositories { try Validator.project(name) }
+        return inspection
+    }
+
     public static func overlappingRepositories(_ configuration: Configuration) throws -> [String] {
         try configuration.validate()
         let local = try Repository.discover(in: configuration.expandedRoot).map(\.name)
-        let process = Process(), output = Pipe(), error = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = [
-            "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-T", "--",
-            configuration.peer,
-            remoteCommand(configuration.remoteExecutable, ["list", "--root", configuration.remoteRoot]),
-        ]
-        process.standardOutput = output
-        process.standardError = error
-        try process.run()
-        process.waitUntilExit()
-        let stdout = output.fileHandleForReading.readDataToEndOfFile()
-        let stderr = error.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationStatus == 0 else {
-            throw SyncError.invalidConfiguration(
-                "Could not inspect the peer: " + String(decoding: stderr, as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        }
-        let remote = try JSONDecoder().decode([String].self, from: stdout)
-        for name in remote { try Validator.project(name) }
-        return overlap(local: local, remote: remote)
+        return overlap(local: local, remote: try inspectPeer(configuration).repositories)
     }
 
     public static func overlap(local: [String], remote: [String]) -> [String] {
@@ -40,8 +31,12 @@ public enum Runner {
         while true {
             let process = Process(), input = Pipe(), output = Pipe()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-            let command = remoteCommand(configuration.remoteExecutable,
-                                        ["daemon", "--stdio", "--root", configuration.remoteRoot])
+            var arguments = ["daemon", "--stdio", "--root", configuration.remoteRoot]
+            if let repositories = configuration.repositories {
+                arguments.append("--selective")
+                for repository in repositories { arguments += ["--repository", repository] }
+            }
+            let command = remoteCommand(configuration.remoteExecutable, arguments)
             process.arguments = ["-T", "--", configuration.peer, command]
             process.standardInput = input
             process.standardOutput = output
@@ -52,7 +47,7 @@ public enum Runner {
                 let session = try SyncSession(
                     root: configuration.expandedRoot, machine: configuration.machine,
                     input: output.fileHandleForReading, output: input.fileHandleForWriting,
-                    stateURL: stateURL, logger: logger
+                    stateURL: stateURL, repositories: configuration.repositories.map(Set.init), logger: logger
                 )
                 try session.run()
             } catch { logger("reconnecting after: \(error)") }
@@ -62,10 +57,34 @@ public enum Runner {
     }
 
     public static func serve(root: URL, machine: String, stateURL: URL,
+                             repositories: Set<String>? = nil,
                              logger: @escaping (String) -> Void = { _ in }) throws {
         let session = try SyncSession(root: root, machine: machine, input: .standardInput,
-                                      output: .standardOutput, stateURL: stateURL, logger: logger)
+                                      output: .standardOutput, stateURL: stateURL,
+                                      repositories: repositories, logger: logger)
         try session.run()
+    }
+
+    private static func runRemote(_ configuration: Configuration, arguments: [String]) throws -> Data {
+        let process = Process(), output = Pipe(), error = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = [
+            "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-T", "--",
+            configuration.peer, remoteCommand(configuration.remoteExecutable, arguments),
+        ]
+        process.standardOutput = output
+        process.standardError = error
+        try process.run()
+        process.waitUntilExit()
+        let stdout = output.fileHandleForReading.readDataToEndOfFile()
+        let stderr = error.fileHandleForReading.readDataToEndOfFile()
+        guard process.terminationStatus == 0 else {
+            throw SyncError.invalidConfiguration(
+                "Could not inspect the peer: " + String(decoding: stderr, as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        return stdout
     }
 
     private static func shellQuote(_ value: String) -> String {

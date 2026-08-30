@@ -6,7 +6,7 @@ import Glibc
 #endif
 
 struct WireMessage: Codable {
-    static let protocolVersion = 1
+    static let protocolVersion = 2
 
     var type: String
     var version: Int?

@@ -3,6 +3,7 @@ import Foundation
 public final class SyncSession {
     private let root: URL
     private let machine: String
+    private let includedRepositories: Set<String>?
     private let connection: FramedConnection
     private let state: StateStore
     private let logger: (String) -> Void
@@ -16,10 +17,13 @@ public final class SyncSession {
     private var stopped = false
 
     public init(root: URL, machine: String, input: FileHandle, output: FileHandle,
-                stateURL: URL, logger: @escaping (String) -> Void = { _ in }) throws {
+                stateURL: URL, repositories: Set<String>? = nil,
+                logger: @escaping (String) -> Void = { _ in }) throws {
         try Validator.machine(machine)
+        for repository in repositories ?? [] { try Validator.project(repository) }
         self.root = root
         self.machine = machine
+        includedRepositories = repositories
         connection = FramedConnection(input: input, output: output)
         state = try StateStore(url: stateURL)
         self.logger = logger
@@ -80,6 +84,7 @@ public final class SyncSession {
             case "catalog":
                 _ = try currentPeer()
                 for name in message.repositories ?? [] {
+                    try requireIncluded(name)
                     lock.lock(); let isNew = repositories[name] == nil; lock.unlock()
                     let repository = try Repository.ensure(name: name, in: root)
                     lock.lock(); repositories[name] = repository; lock.unlock()
@@ -92,6 +97,7 @@ public final class SyncSession {
                     throw SyncError.invalidProtocol("INVENTORY is incomplete")
                 }
                 try Validator.project(name)
+                try requireIncluded(name)
                 for oid in known { try Validator.oid(oid) }
                 lock.lock(); peerKnown[name] = Set(known); needsFullSync.insert(name); lock.unlock()
             case "update":
@@ -112,6 +118,7 @@ public final class SyncSession {
 
     private func receive(_ update: RefUpdate, pack: Data?) throws {
         try Validator.project(update.repository)
+        try requireIncluded(update.repository)
         try Validator.sourceRef(update.sourceRef)
         let (peer, epoch) = try currentPeer()
         if update.generation <= state.acceptedGeneration(
@@ -156,8 +163,15 @@ public final class SyncSession {
     }
 
     private func refreshCatalog() throws {
-        let found = try Repository.discover(in: root)
+        let found = try Repository.discover(in: root).filter { includedRepositories?.contains($0.name) ?? true }
         lock.lock(); repositories = Dictionary(uniqueKeysWithValues: found.map { ($0.name, $0) }); lock.unlock()
+    }
+
+    private func requireIncluded(_ name: String) throws {
+        try Validator.project(name)
+        guard includedRepositories?.contains(name) ?? true else {
+            throw SyncError.invalidProtocol("Repository is not enabled: \(name)")
+        }
     }
 
     private func currentPeer() throws -> (machine: String, epoch: String) {

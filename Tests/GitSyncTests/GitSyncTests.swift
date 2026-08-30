@@ -347,6 +347,44 @@ func framedSession() throws {
     #expect(sessions.wait(timeout: .now() + 5) == .success)
 }
 
+@Test("framed sessions synchronize only explicitly enabled projects")
+func framedSessionSelection() throws {
+    let fixture = try Fixture()
+    let excluded = fixture.a.appendingPathComponent("excluded")
+    try FileManager.default.createDirectory(at: excluded, withIntermediateDirectories: true)
+    _ = try git(["init", "-q", "-b", "main", excluded.path])
+
+    let aToB = Pipe(), bToA = Pipe()
+    let selected: Set<String> = ["project"]
+    let a = try SyncSession(root: fixture.a, machine: "A",
+                            input: bToA.fileHandleForReading, output: aToB.fileHandleForWriting,
+                            stateURL: fixture.root.appendingPathComponent("selected-A"), repositories: selected)
+    let b = try SyncSession(root: fixture.b, machine: "B",
+                            input: aToB.fileHandleForReading, output: bToA.fileHandleForWriting,
+                            stateURL: fixture.root.appendingPathComponent("selected-B"), repositories: selected)
+    let sessions = DispatchGroup()
+    for session in [a, b] {
+        sessions.enter()
+        DispatchQueue.global().async { defer { sessions.leave() }; try? session.run() }
+    }
+
+    let destination = fixture.b.appendingPathComponent("project")
+    let expected = try git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"])
+    let deadline = Date().addingTimeInterval(5)
+    var received: String?
+    while Date() < deadline, received == nil {
+        received = try? git(["-C", destination.path, "rev-parse", "refs/remotes/sync/A/main"])
+        if received == nil { Thread.sleep(forTimeInterval: 0.05) }
+    }
+    #expect(received == expected)
+    #expect(!FileManager.default.fileExists(atPath: fixture.b.appendingPathComponent("excluded").path))
+
+    try? aToB.fileHandleForWriting.close(); try? bToA.fileHandleForWriting.close()
+    try Data().write(to: fixture.a.appendingPathComponent("wake"))
+    try Data().write(to: fixture.b.appendingPathComponent("wake"))
+    #expect(sessions.wait(timeout: .now() + 5) == .success)
+}
+
 @Test("framed sessions synchronize large projects in both directions")
 func framedSessionLargeBidirectionalPacks() throws {
     let fixture = try Fixture()

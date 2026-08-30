@@ -40,9 +40,11 @@ that single full-duplex stream. macOS uses FSEvents and Linux uses inotify only
 to wake the engine; every wake re-reads durable state through Git.
 
 Only immediate child directories are projects. The child directory name is
-the pairing key for this first version. A catalog message creates a missing
-peer project with `git init <root>/<name>`, producing only `.git` and no
-checkout. Names containing path separators, `.` or `..` are rejected.
+the pairing key for this first version. A session may carry an explicit project
+allow-list; names outside it are neither advertised nor accepted. A catalog
+message creates a missing enabled peer project with `git init <root>/<name>`,
+producing only `.git` and no checkout. Names containing path separators, `.` or
+`..` are rejected.
 
 The Mac app edits one JSON configuration and controls a per-user `launchd`
 agent. The agent is the same headless executable used on Linux.
@@ -55,7 +57,7 @@ Each direction has one serialized writer, so an update control frame and its
 following pack cannot interleave.
 
 1. Both sides send `hello(protocol version, machine, source epoch)` and
-   `catalog(project names)`. An incompatible version, malformed epoch, duplicate
+   `catalog(enabled project names)`. An incompatible version, malformed epoch, duplicate
    hello, or control message before hello terminates the session.
 2. A receiver initializes missing projects and replies with an `inventory` of
    object IDs already reachable from its refs.
@@ -102,8 +104,8 @@ process to own a state file.
 
 - **Compromised peer:** it may send arbitrary bytes, names, and object IDs.
   Project/machine/ref inputs are validated; Git validates packs and object
-  names. The only mutation capability maps accepted source refs beneath the
-  two sync namespaces.
+  names. A selective session rejects repositories outside its allow-list. The
+  only mutation capability maps accepted source refs beneath the two sync namespaces.
 - **Interrupted/corrupt pack:** `index-pack` fails without publishing a ref.
   Already installed unreachable objects are harmless.
 - **Crash after pack install:** restart repeats the transfer and publication.

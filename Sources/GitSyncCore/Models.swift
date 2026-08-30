@@ -8,14 +8,17 @@ public struct Configuration: Codable, Equatable, Sendable {
     public var peer: String
     public var remoteRoot: String
     public var remoteExecutable: String
+    public var repositories: [String]?
 
     public init(root: String, machine: String, peer: String, remoteRoot: String,
-                remoteExecutable: String = Configuration.defaultRemoteExecutable) {
+                remoteExecutable: String = Configuration.defaultRemoteExecutable,
+                repositories: [String]? = nil) {
         self.root = root
         self.machine = machine
         self.peer = peer
         self.remoteRoot = remoteRoot
         self.remoteExecutable = remoteExecutable
+        self.repositories = repositories
     }
 
     public func validate() throws {
@@ -29,6 +32,7 @@ public struct Configuration: Codable, Equatable, Sendable {
         guard !remoteRoot.isEmpty, !remoteExecutable.isEmpty else {
             throw SyncError.invalidConfiguration("Remote folder and executable are required")
         }
+        for repository in repositories ?? [] { try Validator.project(repository) }
     }
 
     public var expandedRoot: URL {
@@ -37,6 +41,16 @@ public struct Configuration: Codable, Equatable, Sendable {
 
     public static func load(_ url: URL) throws -> Configuration {
         try JSONDecoder().decode(Configuration.self, from: Data(contentsOf: url))
+    }
+}
+
+public struct PeerInspection: Codable, Equatable, Sendable {
+    public let machine: String
+    public let repositories: [String]
+
+    public init(machine: String, repositories: [String]) {
+        self.machine = machine
+        self.repositories = repositories
     }
 }
 

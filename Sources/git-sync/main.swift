@@ -11,6 +11,12 @@ func value(_ name: String, in arguments: [String]) -> String? {
     return arguments[index + 1]
 }
 
+func values(_ name: String, in arguments: [String]) -> [String] {
+    arguments.indices.compactMap { index in
+        arguments[index] == name && arguments.indices.contains(index + 1) ? arguments[index + 1] : nil
+    }
+}
+
 func required(_ name: String, in arguments: [String]) throws -> String {
     guard let result = value(name, in: arguments) else {
         throw SyncError.invalidConfiguration("Missing \(name)")
@@ -33,8 +39,9 @@ let usage = """
 Usage:
   git-sync run --root PATH --machine NAME --peer SSH_TARGET --remote-root PATH [--remote-executable PATH] [--state PATH]
   git-sync run --config PATH [--state PATH]
-  git-sync daemon --stdio --root PATH [--machine NAME] [--state PATH]
+  git-sync daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--state PATH]
   git-sync list --root PATH
+  git-sync inspect --root PATH [--machine NAME]
   git-sync sync-once --source-root PATH --destination-root PATH --machine NAME [--state PATH]
 """
 
@@ -65,11 +72,20 @@ do {
     case "daemon":
         guard arguments.contains("--stdio") else { throw SyncError.invalidConfiguration("daemon requires --stdio") }
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
-        try Runner.serve(root: root, machine: value("--machine", in: arguments) ?? defaultMachine(), stateURL: stateURL, logger: log)
+        let repositories = values("--repository", in: arguments)
+        try Runner.serve(root: root, machine: value("--machine", in: arguments) ?? defaultMachine(),
+                         stateURL: stateURL,
+                         repositories: arguments.contains("--selective") ? Set(repositories) : nil,
+                         logger: log)
     case "list":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
         let data = try JSONEncoder().encode(Repository.discover(in: root).map(\.name))
         print(String(decoding: data, as: UTF8.self))
+    case "inspect":
+        let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
+        let inspection = PeerInspection(machine: value("--machine", in: arguments) ?? defaultMachine(),
+                                        repositories: try Repository.discover(in: root).map(\.name))
+        print(String(decoding: try JSONEncoder().encode(inspection), as: UTF8.self))
     case "sync-once":
         let source = URL(fileURLWithPath: NSString(string: try required("--source-root", in: arguments)).expandingTildeInPath)
         let destination = URL(fileURLWithPath: NSString(string: try required("--destination-root", in: arguments)).expandingTildeInPath)

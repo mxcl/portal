@@ -262,6 +262,19 @@ func hostDiscoverySelection() throws {
     }
 }
 
+@Test("local discovery removes deleted local-only folders")
+func localDiscoveryRemovesDeletedFolders() throws {
+    var configuration = AppConfiguration(root: "/tmp", machine: "A")
+    try configuration.discoverLocal(["deleted", "shared"])
+    let host = SyncHost(machine: "B", peer: "b", root: "/tmp")
+    try configuration.addHost(host, repositories: ["shared"])
+
+    try configuration.discoverLocal([])
+
+    #expect(configuration.folders.map(\.name) == ["shared"])
+    #expect(configuration.folders.first?.availableLocally == false)
+}
+
 @Test("divergent branches remain independent and available on both machines")
 func divergentBranches() throws {
     let fixture = try Fixture(); try fixture.cloneToB()

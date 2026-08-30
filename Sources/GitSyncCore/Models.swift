@@ -165,6 +165,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         for name in normalized where !folders.contains(where: { $0.name == name }) {
             folders.append(SyncFolder(name: name, isLocal: true, availableLocally: true))
         }
+        folders.removeAll { !$0.availableLocally && $0.availableHosts.isEmpty }
         folders.sort { $0.name < $1.name }
     }
 

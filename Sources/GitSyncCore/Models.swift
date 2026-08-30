@@ -1,5 +1,9 @@
 import Foundation
 
+public enum SyncProtocol {
+    public static let version = 2
+}
+
 public struct Configuration: Codable, Equatable, Sendable {
     public static let defaultRemoteExecutable = "/Applications/Git Sync.app/Contents/Resources/git-sync"
 
@@ -45,12 +49,123 @@ public struct Configuration: Codable, Equatable, Sendable {
 }
 
 public struct PeerInspection: Codable, Equatable, Sendable {
+    public let version: Int
     public let machine: String
     public let repositories: [String]
 
-    public init(machine: String, repositories: [String]) {
+    public init(version: Int, machine: String, repositories: [String]) {
+        self.version = version
         self.machine = machine
         self.repositories = repositories
+    }
+}
+
+public struct SyncHost: Codable, Equatable, Identifiable, Sendable {
+    public let id: UUID
+    public var machine: String
+    public var peer: String
+    public var root: String
+    public var executable: String
+
+    public init(id: UUID = UUID(), machine: String, peer: String, root: String,
+                executable: String = Configuration.defaultRemoteExecutable) {
+        self.id = id
+        self.machine = machine
+        self.peer = peer
+        self.root = root
+        self.executable = executable
+    }
+}
+
+public struct SyncFolder: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { name }
+    public let name: String
+    public var isLocal: Bool
+    public var hosts: Set<UUID>
+    public var availableLocally: Bool
+    public var availableHosts: Set<UUID>
+
+    public init(name: String, isLocal: Bool = false, hosts: Set<UUID> = [],
+                availableLocally: Bool = false, availableHosts: Set<UUID> = []) {
+        self.name = name.precomposedStringWithCanonicalMapping
+        self.isLocal = isLocal
+        self.hosts = hosts
+        self.availableLocally = availableLocally
+        self.availableHosts = availableHosts
+    }
+}
+
+public struct AppConfiguration: Codable, Equatable, Sendable {
+    public var root: String
+    public var machine: String
+    public var hosts: [SyncHost]
+    public var folders: [SyncFolder]
+
+    public init(root: String, machine: String, hosts: [SyncHost] = [], folders: [SyncFolder] = []) {
+        self.root = root
+        self.machine = machine
+        self.hosts = hosts
+        self.folders = folders
+    }
+
+    public mutating func discoverLocal(_ names: [String]) throws {
+        let normalized = try validatedNames(names)
+        let found = Set(normalized)
+        for index in folders.indices {
+            folders[index].availableLocally = found.contains(folders[index].name)
+        }
+        for name in normalized where !folders.contains(where: { $0.name == name }) {
+            folders.append(SyncFolder(name: name, isLocal: true, availableLocally: true))
+        }
+        folders.sort { $0.name < $1.name }
+    }
+
+    @discardableResult
+    public mutating func addHost(_ host: SyncHost, repositories: [String]) throws -> [String] {
+        try Validator.machine(host.machine)
+        guard !host.peer.isEmpty, !host.peer.hasPrefix("-") else {
+            throw SyncError.invalidConfiguration("Invalid SSH peer")
+        }
+        guard !host.root.isEmpty, !host.executable.isEmpty else {
+            throw SyncError.invalidConfiguration("Remote folder and executable are required")
+        }
+        guard !hosts.contains(where: { $0.peer == host.peer || $0.machine == host.machine }) else {
+            throw SyncError.invalidConfiguration("That host is already added")
+        }
+        let names = try validatedNames(repositories)
+        hosts.append(host)
+        hosts.sort { $0.machine.localizedStandardCompare($1.machine) == .orderedAscending }
+        for name in names {
+            if let index = folders.firstIndex(where: { $0.name == name }) {
+                folders[index].hosts.insert(host.id)
+                folders[index].availableHosts.insert(host.id)
+            } else {
+                folders.append(SyncFolder(name: name, hosts: [host.id], availableHosts: [host.id]))
+            }
+        }
+        folders.sort { $0.name < $1.name }
+        return folders.filter { $0.availableLocally && $0.availableHosts.contains(host.id) }.map(\.name)
+    }
+
+    public mutating func removeHost(_ id: UUID) {
+        hosts.removeAll { $0.id == id }
+        for index in folders.indices {
+            folders[index].hosts.remove(id)
+            folders[index].availableHosts.remove(id)
+        }
+        folders.removeAll { !$0.availableLocally && $0.availableHosts.isEmpty }
+    }
+
+    public func repositories(for hostID: UUID) -> [String] {
+        folders.filter { $0.isLocal && $0.hosts.contains(hostID) }.map(\.name).sorted()
+    }
+
+    private func validatedNames(_ names: [String]) throws -> [String] {
+        try names.map {
+            let name = $0.precomposedStringWithCanonicalMapping
+            try Validator.project(name)
+            return name
+        }
     }
 }
 

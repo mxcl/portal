@@ -8,6 +8,9 @@ public enum Runner {
             arguments: ["inspect", "--root", configuration.remoteRoot]
         )
         let inspection = try JSONDecoder().decode(PeerInspection.self, from: data)
+        guard inspection.version == WireMessage.protocolVersion else {
+            throw SyncError.invalidProtocol("Unsupported protocol version: \(inspection.version)")
+        }
         try Validator.machine(inspection.machine)
         for name in inspection.repositories { try Validator.project(name) }
         return inspection

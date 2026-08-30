@@ -197,6 +197,26 @@ func preflightOverlap() {
                           remote: ["shared", "other", "a", "shādoe"]) == ["a", "shared", "shādoe"])
 }
 
+@Test("host discovery prepopulates locations but sync requires both hosts")
+func hostDiscoverySelection() throws {
+    var configuration = AppConfiguration(root: "/tmp", machine: "A")
+    try configuration.discoverLocal(["local", "shared"])
+    let host = SyncHost(machine: "B", peer: "b", root: "/tmp")
+
+    let matches = try configuration.addHost(host, repositories: ["remote", "shared"])
+
+    #expect(matches == ["shared"])
+    #expect(configuration.repositories(for: host.id) == ["shared"])
+    let remote = try #require(configuration.folders.first { $0.name == "remote" })
+    #expect(!remote.isLocal)
+    #expect(remote.hosts == [host.id])
+
+    configuration.folders[configuration.folders.firstIndex { $0.name == "remote" }!].isLocal = true
+    #expect(configuration.repositories(for: host.id) == ["remote", "shared"])
+    configuration.folders[configuration.folders.firstIndex { $0.name == "shared" }!].hosts.remove(host.id)
+    #expect(configuration.repositories(for: host.id) == ["remote"])
+}
+
 @Test("divergent branches remain independent and available on both machines")
 func divergentBranches() throws {
     let fixture = try Fixture(); try fixture.cloneToB()

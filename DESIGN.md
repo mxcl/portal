@@ -33,11 +33,12 @@ for the user.
 
 ## Architecture
 
-`git-sync run` owns one source parent and one long-lived
+Each `git-sync run` owns one source parent and one long-lived
 `ssh -T <peer> git-sync daemon --stdio …` child process. Both endpoints run the
 same session engine, so repository discovery and ref transfer are symmetric on
-that single full-duplex stream. macOS uses FSEvents and Linux uses inotify only
-to wake the engine; every wake re-reads durable state through Git.
+that single full-duplex stream. The Mac app starts one such process per host
+that has at least one enabled project. macOS uses FSEvents and Linux uses
+inotify only to wake the engine; every wake re-reads durable state through Git.
 
 Only immediate child directories are projects. The child directory name is
 the pairing key for this first version. A session may carry an explicit project
@@ -46,8 +47,18 @@ message creates a missing enabled peer project with `git init <root>/<name>`,
 producing only `.git` and no checkout. Names containing path separators, `.` or
 `..` are rejected.
 
-The Mac app edits one JSON configuration and controls a per-user `launchd`
-agent. The agent is the same headless executable used on Linux.
+The Mac app stores one local root, a table of inspected SSH hosts, and a folder
+selection matrix. Adding a host first runs its installed helper's `inspect`
+command; an unreachable host, missing helper, invalid response, or incompatible
+protocol is rejected before configuration changes. Inspection prepopulates the
+matrix from repositories already present on each host. A project participates
+in a connection only when both the local and remote host cells are selected, so
+disabling either cell stops both directions. Equal names already present at
+both ends require explicit confirmation before the host is added.
+
+The app controls its own per-user login item and writes one connection and
+ordering-state file per host. The bundled helper is the same headless executable
+used on Linux.
 
 ## Protocol
 
@@ -136,7 +147,6 @@ ref.
 3. Native FSEvents/inotify trigger.
 4. SwiftUI controller, launch agent, and app installer.
 
-Stable repository pairing identities, multiple peers, repository-wide atomic
-snapshots, systemd packaging, promotion actions, and transfer optimizations stay
-out until the proof of concept needs them. None may weaken the ownership
-invariant above.
+Stable repository pairing identities, repository-wide atomic snapshots,
+systemd packaging, promotion actions, and transfer optimizations stay out until
+the proof of concept needs them. None may weaken the ownership invariant above.

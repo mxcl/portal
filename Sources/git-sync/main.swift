@@ -37,7 +37,7 @@ func defaultStateURL() -> URL {
 
 let usage = """
 Usage:
-  git-sync run --root PATH --machine NAME --peer SSH_TARGET --remote-root PATH [--remote-executable PATH] [--state PATH]
+  git-sync run --root PATH --machine NAME --peer SSH_TARGET --remote-root PATH [--remote-executable PATH] [--selective --repository NAME ...] [--state PATH]
   git-sync run --config PATH [--state PATH]
   git-sync daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--state PATH]
   git-sync list --root PATH
@@ -65,7 +65,8 @@ do {
                 machine: try required("--machine", in: arguments),
                 peer: try required("--peer", in: arguments),
                 remoteRoot: try required("--remote-root", in: arguments),
-                remoteExecutable: value("--remote-executable", in: arguments) ?? Configuration.defaultRemoteExecutable
+                remoteExecutable: value("--remote-executable", in: arguments) ?? Configuration.defaultRemoteExecutable,
+                repositories: arguments.contains("--selective") ? values("--repository", in: arguments) : nil
             )
         }
         try Runner.connect(configuration, stateURL: stateURL, logger: log)
@@ -83,7 +84,8 @@ do {
         print(String(decoding: data, as: UTF8.self))
     case "inspect":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
-        let inspection = PeerInspection(machine: value("--machine", in: arguments) ?? defaultMachine(),
+        let inspection = PeerInspection(version: SyncProtocol.version,
+                                        machine: value("--machine", in: arguments) ?? defaultMachine(),
                                         repositories: try Repository.discover(in: root).map(\.name))
         print(String(decoding: try JSONEncoder().encode(inspection), as: UTF8.self))
     case "sync-once":

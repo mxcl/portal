@@ -24,12 +24,6 @@ func required(_ name: String, in arguments: [String]) throws -> String {
     return result
 }
 
-func defaultMachine() -> String {
-    let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-    let name = ProcessInfo.processInfo.hostName.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
-    return String(name).trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
-}
-
 func defaultStateURL() -> URL {
     FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".local/state/git-sync/state.json")
@@ -75,7 +69,7 @@ do {
         guard arguments.contains("--stdio") else { throw SyncError.invalidConfiguration("daemon requires --stdio") }
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
         let repositories = values("--repository", in: arguments)
-        try Runner.serve(root: root, machine: value("--machine", in: arguments) ?? defaultMachine(),
+        try Runner.serve(root: root, machine: value("--machine", in: arguments) ?? Configuration.defaultMachine,
                          stateURL: stateURL,
                          repositories: arguments.contains("--selective") ? Set(repositories) : nil,
                          logger: log)
@@ -86,7 +80,7 @@ do {
     case "inspect":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
         let inspection = PeerInspection(version: SyncProtocol.version,
-                                        machine: value("--machine", in: arguments) ?? defaultMachine(),
+                                        machine: value("--machine", in: arguments) ?? Configuration.defaultMachine,
                                         repositories: try Repository.discover(in: root).map(\.name))
         print(String(decoding: try JSONEncoder().encode(inspection), as: UTF8.self))
     case "sync-once":

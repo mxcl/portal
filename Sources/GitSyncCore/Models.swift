@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(SystemConfiguration)
+import SystemConfiguration
+#endif
 
 public enum SyncProtocol {
     public static let version = 2
@@ -6,6 +9,23 @@ public enum SyncProtocol {
 
 public struct Configuration: Codable, Equatable, Sendable {
     public static let defaultRemoteExecutable = "/Applications/Git Sync.app/Contents/Resources/git-sync"
+
+    public static var defaultMachine: String {
+        #if canImport(SystemConfiguration)
+        if let name = SCDynamicStoreCopyComputerName(nil, nil) {
+            let name = sanitizedMachine(name as String)
+            if !name.isEmpty { return name }
+        }
+        #endif
+        let name = sanitizedMachine(ProcessInfo.processInfo.hostName)
+        return name.isEmpty ? "machine" : name
+    }
+
+    static func sanitizedMachine(_ value: String) -> String {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        let name = value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+        return String(name).trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
+    }
 
     public var root: String
     public var machine: String
@@ -176,6 +196,19 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         }
         folders.sort { $0.name < $1.name }
         return folders.filter { $0.availableLocally && $0.availableHosts.contains(host.id) }.map(\.name)
+    }
+
+    public mutating func updateHostIdentity(_ id: UUID, machine: String) throws {
+        try Validator.machine(machine)
+        guard machine != self.machine else {
+            throw SyncError.invalidConfiguration("A host cannot use this Mac's machine name")
+        }
+        guard !hosts.contains(where: { $0.id != id && $0.machine == machine }) else {
+            throw SyncError.invalidConfiguration("That host is already added")
+        }
+        guard let index = hosts.firstIndex(where: { $0.id == id }) else { return }
+        hosts[index].machine = machine
+        hosts.sort { $0.machine.localizedStandardCompare($1.machine) == .orderedAscending }
     }
 
     public mutating func removeHost(_ id: UUID) {

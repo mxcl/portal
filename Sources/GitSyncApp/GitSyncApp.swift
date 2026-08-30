@@ -61,7 +61,7 @@ final class AppModel: ObservableObject {
     private var syncProcesses: [UUID: Process] = [:]
 
     init() {
-        configuration = AppConfiguration(root: "", machine: Self.defaultMachine)
+        configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
         removeLegacyAgent()
         if let data = try? Data(contentsOf: configURL) {
             if let saved = try? JSONDecoder().decode(AppConfiguration.self, from: data) {
@@ -72,10 +72,15 @@ final class AppModel: ObservableObject {
             }
         }
         refreshLocalNow()
-        if SMAppService.mainApp.status == .enabled {
+        let startAfterInspection = SMAppService.mainApp.status == .enabled
+        if !configuration.hosts.isEmpty {
+            isChecking = true
+            status = "Checking Hosts"
+            Task { await refreshHostIdentities(startAfter: startAfterInspection) }
+        } else if startAfterInspection {
             do { try launchAll() } catch { fail(error) }
         } else {
-            status = configuration.hosts.isEmpty ? "Add a host" : "Stopped"
+            status = "Add a host"
         }
     }
 
@@ -351,6 +356,26 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func refreshHostIdentities(startAfter: Bool) async {
+        for host in configuration.hosts {
+            let probe = Configuration(root: configuration.root, machine: configuration.machine,
+                                      peer: host.peer, remoteRoot: host.root,
+                                      remoteExecutable: host.executable, repositories: [])
+            if let inspection = try? await Task.detached(priority: .userInitiated, operation: {
+                try Runner.inspectPeer(probe)
+            }).value {
+                try? configuration.updateHostIdentity(host.id, machine: inspection.machine)
+            }
+        }
+        isChecking = false
+        try? save()
+        if startAfter {
+            do { try launchAll() } catch { fail(error) }
+        } else {
+            status = configuration.hosts.isEmpty ? "Add a host" : "Stopped"
+        }
+    }
+
     private var expandedRoot: URL {
         URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath).standardizedFileURL
     }
@@ -366,10 +391,6 @@ final class AppModel: ObservableObject {
         try? FileManager.default.removeItem(at: legacyAgentURL)
     }
 
-    private static var defaultMachine: String {
-        ProcessInfo.processInfo.hostName
-            .replacingOccurrences(of: "[^A-Za-z0-9._-]", with: "-", options: .regularExpression)
-    }
 }
 
 struct StatusMenu: View {

@@ -1,6 +1,9 @@
 import Foundation
 import Testing
 @testable import GitSyncCore
+#if canImport(SystemConfiguration)
+import SystemConfiguration
+#endif
 
 @Suite(.serialized)
 struct GitSyncTests {
@@ -9,6 +12,14 @@ struct GitSyncTests {
 func defaultPeerExecutable() {
     let configuration = Configuration(root: "/", machine: "mac", peer: "peer", remoteRoot: "/tmp")
     #expect(configuration.remoteExecutable == "/Applications/Git Sync.app/Contents/Resources/git-sync")
+}
+
+@Test("machine defaults to the macOS Computer Name")
+func defaultMachineName() {
+    #if canImport(SystemConfiguration)
+    let computerName = SCDynamicStoreCopyComputerName(nil, nil)! as String
+    #expect(Configuration.defaultMachine == Configuration.sanitizedMachine(computerName))
+    #endif
 }
 
 @Test("git stdin finishes before process cleanup")
@@ -242,6 +253,9 @@ func hostDiscoverySelection() throws {
     #expect(configuration.repositories(for: host.id) == ["remote", "shared"])
     configuration.folders[configuration.folders.firstIndex { $0.name == "shared" }!].hosts.remove(host.id)
     #expect(configuration.repositories(for: host.id) == ["remote"])
+
+    try configuration.updateHostIdentity(host.id, machine: "Pangolin")
+    #expect(configuration.hosts.first?.machine == "Pangolin")
 
     #expect(throws: (any Error).self) {
         try configuration.addHost(SyncHost(machine: "A", peer: "self", root: "/tmp"), repositories: [])

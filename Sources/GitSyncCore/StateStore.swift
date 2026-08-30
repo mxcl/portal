@@ -1,22 +1,55 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 private struct StateDocument: Codable {
     var source: [String: StoredRef] = [:]
     var inbound: [String: UInt64] = [:]
+    var sourceEpoch: String?
+}
+
+private final class StateFileLock {
+    private let descriptor: Int32
+
+    init(stateURL: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let lockURL = stateURL.appendingPathExtension("lock")
+        descriptor = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
+        guard descriptor >= 0 else {
+            throw SyncError.invalidConfiguration("Could not open state lock: \(lockURL.path)")
+        }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            close(descriptor)
+            throw SyncError.invalidConfiguration("Another git-sync process is using state: \(stateURL.path)")
+        }
+    }
+
+    deinit { close(descriptor) }
 }
 
 public final class StateStore {
     private let url: URL
+    private let fileLock: StateFileLock
     private let lock = NSLock()
     private var document: StateDocument
+    let sourceEpoch: String
 
     public init(url: URL) throws {
         self.url = url
+        fileLock = try StateFileLock(stateURL: url)
         if let data = try? Data(contentsOf: url) {
             document = try JSONDecoder().decode(StateDocument.self, from: data)
         } else {
             document = StateDocument()
         }
+        if document.sourceEpoch == nil { document.sourceEpoch = UUID().uuidString }
+        sourceEpoch = document.sourceEpoch!
+        try Validator.epoch(sourceEpoch)
+        try save()
     }
 
     public func updates(machine: String, repository: String, refs: [String: String], full: Bool) throws -> [RefUpdate] {
@@ -49,15 +82,16 @@ public final class StateStore {
         }
     }
 
-    public func acceptedGeneration(peer: String, repository: String, ref: String) -> UInt64 {
+    public func acceptedGeneration(peer: String, epoch: String, repository: String, ref: String) -> UInt64 {
         lock.lock(); defer { lock.unlock() }
-        return document.inbound[key(peer, repository, ref)] ?? 0
+        return document.inbound[inboundKey(peer, epoch, repository, ref)] ?? 0
     }
 
     @discardableResult
-    public func accept(generation: UInt64, peer: String, repository: String, ref: String) throws -> Bool {
+    public func accept(generation: UInt64, peer: String, epoch: String,
+                       repository: String, ref: String) throws -> Bool {
         lock.lock(); defer { lock.unlock() }
-        let itemKey = key(peer, repository, ref)
+        let itemKey = inboundKey(peer, epoch, repository, ref)
         guard generation > (document.inbound[itemKey] ?? 0) else { return false }
         document.inbound[itemKey] = generation
         try save()
@@ -66,6 +100,10 @@ public final class StateStore {
 
     private func key(_ machine: String, _ repository: String, _ ref: String) -> String {
         "\(machine)\u{1f}\(repository)\u{1f}\(ref)"
+    }
+
+    private func inboundKey(_ peer: String, _ epoch: String, _ repository: String, _ ref: String) -> String {
+        "\(peer)\u{1f}\(epoch)\u{1f}\(repository)\u{1f}\(ref)"
     }
 
     private func save() throws {

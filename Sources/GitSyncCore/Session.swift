@@ -9,6 +9,7 @@ public final class SyncSession {
     private let lock = NSLock()
     private let controlQueue = DispatchQueue(label: "git-sync.control")
     private var peerMachine: String?
+    private var peerEpoch: String?
     private var peerKnown: [String: Set<String>] = [:]
     private var needsFullSync = Set<String>()
     private var repositories: [String: Repository] = [:]
@@ -26,7 +27,7 @@ public final class SyncSession {
 
     public func run() throws {
         try refreshCatalog()
-        try connection.send(.hello(machine))
+        try connection.send(.hello(machine, epoch: state.sourceEpoch))
         try connection.send(.catalog(Array(repositories.keys).sorted()))
 
         let receiver = DispatchGroup()
@@ -70,11 +71,20 @@ public final class SyncSession {
             let message = try connection.receiveMessage()
             switch message.type {
             case "hello":
-                guard let peer = message.machine else { throw SyncError.invalidProtocol("HELLO has no machine") }
-                try Validator.machine(peer)
-                lock.lock(); peerMachine = peer; lock.unlock()
+                guard message.version == WireMessage.protocolVersion else {
+                    throw SyncError.invalidProtocol("Unsupported protocol version: \(message.version.map(String.init) ?? "missing")")
+                }
+                guard let peer = message.machine, let epoch = message.epoch else {
+                    throw SyncError.invalidProtocol("HELLO is incomplete")
+                }
+                try Validator.machine(peer); try Validator.epoch(epoch)
+                lock.lock()
+                guard peerMachine == nil else { lock.unlock(); throw SyncError.invalidProtocol("Duplicate HELLO") }
+                peerMachine = peer; peerEpoch = epoch
+                lock.unlock()
                 logger("connected to \(peer)")
             case "catalog":
+                _ = try currentPeer()
                 for name in message.repositories ?? [] {
                     lock.lock(); let isNew = repositories[name] == nil; lock.unlock()
                     let repository = try Repository.ensure(name: name, in: root)
@@ -83,6 +93,7 @@ public final class SyncSession {
                     if isNew { sendControl(.catalog([name])) }
                 }
             case "inventory":
+                _ = try currentPeer()
                 guard let name = message.repository, let known = message.known else {
                     throw SyncError.invalidProtocol("INVENTORY is incomplete")
                 }
@@ -94,6 +105,7 @@ public final class SyncSession {
                 let pack = update.oid == nil ? nil : try connection.receivePack()
                 try receive(update, pack: pack)
             case "ack":
+                _ = try currentPeer()
                 if let name = message.repository, let oid = message.oid {
                     try Validator.project(name); try Validator.oid(oid)
                     lock.lock(); peerKnown[name, default: []].insert(oid); lock.unlock()
@@ -107,8 +119,10 @@ public final class SyncSession {
     private func receive(_ update: RefUpdate, pack: Data?) throws {
         try Validator.project(update.repository)
         try Validator.sourceRef(update.sourceRef)
-        let peer = try currentPeer()
-        if update.generation <= state.acceptedGeneration(peer: peer, repository: update.repository, ref: update.sourceRef) {
+        let (peer, epoch) = try currentPeer()
+        if update.generation <= state.acceptedGeneration(
+            peer: peer, epoch: epoch, repository: update.repository, ref: update.sourceRef
+        ) {
             sendControl(.ack(update)); return
         }
         let repository = try Repository.ensure(name: update.repository, in: root)
@@ -119,7 +133,8 @@ public final class SyncSession {
         let writer = try PeerRefWriter(repository: repository, peer: peer)
         try writer.apply(sourceRef: update.sourceRef, oid: update.oid)
         try writer.pruneExpired()
-        try state.accept(generation: update.generation, peer: peer, repository: update.repository, ref: update.sourceRef)
+        try state.accept(generation: update.generation, peer: peer, epoch: epoch,
+                         repository: update.repository, ref: update.sourceRef)
         sendControl(.ack(update))
         logger("\(update.repository): \(update.sourceRef) -> \(update.oid?.prefix(12) ?? "deleted")")
     }
@@ -151,10 +166,12 @@ public final class SyncSession {
         lock.lock(); repositories = Dictionary(uniqueKeysWithValues: found.map { ($0.name, $0) }); lock.unlock()
     }
 
-    private func currentPeer() throws -> String {
+    private func currentPeer() throws -> (machine: String, epoch: String) {
         lock.lock(); defer { lock.unlock() }
-        guard let peerMachine else { throw SyncError.invalidProtocol("UPDATE arrived before HELLO") }
-        return peerMachine
+        guard let peerMachine, let peerEpoch else {
+            throw SyncError.invalidProtocol("Message arrived before HELLO")
+        }
+        return (peerMachine, peerEpoch)
     }
 
     private var isStopped: Bool { lock.lock(); defer { lock.unlock() }; return stopped }

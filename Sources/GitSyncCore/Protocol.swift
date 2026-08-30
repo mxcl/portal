@@ -6,8 +6,12 @@ import Glibc
 #endif
 
 struct WireMessage: Codable {
+    static let protocolVersion = 1
+
     var type: String
+    var version: Int?
     var machine: String?
+    var epoch: String?
     var repositories: [String]?
     var repository: String?
     var known: [String]?
@@ -15,7 +19,9 @@ struct WireMessage: Codable {
     var oid: String?
     var message: String?
 
-    static func hello(_ machine: String) -> WireMessage { WireMessage(type: "hello", machine: machine) }
+    static func hello(_ machine: String, epoch: String) -> WireMessage {
+        WireMessage(type: "hello", version: protocolVersion, machine: machine, epoch: epoch)
+    }
     static func catalog(_ names: [String]) -> WireMessage { WireMessage(type: "catalog", repositories: names) }
     static func inventory(_ repository: String, known: [String]) -> WireMessage {
         WireMessage(type: "inventory", repository: repository, known: known)

@@ -84,6 +84,12 @@ enum Validator {
             throw SyncError.invalidProtocol("Invalid object ID")
         }
     }
+
+    static func epoch(_ value: String) throws {
+        guard UUID(uuidString: value) != nil else {
+            throw SyncError.invalidProtocol("Invalid source epoch")
+        }
+    }
 }
 
 public struct RefUpdate: Codable, Equatable {

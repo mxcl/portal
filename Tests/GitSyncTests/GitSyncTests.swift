@@ -21,7 +21,9 @@ func disconnectedPeerDoesNotSignal() throws {
     let pipe = Pipe()
     try pipe.fileHandleForReading.close()
     let connection = FramedConnection(input: .nullDevice, output: pipe.fileHandleForWriting)
-    #expect(throws: (any Error).self) { try connection.send(.hello("test")) }
+    #expect(throws: (any Error).self) {
+        try connection.send(.hello("test", epoch: UUID().uuidString))
+    }
 }
 
 private func git(_ arguments: [String], input: String? = nil) throws -> String {
@@ -135,12 +137,41 @@ func rejectsUnsafeInput() throws {
 @Test("stale generation remains distinguishable")
 func generationsPersist() throws {
     let fixture = try Fixture()
-    let store = try StateStore(url: fixture.state)
-    try store.accept(generation: 2, peer: "A", repository: "project", ref: "refs/heads/main")
-    #expect(try !store.accept(generation: 1, peer: "A", repository: "project", ref: "refs/heads/main"))
-    #expect(store.acceptedGeneration(peer: "A", repository: "project", ref: "refs/heads/main") == 2)
+    let epoch: String
+    do {
+        let store = try StateStore(url: fixture.state)
+        epoch = store.sourceEpoch
+        try store.accept(generation: 2, peer: "A", epoch: epoch,
+                         repository: "project", ref: "refs/heads/main")
+        #expect(try !store.accept(generation: 1, peer: "A", epoch: epoch,
+                                 repository: "project", ref: "refs/heads/main"))
+        #expect(store.acceptedGeneration(peer: "A", epoch: epoch,
+                                        repository: "project", ref: "refs/heads/main") == 2)
+    }
     let reopened = try StateStore(url: fixture.state)
-    #expect(reopened.acceptedGeneration(peer: "A", repository: "project", ref: "refs/heads/main") == 2)
+    #expect(reopened.sourceEpoch == epoch)
+    #expect(reopened.acceptedGeneration(peer: "A", epoch: epoch,
+                                        repository: "project", ref: "refs/heads/main") == 2)
+}
+
+@Test("a new source epoch does not inherit stale generations")
+func sourceEpochResetsGenerationNamespace() throws {
+    let fixture = try Fixture()
+    let store = try StateStore(url: fixture.state)
+    let oldEpoch = UUID().uuidString
+    let newEpoch = UUID().uuidString
+    try store.accept(generation: 9, peer: "A", epoch: oldEpoch,
+                     repository: "project", ref: "refs/heads/main")
+    #expect(store.acceptedGeneration(peer: "A", epoch: newEpoch,
+                                    repository: "project", ref: "refs/heads/main") == 0)
+}
+
+@Test("state has one writer")
+func stateHasOneWriter() throws {
+    let fixture = try Fixture()
+    let first = try StateStore(url: fixture.state)
+    #expect(throws: (any Error).self) { try StateStore(url: fixture.state) }
+    withExtendedLifetime(first) {}
 }
 
 @Test("preflight returns only sorted repository name matches")

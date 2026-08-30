@@ -1,0 +1,49 @@
+{
+  "color-space-for-untagged-svg-colors" : "display-p3",
+  "fill" : {
+    "linear-gradient" : [
+      "srgb:0.01961,0.04706,0.12157,1.00000",
+      "srgb:0.00000,0.18039,0.32157,1.00000"
+    ],
+    "orientation" : {
+      "start" : {
+        "x" : 0.25,
+        "y" : 0
+      },
+      "stop" : {
+        "x" : 0.75,
+        "y" : 1
+      }
+    }
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "glass" : false,
+          "image-name" : "GitSync.png",
+          "name" : "Peer histories and sync arrows",
+          "position" : {
+            "scale" : 0.84,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.45
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.12
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}

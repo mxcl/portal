@@ -3,6 +3,8 @@ import Foundation
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(Musl)
+import Musl
 #endif
 
 enum Git {
@@ -30,7 +32,7 @@ enum Git {
         DispatchQueue.global().async { error = stderr.fileHandleForReading.readDataToEndOfFile(); group.leave() }
         #if canImport(Darwin)
         _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
-        #elseif canImport(Glibc)
+        #elseif canImport(Glibc) || canImport(Musl)
         _ = signal(SIGPIPE, SIG_IGN)
         #endif
         if !input.isEmpty { try? stdin.fileHandleForWriting.write(contentsOf: input) }

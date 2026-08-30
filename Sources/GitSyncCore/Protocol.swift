@@ -3,6 +3,8 @@ import Foundation
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(Musl)
+import Musl
 #endif
 
 struct WireMessage: Codable {
@@ -55,7 +57,7 @@ final class FramedConnection {
         self.output = output
         #if canImport(Darwin)
         _ = fcntl(output.fileDescriptor, F_SETNOSIGPIPE, 1)
-        #elseif canImport(Glibc)
+        #elseif canImport(Glibc) || canImport(Musl)
         _ = signal(SIGPIPE, SIG_IGN)
         #endif
     }

@@ -1,8 +1,10 @@
 import Foundation
 import GitSyncWatch
-#if os(Linux)
+#if canImport(Glibc)
 import Glibc
-#else
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Darwin)
 import Darwin
 #endif
 

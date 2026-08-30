@@ -415,9 +415,28 @@ struct StatusMenu: View {
     }
 
     private func settingsLink(_ title: String) -> some View {
+        Group {
+            if #available(macOS 14.0, *) {
+                ForegroundSettingsButton(title: title)
+            } else {
+                Button(title) {
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                    NSApplication.shared.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                }
+            }
+        }
+    }
+}
+
+@available(macOS 14.0, *)
+private struct ForegroundSettingsButton: View {
+    @Environment(\.openSettings) private var openSettings
+    let title: String
+
+    var body: some View {
         Button(title) {
             NSApplication.shared.activate(ignoringOtherApps: true)
-            NSApplication.shared.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            openSettings()
         }
     }
 }

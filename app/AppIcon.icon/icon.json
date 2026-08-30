@@ -24,10 +24,10 @@
           "image-name" : "GitSync.png",
           "name" : "Peer histories and sync arrows",
           "position" : {
-            "scale" : 0.84,
+            "scale" : 0.75,
             "translation-in-points" : [
               0,
-              0
+              10
             ]
           }
         }

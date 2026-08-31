@@ -406,7 +406,7 @@ struct StatusMenu: View {
         Text(model.status)
         if !model.menuLogs.isEmpty {
             Divider()
-            Section("Transfers") {
+            Section("Event Log") {
                 ForEach(Array(model.menuLogs.enumerated()), id: \.offset) { Text($0.element) }
             }
         }

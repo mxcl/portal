@@ -215,6 +215,7 @@ final class AppModel: ObservableObject {
     func start() {
         guard !isChecking else { return }
         do {
+            let restart = isRunning
             try save()
             guard configuration.backup != nil || configuration.hosts.contains(where: {
                 !configuration.repositories(for: $0.id).isEmpty
@@ -224,6 +225,7 @@ final class AppModel: ObservableObject {
             if SMAppService.mainApp.status == .notRegistered || SMAppService.mainApp.status == .notFound {
                 try SMAppService.mainApp.register()
             }
+            if restart { stopProcesses() }
             try launchAll()
         } catch { fail(error) }
     }
@@ -480,7 +482,7 @@ struct SettingsView: View {
                     }
                 }
                 .formStyle(.grouped)
-                .disabled(model.configurationLocked)
+                .disabled(model.isChecking || model.showingOverlapConfirmation)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .tabItem { Label("This Mac", systemImage: "desktopcomputer") }
 
@@ -587,9 +589,10 @@ struct SettingsView: View {
                 }
                 Spacer()
                 if model.canStop { Button("Stop Sync", action: model.stop) }
-                Button(model.isChecking ? "Checking…" : "Save & Start", action: model.start)
+                Button(model.isChecking ? "Checking…" : (model.isRunning ? "Save & Restart" : "Save & Start"),
+                       action: model.start)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(model.isChecking || model.isRunning)
+                    .disabled(model.isChecking)
             }
         }
         .scenePadding()

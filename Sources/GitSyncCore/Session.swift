@@ -49,20 +49,32 @@ public final class SyncSession {
             do { try receiveLoop() } catch { logger("session ended: \(error)") }
         }
 
+        lock.lock(); let initial = Array(repositories.values); lock.unlock()
+        var watcher = Watcher(root: root, repositories: initial)
+        var lastCatalogScan = Date()
         while !isStopped {
-            lock.lock(); let watched = Array(repositories.values); lock.unlock()
-            Watcher.wait(root: root, repositories: watched)
+            let fileSystemChanged = watcher.wait()
             guard !isStopped else { break }
+            lock.lock(); let reconciliationPending = !needsFullSync.isEmpty; lock.unlock()
+            // ponytail: repair one-shot watcher gaps every five minutes; use a persistent watcher if lower latency matters.
+            let repairDue = Date().timeIntervalSince(lastCatalogScan) >= 300
+            guard fileSystemChanged || reconciliationPending || repairDue else { continue }
+            let catalogScanNeeded = fileSystemChanged || repairDue
+            if catalogScanNeeded { lastCatalogScan = Date() }
             do {
-                let oldNames = Set(repositories.keys)
-                try refreshCatalog()
-                if Set(repositories.keys) != oldNames {
-                    try connection.send(.catalog(Array(repositories.keys).sorted()))
-                }
-                let current = repositories.values.sorted { $0.name < $1.name }
                 var changed: [String: Set<String>] = [:]
-                for repository in current {
-                    changed[repository.name] = try sendUpdates(for: repository, full: false)
+                if catalogScanNeeded {
+                    lock.lock(); let oldNames = Set(repositories.keys); lock.unlock()
+                    try refreshCatalog()
+                    lock.lock(); let names = Set(repositories.keys); lock.unlock()
+                    if names != oldNames { try connection.send(.catalog(Array(names).sorted())) }
+                }
+                lock.lock(); let current = repositories.values.sorted { $0.name < $1.name }; lock.unlock()
+                if catalogScanNeeded {
+                    watcher = Watcher(root: root, repositories: current)
+                    for repository in current {
+                        changed[repository.name] = try sendUpdates(for: repository, full: false)
+                    }
                 }
                 for repository in current {
                     lock.lock(); let full = needsFullSync.remove(repository.name) != nil; lock.unlock()

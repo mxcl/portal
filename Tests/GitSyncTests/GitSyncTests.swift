@@ -67,6 +67,17 @@ func transferLogs() {
             == "maliwan ← pangolin/refs/heads/main")
 }
 
+@Test("watcher timeout does not report a filesystem change")
+func watcherTimeoutIsIdle() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("git-sync-watch-\(UUID())")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let watcher = Watcher(root: root, repositories: [])
+
+    _ = watcher.wait(timeout: 0.1)
+    #expect(!watcher.wait(timeout: 0.05))
+}
+
 }
 
 private func git(_ arguments: [String], input: String? = nil) throws -> String {

@@ -8,9 +8,10 @@ import Musl
 import Darwin
 #endif
 
-public enum Watcher {
-    // ponytail: one-shot watches reconcile every 2s; keep persistent descriptors if large roots make scans expensive.
-    public static func wait(root: URL, repositories: [Repository], timeout: TimeInterval = 2) {
+public struct Watcher {
+    private let paths: [String]
+
+    public init(root: URL, repositories: [Repository]) {
         var urls = [root]
         for repository in repositories {
             guard let common = repository.commonDirectory else { continue }
@@ -22,12 +23,16 @@ public enum Watcher {
                 }
             }
         }
-        let strings = Array(Set(urls.map(\.path)))
-        let allocated = strings.map { strdup($0) }
+        paths = Array(Set(urls.map(\.path)))
+    }
+
+    // ponytail: the native watch is recreated to observe session state; paths stay cached between events.
+    public func wait(timeout: TimeInterval = 2) -> Bool {
+        let allocated = paths.map { strdup($0) }
         let pointers: [UnsafePointer<CChar>?] = allocated.map { pointer in
             pointer.map { UnsafePointer<CChar>($0) }
         }
         defer { allocated.forEach { free($0) } }
-        _ = git_sync_wait_for_changes(pointers, pointers.count, Int32(timeout * 1000))
+        return git_sync_wait_for_changes(pointers, pointers.count, Int32(timeout * 1000)) != 0
     }
 }

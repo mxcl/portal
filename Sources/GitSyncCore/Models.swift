@@ -89,6 +89,10 @@ public struct PeerRepositoryLocation: Equatable, Sendable {
         }
     }
 
+    var remoteName: String {
+        machine.lowercased().split { $0 == "." || $0 == "_" || $0 == "-" }.joined(separator: "-")
+    }
+
     func url(for repository: String) throws -> String {
         try validate()
         try Validator.project(repository)
@@ -253,7 +257,8 @@ enum Validator {
     static func machine(_ value: String) throws {
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
         guard !value.isEmpty, value != ".", value != "..",
-              value.unicodeScalars.allSatisfy(allowed.contains) else {
+              value.unicodeScalars.allSatisfy(allowed.contains),
+              value.contains(where: { $0.isLetter || $0.isNumber }) else {
             throw SyncError.invalidProtocol("Invalid machine name: \(value)")
         }
     }

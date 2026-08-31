@@ -34,7 +34,8 @@ for the user.
 ## Managed Git remotes
 
 After a peer identifies itself, Git Sync adds it to each enabled local project
-as `sync/<machine>` with URL `<ssh-target>:<remote-root>/<project>`. The remote's
+using its configured machine name in lowercase kebab case, with URL
+`<ssh-target>:<remote-root>/<project>`. The remote's
 fetch mappings reuse the namespaces already owned by that peer:
 
 | Source | Destination |
@@ -45,7 +46,7 @@ fetch mappings reuse the namespaces already owned by that peer:
 Automatic tag following is disabled and pruning is enabled. Stash remains a
 background-only ref because ordinary Git fetch fails when an exact optional
 source ref is absent. Configuration is repaired on reconnect; disabling or
-removing a host leaves its remote in place. A user's `git push sync/<machine>`
+removing a host leaves its remote in place. A user's `git push <machine>`
 is an explicit Git operation and is outside the background replication contract.
 
 ## Architecture
@@ -155,7 +156,7 @@ process to own a state file.
 
 The invariant is structural: background code has no function that writes a
 working tree, index, `HEAD`, local branch, local tag, stash, caller-selected
-ref, or Git configuration outside `remote.sync/<machine>.*`.
+ref, or Git configuration outside the configured lowercase-kebab remote.
 
 ## Implementation plan
 

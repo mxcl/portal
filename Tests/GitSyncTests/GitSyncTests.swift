@@ -219,19 +219,19 @@ func preflightOverlap() {
 func managedGitRemote() throws {
     let fixture = try Fixture()
     let repository = try #require(Repository.discover(in: fixture.a).first)
-    let peer = PeerRepositoryLocation(machine: "B", sshTarget: "b.example", root: "~/src")
+    let peer = PeerRepositoryLocation(machine: "My_Peer.local", sshTarget: "b.example", root: "~/src")
 
     try repository.configureRemote(peer)
 
-    #expect(try git(["-C", repository.url.path, "remote", "get-url", "sync/B"])
+    #expect(try git(["-C", repository.url.path, "remote", "get-url", "my-peer-local"])
             == "b.example:~/src/project")
-    #expect(try git(["-C", repository.url.path, "config", "--get-all", "remote.sync/B.fetch"])
-            == "+refs/heads/*:refs/remotes/sync/B/*\n+refs/tags/*:refs/sync/B/tags/*")
-    #expect(try git(["-C", repository.url.path, "config", "--get", "remote.sync/B.tagOpt"]) == "--no-tags")
-    #expect(try git(["-C", repository.url.path, "config", "--get", "remote.sync/B.prune"]) == "true")
+    #expect(try git(["-C", repository.url.path, "config", "--get-all", "remote.my-peer-local.fetch"])
+            == "+refs/heads/*:refs/remotes/sync/My_Peer.local/*\n+refs/tags/*:refs/sync/My_Peer.local/tags/*")
+    #expect(try git(["-C", repository.url.path, "config", "--get", "remote.my-peer-local.tagOpt"]) == "--no-tags")
+    #expect(try git(["-C", repository.url.path, "config", "--get", "remote.my-peer-local.prune"]) == "true")
 
-    try repository.configureRemote(PeerRepositoryLocation(machine: "B", sshTarget: "new-b", root: "/code/"))
-    #expect(try git(["-C", repository.url.path, "remote", "get-url", "sync/B"])
+    try repository.configureRemote(PeerRepositoryLocation(machine: "My_Peer.local", sshTarget: "new-b", root: "/code/"))
+    #expect(try git(["-C", repository.url.path, "remote", "get-url", "my-peer-local"])
             == "new-b:/code/project")
 }
 

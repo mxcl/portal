@@ -51,12 +51,12 @@ public struct Repository: Equatable {
 
     public func configureRemote(_ peer: PeerRepositoryLocation) throws {
         try peer.validate()
-        let remote = "sync/\(peer.machine)"
+        let remote = peer.remoteName
         let key = "remote.\(remote)"
         _ = try Git.run(["-C", url.path, "config", "--local", "--replace-all",
                          "\(key).url", peer.url(for: name)])
         _ = try Git.run(["-C", url.path, "config", "--local", "--replace-all",
-                         "\(key).fetch", "+refs/heads/*:refs/remotes/\(remote)/*"])
+                         "\(key).fetch", "+refs/heads/*:refs/remotes/sync/\(peer.machine)/*"])
         _ = try Git.run(["-C", url.path, "config", "--local", "--add",
                          "\(key).fetch", "+refs/tags/*:refs/sync/\(peer.machine)/tags/*"])
         _ = try Git.run(["-C", url.path, "config", "--local", "\(key).tagOpt", "--no-tags"])

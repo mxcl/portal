@@ -29,10 +29,10 @@ Branches appear at `refs/remotes/sync/<machine>/…`, tags at
 `refs/sync/<machine>/tags/…`, and stashes at
 `refs/sync/<machine>/stash`.
 
-Each enabled peer is also available as the Git remote `sync/<machine>`, so
-ordinary commands such as `git fetch sync/linux` and `git push sync/linux main`
-work over SSH. Git Sync configures branch and tag fetch mappings without
-changing local branches or tags.
+Each enabled peer is also available as a Git remote named from its configured
+machine name in lowercase kebab case, so ordinary commands such as
+`git fetch linux` and `git push linux main` work over SSH. Git Sync configures
+branch and tag fetch mappings without changing local branches or tags.
 
 If both machines advance `main`, both histories are retained:
 

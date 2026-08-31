@@ -21,11 +21,11 @@ selection. A missing selected project is initialized at the peer as an empty
 folder containing `.git`; files are not checked out.
 
 ```console
-$ git log sync/linux/main
-$ git diff main..sync/linux/main
+$ git log linux/main
+$ git diff main..linux/main
 ```
 
-Branches appear at `refs/remotes/sync/<machine>/…`, tags at
+Branches appear at `refs/remotes/<lowercase-kebab-machine>/…`, tags at
 `refs/sync/<machine>/tags/…`, and stashes at
 `refs/sync/<machine>/stash`.
 
@@ -38,7 +38,7 @@ If both machines advance `main`, both histories are retained:
 
 ```text
 machine A: refs/heads/main          machine B: refs/heads/main
-           refs/remotes/sync/B/main           refs/remotes/sync/A/main
+           refs/remotes/b/main                refs/remotes/a/main
 ```
 
 You decide when to merge, rebase, reset, check out, or incorporate a

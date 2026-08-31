@@ -56,7 +56,7 @@ public struct Repository: Equatable {
         _ = try Git.run(["-C", url.path, "config", "--local", "--replace-all",
                          "\(key).url", peer.url(for: name)])
         _ = try Git.run(["-C", url.path, "config", "--local", "--replace-all",
-                         "\(key).fetch", "+refs/heads/*:refs/remotes/sync/\(peer.machine)/*"])
+                         "\(key).fetch", "+refs/heads/*:refs/remotes/\(remote)/*"])
         _ = try Git.run(["-C", url.path, "config", "--local", "--add",
                          "\(key).fetch", "+refs/tags/*:refs/sync/\(peer.machine)/tags/*"])
         _ = try Git.run(["-C", url.path, "config", "--local", "\(key).tagOpt", "--no-tags"])

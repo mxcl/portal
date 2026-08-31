@@ -90,7 +90,7 @@ public struct PeerRepositoryLocation: Equatable, Sendable {
     }
 
     var remoteName: String {
-        machine.lowercased().split { $0 == "." || $0 == "_" || $0 == "-" }.joined(separator: "-")
+        Validator.remote(machine)
     }
 
     func url(for repository: String) throws -> String {
@@ -254,6 +254,10 @@ public enum SyncError: Error, CustomStringConvertible {
 }
 
 enum Validator {
+    static func remote(_ machine: String) -> String {
+        machine.lowercased().split { $0 == "." || $0 == "_" || $0 == "-" }.joined(separator: "-")
+    }
+
     static func machine(_ value: String) throws {
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
         guard !value.isEmpty, value != ".", value != "..",

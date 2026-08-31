@@ -122,7 +122,7 @@ func ordinaryCommitSafety() throws {
     let remoteMain = try git(["-C", source.path, "rev-parse", "main"])
     try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A", stateURL: fixture.state)
 
-    #expect(try git(["-C", destination.path, "rev-parse", "refs/remotes/sync/A/main"]) == remoteMain)
+    #expect(try git(["-C", destination.path, "rev-parse", "refs/remotes/a/main"]) == remoteMain)
     #expect(try git(["-C", destination.path, "rev-parse", "refs/heads/main"]) == localMain)
     #expect(try git(["-C", destination.path, "symbolic-ref", "HEAD"]) == localHead)
     #expect(try git(["-C", destination.path, "write-tree"]) == localIndex)
@@ -138,7 +138,7 @@ func createsMissingProject() throws {
     let destination = fixture.b.appendingPathComponent("project")
     #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent(".git").path))
     #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("file.txt").path))
-    #expect(try git(["-C", destination.path, "rev-parse", "refs/remotes/sync/A/main"]) == git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"]))
+    #expect(try git(["-C", destination.path, "rev-parse", "refs/remotes/a/main"]) == git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"]))
 }
 
 @Test("branch deletion retains a tombstone")
@@ -150,7 +150,7 @@ func deletionTombstone() throws {
     _ = try git(["-C", source.path, "branch", "-D", "feature"])
     try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A", stateURL: fixture.state)
     let destination = fixture.b.appendingPathComponent("project")
-    #expect((try? git(["-C", destination.path, "rev-parse", "--verify", "refs/remotes/sync/A/feature"])) == nil)
+    #expect((try? git(["-C", destination.path, "rev-parse", "--verify", "refs/remotes/a/feature"])) == nil)
     let expired = try git(["-C", destination.path, "for-each-ref", "--format=%(refname)", "refs/sync/A/expired"])
     #expect(!expired.split(separator: "\n").isEmpty)
 }
@@ -226,7 +226,7 @@ func managedGitRemote() throws {
     #expect(try git(["-C", repository.url.path, "remote", "get-url", "my-peer-local"])
             == "b.example:~/src/project")
     #expect(try git(["-C", repository.url.path, "config", "--get-all", "remote.my-peer-local.fetch"])
-            == "+refs/heads/*:refs/remotes/sync/My_Peer.local/*\n+refs/tags/*:refs/sync/My_Peer.local/tags/*")
+            == "+refs/heads/*:refs/remotes/my-peer-local/*\n+refs/tags/*:refs/sync/My_Peer.local/tags/*")
     #expect(try git(["-C", repository.url.path, "config", "--get", "remote.my-peer-local.tagOpt"]) == "--no-tags")
     #expect(try git(["-C", repository.url.path, "config", "--get", "remote.my-peer-local.prune"]) == "true")
 
@@ -292,8 +292,8 @@ func divergentBranches() throws {
 
     #expect(try git(["-C", a.path, "rev-parse", "main"]) == aMain)
     #expect(try git(["-C", b.path, "rev-parse", "main"]) == bMain)
-    #expect(try git(["-C", a.path, "rev-parse", "refs/remotes/sync/B/main"]) == bMain)
-    #expect(try git(["-C", b.path, "rev-parse", "refs/remotes/sync/A/main"]) == aMain)
+    #expect(try git(["-C", a.path, "rev-parse", "refs/remotes/b/main"]) == bMain)
+    #expect(try git(["-C", b.path, "rev-parse", "refs/remotes/a/main"]) == aMain)
 }
 
 @Test("force update moves only the peer ref")
@@ -307,7 +307,7 @@ func forceUpdate() throws {
         _ = try git(["-C", a.path, "add", "rewrite.txt"]); _ = try git(["-C", a.path, "commit", "-qm", "old \(number)"])
     }
     try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A", stateURL: state)
-    let oldTip = try git(["-C", b.path, "rev-parse", "refs/remotes/sync/A/main"])
+    let oldTip = try git(["-C", b.path, "rev-parse", "refs/remotes/a/main"])
     _ = try git(["-C", a.path, "switch", "-qc", "new-base", initial])
     try Data("new base\n".utf8).write(to: a.appendingPathComponent("base.txt"))
     _ = try git(["-C", a.path, "add", "base.txt"]); _ = try git(["-C", a.path, "commit", "-qm", "new base"])
@@ -315,7 +315,7 @@ func forceUpdate() throws {
     _ = try git(["-C", a.path, "rebase", "--onto", "new-base", initial, "main"])
     let newTip = try git(["-C", a.path, "rev-parse", "main"]), localMain = try git(["-C", b.path, "rev-parse", "main"])
     try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A", stateURL: state)
-    #expect(try git(["-C", b.path, "rev-parse", "refs/remotes/sync/A/main"]) == newTip)
+    #expect(try git(["-C", b.path, "rev-parse", "refs/remotes/a/main"]) == newTip)
     #expect(try git(["-C", b.path, "rev-parse", "main"]) == localMain)
     #expect(try git(["-C", b.path, "cat-file", "-t", oldTip]) == "commit")
 }
@@ -342,7 +342,7 @@ func concurrentGarbageCollection() throws {
     #expect(gc.terminationStatus == 0)
     #expect(try git(["-C", b.path, "rev-parse", "main"]) == localMain)
     #expect(try git(["-C", b.path, "fsck", "--no-dangling"]).isEmpty)
-    #expect(try git(["-C", b.path, "rev-parse", "refs/remotes/sync/A/main"]) == git(["-C", a.path, "rev-parse", "main"]))
+    #expect(try git(["-C", b.path, "rev-parse", "refs/remotes/a/main"]) == git(["-C", a.path, "rev-parse", "main"]))
 }
 
 @Test("an interrupted pack leaves refs and repository integrity unchanged")
@@ -396,7 +396,7 @@ func framedSession() throws {
     let deadline = Date().addingTimeInterval(10)
     var received: String?
     while Date() < deadline, received == nil {
-        received = try? git(["-C", destination.path, "rev-parse", "refs/remotes/sync/A/main"])
+        received = try? git(["-C", destination.path, "rev-parse", "refs/remotes/a/main"])
         if received == nil { Thread.sleep(forTimeInterval: 0.05) }
     }
     #expect(received == expected)
@@ -405,7 +405,7 @@ func framedSession() throws {
 
     _ = try git(["-C", destination.path, "config", "user.name", "Test"])
     _ = try git(["-C", destination.path, "config", "user.email", "test@example.com"])
-    _ = try git(["-C", destination.path, "switch", "-qc", "main", "refs/remotes/sync/A/main"])
+    _ = try git(["-C", destination.path, "switch", "-qc", "main", "refs/remotes/a/main"])
     try Data("from B\n".utf8).write(to: destination.appendingPathComponent("from-b.txt"))
     _ = try git(["-C", destination.path, "add", "from-b.txt"])
     _ = try git(["-C", destination.path, "commit", "-qm", "from B"])
@@ -414,7 +414,7 @@ func framedSession() throws {
     var reverse: String?
     while Date() < reverseDeadline, reverse != expectedFromB {
         reverse = try? git(["-C", fixture.a.appendingPathComponent("project").path,
-                            "rev-parse", "refs/remotes/sync/B/main"])
+                            "rev-parse", "refs/remotes/b/main"])
         if reverse != expectedFromB { Thread.sleep(forTimeInterval: 0.05) }
     }
     #expect(reverse == expectedFromB)
@@ -451,7 +451,7 @@ func framedSessionSelection() throws {
     let deadline = Date().addingTimeInterval(5)
     var received: String?
     while Date() < deadline, received == nil {
-        received = try? git(["-C", destination.path, "rev-parse", "refs/remotes/sync/A/main"])
+        received = try? git(["-C", destination.path, "rev-parse", "refs/remotes/a/main"])
         if received == nil { Thread.sleep(forTimeInterval: 0.05) }
     }
     #expect(received == expected)
@@ -497,9 +497,9 @@ func framedSessionLargeBidirectionalPacks() throws {
     var receivedA: String?, receivedB: String?
     while Date() < deadline, receivedA != expectedA || receivedB != expectedB {
         receivedA = try? git(["-C", fixture.b.appendingPathComponent("project").path,
-                              "rev-parse", "refs/remotes/sync/A/main"])
+                              "rev-parse", "refs/remotes/a/main"])
         receivedB = try? git(["-C", fixture.a.appendingPathComponent("other").path,
-                              "rev-parse", "refs/remotes/sync/B/main"])
+                              "rev-parse", "refs/remotes/b/main"])
         if receivedA != expectedA || receivedB != expectedB { Thread.sleep(forTimeInterval: 0.05) }
     }
 

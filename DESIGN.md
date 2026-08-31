@@ -8,8 +8,8 @@ own branches, tags, stash, `HEAD`, index, and working tree. It publishes selecte
 local ref snapshots into a namespace owned by that host on its peer.
 
 ```text
-A refs/heads/main  ->  B refs/remotes/sync/A/main
-B refs/heads/main  ->  A refs/remotes/sync/B/main
+A refs/heads/main  ->  B refs/remotes/a/main
+B refs/heads/main  ->  A refs/remotes/b/main
 ```
 
 `git-sync` does not negotiate ordinary user Git operations. Commits, rebases,
@@ -40,7 +40,7 @@ fetch mappings reuse the namespaces already owned by that peer:
 
 | Source | Destination |
 | --- | --- |
-| `refs/heads/*` | `refs/remotes/sync/<machine>/*` |
+| `refs/heads/*` | `refs/remotes/<lowercase-kebab-machine>/*` |
 | `refs/tags/*` | `refs/sync/<machine>/tags/*` |
 
 Automatic tag following is disabled and pruning is enabled. Stash remains a
@@ -113,7 +113,7 @@ Source refs map through a closed API:
 
 | Source | Destination |
 | --- | --- |
-| `refs/heads/x` | `refs/remotes/sync/<machine>/x` |
+| `refs/heads/x` | `refs/remotes/<lowercase-kebab-machine>/x` |
 | `refs/tags/x` | `refs/sync/<machine>/tags/x` |
 | `refs/stash` | `refs/sync/<machine>/stash` |
 

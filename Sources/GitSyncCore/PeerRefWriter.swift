@@ -27,7 +27,7 @@ public struct PeerRefWriter {
         try Validator.sourceRef(sourceRef)
         if sourceRef == "refs/stash" { return "refs/sync/\(peer)/stash" }
         if sourceRef.hasPrefix("refs/heads/") {
-            return "refs/remotes/sync/\(peer)/\(sourceRef.dropFirst("refs/heads/".count))"
+            return "refs/remotes/\(Validator.remote(peer))/\(sourceRef.dropFirst("refs/heads/".count))"
         }
         return "refs/sync/\(peer)/tags/\(sourceRef.dropFirst("refs/tags/".count))"
     }

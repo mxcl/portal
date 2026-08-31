@@ -4,7 +4,7 @@ import SystemConfiguration
 #endif
 
 public enum SyncProtocol {
-    public static let version = 3
+    public static let version = 4
 }
 
 public struct Configuration: Codable, Equatable, Sendable {
@@ -60,7 +60,7 @@ public struct Configuration: Codable, Equatable, Sendable {
         guard !peer.isEmpty, !peer.hasPrefix("-") else {
             throw SyncError.invalidConfiguration("Invalid SSH peer")
         }
-        guard !remoteRoot.isEmpty, !remoteExecutable.isEmpty else {
+        guard !remoteExecutable.isEmpty, remoteReceiveOnly == true || !remoteRoot.isEmpty else {
             throw SyncError.invalidConfiguration("Remote folder and executable are required")
         }
         guard remoteState?.isEmpty != true else {
@@ -160,9 +160,19 @@ public struct BackupConfiguration: Codable, Equatable, Identifiable, Sendable {
     public var hostID: UUID
     public var root: String
 
-    public init(id: UUID = UUID(), hostID: UUID, root: String) {
+    public init(id: UUID = UUID(), hostID: UUID, root: String = "") {
         self.id = id
         self.hostID = hostID
+        self.root = root
+    }
+}
+
+public struct BackupDestinationConfiguration: Codable, Equatable, Identifiable, Sendable {
+    public let id: UUID
+    public var root: String
+
+    public init(id: UUID = UUID(), root: String) {
+        self.id = id
         self.root = root
     }
 }
@@ -173,14 +183,17 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     public var hosts: [SyncHost]
     public var folders: [SyncFolder]
     public var backup: BackupConfiguration?
+    public var backupDestination: BackupDestinationConfiguration?
 
     public init(root: String, machine: String, hosts: [SyncHost] = [], folders: [SyncFolder] = [],
-                backup: BackupConfiguration? = nil) {
+                backup: BackupConfiguration? = nil,
+                backupDestination: BackupDestinationConfiguration? = nil) {
         self.root = root
         self.machine = machine
         self.hosts = hosts
         self.folders = folders
         self.backup = backup
+        self.backupDestination = backupDestination
     }
 
     public mutating func discoverLocal(_ names: [String]) throws {
@@ -258,13 +271,19 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         guard let host = hosts.first(where: { $0.id == backup.hostID }) else {
             throw SyncError.invalidConfiguration("Choose an existing host for backups.")
         }
-        guard !backup.root.isEmpty else {
-            throw SyncError.invalidConfiguration("Choose a backup folder.")
-        }
-        guard NSString(string: backup.root).standardizingPath != NSString(string: host.root).standardizingPath else {
-            throw SyncError.invalidConfiguration("The backup folder must differ from the host’s projects folder.")
-        }
         return host
+    }
+
+    public func validatedBackupDestination() throws -> URL? {
+        guard let backupDestination else { return nil }
+        guard !backupDestination.root.isEmpty else {
+            throw SyncError.invalidConfiguration("Choose a folder for received backups.")
+        }
+        let destination = NSString(string: backupDestination.root).standardizingPath
+        guard destination != NSString(string: root).standardizingPath else {
+            throw SyncError.invalidConfiguration("The backup destination must differ from this Mac’s projects folder.")
+        }
+        return URL(fileURLWithPath: NSString(string: destination).expandingTildeInPath).standardizedFileURL
     }
 
     private func validatedNames(_ names: [String]) throws -> [String] {

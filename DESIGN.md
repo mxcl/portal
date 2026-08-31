@@ -74,12 +74,15 @@ in a connection only when both the local and remote host cells are selected, so
 disabling either cell stops both directions. Equal names already present at
 both ends require explicit confirmation before the host is added.
 
-An optional backup selects one inspected host and a second parent path distinct
-from that host's normal root. It starts a separate connection containing every
-local repository. The remote endpoint is receive-only: it accepts catalogs,
-objects, and ref snapshots but never advertises repositories or publishes its
-own refs back. Its ordering state is scoped to the backup configuration so it
-can run beside the host's ordinary bidirectional connection.
+An optional backup selects one inspected host. The receiving host separately
+chooses a parent folder, distinct from its normal root, through Git Sync.app.
+The app owns an owner-only Unix socket and a receive-only session rooted at that
+user-selected folder. The SSH-launched helper only relays the framed byte stream
+to that socket, so macOS attributes destination access to Git Sync.app rather
+than Remote Login. No network listener or additional credential is introduced.
+The endpoint accepts catalogs, objects, and ref snapshots but never advertises
+repositories or publishes its own refs back. Its ordering state has one writer
+inside the receiving app and can run beside ordinary bidirectional connections.
 
 The app controls its own per-user login item and writes one connection and
 ordering-state file per host. The bundled helper is the same headless executable
@@ -112,7 +115,10 @@ inventories, and applies updates normally. It has no filesystem watcher or
 outbound update path.
 
 EOF or SSH failure tears down the session. `run` reconnects and repeats the
-idempotent inventory exchange; no separate resume protocol is necessary.
+idempotent inventory exchange; no separate resume protocol is necessary. Before
+each backup connection, the SSH helper checks the receiving app's local socket,
+so a stopped app or unavailable destination fails once instead of reconnecting
+indefinitely.
 
 ## Repository and ref state
 
@@ -164,6 +170,9 @@ process to own a state file.
 - **SSH command execution:** configuration chooses the SSH target and remote
   executable. Dynamic repository/ref data is framed on stdin, never placed in
   a shell command.
+- **Local backup relay:** the Unix socket lives in the user's Application
+  Support directory with mode `0600`. The app supplies the configured root;
+  the SSH relay cannot request a path or destination ref.
 
 The invariant is structural: background code has no function that writes a
 working tree, index, `HEAD`, local branch, local tag, stash, caller-selected

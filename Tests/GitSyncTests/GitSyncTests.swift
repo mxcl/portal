@@ -236,16 +236,45 @@ func preflightOverlap() {
                           remote: ["shared", "other", "a", "shādoe"]) == ["a", "shared", "shādoe"])
 }
 
-@Test("backup preflight creates a writable empty destination")
+@Test("backup preflight requires a writable existing destination")
 func backupPreflight() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("git-sync-backup-preflight-\(UUID())")
     defer { try? FileManager.default.removeItem(at: root) }
 
+    #expect(throws: (any Error).self) { try Runner.prepareBackup(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     try Runner.prepareBackup(at: root)
 
-    #expect(FileManager.default.fileExists(atPath: root.path))
     #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
+}
+
+@Test("local backup socket is owner-only and identifies sessions")
+func localBackupSocket() throws {
+    let root = URL(fileURLWithPath: "/tmp/gs-\(UUID())")
+    let socket = root.appendingPathComponent("receiver.sock")
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let listener = try LocalBackupListener(url: socket)
+    defer { listener.close() }
+    let client = try LocalBackupTransport.connect(mode: LocalBackupTransport.session, to: socket)
+    defer { try? client.close() }
+    let server = try listener.accept()
+    defer { try? server.close() }
+
+    #expect(try LocalBackupTransport.mode(from: server) == LocalBackupTransport.session)
+    #expect((try FileManager.default.attributesOfItem(atPath: socket.path)[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+    try client.write(contentsOf: Data("ping".utf8))
+    #expect(try server.read(upToCount: 4) == Data("ping".utf8))
+    try server.write(contentsOf: Data("pong".utf8))
+    #expect(try client.read(upToCount: 4) == Data("pong".utf8))
+}
+
+@Test("app-owned backups do not require a remote filesystem path")
+func appOwnedBackupConfiguration() throws {
+    let configuration = Configuration(root: "/", machine: "A", peer: "b", remoteRoot: "",
+                                      remoteReceiveOnly: true)
+    try configuration.validate()
 }
 
 @Test("managed Git remotes share the peer ref namespaces")
@@ -295,23 +324,25 @@ func hostDiscoverySelection() throws {
     }
 }
 
-@Test("backup uses an existing host and a distinct destination")
+@Test("backup uses an existing host and this Mac owns a distinct destination")
 func backupConfigurationValidation() throws {
     let host = SyncHost(machine: "B", peer: "b", root: "/srv/repos")
     var configuration = AppConfiguration(root: "/tmp", machine: "A", hosts: [host])
 
-    configuration.backup = BackupConfiguration(hostID: host.id, root: "/srv/backup")
+    configuration.backup = BackupConfiguration(hostID: host.id)
     #expect(try configuration.backupHost() == host)
 
-    configuration.backup = BackupConfiguration(hostID: host.id, root: "/srv/repos/")
+    configuration.backup = BackupConfiguration(hostID: UUID())
     #expect(throws: (any Error).self) { try configuration.backupHost() }
 
-    configuration.backup = BackupConfiguration(hostID: UUID(), root: "/srv/backup")
-    #expect(throws: (any Error).self) { try configuration.backupHost() }
-
-    configuration.backup = BackupConfiguration(hostID: host.id, root: "/srv/backup")
+    configuration.backup = BackupConfiguration(hostID: host.id)
     configuration.removeHost(host.id)
     #expect(configuration.backup == nil)
+
+    configuration.backupDestination = BackupDestinationConfiguration(root: "/tmp/")
+    #expect(throws: (any Error).self) { try configuration.validatedBackupDestination() }
+    configuration.backupDestination = BackupDestinationConfiguration(root: "/srv/backup")
+    #expect(try configuration.validatedBackupDestination()?.path == "/srv/backup")
 }
 
 @Test("configuration without backup settings still decodes")
@@ -319,6 +350,7 @@ func legacyAppConfigurationDecoding() throws {
     let data = Data(#"{"root":"/tmp","machine":"A","hosts":[],"folders":[]}"#.utf8)
     let configuration = try JSONDecoder().decode(AppConfiguration.self, from: data)
     #expect(configuration.backup == nil)
+    #expect(configuration.backupDestination == nil)
 }
 
 @Test("local discovery removes deleted local-only folders")

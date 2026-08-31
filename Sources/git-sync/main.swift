@@ -38,7 +38,8 @@ Usage:
   git-sync daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--receive-only] [--state PATH]
   git-sync list --root PATH
   git-sync inspect --root PATH [--machine NAME]
-  git-sync prepare-backup --root PATH
+  git-sync check-backup
+  git-sync relay-backup
   git-sync sync-once --source-root PATH --destination-root PATH --machine NAME [--state PATH]
 """
 
@@ -87,9 +88,10 @@ do {
                                         machine: value("--machine", in: arguments) ?? Configuration.defaultMachine,
                                         repositories: try Repository.discover(in: root).map(\.name))
         print(String(decoding: try JSONEncoder().encode(inspection), as: UTF8.self))
-    case "prepare-backup":
-        let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
-        try Runner.prepareBackup(at: root)
+    case "check-backup":
+        try LocalBackupTransport.connect(mode: LocalBackupTransport.check).close()
+    case "relay-backup":
+        try LocalBackupTransport.relayStandardIO()
     case "sync-once":
         let source = URL(fileURLWithPath: NSString(string: try required("--source-root", in: arguments)).expandingTildeInPath)
         let destination = URL(fileURLWithPath: NSString(string: try required("--destination-root", in: arguments)).expandingTildeInPath)

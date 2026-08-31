@@ -58,10 +58,12 @@ local and remote host cells to enable a folder in both directions. Matching
 repository names already present on both hosts retain the initial “Are You
 Sure?” confirmation.
 
-The Backup tab can continuously send every local repository to a dedicated
-folder on one of those existing hosts. The backup folder must differ from that
-host's projects folder, and the backup connection is receive-only: refs created
-inside the backup are never published back to this Mac.
+The Backup tab can continuously send every local repository to one existing
+host. On the receiving Mac, use the same tab to choose **Receive Backups on This
+Mac**; that folder must differ from its projects folder. Git Sync.app owns the
+destination and the SSH process only relays encrypted protocol bytes, so Remote
+Login does not need Full Disk Access. The connection is receive-only: refs
+created inside the backup are never published back to the source Mac.
 
 The app launches at login and shows live transfer logs in its menu. It uses the
 copy of `git-sync` inside each peer's `/Applications/Git Sync.app`; the path can
@@ -76,9 +78,11 @@ $ swift build -c release
 $ install .build/release/git-sync ~/.local/bin/git-sync
 ```
 
-The peer needs ordinary SSH authentication. No listening socket, repository
-hook, Git replacement, or filesystem mirroring is used. Git remains responsible
-for object validation, packs, garbage collection, and atomic ref updates.
+The peer needs ordinary SSH authentication. No network listener, repository
+hook, Git replacement, or filesystem mirroring is used. macOS backup receivers
+use an owner-only local Unix socket inside Application Support. Git remains
+responsible for object validation, packs, garbage collection, and atomic ref
+updates.
 
 ## Development
 

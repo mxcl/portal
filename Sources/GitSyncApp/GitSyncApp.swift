@@ -61,6 +61,7 @@ final class AppModel: ObservableObject {
     }
     private var pendingConfiguration: AppConfiguration?
     private var syncProcesses: [UUID: Process] = [:]
+    private var backupReceiver: BackupReceiver?
 
     init() {
         configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
@@ -82,7 +83,7 @@ final class AppModel: ObservableObject {
         } else if startAfterInspection {
             do { try launchAll() } catch { fail(error) }
         } else {
-            status = "Add a host"
+            status = configuration.backupDestination == nil ? "Add a host" : "Stopped"
         }
     }
 
@@ -96,6 +97,36 @@ final class AppModel: ObservableObject {
             configuration.root = panel.url?.path ?? configuration.root
             refreshLocal()
         }
+    }
+
+    func chooseBackupDestination() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose where this Mac receives backups"
+        panel.prompt = "Use for Backups"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        if let destination = configuration.backupDestination {
+            panel.directoryURL = URL(fileURLWithPath: destination.root)
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        defer { url.stopAccessingSecurityScopedResource() }
+        let existing = configuration.backupDestination
+        let id = existing.flatMap {
+            NSString(string: $0.root).standardizingPath == NSString(string: url.path).standardizingPath
+                ? $0.id : nil
+        } ?? UUID()
+        configuration.backupDestination = BackupDestinationConfiguration(id: id, root: url.path)
+        do {
+            try save()
+            status = "Stopped"
+        } catch { fail(error) }
+    }
+
+    func clearBackupDestination() {
+        configuration.backupDestination = nil
+        do { try save() } catch { fail(error) }
     }
 
     func refreshLocal() {
@@ -179,7 +210,7 @@ final class AppModel: ObservableObject {
         do {
             try save()
             restartIfRunning()
-            if !isRunning { status = configuration.hosts.isEmpty ? "Add a host" : "Stopped" }
+            if !isRunning { status = configuration.hosts.isEmpty && configuration.backupDestination == nil ? "Add a host" : "Stopped" }
         } catch { fail(error) }
     }
 
@@ -204,19 +235,15 @@ final class AppModel: ObservableObject {
 
     func setBackupHost(_ hostID: UUID) {
         guard let backup = configuration.backup, backup.hostID != hostID else { return }
-        configuration.backup = BackupConfiguration(hostID: hostID, root: backup.root)
-    }
-
-    func setBackupRoot(_ root: String) {
-        guard let backup = configuration.backup, backup.root != root else { return }
-        configuration.backup = BackupConfiguration(hostID: backup.hostID, root: root)
+        configuration.backup = BackupConfiguration(id: backup.id, hostID: hostID)
     }
 
     func start() {
         guard !isChecking else { return }
         do {
             try save()
-            guard configuration.backup != nil || configuration.hosts.contains(where: {
+            guard configuration.backup != nil || configuration.backupDestination != nil
+                    || configuration.hosts.contains(where: {
                 !configuration.repositories(for: $0.id).isEmpty
             }) else {
                 throw SyncError.invalidConfiguration("Choose folders to sync or configure a backup before starting.")
@@ -232,7 +259,7 @@ final class AppModel: ObservableObject {
         stopProcesses()
         do {
             if loginItemRegistered { try SMAppService.mainApp.unregister() }
-            status = configuration.hosts.isEmpty ? "Add a host" : "Stopped"
+            status = configuration.hosts.isEmpty && configuration.backupDestination == nil ? "Add a host" : "Stopped"
         } catch { fail(error) }
     }
 
@@ -267,6 +294,7 @@ final class AppModel: ObservableObject {
             throw SyncError.invalidConfiguration("Source folder does not exist: \(configuration.root)")
         }
         _ = try configuration.backupHost()
+        _ = try configuration.validatedBackupDestination()
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -280,12 +308,36 @@ final class AppModel: ObservableObject {
     }
 
     private func launchAll() throws {
-        guard syncProcesses.isEmpty else { return }
+        guard syncProcesses.isEmpty, backupReceiver == nil else { return }
         guard let helper = Bundle.main.url(forResource: "git-sync", withExtension: nil) else {
             throw SyncError.invalidConfiguration("The app bundle is missing git-sync. Re-run scripts/install.sh.")
         }
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         do {
+            if let destination = try configuration.validatedBackupDestination(),
+               let destinationConfiguration = configuration.backupDestination {
+                try Runner.prepareBackup(at: destination)
+                let receiver = try BackupReceiver(
+                    root: destination, machine: configuration.machine,
+                    stateURL: support.appendingPathComponent(
+                        "backup-receiver-\(destinationConfiguration.id.uuidString).json"
+                    ),
+                    logger: { [weak self] message in
+                        Task { @MainActor [weak self] in self?.appendLog("Backup receiver: \(message)") }
+                    },
+                    onStopped: { [weak self] id in
+                        Task { @MainActor [weak self] in
+                            guard let self, self.backupReceiver?.id == id else { return }
+                            self.backupReceiver = nil
+                            self.isRunning = !self.syncProcesses.isEmpty
+                            if !self.isRunning { self.status = "Stopped" }
+                        }
+                    }
+                )
+                receiver.start()
+                backupReceiver = receiver
+                appendLog("Accepting backups into \(destination.path)")
+            }
             for host in configuration.hosts {
                 let repositories = configuration.repositories(for: host.id)
                 guard !repositories.isEmpty else { continue }
@@ -299,9 +351,8 @@ final class AppModel: ObservableObject {
             if let backup = configuration.backup, let host = try configuration.backupHost() {
                 let connection = Configuration(
                     root: configuration.root, machine: configuration.machine,
-                    peer: host.peer, remoteRoot: backup.root, remoteExecutable: host.executable,
+                    peer: host.peer, remoteRoot: "", remoteExecutable: host.executable,
                     remoteMachine: host.machine,
-                    remoteState: "~/.local/state/git-sync/backup-\(backup.id.uuidString).json",
                     remoteReceiveOnly: true
                 )
                 try connection.validate()
@@ -311,7 +362,7 @@ final class AppModel: ObservableObject {
             stopProcesses()
             throw error
         }
-        isRunning = !syncProcesses.isEmpty
+        isRunning = !syncProcesses.isEmpty || backupReceiver != nil
         error = nil
         status = SMAppService.mainApp.status == .requiresApproval
             ? "Standing By — login approval required"
@@ -340,7 +391,7 @@ final class AppModel: ObservableObject {
                 guard let self, self.syncProcesses[id] === process else { return }
                 output.fileHandleForReading.readabilityHandler = nil
                 self.syncProcesses.removeValue(forKey: id)
-                self.isRunning = !self.syncProcesses.isEmpty
+                self.isRunning = !self.syncProcesses.isEmpty || self.backupReceiver != nil
                 if process.terminationStatus != 0 {
                     self.appendLog("\(name): git-sync exited with status \(process.terminationStatus)")
                 }
@@ -367,6 +418,8 @@ final class AppModel: ObservableObject {
     }
 
     private func stopProcesses() {
+        backupReceiver?.stop()
+        backupReceiver = nil
         let processes = Array(syncProcesses.values)
         syncProcesses.removeAll()
         for process in processes {
@@ -407,7 +460,7 @@ final class AppModel: ObservableObject {
         if startAfter {
             do { try launchAll() } catch { fail(error) }
         } else {
-            status = configuration.hosts.isEmpty ? "Add a host" : "Stopped"
+            status = configuration.hosts.isEmpty && configuration.backupDestination == nil ? "Add a host" : "Stopped"
         }
     }
 
@@ -426,6 +479,81 @@ final class AppModel: ObservableObject {
         try? FileManager.default.removeItem(at: legacyAgentURL)
     }
 
+}
+
+private final class BackupReceiver: @unchecked Sendable {
+    let id = UUID()
+    private let root: URL
+    private let machine: String
+    private let stateURL: URL
+    private let logger: (String) -> Void
+    private let onStopped: (UUID) -> Void
+    private let listener: LocalBackupListener
+    private let queue = DispatchQueue(label: "git-sync.backup-receiver")
+    private let lock = NSLock()
+    private var activeConnection: FileHandle?
+    private var stopped = false
+
+    init(root: URL, machine: String, stateURL: URL,
+         logger: @escaping (String) -> Void, onStopped: @escaping (UUID) -> Void) throws {
+        self.root = root
+        self.machine = machine
+        self.stateURL = stateURL
+        self.logger = logger
+        self.onStopped = onStopped
+        listener = try LocalBackupListener()
+    }
+
+    func start() {
+        queue.async { [self] in run() }
+    }
+
+    func stop() {
+        lock.lock()
+        guard !stopped else { lock.unlock(); return }
+        stopped = true
+        let connection = activeConnection
+        lock.unlock()
+        listener.close()
+        try? connection?.close()
+    }
+
+    private func run() {
+        defer { stop(); onStopped(id) }
+        while !isStopped {
+            do {
+                let connection = try listener.accept()
+                let mode = try LocalBackupTransport.mode(from: connection)
+                if mode == LocalBackupTransport.check {
+                    try? connection.close()
+                    continue
+                }
+                guard mode == LocalBackupTransport.session else {
+                    try? connection.close()
+                    throw SyncError.invalidProtocol("Unknown local backup request")
+                }
+                lock.lock(); activeConnection = connection; lock.unlock()
+                do {
+                    try Runner.serve(root: root, machine: machine, stateURL: stateURL,
+                                     receiveOnly: true, input: connection, output: connection,
+                                     logger: logger)
+                } catch {
+                    if !isStopped { logger("session ended: \(error)") }
+                }
+                try? connection.close()
+                lock.lock(); activeConnection = nil; lock.unlock()
+                if !isStopped { try Runner.prepareBackup(at: root) }
+            } catch {
+                if !isStopped { logger("stopped: \(error)") }
+                return
+            }
+        }
+    }
+
+    private var isStopped: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return stopped
+    }
 }
 
 struct StatusMenu: View {
@@ -542,7 +670,7 @@ struct SettingsView: View {
                 .tabItem { Label("Folders", systemImage: "folder") }
 
                 Form {
-                    Section("Automatic Backup") {
+                    Section("Back Up This Mac") {
                         Toggle("Back up every repository", isOn: Binding(
                             get: { model.configuration.backup != nil },
                             set: model.setBackupEnabled
@@ -568,13 +696,29 @@ struct SettingsView: View {
                                     Text(host.machine).tag(host.id)
                                 }
                             }
-                            TextField("Backup folder", text: Binding(
-                                get: { model.configuration.backup?.root ?? "" },
-                                set: model.setBackupRoot
-                            ))
-                            Text("The backup folder must differ from that host’s projects folder. Backups receive every repository but never publish changes back.")
+                            Text("Choose the destination in Git Sync on the backup host. Backups receive every repository but never publish changes back.")
                                 .foregroundStyle(.secondary)
                         }
+                    }
+
+                    Section("Receive Backups on This Mac") {
+                        HStack {
+                            if let destination = model.configuration.backupDestination {
+                                Text(destination.root)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .textSelection(.enabled)
+                                Spacer()
+                                Button("Clear", action: model.clearBackupDestination)
+                            } else {
+                                Text("No destination selected")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                            }
+                            Button("Choose…", action: model.chooseBackupDestination)
+                        }
+                        Text("The folder must differ from this Mac’s projects folder. Git Sync.app—not SSH—owns access to the selected destination.")
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .formStyle(.grouped)

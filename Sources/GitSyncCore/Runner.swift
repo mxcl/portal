@@ -5,7 +5,8 @@ public enum Runner {
         try configuration.validate()
         let data = try runRemote(
             configuration,
-            arguments: ["inspect", "--root", configuration.remoteRoot]
+            arguments: ["inspect", "--root", configuration.remoteRoot],
+            failure: "Could not inspect the peer"
         )
         let inspection = try JSONDecoder().decode(PeerInspection.self, from: data)
         guard inspection.version == WireMessage.protocolVersion else {
@@ -31,6 +32,15 @@ public enum Runner {
     public static func connect(_ configuration: Configuration, stateURL: URL,
                                logger: @escaping (String) -> Void = { _ in }) throws {
         try configuration.validate()
+        if configuration.remoteReceiveOnly == true {
+            _ = try runRemote(
+                configuration,
+                arguments: ["prepare-backup", "--root", configuration.remoteRoot],
+                failure: """
+                Backup destination is not writable on \(configuration.remoteMachine ?? configuration.peer): \(configuration.remoteRoot). Ensure the SSH user can write to it. On macOS, enable “Allow full disk access for remote users” in System Settings › General › Sharing › Remote Login
+                """
+            )
+        }
         while true {
             let process = Process(), input = Pipe(), output = Pipe()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
@@ -77,7 +87,15 @@ public enum Runner {
         try session.run()
     }
 
-    private static func runRemote(_ configuration: Configuration, arguments: [String]) throws -> Data {
+    public static func prepareBackup(at root: URL) throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let probe = root.appendingPathComponent(".git-sync-write-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: probe, withIntermediateDirectories: false)
+        try FileManager.default.removeItem(at: probe)
+    }
+
+    private static func runRemote(_ configuration: Configuration, arguments: [String],
+                                  failure: String) throws -> Data {
         let process = Process(), output = Pipe(), error = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
         process.arguments = [
@@ -92,7 +110,7 @@ public enum Runner {
         let stderr = error.fileHandleForReading.readDataToEndOfFile()
         guard process.terminationStatus == 0 else {
             throw SyncError.invalidConfiguration(
-                "Could not inspect the peer: " + String(decoding: stderr, as: UTF8.self)
+                failure + ": " + String(decoding: stderr, as: UTF8.self)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }

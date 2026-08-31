@@ -236,6 +236,18 @@ func preflightOverlap() {
                           remote: ["shared", "other", "a", "shādoe"]) == ["a", "shared", "shādoe"])
 }
 
+@Test("backup preflight creates a writable empty destination")
+func backupPreflight() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("git-sync-backup-preflight-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    try Runner.prepareBackup(at: root)
+
+    #expect(FileManager.default.fileExists(atPath: root.path))
+    #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
+}
+
 @Test("managed Git remotes share the peer ref namespaces")
 func managedGitRemote() throws {
     let fixture = try Fixture()

@@ -300,6 +300,7 @@ final class AppModel: ObservableObject {
                 let connection = Configuration(
                     root: configuration.root, machine: configuration.machine,
                     peer: host.peer, remoteRoot: backup.root, remoteExecutable: host.executable,
+                    remoteMachine: host.machine,
                     remoteState: "~/.local/state/git-sync/backup-\(backup.id.uuidString).json",
                     remoteReceiveOnly: true
                 )

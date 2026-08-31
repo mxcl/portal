@@ -8,6 +8,7 @@ public final class SyncSession {
     private let connection: FramedConnection
     private let state: StateStore
     private let logger: (String) -> Void
+    private let isInitiator: Bool
     private let lock = NSLock()
     private let controlQueue = DispatchQueue(label: "git-sync.control")
     private var peerMachine: String?
@@ -21,6 +22,7 @@ public final class SyncSession {
     public init(root: URL, machine: String, input: FileHandle, output: FileHandle,
                 stateURL: URL, repositories: Set<String>? = nil,
                 peerRepositoryLocation: PeerRepositoryLocation? = nil,
+                isInitiator: Bool = false,
                 logger: @escaping (String) -> Void = { _ in }) throws {
         try Validator.machine(machine)
         for repository in repositories ?? [] { try Validator.project(repository) }
@@ -31,6 +33,7 @@ public final class SyncSession {
         self.peerRepositoryLocation = peerRepositoryLocation
         connection = FramedConnection(input: input, output: output)
         state = try StateStore(url: stateURL)
+        self.isInitiator = isInitiator
         self.logger = logger
     }
 
@@ -150,7 +153,8 @@ public final class SyncSession {
         try state.accept(generation: update.generation, peer: peer, epoch: epoch,
                          repository: update.repository, ref: update.sourceRef)
         sendControl(.ack(update))
-        logger("\(update.repository): \(update.sourceRef) -> \(update.oid?.prefix(12) ?? "deleted")")
+        logger(Self.transferLog(sourceRef: update.sourceRef, machine: machine,
+                                peer: peer, isInitiator: isInitiator))
     }
 
     private func sendControl(_ message: WireMessage) {
@@ -217,4 +221,9 @@ public final class SyncSession {
 
     private var isStopped: Bool { lock.lock(); defer { lock.unlock() }; return stopped }
     private func setStopped() { lock.lock(); stopped = true; lock.unlock() }
+
+    static func transferLog(sourceRef: String, machine: String, peer: String,
+                            isInitiator: Bool) -> String {
+        isInitiator ? "\(machine) ← \(peer)/\(sourceRef)" : "\(sourceRef) → \(machine)"
+    }
 }

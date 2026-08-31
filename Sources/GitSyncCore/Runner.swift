@@ -55,6 +55,7 @@ public enum Runner {
                         PeerRepositoryLocation(machine: $0, sshTarget: configuration.peer,
                                                root: configuration.remoteRoot)
                     },
+                    isInitiator: true,
                     logger: logger
                 )
                 try session.run()

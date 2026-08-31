@@ -325,7 +325,10 @@ final class AppModel: ObservableObject {
     private func appendLogs(_ data: Data, host: String) {
         String(decoding: data, as: UTF8.self)
             .split(whereSeparator: \.isNewline)
-            .forEach { appendLog("\(host): \($0)") }
+            .map { $0.hasPrefix("[git-sync] ") ? $0.dropFirst(11) : $0[...] }
+            .forEach { line in
+                appendLog(line.contains(" → ") || line.contains(" ← ") ? String(line) : "\(host): \(line)")
+            }
     }
 
     private func appendLog(_ line: String) {

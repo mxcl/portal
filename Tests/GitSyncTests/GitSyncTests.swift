@@ -57,6 +57,16 @@ func helloValidation() throws {
     #expect(throws: (any Error).self) { try incomplete.validatedHello() }
 }
 
+@Test("transfer logs show direction and endpoints")
+func transferLogs() {
+    #expect(SyncSession.transferLog(sourceRef: "refs/heads/v4", machine: "pangolin",
+                                    peer: "maliwan", isInitiator: false)
+            == "refs/heads/v4 → pangolin")
+    #expect(SyncSession.transferLog(sourceRef: "refs/heads/main", machine: "maliwan",
+                                    peer: "pangolin", isInitiator: true)
+            == "maliwan ← pangolin/refs/heads/main")
+}
+
 }
 
 private func git(_ arguments: [String], input: String? = nil) throws -> String {

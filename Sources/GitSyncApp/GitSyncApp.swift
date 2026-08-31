@@ -215,7 +215,6 @@ final class AppModel: ObservableObject {
     func start() {
         guard !isChecking else { return }
         do {
-            let restart = isRunning
             try save()
             guard configuration.backup != nil || configuration.hosts.contains(where: {
                 !configuration.repositories(for: $0.id).isEmpty
@@ -225,7 +224,6 @@ final class AppModel: ObservableObject {
             if SMAppService.mainApp.status == .notRegistered || SMAppService.mainApp.status == .notFound {
                 try SMAppService.mainApp.register()
             }
-            if restart { stopProcesses() }
             try launchAll()
         } catch { fail(error) }
     }
@@ -482,7 +480,7 @@ struct SettingsView: View {
                     }
                 }
                 .formStyle(.grouped)
-                .disabled(model.isChecking || model.showingOverlapConfirmation)
+                .disabled(model.configurationLocked)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .tabItem { Label("This Mac", systemImage: "desktopcomputer") }
 
@@ -549,6 +547,13 @@ struct SettingsView: View {
                             set: model.setBackupEnabled
                         ))
                         .disabled(model.configuration.hosts.isEmpty)
+                        .opacity(model.isRunning ? 0.45 : 1)
+
+                        if model.isRunning {
+                            Text("can only be toggled when stopped")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
 
                         if model.configuration.hosts.isEmpty {
                             Text("Add a host in the Hosts tab before configuring a backup.")
@@ -589,10 +594,9 @@ struct SettingsView: View {
                 }
                 Spacer()
                 if model.canStop { Button("Stop Sync", action: model.stop) }
-                Button(model.isChecking ? "Checking…" : (model.isRunning ? "Save & Restart" : "Save & Start"),
-                       action: model.start)
+                Button(model.isChecking ? "Checking…" : "Save & Start", action: model.start)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(model.isChecking)
+                    .disabled(model.isChecking || model.isRunning)
             }
         }
         .scenePadding()

@@ -35,7 +35,7 @@ let usage = """
 Usage:
   git-sync run --root PATH --machine NAME --peer SSH_TARGET --remote-root PATH [--remote-machine NAME] [--remote-executable PATH] [--selective --repository NAME ...] [--state PATH]
   git-sync run --config PATH [--state PATH]
-  git-sync daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--state PATH]
+  git-sync daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--receive-only] [--state PATH]
   git-sync list --root PATH
   git-sync inspect --root PATH [--machine NAME]
   git-sync sync-once --source-root PATH --destination-root PATH --machine NAME [--state PATH]
@@ -74,6 +74,7 @@ do {
         try Runner.serve(root: root, machine: value("--machine", in: arguments) ?? Configuration.defaultMachine,
                          stateURL: stateURL,
                          repositories: arguments.contains("--selective") ? Set(repositories) : nil,
+                         receiveOnly: arguments.contains("--receive-only"),
                          logger: log)
     case "list":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)

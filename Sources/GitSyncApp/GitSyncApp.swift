@@ -196,12 +196,30 @@ final class AppModel: ObservableObject {
         configurationChanged()
     }
 
+    func setBackupEnabled(_ enabled: Bool) {
+        configuration.backup = enabled
+            ? configuration.hosts.first.map { BackupConfiguration(hostID: $0.id, root: "") }
+            : nil
+    }
+
+    func setBackupHost(_ hostID: UUID) {
+        guard let backup = configuration.backup, backup.hostID != hostID else { return }
+        configuration.backup = BackupConfiguration(hostID: hostID, root: backup.root)
+    }
+
+    func setBackupRoot(_ root: String) {
+        guard let backup = configuration.backup, backup.root != root else { return }
+        configuration.backup = BackupConfiguration(hostID: backup.hostID, root: root)
+    }
+
     func start() {
         guard !isChecking else { return }
         do {
             try save()
-            guard configuration.hosts.contains(where: { !configuration.repositories(for: $0.id).isEmpty }) else {
-                throw SyncError.invalidConfiguration("Choose at least two hosts for a folder before starting sync.")
+            guard configuration.backup != nil || configuration.hosts.contains(where: {
+                !configuration.repositories(for: $0.id).isEmpty
+            }) else {
+                throw SyncError.invalidConfiguration("Choose folders to sync or configure a backup before starting.")
             }
             if SMAppService.mainApp.status == .notRegistered || SMAppService.mainApp.status == .notFound {
                 try SMAppService.mainApp.register()
@@ -248,6 +266,7 @@ final class AppModel: ObservableObject {
         guard FileManager.default.fileExists(atPath: expandedRoot.path) else {
             throw SyncError.invalidConfiguration("Source folder does not exist: \(configuration.root)")
         }
+        _ = try configuration.backupHost()
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -275,7 +294,17 @@ final class AppModel: ObservableObject {
                                                remoteExecutable: host.executable, repositories: repositories,
                                                remoteMachine: host.machine)
                 try connection.validate()
-                try launch(connection, host: host, helper: helper)
+                try launch(connection, id: host.id, name: host.machine, helper: helper)
+            }
+            if let backup = configuration.backup, let host = try configuration.backupHost() {
+                let connection = Configuration(
+                    root: configuration.root, machine: configuration.machine,
+                    peer: host.peer, remoteRoot: backup.root, remoteExecutable: host.executable,
+                    remoteState: "~/.local/state/git-sync/backup-\(backup.id.uuidString).json",
+                    remoteReceiveOnly: true
+                )
+                try connection.validate()
+                try launch(connection, id: backup.id, name: "Backup on \(host.machine)", helper: helper)
             }
         } catch {
             stopProcesses()
@@ -288,11 +317,11 @@ final class AppModel: ObservableObject {
             : (isRunning ? "Standing By" : "No folders selected")
     }
 
-    private func launch(_ configuration: Configuration, host: SyncHost, helper: URL) throws {
+    private func launch(_ configuration: Configuration, id: UUID, name: String, helper: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let connectionURL = support.appendingPathComponent("connection-\(host.id.uuidString).json")
-        let stateURL = support.appendingPathComponent("state-\(host.id.uuidString).json")
+        let connectionURL = support.appendingPathComponent("connection-\(id.uuidString).json")
+        let stateURL = support.appendingPathComponent("state-\(id.uuidString).json")
         try encoder.encode(configuration).write(to: connectionURL, options: .atomic)
 
         let process = Process(), output = Pipe()
@@ -303,23 +332,23 @@ final class AppModel: ObservableObject {
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
-            Task { @MainActor [weak self] in self?.appendLogs(data, host: host.machine) }
+            Task { @MainActor [weak self] in self?.appendLogs(data, host: name) }
         }
         process.terminationHandler = { [weak self] process in
             Task { @MainActor in
-                guard let self, self.syncProcesses[host.id] === process else { return }
+                guard let self, self.syncProcesses[id] === process else { return }
                 output.fileHandleForReading.readabilityHandler = nil
-                self.syncProcesses.removeValue(forKey: host.id)
+                self.syncProcesses.removeValue(forKey: id)
                 self.isRunning = !self.syncProcesses.isEmpty
                 if process.terminationStatus != 0 {
-                    self.appendLog("\(host.machine): git-sync exited with status \(process.terminationStatus)")
+                    self.appendLog("\(name): git-sync exited with status \(process.terminationStatus)")
                 }
                 if !self.isRunning { self.status = "Stopped" }
             }
         }
         try process.run()
-        syncProcesses[host.id] = process
-        appendLog("Started sync with \(host.machine)")
+        syncProcesses[id] = process
+        appendLog("Started \(name)")
     }
 
     private func appendLogs(_ data: Data, host: String) {
@@ -510,6 +539,40 @@ struct SettingsView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .tabItem { Label("Folders", systemImage: "folder") }
+
+                Form {
+                    Section("Automatic Backup") {
+                        Toggle("Back up every repository", isOn: Binding(
+                            get: { model.configuration.backup != nil },
+                            set: model.setBackupEnabled
+                        ))
+                        .disabled(model.configuration.hosts.isEmpty)
+
+                        if model.configuration.hosts.isEmpty {
+                            Text("Add a host in the Hosts tab before configuring a backup.")
+                                .foregroundStyle(.secondary)
+                        } else if let backup = model.configuration.backup {
+                            Picker("Backup host", selection: Binding(
+                                get: { model.configuration.backup?.hostID ?? backup.hostID },
+                                set: model.setBackupHost
+                            )) {
+                                ForEach(model.configuration.hosts) { host in
+                                    Text(host.machine).tag(host.id)
+                                }
+                            }
+                            TextField("Backup folder", text: Binding(
+                                get: { model.configuration.backup?.root ?? "" },
+                                set: model.setBackupRoot
+                            ))
+                            Text("The backup folder must differ from that host’s projects folder. Backups receive every repository but never publish changes back.")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .formStyle(.grouped)
+                .disabled(model.configurationLocked)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .tabItem { Label("Backup", systemImage: "externaldrive") }
             }
 
             Divider()

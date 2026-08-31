@@ -39,6 +39,8 @@ public enum Runner {
                 arguments.append("--selective")
                 for repository in repositories { arguments += ["--repository", repository] }
             }
+            if let remoteState = configuration.remoteState { arguments += ["--state", remoteState] }
+            if configuration.remoteReceiveOnly == true { arguments.append("--receive-only") }
             let command = remoteCommand(configuration.remoteExecutable, arguments)
             process.arguments = ["-T", "--", configuration.peer, command]
             process.standardInput = input
@@ -67,10 +69,11 @@ public enum Runner {
 
     public static func serve(root: URL, machine: String, stateURL: URL,
                              repositories: Set<String>? = nil,
+                             receiveOnly: Bool = false,
                              logger: @escaping (String) -> Void = { _ in }) throws {
         let session = try SyncSession(root: root, machine: machine, input: .standardInput,
                                       output: .standardOutput, stateURL: stateURL,
-                                      repositories: repositories, logger: logger)
+                                      repositories: repositories, receiveOnly: receiveOnly, logger: logger)
         try session.run()
     }
 

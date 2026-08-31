@@ -9,6 +9,7 @@ public final class SyncSession {
     private let state: StateStore
     private let logger: (String) -> Void
     private let isInitiator: Bool
+    private let receiveOnly: Bool
     private let lock = NSLock()
     private let controlQueue = DispatchQueue(label: "git-sync.control")
     private var peerMachine: String?
@@ -23,6 +24,7 @@ public final class SyncSession {
                 stateURL: URL, repositories: Set<String>? = nil,
                 peerRepositoryLocation: PeerRepositoryLocation? = nil,
                 isInitiator: Bool = false,
+                receiveOnly: Bool = false,
                 logger: @escaping (String) -> Void = { _ in }) throws {
         try Validator.machine(machine)
         for repository in repositories ?? [] { try Validator.project(repository) }
@@ -34,11 +36,12 @@ public final class SyncSession {
         connection = FramedConnection(input: input, output: output)
         state = try StateStore(url: stateURL)
         self.isInitiator = isInitiator
+        self.receiveOnly = receiveOnly
         self.logger = logger
     }
 
     public func run() throws {
-        try refreshCatalog()
+        if !receiveOnly { try refreshCatalog() }
         try connection.send(.hello(machine, epoch: state.sourceEpoch))
         try connection.send(.catalog(Array(repositories.keys).sorted()))
 
@@ -47,6 +50,11 @@ public final class SyncSession {
         DispatchQueue.global().async { [self] in
             defer { receiver.leave(); setStopped() }
             do { try receiveLoop() } catch { logger("session ended: \(error)") }
+        }
+
+        if receiveOnly {
+            receiver.wait()
+            throw SyncError.disconnected
         }
 
         lock.lock(); let initial = Array(repositories.values); lock.unlock()
@@ -116,7 +124,7 @@ public final class SyncSession {
                     try configureRemote(for: repository)
                     lock.lock(); repositories[name] = repository; lock.unlock()
                     sendControl(.inventory(name, known: try repository.knownOIDs()))
-                    if isNew { sendControl(.catalog([name])) }
+                    if isNew && !receiveOnly { sendControl(.catalog([name])) }
                 }
             case "inventory":
                 _ = try currentPeer()

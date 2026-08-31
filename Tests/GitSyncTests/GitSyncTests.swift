@@ -283,6 +283,32 @@ func hostDiscoverySelection() throws {
     }
 }
 
+@Test("backup uses an existing host and a distinct destination")
+func backupConfigurationValidation() throws {
+    let host = SyncHost(machine: "B", peer: "b", root: "/srv/repos")
+    var configuration = AppConfiguration(root: "/tmp", machine: "A", hosts: [host])
+
+    configuration.backup = BackupConfiguration(hostID: host.id, root: "/srv/backup")
+    #expect(try configuration.backupHost() == host)
+
+    configuration.backup = BackupConfiguration(hostID: host.id, root: "/srv/repos/")
+    #expect(throws: (any Error).self) { try configuration.backupHost() }
+
+    configuration.backup = BackupConfiguration(hostID: UUID(), root: "/srv/backup")
+    #expect(throws: (any Error).self) { try configuration.backupHost() }
+
+    configuration.backup = BackupConfiguration(hostID: host.id, root: "/srv/backup")
+    configuration.removeHost(host.id)
+    #expect(configuration.backup == nil)
+}
+
+@Test("configuration without backup settings still decodes")
+func legacyAppConfigurationDecoding() throws {
+    let data = Data(#"{"root":"/tmp","machine":"A","hosts":[],"folders":[]}"#.utf8)
+    let configuration = try JSONDecoder().decode(AppConfiguration.self, from: data)
+    #expect(configuration.backup == nil)
+}
+
 @Test("local discovery removes deleted local-only folders")
 func localDiscoveryRemovesDeletedFolders() throws {
     var configuration = AppConfiguration(root: "/tmp", machine: "A")
@@ -481,6 +507,48 @@ func framedSessionSelection() throws {
     try? aToB.fileHandleForWriting.close(); try? bToA.fileHandleForWriting.close()
     try Data().write(to: fixture.a.appendingPathComponent("wake"))
     try Data().write(to: fixture.b.appendingPathComponent("wake"))
+    #expect(sessions.wait(timeout: .now() + 5) == .success)
+}
+
+@Test("receive-only backup never publishes its refs to the source")
+func framedSessionReceiveOnly() throws {
+    let fixture = try Fixture()
+    let backupRepository = fixture.b.appendingPathComponent("project")
+    try FileManager.default.createDirectory(at: backupRepository, withIntermediateDirectories: true)
+    _ = try git(["init", "-q", "-b", "main", backupRepository.path])
+    _ = try git(["-C", backupRepository.path, "config", "user.name", "Test"])
+    _ = try git(["-C", backupRepository.path, "config", "user.email", "test@example.com"])
+    try Data("backup only\n".utf8).write(to: backupRepository.appendingPathComponent("backup.txt"))
+    _ = try git(["-C", backupRepository.path, "add", "backup.txt"])
+    _ = try git(["-C", backupRepository.path, "commit", "-qm", "backup only"])
+
+    let aToB = Pipe(), bToA = Pipe()
+    let source = try SyncSession(root: fixture.a, machine: "A",
+                                 input: bToA.fileHandleForReading, output: aToB.fileHandleForWriting,
+                                 stateURL: fixture.root.appendingPathComponent("backup-source"))
+    let backup = try SyncSession(root: fixture.b, machine: "B",
+                                 input: aToB.fileHandleForReading, output: bToA.fileHandleForWriting,
+                                 stateURL: fixture.root.appendingPathComponent("backup-destination"),
+                                 receiveOnly: true)
+    let sessions = DispatchGroup()
+    for session in [source, backup] {
+        sessions.enter()
+        DispatchQueue.global().async { defer { sessions.leave() }; try? session.run() }
+    }
+
+    let expected = try git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"])
+    let deadline = Date().addingTimeInterval(5)
+    var received: String?
+    while Date() < deadline, received != expected {
+        received = try? git(["-C", backupRepository.path, "rev-parse", "refs/remotes/a/main"])
+        if received != expected { Thread.sleep(forTimeInterval: 0.05) }
+    }
+    #expect(received == expected)
+    #expect((try? git(["-C", fixture.a.appendingPathComponent("project").path,
+                      "rev-parse", "--verify", "refs/remotes/b/main"])) == nil)
+
+    try? aToB.fileHandleForWriting.close(); try? bToA.fileHandleForWriting.close()
+    try Data().write(to: fixture.a.appendingPathComponent("wake"))
     #expect(sessions.wait(timeout: .now() + 5) == .success)
 }
 

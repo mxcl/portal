@@ -74,6 +74,13 @@ in a connection only when both the local and remote host cells are selected, so
 disabling either cell stops both directions. Equal names already present at
 both ends require explicit confirmation before the host is added.
 
+An optional backup selects one inspected host and a second parent path distinct
+from that host's normal root. It starts a separate connection containing every
+local repository. The remote endpoint is receive-only: it accepts catalogs,
+objects, and ref snapshots but never advertises repositories or publishes its
+own refs back. Its ordering state is scoped to the backup configuration so it
+can run beside the host's ordinary bidirectional connection.
+
 The app controls its own per-user login item and writes one connection and
 ordering-state file per host. The bundled helper is the same headless executable
 used on Linux.
@@ -99,6 +106,10 @@ following pack cannot interleave.
    compare-and-swap `git update-ref`.
 6. An `ack` advances the sender's peer-known tips. Duplicate or stale
    generations are acknowledged without replaying their mutation.
+
+A receive-only endpoint sends an empty catalog, answers incoming catalogs with
+inventories, and applies updates normally. It has no filesystem watcher or
+outbound update path.
 
 EOF or SSH failure tears down the session. `run` reconnects and repeats the
 idempotent inventory exchange; no separate resume protocol is necessary.

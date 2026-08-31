@@ -4,7 +4,7 @@ import SystemConfiguration
 #endif
 
 public enum SyncProtocol {
-    public static let version = 2
+    public static let version = 3
 }
 
 public struct Configuration: Codable, Equatable, Sendable {
@@ -34,10 +34,13 @@ public struct Configuration: Codable, Equatable, Sendable {
     public var remoteExecutable: String
     public var repositories: [String]?
     public var remoteMachine: String?
+    public var remoteState: String?
+    public var remoteReceiveOnly: Bool?
 
     public init(root: String, machine: String, peer: String, remoteRoot: String,
                 remoteExecutable: String = Configuration.defaultRemoteExecutable,
-                repositories: [String]? = nil, remoteMachine: String? = nil) {
+                repositories: [String]? = nil, remoteMachine: String? = nil,
+                remoteState: String? = nil, remoteReceiveOnly: Bool? = nil) {
         self.root = root
         self.machine = machine
         self.peer = peer
@@ -45,6 +48,8 @@ public struct Configuration: Codable, Equatable, Sendable {
         self.remoteExecutable = remoteExecutable
         self.repositories = repositories
         self.remoteMachine = remoteMachine
+        self.remoteState = remoteState
+        self.remoteReceiveOnly = remoteReceiveOnly
     }
 
     public func validate() throws {
@@ -57,6 +62,9 @@ public struct Configuration: Codable, Equatable, Sendable {
         }
         guard !remoteRoot.isEmpty, !remoteExecutable.isEmpty else {
             throw SyncError.invalidConfiguration("Remote folder and executable are required")
+        }
+        guard remoteState?.isEmpty != true else {
+            throw SyncError.invalidConfiguration("Remote state path is required")
         }
         for repository in repositories ?? [] { try Validator.project(repository) }
         if let remoteMachine { try Validator.machine(remoteMachine) }
@@ -147,17 +155,32 @@ public struct SyncFolder: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public struct BackupConfiguration: Codable, Equatable, Identifiable, Sendable {
+    public let id: UUID
+    public var hostID: UUID
+    public var root: String
+
+    public init(id: UUID = UUID(), hostID: UUID, root: String) {
+        self.id = id
+        self.hostID = hostID
+        self.root = root
+    }
+}
+
 public struct AppConfiguration: Codable, Equatable, Sendable {
     public var root: String
     public var machine: String
     public var hosts: [SyncHost]
     public var folders: [SyncFolder]
+    public var backup: BackupConfiguration?
 
-    public init(root: String, machine: String, hosts: [SyncHost] = [], folders: [SyncFolder] = []) {
+    public init(root: String, machine: String, hosts: [SyncHost] = [], folders: [SyncFolder] = [],
+                backup: BackupConfiguration? = nil) {
         self.root = root
         self.machine = machine
         self.hosts = hosts
         self.folders = folders
+        self.backup = backup
     }
 
     public mutating func discoverLocal(_ names: [String]) throws {
@@ -218,6 +241,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
 
     public mutating func removeHost(_ id: UUID) {
         hosts.removeAll { $0.id == id }
+        if backup?.hostID == id { backup = nil }
         for index in folders.indices {
             folders[index].hosts.remove(id)
             folders[index].availableHosts.remove(id)
@@ -227,6 +251,20 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
 
     public func repositories(for hostID: UUID) -> [String] {
         folders.filter { $0.isLocal && $0.hosts.contains(hostID) }.map(\.name).sorted()
+    }
+
+    public func backupHost() throws -> SyncHost? {
+        guard let backup else { return nil }
+        guard let host = hosts.first(where: { $0.id == backup.hostID }) else {
+            throw SyncError.invalidConfiguration("Choose an existing host for backups.")
+        }
+        guard !backup.root.isEmpty else {
+            throw SyncError.invalidConfiguration("Choose a backup folder.")
+        }
+        guard NSString(string: backup.root).standardizingPath != NSString(string: host.root).standardizingPath else {
+            throw SyncError.invalidConfiguration("The backup folder must differ from the host’s projects folder.")
+        }
+        return host
     }
 
     private func validatedNames(_ names: [String]) throws -> [String] {

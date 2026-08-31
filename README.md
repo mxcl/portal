@@ -58,6 +58,11 @@ local and remote host cells to enable a folder in both directions. Matching
 repository names already present on both hosts retain the initial “Are You
 Sure?” confirmation.
 
+The Backup tab can continuously send every local repository to a dedicated
+folder on one of those existing hosts. The backup folder must differ from that
+host's projects folder, and the backup connection is receive-only: refs created
+inside the backup are never published back to this Mac.
+
 The app launches at login and shows live transfer logs in its menu. It uses the
 copy of `git-sync` inside each peer's `/Applications/Git Sync.app`; the path can
 be changed while adding that host.

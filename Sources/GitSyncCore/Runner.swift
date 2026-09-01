@@ -97,6 +97,26 @@ public enum Runner {
         let probe = root.appendingPathComponent(".git-sync-write-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: probe, withIntermediateDirectories: false)
         try FileManager.default.removeItem(at: probe)
+        try migrateLegacyBackups(at: root)
+    }
+
+    private static func migrateLegacyBackups(at root: URL) throws {
+        let manager = FileManager.default
+        for wrapper in try manager.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) {
+            let name = wrapper.lastPathComponent.precomposedStringWithCanonicalMapping
+            guard (try? wrapper.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+                  (try? Validator.project(name)) != nil,
+                  try manager.contentsOfDirectory(atPath: wrapper.path) == [".git"] else { continue }
+            let gitDirectory = wrapper.appendingPathComponent(".git", isDirectory: true)
+            guard Git.succeeds(["-C", wrapper.path, "rev-parse", "--git-dir"]) else { continue }
+            let destination = root.appendingPathComponent("\(name).git", isDirectory: true)
+            guard !manager.fileExists(atPath: destination.path) else {
+                throw SyncError.invalidConfiguration("Backup already exists: \(destination.path)")
+            }
+            _ = try Git.run(["--git-dir", gitDirectory.path, "config", "core.bare", "true"])
+            try manager.moveItem(at: gitDirectory, to: destination)
+            try manager.removeItem(at: wrapper)
+        }
     }
 
     private static func runRemote(_ configuration: Configuration, arguments: [String],

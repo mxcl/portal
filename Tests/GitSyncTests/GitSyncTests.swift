@@ -276,6 +276,25 @@ func backupPreflight() throws {
     #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
 }
 
+@Test("backup preflight migrates legacy empty wrappers")
+func backupDestinationMigration() throws {
+    let fixture = try Fixture()
+    let legacy = try Repository.ensure(name: "legacy", in: fixture.b)
+    let checkout = try Repository.ensure(name: "checkout", in: fixture.b)
+    try Data("keep\n".utf8).write(to: checkout.url.appendingPathComponent("file.txt"))
+    _ = try git(["-C", legacy.url.path, "fetch", fixture.a.appendingPathComponent("project").path,
+                 "main:refs/remotes/a/main"])
+
+    try Runner.prepareBackup(at: fixture.b)
+
+    let migrated = fixture.b.appendingPathComponent("legacy.git")
+    #expect(!FileManager.default.fileExists(atPath: legacy.url.path))
+    #expect(try git(["-C", migrated.path, "rev-parse", "--is-bare-repository"]) == "true")
+    #expect(try git(["-C", migrated.path, "rev-parse", "refs/remotes/a/main"])
+            == git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"]))
+    #expect(FileManager.default.fileExists(atPath: checkout.url.appendingPathComponent(".git").path))
+}
+
 @Test("local backup socket is owner-only and identifies sessions")
 func localBackupSocket() throws {
     let root = URL(fileURLWithPath: "/tmp/gs-\(UUID())")

@@ -132,15 +132,18 @@ public enum Runner {
 }
 
 public enum OneShot {
-    public static func sync(sourceRoot: URL, destinationRoot: URL, machine: String, stateURL: URL) throws {
+    public static func sync(sourceRoot: URL, destinationRoot: URL, machine: String, stateURL: URL,
+                            full: Bool = false) throws {
         try Validator.machine(machine)
         let state = try StateStore(url: stateURL)
         for source in try Repository.discover(in: sourceRoot) {
             let destination = try Repository.ensure(name: source.name, in: destinationRoot)
+            var known = Set(try destination.knownOIDs())
             for update in try state.updates(machine: machine, repository: source.name,
-                                            refs: source.sourceRefs(), full: false) {
-                if let oid = update.oid {
-                    try destination.install(pack: source.pack(oid: oid, excluding: destination.knownOIDs()), target: oid)
+                                            refs: source.sourceRefs(), full: full) {
+                if let oid = update.oid, !known.contains(oid) {
+                    try destination.install(pack: source.pack(oid: oid, excluding: Array(known)), target: oid)
+                    known.insert(oid)
                 }
                 try PeerRefWriter(repository: destination, peer: machine).apply(sourceRef: update.sourceRef, oid: update.oid)
             }

@@ -62,6 +62,7 @@ final class AppModel: ObservableObject {
     private var pendingConfiguration: AppConfiguration?
     private var syncProcesses: [UUID: Process] = [:]
     private var backupReceiver: BackupReceiver?
+    private var localBackup: LocalBackup?
 
     init() {
         configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
@@ -308,7 +309,7 @@ final class AppModel: ObservableObject {
     }
 
     private func launchAll() throws {
-        guard syncProcesses.isEmpty, backupReceiver == nil else { return }
+        guard syncProcesses.isEmpty, backupReceiver == nil, localBackup == nil else { return }
         guard let helper = Bundle.main.url(forResource: "git-sync", withExtension: nil) else {
             throw SyncError.invalidConfiguration("The app bundle is missing git-sync. Re-run scripts/install.sh.")
         }
@@ -329,7 +330,7 @@ final class AppModel: ObservableObject {
                         Task { @MainActor [weak self] in
                             guard let self, self.backupReceiver?.id == id else { return }
                             self.backupReceiver = nil
-                            self.isRunning = !self.syncProcesses.isEmpty
+                            self.isRunning = !self.syncProcesses.isEmpty || self.localBackup != nil
                             if !self.isRunning { self.status = "Stopped" }
                         }
                     }
@@ -337,6 +338,27 @@ final class AppModel: ObservableObject {
                 receiver.start()
                 backupReceiver = receiver
                 appendLog("Accepting backups into \(destination.path)")
+
+                let backup = LocalBackup(
+                    source: expandedRoot, destination: destination, machine: configuration.machine,
+                    stateURL: support.appendingPathComponent(
+                        "backup-source-\(destinationConfiguration.id.uuidString).json"
+                    ),
+                    logger: { [weak self] message in
+                        Task { @MainActor [weak self] in self?.appendLog("Local backup: \(message)") }
+                    },
+                    onStopped: { [weak self] id in
+                        Task { @MainActor [weak self] in
+                            guard let self, self.localBackup?.id == id else { return }
+                            self.localBackup = nil
+                            self.isRunning = !self.syncProcesses.isEmpty || self.backupReceiver != nil
+                            if !self.isRunning { self.status = "Stopped" }
+                        }
+                    }
+                )
+                backup.start()
+                localBackup = backup
+                appendLog("Backing up this Mac into \(destination.path)")
             }
             for host in configuration.hosts {
                 let repositories = configuration.repositories(for: host.id)
@@ -362,7 +384,7 @@ final class AppModel: ObservableObject {
             stopProcesses()
             throw error
         }
-        isRunning = !syncProcesses.isEmpty || backupReceiver != nil
+        isRunning = !syncProcesses.isEmpty || backupReceiver != nil || localBackup != nil
         error = nil
         status = SMAppService.mainApp.status == .requiresApproval
             ? "Standing By — login approval required"
@@ -391,7 +413,7 @@ final class AppModel: ObservableObject {
                 guard let self, self.syncProcesses[id] === process else { return }
                 output.fileHandleForReading.readabilityHandler = nil
                 self.syncProcesses.removeValue(forKey: id)
-                self.isRunning = !self.syncProcesses.isEmpty || self.backupReceiver != nil
+                self.isRunning = !self.syncProcesses.isEmpty || self.backupReceiver != nil || self.localBackup != nil
                 if process.terminationStatus != 0 {
                     self.appendLog("\(name): git-sync exited with status \(process.terminationStatus)")
                 }
@@ -418,6 +440,8 @@ final class AppModel: ObservableObject {
     }
 
     private func stopProcesses() {
+        localBackup?.stop()
+        localBackup = nil
         backupReceiver?.stop()
         backupReceiver = nil
         let processes = Array(syncProcesses.values)
@@ -479,6 +503,60 @@ final class AppModel: ObservableObject {
         try? FileManager.default.removeItem(at: legacyAgentURL)
     }
 
+}
+
+private final class LocalBackup: @unchecked Sendable {
+    let id = UUID()
+    private let source: URL
+    private let destination: URL
+    private let machine: String
+    private let stateURL: URL
+    private let logger: (String) -> Void
+    private let onStopped: (UUID) -> Void
+    private let queue = DispatchQueue(label: "git-sync.local-backup")
+    private let lock = NSLock()
+    private var stopped = false
+
+    init(source: URL, destination: URL, machine: String, stateURL: URL,
+         logger: @escaping (String) -> Void, onStopped: @escaping (UUID) -> Void) {
+        self.source = source
+        self.destination = destination
+        self.machine = machine
+        self.stateURL = stateURL
+        self.logger = logger
+        self.onStopped = onStopped
+    }
+
+    func start() {
+        queue.async { [self] in run() }
+    }
+
+    func stop() {
+        lock.lock(); stopped = true; lock.unlock()
+    }
+
+    private func run() {
+        defer { onStopped(id) }
+        while !isStopped {
+            do {
+                try OneShot.sync(sourceRoot: source, destinationRoot: destination,
+                                 machine: machine, stateURL: stateURL, full: true)
+                guard !isStopped else { return }
+                logger("this Mac is up to date")
+                let watcher = Watcher(root: source, repositories: try Repository.discover(in: source))
+                let started = Date()
+                while !isStopped, !watcher.wait(), Date().timeIntervalSince(started) < 300 {}
+            } catch {
+                if !isStopped { logger("retrying after: \(error)") }
+                for _ in 0..<5 where !isStopped { Thread.sleep(forTimeInterval: 1) }
+            }
+        }
+    }
+
+    private var isStopped: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return stopped
+    }
 }
 
 private final class BackupReceiver: @unchecked Sendable {

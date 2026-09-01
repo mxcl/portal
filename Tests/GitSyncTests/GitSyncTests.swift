@@ -176,6 +176,21 @@ func deletionTombstone() throws {
     #expect(!expired.split(separator: "\n").isEmpty)
 }
 
+@Test("full one-shot repairs a missing backup ref")
+func fullOneShotRepairsMissingRef() throws {
+    let fixture = try Fixture()
+    let destination = fixture.b.appendingPathComponent("project")
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
+                     machine: "A", stateURL: fixture.state)
+    let expected = try git(["-C", destination.path, "rev-parse", "refs/remotes/a/main"])
+    _ = try git(["-C", destination.path, "update-ref", "-d", "refs/remotes/a/main"])
+
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
+                     machine: "A", stateURL: fixture.state, full: true)
+
+    #expect(try git(["-C", destination.path, "rev-parse", "refs/remotes/a/main"]) == expected)
+}
+
 @Test("receiver rejects unsafe ref paths and corrupt packs")
 func rejectsUnsafeInput() throws {
     let fixture = try Fixture()

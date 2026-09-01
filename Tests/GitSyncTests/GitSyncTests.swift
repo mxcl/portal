@@ -645,4 +645,66 @@ func framedSessionLargeBidirectionalPacks() throws {
     #expect(sessions.wait(timeout: .now() + 5) == .success)
 }
 
+@Test("initial snapshot does not repack shared history for every ref")
+func initialSnapshotReusesSentObjects() throws {
+    let fixture = try Fixture()
+    let repository = fixture.a.appendingPathComponent("project")
+    try Data((0..<1024 * 1024).map { _ in UInt8.random(in: .min ... .max) })
+        .write(to: repository.appendingPathComponent("payload.bin"))
+    _ = try git(["-C", repository.path, "add", "payload.bin"])
+    _ = try git(["-C", repository.path, "commit", "-qm", "large shared history"])
+    for number in 1...12 { _ = try git(["-C", repository.path, "tag", "v\(number)"]) }
+
+    let sourceToRelay = Pipe(), relayToBackup = Pipe(), backupToSource = Pipe()
+    let byteLock = NSLock()
+    var sentBytes = 0
+    let relay = DispatchGroup()
+    relay.enter()
+    sourceToRelay.fileHandleForReading.readabilityHandler = { handle in
+        let data = handle.availableData
+        guard !data.isEmpty else {
+            handle.readabilityHandler = nil
+            try? relayToBackup.fileHandleForWriting.close()
+            relay.leave()
+            return
+        }
+        byteLock.lock(); sentBytes += data.count; byteLock.unlock()
+        try? relayToBackup.fileHandleForWriting.write(contentsOf: data)
+    }
+
+    let source = try SyncSession(root: fixture.a, machine: "A",
+                                 input: backupToSource.fileHandleForReading,
+                                 output: sourceToRelay.fileHandleForWriting,
+                                 stateURL: fixture.root.appendingPathComponent("source-state"))
+    let backup = try SyncSession(root: fixture.b, machine: "B",
+                                 input: relayToBackup.fileHandleForReading,
+                                 output: backupToSource.fileHandleForWriting,
+                                 stateURL: fixture.root.appendingPathComponent("backup-state"),
+                                 receiveOnly: true)
+    let sessions = DispatchGroup()
+    for session in [source, backup] {
+        sessions.enter()
+        Thread.detachNewThread { defer { sessions.leave() }; try? session.run() }
+    }
+    Thread.sleep(forTimeInterval: 0.1)
+    try Data().write(to: fixture.a.appendingPathComponent("wake"))
+
+    let destination = fixture.b.appendingPathComponent("project")
+    let expected = try git(["-C", repository.path, "rev-parse", "refs/tags/v12"])
+    let deadline = Date().addingTimeInterval(10)
+    var received: String?
+    while Date() < deadline, received != expected {
+        received = try? git(["-C", destination.path, "rev-parse", "refs/sync/A/tags/v12"])
+        if received != expected { Thread.sleep(forTimeInterval: 0.05) }
+    }
+    byteLock.lock(); let totalBytes = sentBytes; byteLock.unlock()
+    #expect(received == expected)
+    #expect(totalBytes < 3 * 1024 * 1024)
+
+    try? sourceToRelay.fileHandleForWriting.close()
+    try? backupToSource.fileHandleForWriting.close()
+    #expect(sessions.wait(timeout: .now() + 5) == .success)
+    #expect(relay.wait(timeout: .now() + 5) == .success)
+}
+
 }

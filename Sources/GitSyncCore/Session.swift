@@ -187,14 +187,15 @@ public final class SyncSession {
     @discardableResult
     private func sendUpdates(for repository: Repository, full: Bool,
                              excluding excluded: Set<String> = []) throws -> Set<String> {
-        lock.lock(); let known = peerKnown[repository.name]; lock.unlock()
-        guard let known else { return [] }
+        lock.lock(); let initialKnown = peerKnown[repository.name]; lock.unlock()
+        guard var known = initialKnown else { return [] }
         let updates = try state.updates(machine: machine, repository: repository.name,
                                         refs: repository.sourceRefs(), full: full)
             .filter { !excluded.contains($0.sourceRef) }
         for update in updates {
             let pack = try update.oid.map { try repository.pack(oid: $0, excluding: Array(known)) }
             try connection.send(update: update, pack: pack)
+            if let oid = update.oid { known.insert(oid) }
         }
         return Set(updates.map(\.sourceRef))
     }

@@ -22,6 +22,7 @@ esac
 
 repositories=0
 references=0
+refused=0
 for repository in "$root"/*.git; do
   [ -d "$repository" ] || continue
   [ "$(git -C "$repository" rev-parse --is-bare-repository 2>/dev/null || true)" = true ] || continue
@@ -29,11 +30,23 @@ for repository in "$root"/*.git; do
     --format='delete %(refname) %(objectname)' refs/remotes/origin/)
   [ -n "$deletions" ] || continue
 
+  echo "${repository#"$root"/}:"
+  git -C "$repository" for-each-ref --format='  %(refname)' refs/remotes/origin/
+  reachable=$(git -C "$repository" rev-list --exclude='refs/remotes/origin/*' --all)
+  unsafe=$(git -C "$repository" for-each-ref \
+    --format='%(refname) %(objectname)' refs/remotes/origin/ | while read -r ref oid; do
+      printf '%s\n' "$reachable" | grep -Fqx "$oid" || echo "  $ref"
+    done)
+  if [ -n "$unsafe" ]; then
+    refused=$((refused + 1))
+    echo "  Refusing: these refs contain commits not reachable from retained refs:"
+    printf '%s\n' "$unsafe"
+    continue
+  fi
+
   repositories=$((repositories + 1))
   count=$(printf '%s\n' "$deletions" | wc -l | tr -d ' ')
   references=$((references + count))
-  echo "${repository#"$root"/}:"
-  git -C "$repository" for-each-ref --format='  %(refname)' refs/remotes/origin/
 
   if [ "$apply" = true ]; then
     {
@@ -51,3 +64,4 @@ else
   echo "Would remove $references origin refs from $repositories backup repositories."
   echo "Re-run with --apply to make the changes."
 fi
+[ "$refused" -eq 0 ] || echo "Refused $refused repositories to avoid making commits unreachable."

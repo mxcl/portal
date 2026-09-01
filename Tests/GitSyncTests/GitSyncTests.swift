@@ -472,6 +472,14 @@ func hostDiscoverySelection() throws {
     try configuration.updateHostIdentity(host.id, machine: "Pangolin")
     #expect(configuration.hosts.first?.machine == "Pangolin")
 
+    try configuration.renameHost(host.id, name: " Atlas ")
+    #expect(configuration.hosts.first?.name == "Atlas")
+    #expect(configuration.hosts.first?.machine == "Pangolin")
+
+    #expect(throws: (any Error).self) {
+        try configuration.renameHost(host.id, name: "  ")
+    }
+
     #expect(throws: (any Error).self) {
         try configuration.addHost(SyncHost(machine: "A", peer: "self", root: "/tmp"), repositories: [])
     }
@@ -500,8 +508,9 @@ func backupConfigurationValidation() throws {
 
 @Test("configuration without backup settings still decodes")
 func legacyAppConfigurationDecoding() throws {
-    let data = Data(#"{"root":"/tmp","machine":"A","hosts":[],"folders":[]}"#.utf8)
+    let data = Data(#"{"root":"/tmp","machine":"A","hosts":[{"id":"00000000-0000-0000-0000-000000000001","machine":"B","peer":"b","root":"/tmp","executable":"git-sync"}],"folders":[]}"#.utf8)
     let configuration = try JSONDecoder().decode(AppConfiguration.self, from: data)
+    #expect(configuration.hosts.first?.name == "B")
     #expect(configuration.backup == nil)
     #expect(configuration.backupDestination == nil)
 }

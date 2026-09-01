@@ -123,14 +123,18 @@ public struct PeerInspection: Codable, Equatable, Sendable {
 public struct SyncHost: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
     public var machine: String
+    public var displayName: String?
     public var peer: String
     public var root: String
     public var executable: String
 
-    public init(id: UUID = UUID(), machine: String, peer: String, root: String,
+    public var name: String { displayName ?? machine }
+
+    public init(id: UUID = UUID(), machine: String, displayName: String? = nil, peer: String, root: String,
                 executable: String = Configuration.defaultRemoteExecutable) {
         self.id = id
         self.machine = machine
+        self.displayName = displayName
         self.peer = peer
         self.root = root
         self.executable = executable
@@ -226,7 +230,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         }
         let names = try validatedNames(repositories)
         hosts.append(host)
-        hosts.sort { $0.machine.localizedStandardCompare($1.machine) == .orderedAscending }
+        hosts.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         for name in names {
             if let index = folders.firstIndex(where: { $0.name == name }) {
                 folders[index].hosts.insert(host.id)
@@ -249,7 +253,17 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         }
         guard let index = hosts.firstIndex(where: { $0.id == id }) else { return }
         hosts[index].machine = machine
-        hosts.sort { $0.machine.localizedStandardCompare($1.machine) == .orderedAscending }
+        hosts.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    public mutating func renameHost(_ id: UUID, name: String) throws {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            throw SyncError.invalidConfiguration("Host name cannot be empty")
+        }
+        guard let index = hosts.firstIndex(where: { $0.id == id }) else { return }
+        hosts[index].displayName = name == hosts[index].machine ? nil : name
+        hosts.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     public mutating func removeHost(_ id: UUID) {

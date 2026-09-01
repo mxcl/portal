@@ -41,10 +41,12 @@ final class AppModel: ObservableObject {
     @Published var restoringBackup: String?
     @Published var selectedHostID: UUID?
     @Published var showingAddHost = false
+    @Published var showingRenameHost = false
     @Published var showingOverlapConfirmation = false
     @Published var overlappingRepositories: [String] = []
 
     fileprivate var hostDraft = HostDraft()
+    fileprivate var hostNameDraft = ""
 
     private var loginItemRegistered: Bool {
         SMAppService.mainApp.status == .enabled || SMAppService.mainApp.status == .requiresApproval
@@ -236,6 +238,25 @@ final class AppModel: ObservableObject {
         hostDraft = HostDraft(root: configuration.root)
         hostError = nil
         showingAddHost = true
+    }
+
+    func beginRenamingHost() {
+        guard let selectedHostID,
+              let host = configuration.hosts.first(where: { $0.id == selectedHostID }) else { return }
+        hostNameDraft = host.name
+        hostError = nil
+        showingRenameHost = true
+    }
+
+    func renameHost() {
+        guard let selectedHostID else { return }
+        do {
+            try configuration.renameHost(selectedHostID, name: hostNameDraft)
+            try save()
+            showingRenameHost = false
+        } catch {
+            hostError = String(describing: error)
+        }
     }
 
     func addHost() {
@@ -461,7 +482,7 @@ final class AppModel: ObservableObject {
                                                remoteExecutable: host.executable, repositories: repositories,
                                                remoteMachine: host.machine)
                 try connection.validate()
-                try launch(connection, id: host.id, name: host.machine, helper: helper)
+                try launch(connection, id: host.id, name: host.name, helper: helper)
             }
             if let backup = configuration.backup, let host = try configuration.backupHost() {
                 let connection = Configuration(
@@ -471,7 +492,7 @@ final class AppModel: ObservableObject {
                     remoteReceiveOnly: true
                 )
                 try connection.validate()
-                try launch(connection, id: backup.id, name: "Backup on \(host.machine)", helper: helper)
+                try launch(connection, id: backup.id, name: "Backup on \(host.name)", helper: helper)
             }
         } catch {
             stopProcesses()
@@ -928,11 +949,13 @@ struct SettingsView: View {
                         Spacer()
                         if model.isChecking { ProgressView().controlSize(.small) }
                         Button(action: model.beginAddingHost) { Label("Add Host", systemImage: "plus") }
+                        Button(action: model.beginRenamingHost) { Label("Rename Host", systemImage: "pencil") }
+                            .disabled(model.selectedHostID == nil)
                         Button(action: model.removeSelectedHost) { Label("Remove Host", systemImage: "minus") }
                             .disabled(model.selectedHostID == nil)
                     }
                     Table(model.configuration.hosts, selection: $model.selectedHostID) {
-                        TableColumn("Machine", value: \.machine)
+                        TableColumn("Name", value: \.name)
                         TableColumn("SSH Host", value: \.peer)
                         TableColumn("Projects Folder", value: \.root)
                     }
@@ -961,7 +984,7 @@ struct SettingsView: View {
                             TableColumn("Other Hosts") { folder in
                                 HStack {
                                     ForEach(model.configuration.hosts) { host in
-                                        Toggle(host.machine, isOn: Binding(
+                                        Toggle(host.name, isOn: Binding(
                                             get: { folder.hosts.contains(host.id) },
                                             set: { model.setHost(host.id, enabled: $0, folder: folder.name) }
                                         ))
@@ -1002,7 +1025,7 @@ struct SettingsView: View {
                                 set: model.setBackupHost
                             )) {
                                 ForEach(model.configuration.hosts) { host in
-                                    Text(host.machine).tag(host.id)
+                                    Text(host.name).tag(host.id)
                                 }
                             }
                             Text("Choose the destination in Git Sync on the backup host. Backups receive every repository but never publish changes back.")
@@ -1087,6 +1110,7 @@ struct SettingsView: View {
         .frame(minWidth: 720, minHeight: 520)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sheet(isPresented: $model.showingAddHost) { AddHostView(model: model) }
+        .sheet(isPresented: $model.showingRenameHost) { RenameHostView(model: model) }
         .sheet(isPresented: $model.showingOverlapConfirmation) {
             VStack(alignment: .leading) {
                 Text("Are You Sure?").font(.title2.bold())
@@ -1102,6 +1126,27 @@ struct SettingsView: View {
             .frame(width: 480, height: 360)
             .interactiveDismissDisabled()
         }
+    }
+}
+
+private struct RenameHostView: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Rename Host").font(.title2.bold())
+            TextField("Name", text: $model.hostNameDraft)
+            Text("This changes how the host appears in Git Sync, not its Git identity.")
+                .foregroundStyle(.secondary)
+            if let error = model.hostError { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+            HStack {
+                Button("Cancel") { model.showingRenameHost = false }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Rename", action: model.renameHost).keyboardShortcut(.defaultAction)
+            }
+        }
+        .scenePadding()
+        .frame(width: 440, height: 180)
     }
 }
 

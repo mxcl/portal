@@ -85,6 +85,19 @@ repositories or publishes its own refs back. Its ordering state has one writer
 inside the receiving app and can run beside ordinary bidirectional connections.
 It stores each backup as a bare `<name>.git` repository directly beneath the
 selected parent folder; backup storage never creates a checkout-shaped wrapper.
+The receiving app persists the latest complete repository catalog from each
+backup source. A stored repository absent from every known catalog can be
+explicitly marked archived; offline or not-yet-observed sources leave its status
+unknown rather than producing a false orphan. Archival is metadata only and never
+moves or deletes the bare repository.
+
+Unarchive is an explicit local promotion action. It restores one selected source
+snapshot into a new repository under the receiving Mac's normal project root,
+promoting that source's branches, tags, and stash while retaining every source's
+peer refs. It refuses an existing destination name and constructs the repository
+under a temporary sibling before atomically moving it into place. Because `HEAD`
+is not replicated, `main`, then `master`, then the first branch is selected for
+checkout.
 
 The app controls its own per-user login item and writes one connection and
 ordering-state file per host. The bundled helper is the same headless executable
@@ -112,9 +125,9 @@ following pack cannot interleave.
 6. An `ack` advances the sender's peer-known tips. Duplicate or stale
    generations are acknowledged without replaying their mutation.
 
-A receive-only endpoint sends an empty catalog, answers incoming catalogs with
-inventories, and applies updates normally. It has no filesystem watcher or
-outbound update path.
+A receive-only endpoint sends an empty catalog, persists each incoming complete
+catalog, answers it with inventories, and applies updates normally. It has no
+filesystem watcher or outbound update path.
 
 EOF or SSH failure tears down the session. `run` reconnects and repeats the
 idempotent inventory exchange; no separate resume protocol is necessary. Before

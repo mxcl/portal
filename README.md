@@ -67,6 +67,11 @@ created inside the backup are never published back to the source Mac. Each
 backup is a bare repository named `<repository>.git` directly inside the chosen
 destination.
 
+The Backup tab lists stored repositories once source catalogs arrive. Repositories
+that no known host contains can be marked archived without moving or deleting
+their data. **Unarchive** restores a selected snapshot into this Mac's projects
+folder; it refuses to overwrite an existing repository.
+
 The app launches at login and shows live transfer logs in its menu. It uses the
 copy of `git-sync` inside each peer's `/Applications/Git Sync.app`; the path can
 be changed while adding that host.

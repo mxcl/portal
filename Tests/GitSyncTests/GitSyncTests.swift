@@ -684,10 +684,16 @@ func framedSessionReceiveOnly() throws {
     let source = try SyncSession(root: fixture.a, machine: "A",
                                  input: bToA.fileHandleForReading, output: aToB.fileHandleForWriting,
                                  stateURL: fixture.root.appendingPathComponent("backup-source"))
+    let catalogLock = NSLock()
+    var receivedCatalog: [String]?
     let backup = try SyncSession(root: fixture.b, machine: "B",
                                  input: aToB.fileHandleForReading, output: bToA.fileHandleForWriting,
                                  stateURL: fixture.root.appendingPathComponent("backup-destination"),
-                                 receiveOnly: true)
+                                 receiveOnly: true,
+                                 catalogObserver: { machine, repositories in
+                                     #expect(machine == "A")
+                                     catalogLock.lock(); receivedCatalog = repositories; catalogLock.unlock()
+                                 })
     let sessions = DispatchGroup()
     for session in [source, backup] {
         sessions.enter()
@@ -702,6 +708,8 @@ func framedSessionReceiveOnly() throws {
         if received != expected { Thread.sleep(forTimeInterval: 0.05) }
     }
     #expect(received == expected)
+    catalogLock.lock(); let catalog = receivedCatalog; catalogLock.unlock()
+    #expect(catalog == ["project"])
     #expect((try? git(["-C", fixture.a.appendingPathComponent("project").path,
                       "rev-parse", "--verify", "refs/remotes/b/main"])) == nil)
 

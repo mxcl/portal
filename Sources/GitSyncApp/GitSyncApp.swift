@@ -36,6 +36,8 @@ final class AppModel: ObservableObject {
     @Published var isChecking = false
     @Published var isRunning = false
     @Published var logs: [String] = []
+    @Published var backupItems: [BackupItem] = []
+    @Published var restoringBackup: String?
     @Published var selectedHostID: UUID?
     @Published var showingAddHost = false
     @Published var showingOverlapConfirmation = false
@@ -47,7 +49,9 @@ final class AppModel: ObservableObject {
         SMAppService.mainApp.status == .enabled || SMAppService.mainApp.status == .requiresApproval
     }
     var canStop: Bool { isRunning || loginItemRegistered }
-    var configurationLocked: Bool { isRunning || isChecking || showingOverlapConfirmation }
+    var configurationLocked: Bool {
+        isRunning || isChecking || showingOverlapConfirmation || restoringBackup != nil
+    }
     var menuLogs: [String] {
         logs.suffix(8).reversed().map { $0.count > 90 ? String($0.prefix(89)) + "…" : $0 }
     }
@@ -63,6 +67,9 @@ final class AppModel: ObservableObject {
     private var syncProcesses: [UUID: Process] = [:]
     private var backupReceiver: BackupReceiver?
     private var localBackup: LocalBackup?
+    private var backupIndex: BackupIndex?
+    private var backupIndexID: UUID?
+    private var backupRefreshGeneration = 0
 
     init() {
         configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
@@ -76,6 +83,7 @@ final class AppModel: ObservableObject {
             }
         }
         refreshLocalNow()
+        do { try loadBackupIndex() } catch { fail(error) }
         let startAfterInspection = SMAppService.mainApp.status == .enabled
         if !configuration.hosts.isEmpty {
             isChecking = true
@@ -121,13 +129,65 @@ final class AppModel: ObservableObject {
         configuration.backupDestination = BackupDestinationConfiguration(id: id, root: url.path)
         do {
             try save()
+            try loadBackupIndex()
             status = "Stopped"
         } catch { fail(error) }
     }
 
     func clearBackupDestination() {
         configuration.backupDestination = nil
+        backupIndex = nil
+        backupIndexID = nil
+        backupItems = []
         do { try save() } catch { fail(error) }
+    }
+
+    func archiveBackup(_ item: BackupItem) {
+        guard let index = backupIndex,
+              let root = try? configuration.validatedBackupDestination() else { return }
+        restoringBackup = item.name
+        Task {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try index.archive(item.name, in: root)
+                }.value
+                restoringBackup = nil
+                refreshBackupItems()
+                appendLog("Archived backup \(item.name)")
+            } catch {
+                restoringBackup = nil
+                fail(error)
+            }
+        }
+    }
+
+    func unarchiveBackup(_ item: BackupItem, snapshot: BackupSnapshot) {
+        guard let index = backupIndex,
+              let backupRoot = try? configuration.validatedBackupDestination() else { return }
+        let projectsRoot = expandedRoot
+        let machine = configuration.machine
+        restoringBackup = item.name
+        status = "Unarchiving \(item.name)"
+        Task {
+            do {
+                let names = try await Task.detached(priority: .userInitiated) {
+                    try BackupIndex.restore(item.name, snapshotID: snapshot.id,
+                                            from: backupRoot, to: projectsRoot)
+                    let names = try Repository.discover(in: projectsRoot).map(\.name)
+                    try index.replaceCatalog(machine: machine, repositories: names)
+                    return names
+                }.value
+                try configuration.discoverLocal(names)
+                try save()
+                restoringBackup = nil
+                status = isRunning ? "Standing By" : "Stopped"
+                refreshBackupItems()
+                appendLog("Unarchived \(item.name) onto this Mac from \(snapshot.machine)")
+            } catch {
+                restoringBackup = nil
+                fail(error)
+            }
+        }
     }
 
     func refreshLocal() {
@@ -318,11 +378,16 @@ final class AppModel: ObservableObject {
             if let destination = try configuration.validatedBackupDestination(),
                let destinationConfiguration = configuration.backupDestination {
                 try Runner.prepareBackup(at: destination)
+                let index = try backupIndex(for: destinationConfiguration.id)
+                let catalogChanged = { [weak self] in
+                    _ = Task { @MainActor [weak self] in self?.refreshBackupItems() }
+                }
                 let receiver = try BackupReceiver(
                     root: destination, machine: configuration.machine,
                     stateURL: support.appendingPathComponent(
                         "backup-receiver-\(destinationConfiguration.id.uuidString).json"
                     ),
+                    index: index, onCatalog: catalogChanged,
                     logger: { [weak self] message in
                         Task { @MainActor [weak self] in self?.appendLog("Backup receiver: \(message)") }
                     },
@@ -344,6 +409,7 @@ final class AppModel: ObservableObject {
                     stateURL: support.appendingPathComponent(
                         "backup-source-\(destinationConfiguration.id.uuidString).json"
                     ),
+                    index: index, onCatalog: catalogChanged,
                     logger: { [weak self] message in
                         Task { @MainActor [weak self] in self?.appendLog("Local backup: \(message)") }
                     },
@@ -455,6 +521,7 @@ final class AppModel: ObservableObject {
 
     private func fail(_ error: Error) {
         isChecking = false
+        restoringBackup = nil
         self.error = String(describing: error)
         status = isRunning ? "Standing By" : "Stopped"
         appendLog("Error: \(error)")
@@ -492,6 +559,47 @@ final class AppModel: ObservableObject {
         URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath).standardizedFileURL
     }
 
+    private func loadBackupIndex() throws {
+        guard let destination = configuration.backupDestination else {
+            backupIndex = nil
+            backupIndexID = nil
+            backupItems = []
+            return
+        }
+        _ = try backupIndex(for: destination.id)
+        refreshBackupItems()
+    }
+
+    private func backupIndex(for id: UUID) throws -> BackupIndex {
+        if backupIndexID == id, let backupIndex { return backupIndex }
+        let index = try BackupIndex(url: support.appendingPathComponent("backup-index-\(id.uuidString).json"))
+        backupIndex = index
+        backupIndexID = id
+        return index
+    }
+
+    private func refreshBackupItems() {
+        guard let index = backupIndex,
+              let root = try? configuration.validatedBackupDestination() else {
+            backupItems = []
+            return
+        }
+        backupRefreshGeneration += 1
+        let generation = backupRefreshGeneration
+        Task {
+            do {
+                let items = try await Task.detached(priority: .utility) {
+                    try index.items(in: root)
+                }.value
+                guard generation == backupRefreshGeneration else { return }
+                backupItems = items
+            } catch {
+                guard generation == backupRefreshGeneration else { return }
+                fail(error)
+            }
+        }
+    }
+
     private func removeLegacyAgent() {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
@@ -511,6 +619,8 @@ private final class LocalBackup: @unchecked Sendable {
     private let destination: URL
     private let machine: String
     private let stateURL: URL
+    private let index: BackupIndex
+    private let onCatalog: () -> Void
     private let logger: (String) -> Void
     private let onStopped: (UUID) -> Void
     private let queue = DispatchQueue(label: "git-sync.local-backup")
@@ -518,11 +628,14 @@ private final class LocalBackup: @unchecked Sendable {
     private var stopped = false
 
     init(source: URL, destination: URL, machine: String, stateURL: URL,
+         index: BackupIndex, onCatalog: @escaping () -> Void,
          logger: @escaping (String) -> Void, onStopped: @escaping (UUID) -> Void) {
         self.source = source
         self.destination = destination
         self.machine = machine
         self.stateURL = stateURL
+        self.index = index
+        self.onCatalog = onCatalog
         self.logger = logger
         self.onStopped = onStopped
     }
@@ -539,9 +652,12 @@ private final class LocalBackup: @unchecked Sendable {
         defer { onStopped(id) }
         while !isStopped {
             do {
-                try OneShot.sync(sourceRoot: source, destinationRoot: destination,
-                                 machine: machine, stateURL: stateURL, full: true,
-                                 bareDestination: true)
+                let repositories = try OneShot.sync(
+                    sourceRoot: source, destinationRoot: destination,
+                    machine: machine, stateURL: stateURL, full: true, bareDestination: true
+                )
+                try index.replaceCatalog(machine: machine, repositories: repositories)
+                onCatalog()
                 guard !isStopped else { return }
                 logger("this Mac is up to date")
                 let watcher = Watcher(root: source, repositories: try Repository.discover(in: source))
@@ -565,6 +681,8 @@ private final class BackupReceiver: @unchecked Sendable {
     private let root: URL
     private let machine: String
     private let stateURL: URL
+    private let index: BackupIndex
+    private let onCatalog: () -> Void
     private let logger: (String) -> Void
     private let onStopped: (UUID) -> Void
     private let listener: LocalBackupListener
@@ -574,10 +692,13 @@ private final class BackupReceiver: @unchecked Sendable {
     private var stopped = false
 
     init(root: URL, machine: String, stateURL: URL,
+         index: BackupIndex, onCatalog: @escaping () -> Void,
          logger: @escaping (String) -> Void, onStopped: @escaping (UUID) -> Void) throws {
         self.root = root
         self.machine = machine
         self.stateURL = stateURL
+        self.index = index
+        self.onCatalog = onCatalog
         self.logger = logger
         self.onStopped = onStopped
         listener = try LocalBackupListener()
@@ -614,7 +735,12 @@ private final class BackupReceiver: @unchecked Sendable {
                 lock.lock(); activeConnection = connection; lock.unlock()
                 do {
                     try Runner.serve(root: root, machine: machine, stateURL: stateURL,
-                                     receiveOnly: true, input: connection, output: connection,
+                                     receiveOnly: true,
+                                     catalogObserver: { [index, onCatalog] machine, repositories in
+                                         try index.replaceCatalog(machine: machine, repositories: repositories)
+                                         onCatalog()
+                                     },
+                                     input: connection, output: connection,
                                      logger: logger)
                 } catch {
                     if !isStopped { logger("session ended: \(error)") }
@@ -660,6 +786,47 @@ struct StatusMenu: View {
         Button(title) {
             openSettings()
             NSApplication.shared.activate()
+        }
+    }
+}
+
+private extension BackupStatus {
+    var title: String {
+        switch self {
+        case .mirrored: "Mirrored"
+        case .candidate: "Not on any host"
+        case .unknown: "Waiting for host"
+        case .archived: "Archived"
+        }
+    }
+}
+
+private extension BackupItem {
+    var snapshotTitle: String {
+        snapshots.map(\.machine).joined(separator: ", ")
+    }
+}
+
+private struct BackupActions: View {
+    @ObservedObject var model: AppModel
+    let item: BackupItem
+
+    var body: some View {
+        if model.restoringBackup == item.name {
+            ProgressView().controlSize(.small)
+        } else if item.status == .candidate {
+            Button("Archive") { model.archiveBackup(item) }
+        } else if item.status == .archived, item.snapshots.count == 1,
+                  let snapshot = item.snapshots.first {
+            Button("Unarchive") { model.unarchiveBackup(item, snapshot: snapshot) }
+        } else if item.status == .archived, !item.snapshots.isEmpty {
+            Menu("Unarchive") {
+                ForEach(item.snapshots) { snapshot in
+                    Button("From \(snapshot.machine)") {
+                        model.unarchiveBackup(item, snapshot: snapshot)
+                    }
+                }
+            }
         }
     }
 }
@@ -779,6 +946,7 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    .disabled(model.configurationLocked)
 
                     Section("Receive Backups on This Mac") {
                         HStack {
@@ -799,9 +967,29 @@ struct SettingsView: View {
                         Text("The folder must differ from this Mac’s projects folder. Git Sync.app—not SSH—owns access to the selected destination.")
                             .foregroundStyle(.secondary)
                     }
+                    .disabled(model.configurationLocked)
+
+                    if model.configuration.backupDestination != nil {
+                        Section("Stored Backups") {
+                            if model.backupItems.isEmpty {
+                                Text("No backup repositories found")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Table(model.backupItems) {
+                                    TableColumn("Repository", value: \.name)
+                                    TableColumn("Status") { item in Text(item.status.title) }
+                                    TableColumn("Snapshots") { item in Text(item.snapshotTitle) }
+                                    TableColumn("") { item in BackupActions(model: model, item: item) }
+                                        .width(min: 90, ideal: 110)
+                                }
+                                .frame(minHeight: 180)
+                            }
+                            Text("Archive marks repositories that no known host currently contains. Unarchive restores a selected snapshot into this Mac’s projects folder.")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 .formStyle(.grouped)
-                .disabled(model.configurationLocked)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .tabItem { Label("Backup", systemImage: "externaldrive") }
             }

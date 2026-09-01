@@ -65,8 +65,23 @@ public struct Repository: Equatable {
 
     public func pack(oid: String, excluding candidates: [String]) throws -> Data {
         try Validator.oid(oid)
-        let known = candidates.filter { Git.succeeds(["-C", url.path, "cat-file", "-e", "\($0)^{object}"]) }
-        let revisions = ([oid] + known.map { "^\($0)" }).joined(separator: "\n") + "\n"
+        let expressions = Set(candidates).map { "\($0)^{object}" }
+        let existing: [String]
+        if expressions.isEmpty {
+            existing = []
+        } else {
+            let input = expressions.joined(separator: "\n") + "\n"
+            let output = try Git.run(
+                ["-C", url.path, "cat-file", "--batch-check=%(objectname)"],
+                input: Data(input.utf8)
+            )
+            existing = String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline)
+                .compactMap {
+                    let oid = String($0)
+                    return (try? Validator.oid(oid)) == nil ? nil : oid
+                }
+        }
+        let revisions = ([oid] + existing.map { "^\($0)" }).joined(separator: "\n") + "\n"
         return try Git.run(
             ["-C", url.path, "pack-objects", "--stdout", "--revs", "--thin"],
             input: Data(revisions.utf8)

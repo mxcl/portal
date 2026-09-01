@@ -466,6 +466,25 @@ func interruptedPack() throws {
     #expect(try git(["-C", destination.url.path, "fsck", "--no-dangling"]).isEmpty)
 }
 
+@Test("pack batching ignores destination objects absent from the source")
+func packBatchFiltersKnownObjects() throws {
+    let fixture = try Fixture(); try fixture.cloneToB()
+    let source = try #require(Repository.discover(in: fixture.a).first)
+    let destination = try #require(Repository.discover(in: fixture.b).first)
+    let known = try git(["-C", source.url.path, "rev-parse", "main"])
+    try Data("two\n".utf8).write(to: source.url.appendingPathComponent("file.txt"))
+    _ = try git(["-C", source.url.path, "commit", "-qam", "second"])
+    let target = try git(["-C", source.url.path, "rev-parse", "main"])
+
+    let pack = try source.pack(
+        oid: target,
+        excluding: [known, String(repeating: "0", count: known.count)]
+    )
+    try destination.install(pack: pack, target: target)
+
+    #expect(try git(["-C", destination.url.path, "cat-file", "-t", target]) == "commit")
+}
+
 @Test("tags and stash use machine-specific namespaces")
 func tagsAndStash() throws {
     let fixture = try Fixture()

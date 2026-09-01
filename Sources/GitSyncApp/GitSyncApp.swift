@@ -540,7 +540,8 @@ private final class LocalBackup: @unchecked Sendable {
         while !isStopped {
             do {
                 try OneShot.sync(sourceRoot: source, destinationRoot: destination,
-                                 machine: machine, stateURL: stateURL, full: true)
+                                 machine: machine, stateURL: stateURL, full: true,
+                                 bareDestination: true)
                 guard !isStopped else { return }
                 logger("this Mac is up to date")
                 let watcher = Watcher(root: source, repositories: try Repository.discover(in: source))

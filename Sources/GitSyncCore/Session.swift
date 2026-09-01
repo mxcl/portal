@@ -120,7 +120,7 @@ public final class SyncSession {
                 for name in message.repositories ?? [] {
                     try requireIncluded(name)
                     lock.lock(); let isNew = repositories[name] == nil; lock.unlock()
-                    let repository = try Repository.ensure(name: name, in: root)
+                    let repository = try Repository.ensure(name: name, in: root, bare: receiveOnly)
                     try configureRemote(for: repository)
                     lock.lock(); repositories[name] = repository; lock.unlock()
                     sendControl(.inventory(name, known: try repository.knownOIDs()))
@@ -161,7 +161,7 @@ public final class SyncSession {
         ) {
             sendControl(.ack(update)); return
         }
-        let repository = try Repository.ensure(name: update.repository, in: root)
+        let repository = try Repository.ensure(name: update.repository, in: root, bare: receiveOnly)
         try configureRemote(for: repository)
         if let oid = update.oid {
             guard let pack else { throw SyncError.invalidProtocol("Object update has no pack") }

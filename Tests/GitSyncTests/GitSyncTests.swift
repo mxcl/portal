@@ -162,6 +162,18 @@ func createsMissingProject() throws {
     #expect(try git(["-C", destination.path, "rev-parse", "refs/remotes/a/main"]) == git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"]))
 }
 
+@Test("backup projects are stored as bare dot-git directories")
+func createsBareBackupProject() throws {
+    let fixture = try Fixture()
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
+                     stateURL: fixture.state, bareDestination: true)
+    let destination = fixture.b.appendingPathComponent("project.git")
+    #expect(try git(["-C", destination.path, "rev-parse", "--is-bare-repository"]) == "true")
+    #expect(try git(["-C", destination.path, "rev-parse", "refs/remotes/a/main"])
+            == git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"]))
+    #expect(!FileManager.default.fileExists(atPath: fixture.b.appendingPathComponent("project").path))
+}
+
 @Test("branch deletion retains a tombstone")
 func deletionTombstone() throws {
     let fixture = try Fixture()
@@ -591,14 +603,11 @@ func framedSessionSelection() throws {
 @Test("receive-only backup never publishes its refs to the source")
 func framedSessionReceiveOnly() throws {
     let fixture = try Fixture()
-    let backupRepository = fixture.b.appendingPathComponent("project")
-    try FileManager.default.createDirectory(at: backupRepository, withIntermediateDirectories: true)
-    _ = try git(["init", "-q", "-b", "main", backupRepository.path])
-    _ = try git(["-C", backupRepository.path, "config", "user.name", "Test"])
-    _ = try git(["-C", backupRepository.path, "config", "user.email", "test@example.com"])
-    try Data("backup only\n".utf8).write(to: backupRepository.appendingPathComponent("backup.txt"))
-    _ = try git(["-C", backupRepository.path, "add", "backup.txt"])
-    _ = try git(["-C", backupRepository.path, "commit", "-qm", "backup only"])
+    let backupRepository = fixture.b.appendingPathComponent("project.git")
+    _ = try git(["clone", "-q", "--bare", fixture.a.appendingPathComponent("project").path,
+                 backupRepository.path])
+    _ = try git(["-C", backupRepository.path, "update-ref", "refs/heads/backup-only",
+                 git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"])])
 
     let aToB = Pipe(), bToA = Pipe()
     let source = try SyncSession(root: fixture.a, machine: "A",
@@ -723,7 +732,7 @@ func initialSnapshotReusesSentObjects() throws {
     Thread.sleep(forTimeInterval: 0.1)
     try Data().write(to: fixture.a.appendingPathComponent("wake"))
 
-    let destination = fixture.b.appendingPathComponent("project")
+    let destination = fixture.b.appendingPathComponent("project.git")
     let expected = try git(["-C", repository.path, "rev-parse", "refs/tags/v12"])
     let deadline = Date().addingTimeInterval(10)
     var received: String?

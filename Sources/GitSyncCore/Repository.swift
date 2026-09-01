@@ -18,13 +18,13 @@ public struct Repository: Equatable {
         }.sorted { $0.name < $1.name }
     }
 
-    public static func ensure(name: String, in root: URL) throws -> Repository {
+    public static func ensure(name: String, in root: URL, bare: Bool = false) throws -> Repository {
         let name = name.precomposedStringWithCanonicalMapping
         try Validator.project(name)
-        let url = root.appendingPathComponent(name, isDirectory: true)
+        let url = root.appendingPathComponent(name + (bare ? ".git" : ""), isDirectory: true)
         if !Git.succeeds(["-C", url.path, "rev-parse", "--git-dir"]) {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            _ = try Git.run(["init", "--quiet", url.path])
+            _ = try Git.run(["init", "--quiet"] + (bare ? ["--bare"] : []) + [url.path])
         }
         return Repository(name: name, url: url)
     }

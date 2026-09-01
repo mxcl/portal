@@ -83,6 +83,8 @@ than Remote Login. No network listener or additional credential is introduced.
 The endpoint accepts catalogs, objects, and ref snapshots but never advertises
 repositories or publishes its own refs back. Its ordering state has one writer
 inside the receiving app and can run beside ordinary bidirectional connections.
+It stores each backup as a bare `<name>.git` repository directly beneath the
+selected parent folder; backup storage never creates a checkout-shaped wrapper.
 
 The app controls its own per-user login item and writes one connection and
 ordering-state file per host. The bundled helper is the same headless executable

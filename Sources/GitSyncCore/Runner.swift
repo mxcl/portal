@@ -133,11 +133,12 @@ public enum Runner {
 
 public enum OneShot {
     public static func sync(sourceRoot: URL, destinationRoot: URL, machine: String, stateURL: URL,
-                            full: Bool = false) throws {
+                            full: Bool = false, bareDestination: Bool = false) throws {
         try Validator.machine(machine)
         let state = try StateStore(url: stateURL)
         for source in try Repository.discover(in: sourceRoot) {
-            let destination = try Repository.ensure(name: source.name, in: destinationRoot)
+            let destination = try Repository.ensure(name: source.name, in: destinationRoot,
+                                                    bare: bareDestination)
             var known = Set(try destination.knownOIDs())
             for update in try state.updates(machine: machine, repository: source.name,
                                             refs: source.sourceRefs(), full: full) {

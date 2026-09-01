@@ -63,7 +63,9 @@ host. On the receiving Mac, use the same tab to choose **Receive Backups on This
 Mac**; that folder must differ from its projects folder. Git Sync.app owns the
 destination and the SSH process only relays encrypted protocol bytes, so Remote
 Login does not need Full Disk Access. The connection is receive-only: refs
-created inside the backup are never published back to the source Mac.
+created inside the backup are never published back to the source Mac. Each
+backup is a bare repository named `<repository>.git` directly inside the chosen
+destination.
 
 The app launches at login and shows live transfer logs in its menu. It uses the
 copy of `git-sync` inside each peer's `/Applications/Git Sync.app`; the path can

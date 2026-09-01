@@ -8,6 +8,7 @@ public final class SyncSession {
     private let connection: FramedConnection
     private let state: StateStore
     private let logger: (String) -> Void
+    private let catalogObserver: ((String, [String]) throws -> Void)?
     private let isInitiator: Bool
     private let receiveOnly: Bool
     private let lock = NSLock()
@@ -25,6 +26,7 @@ public final class SyncSession {
                 peerRepositoryLocation: PeerRepositoryLocation? = nil,
                 isInitiator: Bool = false,
                 receiveOnly: Bool = false,
+                catalogObserver: ((String, [String]) throws -> Void)? = nil,
                 logger: @escaping (String) -> Void = { _ in }) throws {
         try Validator.machine(machine)
         for repository in repositories ?? [] { try Validator.project(repository) }
@@ -37,6 +39,7 @@ public final class SyncSession {
         state = try StateStore(url: stateURL)
         self.isInitiator = isInitiator
         self.receiveOnly = receiveOnly
+        self.catalogObserver = catalogObserver
         self.logger = logger
     }
 
@@ -116,9 +119,13 @@ public final class SyncSession {
                 try configureRemotes()
                 logger("connected to \(peer)")
             case "catalog":
-                _ = try currentPeer()
-                for name in message.repositories ?? [] {
+                let (peer, _) = try currentPeer()
+                let names = message.repositories ?? []
+                for name in names {
                     try requireIncluded(name)
+                }
+                try catalogObserver?(peer, names)
+                for name in names {
                     lock.lock(); let isNew = repositories[name] == nil; lock.unlock()
                     let repository = try Repository.ensure(name: name, in: root, bare: receiveOnly)
                     try configureRemote(for: repository)

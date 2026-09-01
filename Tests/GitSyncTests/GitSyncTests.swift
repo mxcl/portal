@@ -295,6 +295,58 @@ func backupDestinationMigration() throws {
     #expect(FileManager.default.fileExists(atPath: checkout.url.appendingPathComponent(".git").path))
 }
 
+@Test("backup index classifies and archives repositories from complete host catalogs")
+func backupArchiveClassification() throws {
+    let fixture = try Fixture()
+    let indexURL = fixture.root.appendingPathComponent("backup-index.json")
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
+                     stateURL: fixture.state, bareDestination: true)
+    let index = try BackupIndex(url: indexURL)
+
+    #expect(try index.items(in: fixture.b).first?.status == .unknown)
+    try index.replaceCatalog(machine: "A", repositories: ["project"])
+    #expect(try index.items(in: fixture.b).first?.status == .mirrored)
+
+    try index.replaceCatalog(machine: "A", repositories: [])
+    #expect(try index.items(in: fixture.b).first?.status == .candidate)
+    try index.archive("project", in: fixture.b)
+    #expect(try index.items(in: fixture.b).first?.status == .archived)
+
+    try index.replaceCatalog(machine: "A", repositories: ["project"])
+    #expect(try index.items(in: fixture.b).first?.status == .mirrored)
+    #expect(try BackupIndex(url: indexURL).items(in: fixture.b).first?.status == .mirrored)
+}
+
+@Test("unarchive restores one snapshot onto this host without losing peer history")
+func unarchiveOntoThisHost() throws {
+    let fixture = try Fixture()
+    let source = fixture.a.appendingPathComponent("project")
+    _ = try git(["-C", source.path, "branch", "feature"])
+    _ = try git(["-C", source.path, "tag", "v1"])
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
+                     stateURL: fixture.state, bareDestination: true)
+    let restoreRoot = fixture.root.appendingPathComponent("restored")
+    try FileManager.default.createDirectory(at: restoreRoot, withIntermediateDirectories: true)
+    let index = try BackupIndex(url: fixture.root.appendingPathComponent("backup-index.json"))
+    try index.replaceCatalog(machine: "A", repositories: [])
+    let item = try #require(index.items(in: fixture.b).first)
+    let snapshot = try #require(item.snapshots.first)
+
+    try BackupIndex.restore(item.name, snapshotID: snapshot.id, from: fixture.b, to: restoreRoot)
+
+    let restored = restoreRoot.appendingPathComponent("project")
+    #expect(try git(["-C", restored.path, "rev-parse", "main"])
+            == git(["-C", source.path, "rev-parse", "main"]))
+    #expect(try git(["-C", restored.path, "rev-parse", "feature"])
+            == git(["-C", source.path, "rev-parse", "feature"]))
+    #expect(try git(["-C", restored.path, "rev-parse", "v1"])
+            == git(["-C", source.path, "rev-parse", "v1"]))
+    #expect(try String(contentsOf: restored.appendingPathComponent("file.txt"), encoding: .utf8) == "one\n")
+    #expect(throws: (any Error).self) {
+        try BackupIndex.restore(item.name, snapshotID: snapshot.id, from: fixture.b, to: restoreRoot)
+    }
+}
+
 @Test("local backup socket is owner-only and identifies sessions")
 func localBackupSocket() throws {
     let root = URL(fileURLWithPath: "/tmp/gs-\(UUID())")

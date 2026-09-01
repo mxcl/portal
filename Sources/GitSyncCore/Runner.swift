@@ -79,12 +79,14 @@ public enum Runner {
     public static func serve(root: URL, machine: String, stateURL: URL,
                              repositories: Set<String>? = nil,
                              receiveOnly: Bool = false,
+                             catalogObserver: ((String, [String]) throws -> Void)? = nil,
                              input: FileHandle = .standardInput,
                              output: FileHandle = .standardOutput,
                              logger: @escaping (String) -> Void = { _ in }) throws {
         let session = try SyncSession(root: root, machine: machine, input: input,
                                       output: output, stateURL: stateURL,
-                                      repositories: repositories, receiveOnly: receiveOnly, logger: logger)
+                                      repositories: repositories, receiveOnly: receiveOnly,
+                                      catalogObserver: catalogObserver, logger: logger)
         try session.run()
     }
 
@@ -152,11 +154,13 @@ public enum Runner {
 }
 
 public enum OneShot {
+    @discardableResult
     public static func sync(sourceRoot: URL, destinationRoot: URL, machine: String, stateURL: URL,
-                            full: Bool = false, bareDestination: Bool = false) throws {
+                            full: Bool = false, bareDestination: Bool = false) throws -> [String] {
         try Validator.machine(machine)
         let state = try StateStore(url: stateURL)
-        for source in try Repository.discover(in: sourceRoot) {
+        let sources = try Repository.discover(in: sourceRoot)
+        for source in sources {
             let destination = try Repository.ensure(name: source.name, in: destinationRoot,
                                                     bare: bareDestination)
             var known = Set(try destination.knownOIDs())
@@ -169,5 +173,6 @@ public enum OneShot {
                 try PeerRefWriter(repository: destination, peer: machine).apply(sourceRef: update.sourceRef, oid: update.oid)
             }
         }
+        return sources.map(\.name)
     }
 }

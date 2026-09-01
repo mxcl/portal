@@ -8,6 +8,147 @@ public enum LocalBackupTransport {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("GitSync/backup.sock")
     }
+
+    public static var controlSocketURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("GitSync/backup-control.sock")
+    }
+}
+
+public enum BackupControlAction: String, Codable, Sendable {
+    case list
+    case archive
+    case export
+    case catalog
+}
+
+public struct BackupControlRequest: Codable, Sendable {
+    public let version: Int
+    public let action: BackupControlAction
+    public let repository: String?
+    public let snapshotID: String?
+    public let machine: String?
+    public let repositories: [String]?
+
+    public init(version: Int = SyncProtocol.version, action: BackupControlAction,
+                repository: String? = nil, snapshotID: String? = nil,
+                machine: String? = nil, repositories: [String]? = nil) {
+        self.version = version
+        self.action = action
+        self.repository = repository
+        self.snapshotID = snapshotID
+        self.machine = machine
+        self.repositories = repositories
+    }
+}
+
+public struct BackupControlResponse: Codable, Sendable {
+    public let items: [BackupItem]?
+    public let byteCount: Int?
+    public let error: String?
+
+    public init(items: [BackupItem]? = nil, byteCount: Int? = nil, error: String? = nil) {
+        self.items = items
+        self.byteCount = byteCount
+        self.error = error
+    }
+
+    public func checked() throws -> BackupControlResponse {
+        if let error { throw SyncError.invalidConfiguration(error) }
+        return self
+    }
+}
+
+public enum BackupControlConnection {
+    private static let maximumMessageSize = 1_048_576
+
+    public static func send<T: Encodable>(_ value: T, to handle: FileHandle) throws {
+        let data = try JSONEncoder().encode(value)
+        guard data.count <= maximumMessageSize else {
+            throw SyncError.invalidProtocol("Backup control message is too large")
+        }
+        var length = UInt32(data.count).bigEndian
+        var packet = Data(bytes: &length, count: 4)
+        packet.append(data)
+        try handle.write(contentsOf: packet)
+    }
+
+    public static func receive<T: Decodable>(_ type: T.Type, from handle: FileHandle) throws -> T {
+        let header = try readExactly(4, from: handle)
+        let length = header.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian }
+        guard length > 0, length <= maximumMessageSize else {
+            throw SyncError.invalidProtocol("Invalid backup control message length")
+        }
+        return try JSONDecoder().decode(type, from: readExactly(Int(length), from: handle))
+    }
+
+    public static func copy(_ count: Int, from input: FileHandle, to output: FileHandle) throws {
+        guard count >= 0 else { throw SyncError.invalidProtocol("Invalid backup export length") }
+        var remaining = count
+        while remaining > 0 {
+            guard let chunk = try input.read(upToCount: min(remaining, 64 * 1024)), !chunk.isEmpty else {
+                throw SyncError.disconnected
+            }
+            try output.write(contentsOf: chunk)
+            remaining -= chunk.count
+        }
+    }
+
+    private static func readExactly(_ count: Int, from handle: FileHandle) throws -> Data {
+        var data = Data()
+        while data.count < count {
+            guard let chunk = try handle.read(upToCount: count - data.count), !chunk.isEmpty else {
+                throw SyncError.disconnected
+            }
+            data.append(chunk)
+        }
+        return data
+    }
+}
+
+public enum BackupControlService {
+    public static func serve(_ connection: FileHandle, root: URL, index: BackupIndex) throws {
+        do {
+            let request = try BackupControlConnection.receive(BackupControlRequest.self, from: connection)
+            guard request.version == SyncProtocol.version else {
+                throw SyncError.invalidProtocol("Unsupported backup control protocol version: \(request.version)")
+            }
+            switch request.action {
+            case .list:
+                try BackupControlConnection.send(BackupControlResponse(items: try index.items(in: root)),
+                                                 to: connection)
+            case .archive:
+                guard let repository = request.repository else {
+                    throw SyncError.invalidProtocol("Archive request is incomplete")
+                }
+                try index.archive(repository, in: root)
+                try BackupControlConnection.send(BackupControlResponse(), to: connection)
+            case .export:
+                guard let repository = request.repository, let snapshotID = request.snapshotID else {
+                    throw SyncError.invalidProtocol("Export request is incomplete")
+                }
+                let bundle = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("git-sync-export-\(UUID()).bundle")
+                defer { try? FileManager.default.removeItem(at: bundle) }
+                try BackupIndex.exportBundle(repository, snapshotID: snapshotID,
+                                             from: root, to: bundle)
+                let size = try bundle.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                try BackupControlConnection.send(BackupControlResponse(byteCount: size), to: connection)
+                let input = try FileHandle(forReadingFrom: bundle)
+                defer { try? input.close() }
+                try BackupControlConnection.copy(size, from: input, to: connection)
+            case .catalog:
+                guard let machine = request.machine, let repositories = request.repositories else {
+                    throw SyncError.invalidProtocol("Catalog request is incomplete")
+                }
+                try index.replaceCatalog(machine: machine, repositories: repositories)
+                try BackupControlConnection.send(BackupControlResponse(), to: connection)
+            }
+        } catch {
+            try BackupControlConnection.send(BackupControlResponse(error: String(describing: error)),
+                                             to: connection)
+        }
+    }
 }
 
 #if canImport(Darwin)

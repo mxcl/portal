@@ -102,6 +102,60 @@ public enum Runner {
         try migrateLegacyBackups(at: root)
     }
 
+    public static func backupItems(_ configuration: Configuration) throws -> [BackupItem] {
+        try backupControl(BackupControlRequest(action: .list), configuration: configuration).items ?? []
+    }
+
+    public static func archiveBackup(_ name: String, configuration: Configuration) throws {
+        try Validator.project(name)
+        _ = try backupControl(BackupControlRequest(action: .archive, repository: name),
+                              configuration: configuration)
+    }
+
+    public static func replaceBackupCatalog(machine: String, repositories: [String],
+                                            configuration: Configuration) throws {
+        try Validator.machine(machine)
+        for repository in repositories { try Validator.project(repository) }
+        _ = try backupControl(
+            BackupControlRequest(action: .catalog, machine: machine, repositories: repositories),
+            configuration: configuration
+        )
+    }
+
+    public static func restoreBackup(_ name: String, snapshot: BackupSnapshot,
+                                     configuration: Configuration, to projectsRoot: URL) throws {
+        try Validator.project(name)
+        let bundle = projectsRoot.appendingPathComponent(".git-sync-unarchive-\(UUID()).bundle")
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        let (process, input, output, error) = try startBackupControl(configuration)
+        do {
+            try BackupControlConnection.send(
+                BackupControlRequest(action: .export, repository: name, snapshotID: snapshot.id), to: input
+            )
+            try input.close()
+            let response = try BackupControlConnection.receive(BackupControlResponse.self, from: output).checked()
+            guard let byteCount = response.byteCount else {
+                throw SyncError.invalidProtocol("Backup export has no length")
+            }
+            guard FileManager.default.createFile(atPath: bundle.path, contents: nil) else {
+                throw SyncError.invalidConfiguration("Could not create the temporary backup bundle")
+            }
+            let file = try FileHandle(forWritingTo: bundle)
+            do {
+                try BackupControlConnection.copy(byteCount, from: output, to: file)
+                try file.close()
+            } catch {
+                try? file.close()
+                throw error
+            }
+            try finishBackupControl(process, error: error)
+            try BackupIndex.restore(name, snapshot: snapshot, from: bundle, to: projectsRoot)
+        } catch {
+            if process.isRunning { process.terminate() }
+            throw error
+        }
+    }
+
     private static func migrateLegacyBackups(at root: URL) throws {
         let manager = FileManager.default
         for wrapper in try manager.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) {
@@ -142,6 +196,49 @@ public enum Runner {
             )
         }
         return stdout
+    }
+
+    private static func startBackupControl(_ configuration: Configuration) throws
+        -> (Process, FileHandle, FileHandle, Pipe) {
+        try configuration.validate()
+        let process = Process(), input = Pipe(), output = Pipe(), error = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = [
+            "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-T", "--",
+            configuration.peer,
+            remoteCommand(configuration.remoteExecutable, ["relay-backup-control"]),
+        ]
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = error
+        try process.run()
+        return (process, input.fileHandleForWriting, output.fileHandleForReading, error)
+    }
+
+    private static func backupControl(_ request: BackupControlRequest,
+                                      configuration: Configuration) throws -> BackupControlResponse {
+        let (process, input, output, error) = try startBackupControl(configuration)
+        do {
+            try BackupControlConnection.send(request, to: input)
+            try input.close()
+            let response = try BackupControlConnection.receive(BackupControlResponse.self, from: output).checked()
+            try finishBackupControl(process, error: error)
+            return response
+        } catch {
+            if process.isRunning { process.terminate() }
+            throw error
+        }
+    }
+
+    private static func finishBackupControl(_ process: Process, error: Pipe) throws {
+        process.waitUntilExit()
+        let message = String(decoding: error.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard process.terminationStatus == 0 else {
+            throw SyncError.invalidConfiguration(
+                message.isEmpty ? "Could not access backups on the backup host" : message
+            )
+        }
     }
 
     private static func shellQuote(_ value: String) -> String {

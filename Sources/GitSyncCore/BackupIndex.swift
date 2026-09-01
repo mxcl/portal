@@ -7,7 +7,7 @@ public enum BackupStatus: String, Codable, Sendable {
     case archived
 }
 
-public struct BackupSnapshot: Equatable, Identifiable, Sendable {
+public struct BackupSnapshot: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let machine: String
     public let branches: [String]
@@ -15,7 +15,7 @@ public struct BackupSnapshot: Equatable, Identifiable, Sendable {
     fileprivate let syncMachines: [String]
 }
 
-public struct BackupItem: Equatable, Identifiable, Sendable {
+public struct BackupItem: Codable, Equatable, Identifiable, Sendable {
     public var id: String { name }
     public let name: String
     public let status: BackupStatus
@@ -115,6 +115,27 @@ public final class BackupIndex: @unchecked Sendable {
               let snapshot = repository.snapshots.first(where: { $0.id == snapshotID }) else {
             throw SyncError.invalidConfiguration("The selected backup snapshot is no longer available.")
         }
+        try restoreSource(name, snapshot: snapshot, from: repository.url, to: projectsRoot)
+    }
+
+    public static func restore(_ name: String, snapshot: BackupSnapshot,
+                               from bundle: URL, to projectsRoot: URL) throws {
+        try Validator.project(name)
+        try restoreSource(name, snapshot: snapshot, from: bundle, to: projectsRoot)
+    }
+
+    public static func exportBundle(_ name: String, snapshotID: String,
+                                    from backupRoot: URL, to bundle: URL) throws {
+        try Validator.project(name)
+        guard let repository = try repositories(in: backupRoot).first(where: { $0.name == name }),
+              repository.snapshots.contains(where: { $0.id == snapshotID }) else {
+            throw SyncError.invalidConfiguration("The selected backup snapshot is no longer available.")
+        }
+        _ = try Git.run(["-C", repository.url.path, "bundle", "create", bundle.path, "--all"])
+    }
+
+    private static func restoreSource(_ name: String, snapshot: BackupSnapshot,
+                                     from source: URL, to projectsRoot: URL) throws {
         let manager = FileManager.default
         let target = projectsRoot.appendingPathComponent(name, isDirectory: true)
         guard !manager.fileExists(atPath: target.path) else {
@@ -132,13 +153,13 @@ public final class BackupIndex: @unchecked Sendable {
             ]
             for machine in snapshot.syncMachines {
                 refspecs.append("+refs/sync/\(machine)/tags/*:refs/tags/*")
-                if Git.succeeds(["-C", repository.url.path, "rev-parse", "--verify", "-q",
+                if Git.succeeds(["-C", source.path, "rev-parse", "--verify", "-q",
                                  "refs/sync/\(machine)/stash"]) {
                     refspecs.append("+refs/sync/\(machine)/stash:refs/stash")
                 }
             }
             _ = try Git.run(["-C", temporary.path, "fetch", "--quiet", "--no-tags",
-                             repository.url.path] + refspecs)
+                             source.path] + refspecs)
             if let branch = preferredBranch(snapshot.branches) {
                 _ = try Git.run(["-C", temporary.path, "symbolic-ref", "HEAD", "refs/heads/\(branch)"])
                 _ = try Git.run(["-C", temporary.path, "reset", "--quiet", "--hard", branch])

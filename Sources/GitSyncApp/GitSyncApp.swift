@@ -37,6 +37,7 @@ final class AppModel: ObservableObject {
     @Published var isRunning = false
     @Published var logs: [String] = []
     @Published var backupItems: [BackupItem] = []
+    @Published var backupError: String?
     @Published var restoringBackup: String?
     @Published var selectedHostID: UUID?
     @Published var showingAddHost = false
@@ -52,6 +53,7 @@ final class AppModel: ObservableObject {
     var configurationLocked: Bool {
         isRunning || isChecking || showingOverlapConfirmation || restoringBackup != nil
     }
+    var hasBackupCatalog: Bool { configuration.backupDestination != nil || configuration.backup != nil }
     var menuLogs: [String] {
         logs.suffix(8).reversed().map { $0.count > 90 ? String($0.prefix(89)) + "…" : $0 }
     }
@@ -138,56 +140,77 @@ final class AppModel: ObservableObject {
         configuration.backupDestination = nil
         backupIndex = nil
         backupIndexID = nil
-        backupItems = []
-        do { try save() } catch { fail(error) }
+        do {
+            try save()
+            refreshBackupItems()
+        } catch { fail(error) }
     }
 
     func archiveBackup(_ item: BackupItem) {
-        guard let index = backupIndex,
-              let root = try? configuration.validatedBackupDestination() else { return }
-        restoringBackup = item.name
-        Task {
-            do {
-                try await Task.detached(priority: .userInitiated) {
-                    try index.archive(item.name, in: root)
-                }.value
-                restoringBackup = nil
-                refreshBackupItems()
-                appendLog("Archived backup \(item.name)")
-            } catch {
-                restoringBackup = nil
-                fail(error)
+        do {
+            let root = try configuration.validatedBackupDestination()
+            let index = backupIndex
+            let remote = root == nil ? try backupControlConfiguration() : nil
+            guard (root != nil && index != nil) || remote != nil else { return }
+            restoringBackup = item.name
+            Task {
+                do {
+                    try await Task.detached(priority: .userInitiated) {
+                        if let root, let index { try index.archive(item.name, in: root) }
+                        else if let remote { try Runner.archiveBackup(item.name, configuration: remote) }
+                    }.value
+                    restoringBackup = nil
+                    refreshBackupItems()
+                    appendLog("Archived backup \(item.name)")
+                } catch {
+                    restoringBackup = nil
+                    fail(error)
+                }
             }
-        }
+        } catch { fail(error) }
     }
 
     func unarchiveBackup(_ item: BackupItem, snapshot: BackupSnapshot) {
-        guard let index = backupIndex,
-              let backupRoot = try? configuration.validatedBackupDestination() else { return }
-        let projectsRoot = expandedRoot
-        let machine = configuration.machine
-        restoringBackup = item.name
-        status = "Unarchiving \(item.name)"
-        Task {
-            do {
-                let names = try await Task.detached(priority: .userInitiated) {
-                    try BackupIndex.restore(item.name, snapshotID: snapshot.id,
-                                            from: backupRoot, to: projectsRoot)
-                    let names = try Repository.discover(in: projectsRoot).map(\.name)
-                    try index.replaceCatalog(machine: machine, repositories: names)
-                    return names
-                }.value
-                try configuration.discoverLocal(names)
-                try save()
-                restoringBackup = nil
-                status = isRunning ? "Standing By" : "Stopped"
-                refreshBackupItems()
-                appendLog("Unarchived \(item.name) onto this Mac from \(snapshot.machine)")
-            } catch {
-                restoringBackup = nil
-                fail(error)
+        do {
+            let backupRoot = try configuration.validatedBackupDestination()
+            let index = backupIndex
+            let remote = backupRoot == nil ? try backupControlConfiguration() : nil
+            guard (backupRoot != nil && index != nil) || remote != nil else { return }
+            let projectsRoot = expandedRoot
+            let machine = configuration.machine
+            restoringBackup = item.name
+            status = "Unarchiving \(item.name)"
+            Task {
+                do {
+                    let names = try await Task.detached(priority: .userInitiated) {
+                        if let backupRoot {
+                            try BackupIndex.restore(item.name, snapshotID: snapshot.id,
+                                                    from: backupRoot, to: projectsRoot)
+                        } else if let remote {
+                            try Runner.restoreBackup(item.name, snapshot: snapshot,
+                                                     configuration: remote, to: projectsRoot)
+                        }
+                        let names = try Repository.discover(in: projectsRoot).map(\.name)
+                        if let index { try index.replaceCatalog(machine: machine, repositories: names) }
+                        else if let remote {
+                            try Runner.replaceBackupCatalog(machine: machine, repositories: names,
+                                                            configuration: remote)
+                        }
+                        return names
+                    }.value
+                    try configuration.discoverLocal(names)
+                    try save()
+                    restartIfRunning()
+                    restoringBackup = nil
+                    status = isRunning ? "Standing By" : "Stopped"
+                    refreshBackupItems()
+                    appendLog("Unarchived \(item.name) onto this Mac from \(snapshot.machine)")
+                } catch {
+                    restoringBackup = nil
+                    fail(error)
+                }
             }
-        }
+        } catch { fail(error) }
     }
 
     func refreshLocal() {
@@ -292,12 +315,16 @@ final class AppModel: ObservableObject {
         configuration.backup = enabled
             ? configuration.hosts.first.map { BackupConfiguration(hostID: $0.id, root: "") }
             : nil
+        refreshBackupItems()
     }
 
     func setBackupHost(_ hostID: UUID) {
         guard let backup = configuration.backup, backup.hostID != hostID else { return }
         configuration.backup = BackupConfiguration(id: backup.id, hostID: hostID)
+        refreshBackupItems()
     }
+
+    func refreshBackups() { refreshBackupItems() }
 
     func start() {
         guard !isChecking else { return }
@@ -563,7 +590,7 @@ final class AppModel: ObservableObject {
         guard let destination = configuration.backupDestination else {
             backupIndex = nil
             backupIndexID = nil
-            backupItems = []
+            refreshBackupItems()
             return
         }
         _ = try backupIndex(for: destination.id)
@@ -579,9 +606,12 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshBackupItems() {
-        guard let index = backupIndex,
-              let root = try? configuration.validatedBackupDestination() else {
+        let index = backupIndex
+        let root = try? configuration.validatedBackupDestination()
+        let remote = root == nil ? try? backupControlConfiguration() : nil
+        guard (index != nil && root != nil) || remote != nil else {
             backupItems = []
+            backupError = nil
             return
         }
         backupRefreshGeneration += 1
@@ -589,15 +619,26 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let items = try await Task.detached(priority: .utility) {
-                    try index.items(in: root)
+                    if let index, let root { return try index.items(in: root) }
+                    if let remote { return try Runner.backupItems(remote) }
+                    return []
                 }.value
                 guard generation == backupRefreshGeneration else { return }
                 backupItems = items
+                backupError = nil
             } catch {
                 guard generation == backupRefreshGeneration else { return }
-                fail(error)
+                backupItems = []
+                backupError = String(describing: error)
             }
         }
+    }
+
+    private func backupControlConfiguration() throws -> Configuration? {
+        guard let host = try configuration.backupHost() else { return nil }
+        return Configuration(root: configuration.root, machine: configuration.machine,
+                             peer: host.peer, remoteRoot: "", remoteExecutable: host.executable,
+                             remoteMachine: host.machine, remoteReceiveOnly: true)
     }
 
     private func removeLegacyAgent() {
@@ -686,7 +727,9 @@ private final class BackupReceiver: @unchecked Sendable {
     private let logger: (String) -> Void
     private let onStopped: (UUID) -> Void
     private let listener: LocalBackupListener
+    private let controlListener: LocalBackupListener
     private let queue = DispatchQueue(label: "git-sync.backup-receiver")
+    private let controlQueue = DispatchQueue(label: "git-sync.backup-control")
     private let lock = NSLock()
     private var activeConnection: FileHandle?
     private var stopped = false
@@ -702,10 +745,12 @@ private final class BackupReceiver: @unchecked Sendable {
         self.logger = logger
         self.onStopped = onStopped
         listener = try LocalBackupListener()
+        controlListener = try LocalBackupListener(url: LocalBackupTransport.controlSocketURL)
     }
 
     func start() {
         queue.async { [self] in run() }
+        controlQueue.async { [self] in runControl() }
     }
 
     func stop() {
@@ -715,6 +760,7 @@ private final class BackupReceiver: @unchecked Sendable {
         let connection = activeConnection
         lock.unlock()
         listener.close()
+        controlListener.close()
         try? connection?.close()
     }
 
@@ -758,6 +804,23 @@ private final class BackupReceiver: @unchecked Sendable {
     private var isStopped: Bool {
         lock.lock(); defer { lock.unlock() }
         return stopped
+    }
+
+    private func runControl() {
+        while !isStopped {
+            do {
+                let connection = try controlListener.accept()
+                defer { try? connection.close() }
+                let mode = try LocalBackupTransport.mode(from: connection)
+                guard mode == LocalBackupTransport.session else {
+                    throw SyncError.invalidProtocol("Unknown local backup control request")
+                }
+                try BackupControlService.serve(connection, root: root, index: index)
+                onCatalog()
+            } catch {
+                if !isStopped { logger("control request ended: \(error)") }
+            }
+        }
     }
 }
 
@@ -969,9 +1032,18 @@ struct SettingsView: View {
                     }
                     .disabled(model.configurationLocked)
 
-                    if model.configuration.backupDestination != nil {
+                    if model.hasBackupCatalog {
                         Section("Stored Backups") {
-                            if model.backupItems.isEmpty {
+                            HStack {
+                                Spacer()
+                                Button("Refresh", action: model.refreshBackups)
+                                    .disabled(model.restoringBackup != nil)
+                            }
+                            if let error = model.backupError {
+                                Text(error)
+                                    .foregroundStyle(.red)
+                                    .textSelection(.enabled)
+                            } else if model.backupItems.isEmpty {
                                 Text("No backup repositories found")
                                     .foregroundStyle(.secondary)
                             } else {
@@ -984,7 +1056,7 @@ struct SettingsView: View {
                                 }
                                 .frame(minHeight: 180)
                             }
-                            Text("Archive marks repositories that no known host currently contains. Unarchive restores a selected snapshot into this Mac’s projects folder.")
+                            Text("Archive marks repositories that no known host currently contains. Unarchive restores a selected snapshot into this Mac’s projects folder, even when the backup is stored on another host.")
                                 .foregroundStyle(.secondary)
                         }
                     }

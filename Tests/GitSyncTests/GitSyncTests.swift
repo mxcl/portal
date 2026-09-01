@@ -368,6 +368,61 @@ func localBackupSocket() throws {
     #expect(try client.read(upToCount: 4) == Data("pong".utf8))
 }
 
+@Test("backup control lists, archives, and exports a restorable snapshot")
+func backupControl() throws {
+    let fixture = try Fixture()
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
+                     stateURL: fixture.state, bareDestination: true)
+    let index = try BackupIndex(url: fixture.root.appendingPathComponent("backup-index.json"))
+    try index.replaceCatalog(machine: "A", repositories: [])
+    let socketRoot = URL(fileURLWithPath: "/tmp/gs-control-\(UUID())")
+    let socket = socketRoot.appendingPathComponent("control.sock")
+    defer { try? FileManager.default.removeItem(at: socketRoot) }
+    let listener = try LocalBackupListener(url: socket)
+    defer { listener.close() }
+
+    func request(_ request: BackupControlRequest, exportTo bundle: URL? = nil) throws
+        -> BackupControlResponse {
+        let client = try LocalBackupTransport.connect(mode: LocalBackupTransport.session, to: socket)
+        defer { try? client.close() }
+        DispatchQueue.global().async {
+            guard let server = try? listener.accept() else { return }
+            defer { try? server.close() }
+            guard (try? LocalBackupTransport.mode(from: server)) == LocalBackupTransport.session else { return }
+            try? BackupControlService.serve(server, root: fixture.b, index: index)
+        }
+        try BackupControlConnection.send(request, to: client)
+        let response = try BackupControlConnection.receive(BackupControlResponse.self, from: client).checked()
+        if let bundle, let count = response.byteCount {
+            #expect(FileManager.default.createFile(atPath: bundle.path, contents: nil))
+            let output = try FileHandle(forWritingTo: bundle)
+            defer { try? output.close() }
+            try BackupControlConnection.copy(count, from: client, to: output)
+        }
+        return response
+    }
+
+    let candidate = try #require(request(BackupControlRequest(action: .list)).items?.first)
+    #expect(candidate.status == .candidate)
+    #expect(throws: (any Error).self) {
+        try request(BackupControlRequest(version: 0, action: .list))
+    }
+    _ = try request(BackupControlRequest(action: .archive, repository: candidate.name))
+    #expect(try request(BackupControlRequest(action: .list)).items?.first?.status == .archived)
+
+    let bundle = fixture.root.appendingPathComponent("export.bundle")
+    let snapshot = try #require(candidate.snapshots.first)
+    _ = try request(BackupControlRequest(action: .export, repository: candidate.name,
+                                         snapshotID: snapshot.id), exportTo: bundle)
+    let restored = fixture.root.appendingPathComponent("restored")
+    try FileManager.default.createDirectory(at: restored, withIntermediateDirectories: true)
+    try BackupIndex.restore(candidate.name, snapshot: snapshot, from: bundle, to: restored)
+    #expect(try git(["-C", restored.appendingPathComponent("project").path, "rev-parse", "main"])
+            == git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"]))
+    _ = try request(BackupControlRequest(action: .catalog, machine: "A", repositories: ["project"]))
+    #expect(try request(BackupControlRequest(action: .list)).items?.first?.status == .mirrored)
+}
+
 @Test("app-owned backups do not require a remote filesystem path")
 func appOwnedBackupConfiguration() throws {
     let configuration = Configuration(root: "/", machine: "A", peer: "b", remoteRoot: "",

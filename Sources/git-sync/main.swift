@@ -40,6 +40,7 @@ Usage:
   git-sync inspect --root PATH [--machine NAME]
   git-sync check-backup
   git-sync relay-backup
+  git-sync relay-backup-control
   git-sync sync-once --source-root PATH --destination-root PATH --machine NAME [--state PATH]
 """
 
@@ -92,6 +93,8 @@ do {
         try LocalBackupTransport.connect(mode: LocalBackupTransport.check).close()
     case "relay-backup":
         try LocalBackupTransport.relayStandardIO()
+    case "relay-backup-control":
+        try LocalBackupTransport.relayStandardIO(to: LocalBackupTransport.controlSocketURL)
     case "sync-once":
         let source = URL(fileURLWithPath: NSString(string: try required("--source-root", in: arguments)).expandingTildeInPath)
         let destination = URL(fileURLWithPath: NSString(string: try required("--destination-root", in: arguments)).expandingTildeInPath)

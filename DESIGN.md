@@ -91,13 +91,15 @@ explicitly marked archived; offline or not-yet-observed sources leave its status
 unknown rather than producing a false orphan. Archival is metadata only and never
 moves or deletes the bare repository.
 
-Unarchive is an explicit local promotion action. It restores one selected source
-snapshot into a new repository under the receiving Mac's normal project root,
-promoting that source's branches, tags, and stash while retaining every source's
-peer refs. It refuses an existing destination name and constructs the repository
-under a temporary sibling before atomically moving it into place. Because `HEAD`
-is not replicated, `main`, then `master`, then the first branch is selected for
-checkout.
+Archive inventory and metadata mutations are available to configured source Macs
+through SSH and a second owner-only app socket. Unarchive is an explicit promotion
+action on the Mac where it is chosen. The receiver exports a Git bundle for the
+selected snapshot, and the initiating app restores it into a new repository under
+its own normal project root, promoting that source's branches, tags, and stash
+while retaining every source's peer refs. It refuses an existing destination name
+and constructs the repository under a temporary sibling before atomically moving
+it into place. Because `HEAD` is not replicated, `main`, then `master`, then the
+first branch is selected for checkout.
 
 The app controls its own per-user login item and writes one connection and
 ordering-state file per host. The bundled helper is the same headless executable
@@ -185,9 +187,11 @@ process to own a state file.
 - **SSH command execution:** configuration chooses the SSH target and remote
   executable. Dynamic repository/ref data is framed on stdin, never placed in
   a shell command.
-- **Local backup relay:** the Unix socket lives in the user's Application
+- **Local backup relay:** both Unix sockets live in the user's Application
   Support directory with mode `0600`. The app supplies the configured root;
-  the SSH relay cannot request a path or destination ref.
+  control requests contain validated repository and snapshot identities, never
+  paths or destination refs. Exported bundles stream through the authenticated
+  SSH session.
 
 The invariant is structural: background code has no function that writes a
 working tree, index, `HEAD`, local branch, local tag, stash, caller-selected

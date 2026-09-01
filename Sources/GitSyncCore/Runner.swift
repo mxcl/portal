@@ -36,28 +36,28 @@ public enum Runner {
             let process = Process(), input = Pipe(), output = Pipe()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
             let isBackup = configuration.remoteReceiveOnly == true
-            if isBackup {
-                _ = try runRemote(
-                    configuration,
-                    arguments: ["check-backup"],
-                    failure: "Git Sync on \(configuration.remoteMachine ?? configuration.peer) is not accepting backups. On that Mac, choose a destination in the Backup tab and start sync"
-                )
-            }
-            var arguments = isBackup ? ["relay-backup"]
-                : ["daemon", "--stdio", "--root", configuration.remoteRoot]
-            if !isBackup, let repositories = configuration.repositories {
-                arguments.append("--selective")
-                for repository in repositories { arguments += ["--repository", repository] }
-            }
-            if !isBackup, let remoteState = configuration.remoteState { arguments += ["--state", remoteState] }
-            let command = remoteCommand(configuration.remoteExecutable, arguments)
-            process.arguments = ["-T", "--", configuration.peer, command]
-            process.standardInput = input
-            process.standardOutput = output
-            process.standardError = FileHandle.standardError
-            try process.run()
-            logger("SSH connected to \(configuration.peer)")
             do {
+                if isBackup {
+                    _ = try runRemote(
+                        configuration,
+                        arguments: ["check-backup"],
+                        failure: "Git Sync on \(configuration.remoteMachine ?? configuration.peer) is not accepting backups. On that Mac, choose a destination in the Backup tab and start sync"
+                    )
+                }
+                var arguments = isBackup ? ["relay-backup"]
+                    : ["daemon", "--stdio", "--root", configuration.remoteRoot]
+                if !isBackup, let repositories = configuration.repositories {
+                    arguments.append("--selective")
+                    for repository in repositories { arguments += ["--repository", repository] }
+                }
+                if !isBackup, let remoteState = configuration.remoteState { arguments += ["--state", remoteState] }
+                let command = remoteCommand(configuration.remoteExecutable, arguments)
+                process.arguments = ["-T", "--", configuration.peer, command]
+                process.standardInput = input
+                process.standardOutput = output
+                process.standardError = FileHandle.standardError
+                try process.run()
+                logger("SSH connected to \(configuration.peer)")
                 let session = try SyncSession(
                     root: configuration.expandedRoot, machine: configuration.machine,
                     input: output.fileHandleForReading, output: input.fileHandleForWriting,

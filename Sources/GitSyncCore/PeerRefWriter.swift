@@ -54,7 +54,8 @@ public struct PeerRefWriter {
     }
 
     private func syncCheckout(sourceRef: String, from old: String, to new: String) -> Bool {
-        guard sourceRef.hasPrefix("refs/heads/"),
+        guard old != new,
+              sourceRef.hasPrefix("refs/heads/"),
               current("HEAD") == old,
               (try? Git.text(["-C", repository.url.path, "symbolic-ref", "--quiet", "HEAD"])) == sourceRef,
               repository.cleanCheckoutRef() == sourceRef,

@@ -22,12 +22,12 @@ them.
 An explicit checkout-sync option relaxes local checkout ownership only for a
 guarded fast-forward. An update identifies the sender's current clean checkout.
 The receiver advances the same checked-out branch only if its index and working
-tree are clean, its `HEAD` still equals the old peer ref, and the new commit is a
-descendant of that old commit. Thus staged, unstaged, untracked, committed, or
-divergent work prevents promotion. The peer ref still advances, making the failed
-equality guard persistent until the user reconciles the checkout. A first-seen
-peer ref cannot promote a checkout. Enabling this option is the required user
-action and applies to both ends of that connection; it defaults off.
+tree are clean and its current commit is an ancestor of the incoming commit.
+Thus staged, unstaged, untracked, committed, or divergent work prevents
+promotion. A clean checkout retries an earlier blocked fast-forward during the
+next full reconciliation, bounded to five minutes. Enabling this option is the
+required user action and applies to both ends of that connection; it defaults
+off.
 
 Ref ownership supplies safety. Outside the explicit checkout-sync fast-forward,
 background code never writes a ref owned by a user or another host. Each
@@ -203,9 +203,10 @@ process to own a state file.
   executable. Dynamic repository/ref data is framed on stdin, never placed in
   a shell command.
 - **Opt-in checkout syncing:** a peer can fast-forward the current local branch
-  only from the last peer tip while both checkouts are clean. Dirty state,
-  locally committed work, first contact, branch changes, and non-fast-forwards
-  leave the checkout untouched.
+  only while both checkouts are clean and the local tip is an ancestor of the
+  peer tip. Dirty state, divergent committed work, branch changes, and
+  non-fast-forwards leave the checkout untouched; transient dirty state retries
+  during reconciliation.
 - **Local backup relay:** both Unix sockets live in the user's Application
   Support directory with mode `0600`. The app supplies the configured root;
   control requests contain validated repository and snapshot identities, never

@@ -47,11 +47,10 @@ peer ref, as you would after `git fetch`.
 `--sync-checkouts` (or **Keep matching clean checkouts in sync** in the Mac app)
 opts both ends of a connection into guarded fast-forwards. Git Sync advances a
 checked-out branch only when that same branch is the peer's clean checkout, the
-local checkout is clean, and both checkouts were at the peer ref's previous
-commit. Staged, unstaged, untracked, or committed local changes stop checkout
-updates; the peer ref still advances, so automatic updates remain stopped until
-you reconcile the branches yourself. First-seen branches and non-fast-forward
-updates never alter a checkout.
+local checkout is clean, and its current commit is an ancestor of the peer tip.
+Staged, unstaged, untracked, divergent committed work, and non-fast-forward
+updates leave the checkout untouched. A checkout that becomes clean later
+retries the fast-forward during reconciliation (within five minutes).
 
 ## Install the Mac app
 

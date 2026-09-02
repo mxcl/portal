@@ -175,6 +175,28 @@ func matchingCleanCheckoutsFollowUpdates() throws {
     #expect(try String(contentsOf: destination.appendingPathComponent("file.txt"), encoding: .utf8) == "3\n")
 }
 
+@Test("clean checkouts catch up after an earlier update was blocked")
+func cleanCheckoutsRetryBlockedUpdates() throws {
+    let fixture = try Fixture(); try fixture.cloneToB()
+    let source = fixture.a.appendingPathComponent("project")
+    let destination = fixture.b.appendingPathComponent("project")
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
+                     machine: "A", stateURL: fixture.state, syncCheckouts: true)
+
+    try Data("local dirt\n".utf8).write(to: destination.appendingPathComponent("file.txt"))
+    try Data("remote\n".utf8).write(to: source.appendingPathComponent("file.txt"))
+    _ = try git(["-C", source.path, "commit", "-qam", "remote"])
+    let expected = try git(["-C", source.path, "rev-parse", "main"])
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
+                     machine: "A", stateURL: fixture.state, syncCheckouts: true)
+
+    _ = try git(["-C", destination.path, "restore", "file.txt"])
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
+                     machine: "A", stateURL: fixture.state, full: true, syncCheckouts: true)
+
+    #expect(try git(["-C", destination.path, "rev-parse", "main"]) == expected)
+}
+
 @Test("local staged, unstaged, or committed changes invalidate checkout syncing")
 func localChangesStopCheckoutUpdates() throws {
     func check(_ change: String) throws {

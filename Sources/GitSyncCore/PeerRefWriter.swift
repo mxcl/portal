@@ -17,7 +17,7 @@ public struct PeerRefWriter {
             try Validator.oid(oid)
             let old = current(destination) ?? String(repeating: "0", count: oid.count)
             _ = try Git.run(["-C", repository.url.path, "update-ref", destination, oid, old])
-            return shouldSyncCheckout && syncCheckout(sourceRef: sourceRef, from: old, to: oid)
+            return shouldSyncCheckout && syncCheckout(sourceRef: sourceRef, to: oid)
         } else if let old = current(destination) {
             let expired = try expiredRef(sourceRef)
             let transaction = "start\ncreate \(expired) \(old)\ndelete \(destination) \(old)\nprepare\ncommit\n"
@@ -33,6 +33,10 @@ public struct PeerRefWriter {
             return "refs/remotes/\(Validator.remote(peer))/\(sourceRef.dropFirst("refs/heads/".count))"
         }
         return "refs/sync/\(peer)/tags/\(sourceRef.dropFirst("refs/tags/".count))"
+    }
+
+    func currentOID(for sourceRef: String) throws -> String? {
+        current(try destinationRef(sourceRef))
     }
 
     public func pruneExpired(olderThan cutoff: Date = Date().addingTimeInterval(-30 * 86_400)) throws {
@@ -53,13 +57,12 @@ public struct PeerRefWriter {
         return value?.isEmpty == false ? value : nil
     }
 
-    private func syncCheckout(sourceRef: String, from old: String, to new: String) -> Bool {
-        guard old != new,
-              sourceRef.hasPrefix("refs/heads/"),
-              current("HEAD") == old,
+    private func syncCheckout(sourceRef: String, to new: String) -> Bool {
+        guard sourceRef.hasPrefix("refs/heads/"),
+              let local = current("HEAD"), local != new,
               (try? Git.text(["-C", repository.url.path, "symbolic-ref", "--quiet", "HEAD"])) == sourceRef,
               repository.cleanCheckoutRef() == sourceRef,
-              Git.succeeds(["-C", repository.url.path, "merge-base", "--is-ancestor", old, new]) else {
+              Git.succeeds(["-C", repository.url.path, "merge-base", "--is-ancestor", local, new]) else {
             return false
         }
         return Git.succeeds(["-C", repository.url.path, "merge", "--ff-only", "--no-edit", "--no-autostash", new])

@@ -87,7 +87,9 @@ public final class SyncSession {
                 if catalogScanNeeded {
                     watcher = Watcher(root: root, repositories: current)
                     for repository in current {
-                        changed[repository.name] = try sendUpdates(for: repository, full: false)
+                        changed[repository.name] = try sendUpdates(
+                            for: repository, full: repairDue && syncCheckouts
+                        )
                     }
                 }
                 for repository in current {
@@ -166,13 +168,27 @@ public final class SyncSession {
         try requireIncluded(update.repository)
         try Validator.sourceRef(update.sourceRef)
         let (peer, epoch) = try currentPeer()
-        if update.generation <= state.acceptedGeneration(
+        let accepted = state.acceptedGeneration(
             peer: peer, epoch: epoch, repository: update.repository, ref: update.sourceRef
-        ) {
+        )
+        if update.generation < accepted || update.generation == 0 {
             sendControl(.ack(update)); return
         }
         let repository = try Repository.ensure(name: update.repository, in: root, bare: receiveOnly)
         try configureRemote(for: repository)
+        if update.generation == accepted {
+            if syncCheckouts, update.cleanCheckout == true, let oid = update.oid {
+                let writer = try PeerRefWriter(repository: repository, peer: peer)
+                guard try writer.currentOID(for: update.sourceRef) == oid else {
+                    throw SyncError.invalidProtocol("Generation was reused with a different object")
+                }
+                let checkoutSynced = try writer.apply(
+                    sourceRef: update.sourceRef, oid: oid, syncCheckout: true
+                )
+                if checkoutSynced { logger("fast-forwarded checkout \(update.repository)/\(update.sourceRef)") }
+            }
+            sendControl(.ack(update)); return
+        }
         if let oid = update.oid {
             guard let pack else { throw SyncError.invalidProtocol("Object update has no pack") }
             try repository.install(pack: pack, target: oid)

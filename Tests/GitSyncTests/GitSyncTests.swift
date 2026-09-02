@@ -12,6 +12,7 @@ struct GitSyncTests {
 func defaultPeerExecutable() {
     let configuration = Configuration(root: "/", machine: "mac", peer: "peer", remoteRoot: "/tmp")
     #expect(configuration.remoteExecutable == "/Applications/Git Sync.app/Contents/Resources/git-sync")
+    #expect(configuration.syncCheckouts != true)
 }
 
 @Test("machine defaults to the macOS Computer Name")
@@ -150,6 +151,59 @@ func ordinaryCommitSafety() throws {
     #expect(try String(contentsOf: destination.appendingPathComponent("file.txt"), encoding: .utf8) == localFile)
     #expect(try git(["-C", destination.path, "status", "--porcelain"]).isEmpty)
     #expect(try git(["-C", destination.path, "cat-file", "-t", remoteMain]) == "commit")
+}
+
+@Test("opt-in fast-forwards matching clean checkouts")
+func matchingCleanCheckoutsFollowUpdates() throws {
+    let fixture = try Fixture(); try fixture.cloneToB()
+    let source = fixture.a.appendingPathComponent("project")
+    let destination = fixture.b.appendingPathComponent("project")
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
+                     machine: "A", stateURL: fixture.state, syncCheckouts: true)
+
+    for number in 2...3 {
+        try Data("\(number)\n".utf8).write(to: source.appendingPathComponent("file.txt"))
+        _ = try git(["-C", source.path, "commit", "-qam", "commit \(number)"])
+    }
+    let expected = try git(["-C", source.path, "rev-parse", "main"])
+
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
+                     machine: "A", stateURL: fixture.state, syncCheckouts: true)
+
+    #expect(try git(["-C", destination.path, "rev-parse", "main"]) == expected)
+    #expect(try git(["-C", destination.path, "status", "--porcelain"]).isEmpty)
+    #expect(try String(contentsOf: destination.appendingPathComponent("file.txt"), encoding: .utf8) == "3\n")
+}
+
+@Test("local staged, unstaged, or committed changes invalidate checkout syncing")
+func localChangesStopCheckoutUpdates() throws {
+    func check(_ change: String) throws {
+        let fixture = try Fixture(); try fixture.cloneToB()
+        let source = fixture.a.appendingPathComponent("project")
+        let destination = fixture.b.appendingPathComponent("project")
+        try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
+                         machine: "A", stateURL: fixture.state, syncCheckouts: true)
+
+        try Data("local \(change)\n".utf8).write(to: destination.appendingPathComponent("file.txt"))
+        if change != "unstaged" { _ = try git(["-C", destination.path, "add", "file.txt"]) }
+        if change == "committed" {
+            _ = try git(["-C", destination.path, "-c", "user.name=Test", "-c",
+                         "user.email=test@example.com", "commit", "-qm", "local"])
+        }
+        let localTip = try git(["-C", destination.path, "rev-parse", "main"])
+        try Data("remote\n".utf8).write(to: source.appendingPathComponent("file.txt"))
+        _ = try git(["-C", source.path, "commit", "-qam", "remote"])
+        let remoteTip = try git(["-C", source.path, "rev-parse", "main"])
+
+        try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
+                         machine: "A", stateURL: fixture.state, syncCheckouts: true)
+
+        #expect(try git(["-C", destination.path, "rev-parse", "main"]) == localTip,
+                "\(change) checkout moved")
+        #expect(try git(["-C", destination.path, "rev-parse", "refs/remotes/a/main"]) == remoteTip)
+    }
+
+    for change in ["unstaged", "staged", "committed"] { try check(change) }
 }
 
 @Test("missing projects are initialized without a checkout")

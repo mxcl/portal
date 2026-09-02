@@ -33,15 +33,15 @@ func defaultStateURL() -> URL {
 
 let usage = """
 Usage:
-  git-sync run --root PATH --machine NAME --peer SSH_TARGET --remote-root PATH [--remote-machine NAME] [--remote-executable PATH] [--selective --repository NAME ...] [--state PATH]
+  git-sync run --root PATH --machine NAME --peer SSH_TARGET --remote-root PATH [--remote-machine NAME] [--remote-executable PATH] [--selective --repository NAME ...] [--sync-checkouts] [--state PATH]
   git-sync run --config PATH [--state PATH]
-  git-sync daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--receive-only] [--state PATH]
+  git-sync daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--receive-only] [--sync-checkouts] [--state PATH]
   git-sync list --root PATH
   git-sync inspect --root PATH [--machine NAME]
   git-sync check-backup
   git-sync relay-backup
   git-sync relay-backup-control
-  git-sync sync-once --source-root PATH --destination-root PATH --machine NAME [--state PATH]
+  git-sync sync-once --source-root PATH --destination-root PATH --machine NAME [--sync-checkouts] [--state PATH]
 """
 
 do {
@@ -66,7 +66,8 @@ do {
                 remoteRoot: try required("--remote-root", in: arguments),
                 remoteExecutable: value("--remote-executable", in: arguments) ?? Configuration.defaultRemoteExecutable,
                 repositories: arguments.contains("--selective") ? values("--repository", in: arguments) : nil,
-                remoteMachine: value("--remote-machine", in: arguments)
+                remoteMachine: value("--remote-machine", in: arguments),
+                syncCheckouts: arguments.contains("--sync-checkouts")
             )
         }
         try Runner.connect(configuration, stateURL: stateURL, logger: log)
@@ -78,6 +79,7 @@ do {
                          stateURL: stateURL,
                          repositories: arguments.contains("--selective") ? Set(repositories) : nil,
                          receiveOnly: arguments.contains("--receive-only"),
+                         syncCheckouts: arguments.contains("--sync-checkouts"),
                          logger: log)
     case "list":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
@@ -99,7 +101,8 @@ do {
         let source = URL(fileURLWithPath: NSString(string: try required("--source-root", in: arguments)).expandingTildeInPath)
         let destination = URL(fileURLWithPath: NSString(string: try required("--destination-root", in: arguments)).expandingTildeInPath)
         try OneShot.sync(sourceRoot: source, destinationRoot: destination,
-                         machine: try required("--machine", in: arguments), stateURL: stateURL)
+                         machine: try required("--machine", in: arguments), stateURL: stateURL,
+                         syncCheckouts: arguments.contains("--sync-checkouts"))
     case "help", "--help", "-h": print(usage)
     default: throw SyncError.invalidConfiguration("Unknown command: \(command)\n\(usage)")
     }

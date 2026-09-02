@@ -11,6 +11,7 @@ public final class SyncSession {
     private let catalogObserver: ((String, [String]) throws -> Void)?
     private let isInitiator: Bool
     private let receiveOnly: Bool
+    private let syncCheckouts: Bool
     private let lock = NSLock()
     private let controlQueue = DispatchQueue(label: "git-sync.control")
     private var peerMachine: String?
@@ -26,6 +27,7 @@ public final class SyncSession {
                 peerRepositoryLocation: PeerRepositoryLocation? = nil,
                 isInitiator: Bool = false,
                 receiveOnly: Bool = false,
+                syncCheckouts: Bool = false,
                 catalogObserver: ((String, [String]) throws -> Void)? = nil,
                 logger: @escaping (String) -> Void = { _ in }) throws {
         try Validator.machine(machine)
@@ -39,6 +41,7 @@ public final class SyncSession {
         state = try StateStore(url: stateURL)
         self.isInitiator = isInitiator
         self.receiveOnly = receiveOnly
+        self.syncCheckouts = syncCheckouts
         self.catalogObserver = catalogObserver
         self.logger = logger
     }
@@ -175,13 +178,17 @@ public final class SyncSession {
             try repository.install(pack: pack, target: oid)
         }
         let writer = try PeerRefWriter(repository: repository, peer: peer)
-        try writer.apply(sourceRef: update.sourceRef, oid: update.oid)
+        let checkoutSynced = try writer.apply(
+            sourceRef: update.sourceRef, oid: update.oid,
+            syncCheckout: syncCheckouts && update.cleanCheckout == true
+        )
         try writer.pruneExpired()
         try state.accept(generation: update.generation, peer: peer, epoch: epoch,
                          repository: update.repository, ref: update.sourceRef)
         sendControl(.ack(update))
         logger(Self.transferLog(sourceRef: update.sourceRef, machine: machine,
                                 peer: peer, isInitiator: isInitiator))
+        if checkoutSynced { logger("fast-forwarded checkout \(update.repository)/\(update.sourceRef)") }
     }
 
     private func sendControl(_ message: WireMessage) {
@@ -196,9 +203,15 @@ public final class SyncSession {
                              excluding excluded: Set<String> = []) throws -> Set<String> {
         lock.lock(); let initialKnown = peerKnown[repository.name]; lock.unlock()
         guard var known = initialKnown else { return [] }
+        let cleanCheckout = syncCheckouts ? repository.cleanCheckoutRef() : nil
         let updates = try state.updates(machine: machine, repository: repository.name,
                                         refs: repository.sourceRefs(), full: full)
             .filter { !excluded.contains($0.sourceRef) }
+            .map {
+                RefUpdate(repository: $0.repository, sourceRef: $0.sourceRef,
+                          generation: $0.generation, oid: $0.oid,
+                          cleanCheckout: $0.sourceRef == cleanCheckout ? true : nil)
+            }
         for update in updates {
             let pack = try update.oid.map { try repository.pack(oid: $0, excluding: Array(known)) }
             try connection.send(update: update, pack: pack)

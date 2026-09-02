@@ -44,6 +44,15 @@ public struct Repository: Equatable {
         }
     }
 
+    func cleanCheckoutRef() -> String? {
+        guard let ref = try? Git.text(["-C", url.path, "symbolic-ref", "--quiet", "HEAD"]),
+              ref.hasPrefix("refs/heads/"),
+              (try? Git.text(["-C", url.path, "status", "--porcelain", "--untracked-files=normal"]))?.isEmpty == true else {
+            return nil
+        }
+        return ref
+    }
+
     public func knownOIDs() throws -> [String] {
         let data = try Git.run(["-C", url.path, "for-each-ref", "--format=%(objectname)"])
         return String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline).map(String.init)

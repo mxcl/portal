@@ -51,6 +51,7 @@ public enum Runner {
                     for repository in repositories { arguments += ["--repository", repository] }
                 }
                 if !isBackup, let remoteState = configuration.remoteState { arguments += ["--state", remoteState] }
+                if !isBackup, configuration.syncCheckouts == true { arguments.append("--sync-checkouts") }
                 let command = remoteCommand(configuration.remoteExecutable, arguments)
                 process.arguments = ["-T", "--", configuration.peer, command]
                 process.standardInput = input
@@ -67,6 +68,7 @@ public enum Runner {
                                                root: configuration.remoteRoot)
                     },
                     isInitiator: true,
+                    syncCheckouts: configuration.syncCheckouts == true,
                     logger: logger
                 )
                 try session.run()
@@ -79,6 +81,7 @@ public enum Runner {
     public static func serve(root: URL, machine: String, stateURL: URL,
                              repositories: Set<String>? = nil,
                              receiveOnly: Bool = false,
+                             syncCheckouts: Bool = false,
                              catalogObserver: ((String, [String]) throws -> Void)? = nil,
                              input: FileHandle = .standardInput,
                              output: FileHandle = .standardOutput,
@@ -86,6 +89,7 @@ public enum Runner {
         let session = try SyncSession(root: root, machine: machine, input: input,
                                       output: output, stateURL: stateURL,
                                       repositories: repositories, receiveOnly: receiveOnly,
+                                      syncCheckouts: syncCheckouts,
                                       catalogObserver: catalogObserver, logger: logger)
         try session.run()
     }
@@ -253,7 +257,8 @@ public enum Runner {
 public enum OneShot {
     @discardableResult
     public static func sync(sourceRoot: URL, destinationRoot: URL, machine: String, stateURL: URL,
-                            full: Bool = false, bareDestination: Bool = false) throws -> [String] {
+                            full: Bool = false, bareDestination: Bool = false,
+                            syncCheckouts: Bool = false) throws -> [String] {
         try Validator.machine(machine)
         let state = try StateStore(url: stateURL)
         let sources = try Repository.discover(in: sourceRoot)
@@ -261,13 +266,20 @@ public enum OneShot {
             let destination = try Repository.ensure(name: source.name, in: destinationRoot,
                                                     bare: bareDestination)
             var known = Set(try destination.knownOIDs())
-            for update in try state.updates(machine: machine, repository: source.name,
+            let cleanCheckout = syncCheckouts ? source.cleanCheckoutRef() : nil
+            for stored in try state.updates(machine: machine, repository: source.name,
                                             refs: source.sourceRefs(), full: full) {
+                let update = RefUpdate(repository: stored.repository, sourceRef: stored.sourceRef,
+                                       generation: stored.generation, oid: stored.oid,
+                                       cleanCheckout: stored.sourceRef == cleanCheckout ? true : nil)
                 if let oid = update.oid, !known.contains(oid) {
                     try destination.install(pack: source.pack(oid: oid, excluding: Array(known)), target: oid)
                     known.insert(oid)
                 }
-                try PeerRefWriter(repository: destination, peer: machine).apply(sourceRef: update.sourceRef, oid: update.oid)
+                try PeerRefWriter(repository: destination, peer: machine).apply(
+                    sourceRef: update.sourceRef, oid: update.oid,
+                    syncCheckout: syncCheckouts && update.cleanCheckout == true
+                )
             }
         }
         return sources.map(\.name)

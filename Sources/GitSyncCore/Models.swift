@@ -4,7 +4,7 @@ import SystemConfiguration
 #endif
 
 public enum SyncProtocol {
-    public static let version = 4
+    public static let version = 5
 }
 
 public struct Configuration: Codable, Equatable, Sendable {
@@ -36,11 +36,13 @@ public struct Configuration: Codable, Equatable, Sendable {
     public var remoteMachine: String?
     public var remoteState: String?
     public var remoteReceiveOnly: Bool?
+    public var syncCheckouts: Bool?
 
     public init(root: String, machine: String, peer: String, remoteRoot: String,
                 remoteExecutable: String = Configuration.defaultRemoteExecutable,
                 repositories: [String]? = nil, remoteMachine: String? = nil,
-                remoteState: String? = nil, remoteReceiveOnly: Bool? = nil) {
+                remoteState: String? = nil, remoteReceiveOnly: Bool? = nil,
+                syncCheckouts: Bool? = nil) {
         self.root = root
         self.machine = machine
         self.peer = peer
@@ -50,6 +52,7 @@ public struct Configuration: Codable, Equatable, Sendable {
         self.remoteMachine = remoteMachine
         self.remoteState = remoteState
         self.remoteReceiveOnly = remoteReceiveOnly
+        self.syncCheckouts = syncCheckouts
     }
 
     public func validate() throws {
@@ -188,16 +191,19 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     public var folders: [SyncFolder]
     public var backup: BackupConfiguration?
     public var backupDestination: BackupDestinationConfiguration?
+    public var syncCheckouts: Bool?
 
     public init(root: String, machine: String, hosts: [SyncHost] = [], folders: [SyncFolder] = [],
                 backup: BackupConfiguration? = nil,
-                backupDestination: BackupDestinationConfiguration? = nil) {
+                backupDestination: BackupDestinationConfiguration? = nil,
+                syncCheckouts: Bool? = nil) {
         self.root = root
         self.machine = machine
         self.hosts = hosts
         self.folders = folders
         self.backup = backup
         self.backupDestination = backupDestination
+        self.syncCheckouts = syncCheckouts
     }
 
     public mutating func discoverLocal(_ names: [String]) throws {
@@ -371,6 +377,16 @@ public struct RefUpdate: Codable, Equatable {
     public let sourceRef: String
     public let generation: UInt64
     public let oid: String?
+    public let cleanCheckout: Bool?
+
+    public init(repository: String, sourceRef: String, generation: UInt64, oid: String?,
+                cleanCheckout: Bool? = nil) {
+        self.repository = repository
+        self.sourceRef = sourceRef
+        self.generation = generation
+        self.oid = oid
+        self.cleanCheckout = cleanCheckout
+    }
 }
 
 struct StoredRef: Codable, Equatable {

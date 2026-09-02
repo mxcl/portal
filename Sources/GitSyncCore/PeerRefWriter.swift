@@ -10,17 +10,20 @@ public struct PeerRefWriter {
         self.peer = peer
     }
 
-    public func apply(sourceRef: String, oid: String?) throws {
+    @discardableResult
+    public func apply(sourceRef: String, oid: String?, syncCheckout shouldSyncCheckout: Bool = false) throws -> Bool {
         let destination = try destinationRef(sourceRef)
         if let oid {
             try Validator.oid(oid)
             let old = current(destination) ?? String(repeating: "0", count: oid.count)
             _ = try Git.run(["-C", repository.url.path, "update-ref", destination, oid, old])
+            return shouldSyncCheckout && syncCheckout(sourceRef: sourceRef, from: old, to: oid)
         } else if let old = current(destination) {
             let expired = try expiredRef(sourceRef)
             let transaction = "start\ncreate \(expired) \(old)\ndelete \(destination) \(old)\nprepare\ncommit\n"
             _ = try Git.run(["-C", repository.url.path, "update-ref", "--stdin"], input: Data(transaction.utf8))
         }
+        return false
     }
 
     public func destinationRef(_ sourceRef: String) throws -> String {
@@ -48,6 +51,17 @@ public struct PeerRefWriter {
     private func current(_ ref: String) -> String? {
         let value = try? Git.text(["-C", repository.url.path, "rev-parse", "--verify", "-q", ref])
         return value?.isEmpty == false ? value : nil
+    }
+
+    private func syncCheckout(sourceRef: String, from old: String, to new: String) -> Bool {
+        guard sourceRef.hasPrefix("refs/heads/"),
+              current("HEAD") == old,
+              (try? Git.text(["-C", repository.url.path, "symbolic-ref", "--quiet", "HEAD"])) == sourceRef,
+              repository.cleanCheckoutRef() == sourceRef,
+              Git.succeeds(["-C", repository.url.path, "merge-base", "--is-ancestor", old, new]) else {
+            return false
+        }
+        return Git.succeeds(["-C", repository.url.path, "merge", "--ff-only", "--no-edit", new])
     }
 
     private func expiredRef(_ sourceRef: String) throws -> String {

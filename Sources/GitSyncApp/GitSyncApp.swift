@@ -974,6 +974,7 @@ struct SettingsView: View {
                     } else {
                         Table(model.configuration.folders) {
                             TableColumn("Folder", value: \.name)
+                                .width(240)
                             TableColumn(model.configuration.machine) { folder in
                                 Toggle("Sync \(folder.name) on \(model.configuration.machine)", isOn: Binding(
                                     get: { folder.isLocal },
@@ -982,6 +983,7 @@ struct SettingsView: View {
                                 .toggleStyle(.checkbox)
                                 .labelsHidden()
                             }
+                            .width(100)
                             TableColumnForEach(model.configuration.hosts) { host in
                                 TableColumn(host.name) { folder in
                                     Toggle("Sync \(folder.name) on \(host.name)", isOn: Binding(
@@ -991,6 +993,7 @@ struct SettingsView: View {
                                     .toggleStyle(.checkbox)
                                     .labelsHidden()
                                 }
+                                .width(100)
                             }
                         }
                     }

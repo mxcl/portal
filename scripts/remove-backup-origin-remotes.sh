@@ -57,9 +57,21 @@ for repository in "$root"/*.git; do
       --format='%(refname) %(objectname) %(symref)' refs/remotes/origin/)
     while read -r ref oid symref; do
       [ -n "$ref" ] || continue
+      suffix=${ref#refs/remotes/origin/}
       [ -n "$symref" ] && continue
-      target="refs/remotes/$host/${ref#refs/remotes/origin/}"
+      if [ "$suffix" = HEAD ]; then
+        if git -C "$repository" rev-list --exclude="$ref" --all | grep -Fqx "$oid"; then
+          continue
+        fi
+        target="refs/remotes/$host/imported-origin/HEAD"
+      else
+        target="refs/remotes/$host/$suffix"
+      fi
       target_oid=$(git -C "$repository" show-ref --verify --hash "$target" 2>/dev/null || true)
+      if [ "$suffix" != HEAD ] && [ -n "$target_oid" ] && [ "$target_oid" != "$oid" ]; then
+        target="refs/remotes/$host/imported-origin/$suffix"
+        target_oid=$(git -C "$repository" show-ref --verify --hash "$target" 2>/dev/null || true)
+      fi
       if [ -n "$target_oid" ] && [ "$target_oid" != "$oid" ]; then
         collisions="$collisions
   $ref -> $target"
@@ -131,4 +143,7 @@ else
   echo "Would remove $references origin refs from $repositories backup repositories."
   echo "Re-run with --apply to make the changes."
 fi
-[ "$refused" -eq 0 ] || echo "Refused $refused repositories; no changes were made to them."
+if [ "$refused" -ne 0 ]; then
+  echo "Refused $refused repositories; no changes were made to them."
+  exit 1
+fi

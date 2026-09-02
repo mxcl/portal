@@ -27,10 +27,17 @@ test -z "$(git -C "$fixture/archive.git" for-each-ref --format='%(refname)' refs
 test -z "$(git -C "$fixture/archive.git" for-each-ref --format='%(refname)' refs/remotes/pangolin/HEAD)"
 
 git -C "$fixture/archive.git" update-ref refs/remotes/origin/main "$two"
+git -C "$fixture/archive.git" update-ref refs/remotes/origin/HEAD "$two"
 git -C "$fixture/archive.git" update-ref refs/remotes/pangolin/main "$one"
-output=$("$script" --apply --to-host pangolin "$fixture")
-case "$output" in *'Refused 1 repositories'*) ;; *) exit 1 ;; esac
-test "$(git -C "$fixture/archive.git" show-ref --verify --hash refs/remotes/origin/main)" = "$two"
+"$script" --apply --to-host pangolin "$fixture" >/dev/null
+test -z "$(git -C "$fixture/archive.git" for-each-ref --format='%(refname)' refs/remotes/origin/)"
 test "$(git -C "$fixture/archive.git" show-ref --verify --hash refs/remotes/pangolin/main)" = "$one"
+test "$(git -C "$fixture/archive.git" show-ref --verify --hash refs/remotes/pangolin/imported-origin/main)" = "$two"
+test -z "$(git -C "$fixture/archive.git" for-each-ref --format='%(refname)' refs/remotes/pangolin/HEAD)"
+
+git -C "$fixture/archive.git" update-ref refs/remotes/origin/main "$two"
+git -C "$fixture/archive.git" update-ref refs/remotes/pangolin/imported-origin/main "$one"
+if "$script" --apply --to-host pangolin "$fixture" >/dev/null 2>&1; then exit 1; fi
+test "$(git -C "$fixture/archive.git" show-ref --verify --hash refs/remotes/origin/main)" = "$two"
 
 echo "origin migration checks passed"

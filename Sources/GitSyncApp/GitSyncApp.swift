@@ -974,22 +974,22 @@ struct SettingsView: View {
                     } else {
                         Table(model.configuration.folders) {
                             TableColumn("Folder", value: \.name)
-                            TableColumn("This Mac") { folder in
-                                Toggle(model.configuration.machine, isOn: Binding(
+                            TableColumn(model.configuration.machine) { folder in
+                                Toggle("Sync \(folder.name) on \(model.configuration.machine)", isOn: Binding(
                                     get: { folder.isLocal },
                                     set: { model.setLocal($0, folder: folder.name) }
                                 ))
                                 .toggleStyle(.checkbox)
+                                .labelsHidden()
                             }
-                            TableColumn("Other Hosts") { folder in
-                                HStack {
-                                    ForEach(model.configuration.hosts) { host in
-                                        Toggle(host.name, isOn: Binding(
-                                            get: { folder.hosts.contains(host.id) },
-                                            set: { model.setHost(host.id, enabled: $0, folder: folder.name) }
-                                        ))
-                                        .toggleStyle(.checkbox)
-                                    }
+                            TableColumnForEach(model.configuration.hosts) { host in
+                                TableColumn(host.name) { folder in
+                                    Toggle("Sync \(folder.name) on \(host.name)", isOn: Binding(
+                                        get: { folder.hosts.contains(host.id) },
+                                        set: { model.setHost(host.id, enabled: $0, folder: folder.name) }
+                                    ))
+                                    .toggleStyle(.checkbox)
+                                    .labelsHidden()
                                 }
                             }
                         }

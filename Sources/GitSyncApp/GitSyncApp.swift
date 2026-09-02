@@ -1088,6 +1088,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .tabItem { Label("Backup", systemImage: "externaldrive") }
             }
+            .contentMargins(.vertical, 20, for: .scrollContent)
 
             Divider()
 
@@ -1105,8 +1106,9 @@ struct SettingsView: View {
                     .keyboardShortcut(.defaultAction)
                     .disabled(model.isChecking || model.isRunning)
             }
+            .scenePadding(.bottom)
         }
-        .scenePadding()
+        .scenePadding(.horizontal)
         .frame(minWidth: 720, minHeight: 520)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sheet(isPresented: $model.showingAddHost) { AddHostView(model: model) }

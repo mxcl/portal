@@ -3,9 +3,9 @@
 Continuously exchange Git history between your own computers over one
 persistent SSH connection. `git-sync` implements a bidirectional, continuous
 fetch/push system. Each host publishes snapshots of its refs into the other
-host's peer namespace while both working repositories remain independent.
-Incoming history leaves local branches, `HEAD`, the index, and working files
-alone.
+host's peer namespace while both working repositories remain independent by
+default. Incoming history leaves local branches, `HEAD`, the index, and working
+files alone unless guarded checkout syncing is explicitly enabled.
 
 ```console
 $ git-sync run \
@@ -43,6 +43,15 @@ machine A: refs/heads/main          machine B: refs/heads/main
 
 You decide when to merge, rebase, reset, check out, or incorporate a
 peer ref, as you would after `git fetch`.
+
+`--sync-checkouts` (or **Keep matching clean checkouts in sync** in the Mac app)
+opts both ends of a connection into guarded fast-forwards. Git Sync advances a
+checked-out branch only when that same branch is the peer's clean checkout, the
+local checkout is clean, and both checkouts were at the peer ref's previous
+commit. Staged, unstaged, untracked, or committed local changes stop checkout
+updates; the peer ref still advances, so automatic updates remain stopped until
+you reconcile the branches yourself. First-seen branches and non-fast-forward
+updates never alter a checkout.
 
 ## Install the Mac app
 

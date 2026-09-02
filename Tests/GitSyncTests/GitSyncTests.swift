@@ -602,6 +602,7 @@ func legacyAppConfigurationDecoding() throws {
     #expect(configuration.hosts.first?.name == "B")
     #expect(configuration.backup == nil)
     #expect(configuration.backupDestination == nil)
+    #expect(configuration.syncCheckouts != true)
 }
 
 @Test("local discovery removes deleted local-only folders")

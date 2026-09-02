@@ -480,7 +480,8 @@ final class AppModel: ObservableObject {
                 let connection = Configuration(root: configuration.root, machine: configuration.machine,
                                                peer: host.peer, remoteRoot: host.root,
                                                remoteExecutable: host.executable, repositories: repositories,
-                                               remoteMachine: host.machine)
+                                               remoteMachine: host.machine,
+                                               syncCheckouts: configuration.syncCheckouts)
                 try connection.validate()
                 try launch(connection, id: host.id, name: host.name, helper: helper)
             }
@@ -935,6 +936,14 @@ struct SettingsView: View {
                     Section("Identity") {
                         TextField("Machine name", text: $model.configuration.machine)
                         Text("This name identifies the Mac to your other hosts.")
+                            .foregroundStyle(.secondary)
+                    }
+                    Section("Checkouts") {
+                        Toggle("Keep matching clean checkouts in sync", isOn: Binding(
+                            get: { model.configuration.syncCheckouts == true },
+                            set: { model.configuration.syncCheckouts = $0 }
+                        ))
+                        Text("Fast-forwards the same checked-out branch only while both Macs are clean and were previously at the same commit. Any local change stops automatic checkout updates.")
                             .foregroundStyle(.secondary)
                     }
                 }

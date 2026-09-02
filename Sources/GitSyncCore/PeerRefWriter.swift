@@ -61,7 +61,7 @@ public struct PeerRefWriter {
               Git.succeeds(["-C", repository.url.path, "merge-base", "--is-ancestor", old, new]) else {
             return false
         }
-        return Git.succeeds(["-C", repository.url.path, "merge", "--ff-only", "--no-edit", new])
+        return Git.succeeds(["-C", repository.url.path, "merge", "--ff-only", "--no-edit", "--no-autostash", new])
     }
 
     private func expiredRef(_ sourceRef: String) throws -> String {

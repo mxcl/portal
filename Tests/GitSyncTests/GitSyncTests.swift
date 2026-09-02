@@ -347,6 +347,41 @@ func unarchiveOntoThisHost() throws {
     }
 }
 
+@Test("archived bare branches remain restorable")
+func archivedBareBranchesRemainRestorable() throws {
+    let fixture = try Fixture()
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
+                     stateURL: fixture.state, bareDestination: true)
+    let repository = fixture.b.appendingPathComponent("project.git")
+    let tip = try git(["-C", repository.path, "rev-parse", "refs/remotes/a/main"])
+    _ = try git(["-C", repository.path, "update-ref", "refs/heads/main", tip])
+    _ = try git(["-C", repository.path, "update-ref", "refs/tags/v1", tip])
+    _ = try git(["-C", repository.path, "update-ref", "refs/stash", tip])
+    _ = try git(["-C", repository.path, "update-ref", "-d", "refs/remotes/a/main"])
+
+    let index = try BackupIndex(url: fixture.root.appendingPathComponent("backup-index.json"))
+    try index.replaceCatalog(machine: "A", repositories: [])
+    try index.archive("project", in: fixture.b)
+    let item = try #require(index.items(in: fixture.b).first)
+    #expect(item.status == .archived)
+    let snapshot = try #require(item.snapshots.first { $0.machine == "Stored backup" })
+    #expect(snapshot.branches == ["main"])
+    let restoreRoot = fixture.root.appendingPathComponent("restored")
+    try FileManager.default.createDirectory(at: restoreRoot, withIntermediateDirectories: true)
+    let bundle = fixture.root.appendingPathComponent("stored.bundle")
+
+    try BackupIndex.exportBundle(item.name, snapshotID: snapshot.id,
+                                 from: fixture.b, to: bundle)
+    try BackupIndex.restore(item.name, snapshot: snapshot, from: bundle, to: restoreRoot)
+
+    #expect(try git(["-C", restoreRoot.appendingPathComponent("project").path,
+                     "rev-parse", "main"]) == tip)
+    #expect(try git(["-C", restoreRoot.appendingPathComponent("project").path,
+                     "rev-parse", "v1"]) == tip)
+    #expect(try git(["-C", restoreRoot.appendingPathComponent("project").path,
+                     "rev-parse", "refs/stash"]) == tip)
+}
+
 @Test("local backup socket is owner-only and identifies sessions")
 func localBackupSocket() throws {
     let root = URL(fileURLWithPath: "/tmp/gs-\(UUID())")

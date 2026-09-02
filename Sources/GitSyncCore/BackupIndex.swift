@@ -24,6 +24,8 @@ public struct BackupItem: Codable, Equatable, Identifiable, Sendable {
 }
 
 public final class BackupIndex: @unchecked Sendable {
+    private static let storedSnapshotID = ".stored"
+
     private struct Catalog: Codable {
         var machine: String
         var repositories: Set<String>
@@ -79,7 +81,7 @@ public final class BackupIndex: @unchecked Sendable {
                 .filter { $0.repositories.contains(repository.name) }
                 .map(\.machine).sorted()
             let knownSources = Set(document.catalogs.keys)
-            let snapshotSources = Set(snapshots.map(\.id))
+            let snapshotSources = Set(snapshots.map(\.id)).subtracting([Self.storedSnapshotID])
             let status: BackupStatus
             if !mirroredBy.isEmpty {
                 status = .mirrored
@@ -149,11 +151,19 @@ public final class BackupIndex: @unchecked Sendable {
             var refspecs = [
                 "+refs/remotes/*:refs/remotes/*",
                 "+refs/sync/*:refs/sync/*",
-                "+refs/remotes/\(snapshot.id)/*:refs/heads/*",
             ]
+            if snapshot.id == storedSnapshotID {
+                refspecs.append("+refs/heads/*:refs/heads/*")
+                refspecs.append("+refs/tags/*:refs/tags/*")
+                if Git.succeeds(["ls-remote", "--exit-code", source.path, "refs/stash"]) {
+                    refspecs.append("+refs/stash:refs/stash")
+                }
+            } else {
+                refspecs.append("+refs/remotes/\(snapshot.id)/*:refs/heads/*")
+            }
             for machine in snapshot.syncMachines {
                 refspecs.append("+refs/sync/\(machine)/tags/*:refs/tags/*")
-                if Git.succeeds(["-C", source.path, "rev-parse", "--verify", "-q",
+                if Git.succeeds(["ls-remote", "--exit-code", source.path,
                                  "refs/sync/\(machine)/stash"]) {
                     refspecs.append("+refs/sync/\(machine)/stash:refs/stash")
                 }
@@ -198,6 +208,11 @@ public final class BackupIndex: @unchecked Sendable {
                 let fields = suffix.split(separator: "/", maxSplits: 1)
                 guard fields.count == 2 else { continue }
                 states[String(fields[0]), default: SnapshotState()].branches.insert(String(fields[1]))
+            } else if ref.hasPrefix("refs/heads/") {
+                let branch = String(ref.dropFirst("refs/heads/".count))
+                states[storedSnapshotID, default: SnapshotState()].branches.insert(branch)
+            } else if ref.hasPrefix("refs/tags/") || ref == "refs/stash" {
+                states[storedSnapshotID] = states[storedSnapshotID] ?? SnapshotState()
             } else if ref.hasPrefix("refs/sync/") {
                 let suffix = ref.dropFirst("refs/sync/".count)
                 guard let machineField = suffix.split(separator: "/", maxSplits: 1).first else { continue }
@@ -206,8 +221,12 @@ public final class BackupIndex: @unchecked Sendable {
             }
         }
         return states.map { remote, state in
-            BackupSnapshot(id: remote, machine: state.syncMachines.sorted().first ?? remote,
-                           branches: state.branches.sorted(), syncMachines: state.syncMachines.sorted())
+            let machine = remote == storedSnapshotID
+                ? "Stored backup"
+                : state.syncMachines.sorted().first ?? remote
+            return BackupSnapshot(id: remote, machine: machine,
+                                  branches: state.branches.sorted(),
+                                  syncMachines: state.syncMachines.sorted())
         }.sorted { $0.machine.localizedStandardCompare($1.machine) == .orderedAscending }
     }
 

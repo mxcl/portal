@@ -425,6 +425,34 @@ func backupPreflight() throws {
     #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
 }
 
+@Test("backup permission errors explain how to restore access")
+func backupPermissionRecovery() throws {
+    let manager = FileManager.default
+    let root = manager.temporaryDirectory.appendingPathComponent("git-sync-permission-\(UUID())")
+    try manager.createDirectory(at: root, withIntermediateDirectories: true)
+    defer {
+        try? manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+        try? manager.removeItem(at: root)
+    }
+    try manager.setAttributes([.posixPermissions: 0o500], ofItemAtPath: root.path)
+    do {
+        try Runner.prepareBackup(at: root)
+        Issue.record("Expected the backup write check to fail")
+    } catch {
+        let message = String(describing: error)
+        #expect(message.contains(root.path))
+        #if os(macOS)
+        #expect(message.contains("System Settings > Privacy & Security > Files & Folders"))
+        #expect(message.contains("Removable Volumes"))
+        #endif
+        #expect(message.contains("write permission"))
+        #expect(!message.contains(".git-sync-write-test-"))
+    }
+    try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+    try Runner.prepareBackup(at: root)
+    #expect(try manager.contentsOfDirectory(atPath: root.path).isEmpty)
+}
+
 @Test("backup preflight migrates legacy empty wrappers")
 func backupDestinationMigration() throws {
     let fixture = try Fixture()

@@ -144,9 +144,26 @@ public enum Runner {
             throw SyncError.invalidConfiguration("Backup destination does not exist: \(root.path)")
         }
         let probe = root.appendingPathComponent(".git-sync-write-test-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: probe, withIntermediateDirectories: false)
-        try FileManager.default.removeItem(at: probe)
-        try migrateLegacyBackups(at: root)
+        do {
+            try FileManager.default.createDirectory(at: probe, withIntermediateDirectories: false)
+            try FileManager.default.removeItem(at: probe)
+            try migrateLegacyBackups(at: root)
+        } catch let error as NSError where
+            (error.domain == NSCocoaErrorDomain &&
+             [NSFileReadNoPermissionError, NSFileWriteNoPermissionError].contains(error.code)) ||
+            (error.domain == NSPOSIXErrorDomain && [Int(EPERM), Int(EACCES)].contains(error.code)) {
+            var message = "Git Sync cannot access the backup destination: \(root.path)."
+            #if os(macOS)
+            // TCC has no API to request a previously denied Files & Folders permission again.
+            message += " Open System Settings > Privacy & Security > Files & Folders, "
+                + "expand Git Sync, and enable access to the destination "
+                + "(Removable Volumes for an external drive, or Network Volumes for a network drive). "
+                + "If that option is unavailable, allow Git Sync in Privacy & Security > Full Disk Access. "
+                + "Then quit and reopen Git Sync."
+            #endif
+            message += " Also check that your account has read and write permission for this folder."
+            throw SyncError.invalidConfiguration(message)
+        }
     }
 
     public static func backupItems(_ configuration: Configuration) throws -> [BackupItem] {

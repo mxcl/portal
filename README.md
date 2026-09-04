@@ -81,6 +81,13 @@ without moving or deleting their data. **Unarchive** transfers a selected
 snapshot from the receiver into the projects folder on the Mac where the action
 was chosen; it refuses to overwrite an existing repository.
 
+Projects that are not on this Mac remain browsable. Git Sync reads their commit
+graph, README, and selected commit diffs over SSH without creating a local mirror;
+live repositories also expose their GitHub origin. When several live hosts or
+backup snapshots contain the project, the graph toolbar identifies the source and
+lets you switch it. A local repository always takes precedence and keeps the source
+picker hidden.
+
 The embedded helper owns continuous syncing and shows live transfer logs in its
 menu, even while the project window is closed. The Launch at Login setting
 registers that helper. It uses the copy of `git-sync` inside each peer's

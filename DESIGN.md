@@ -17,9 +17,11 @@ as an error. The graph renders this Mac's local branches, received peer branches
 and tags. When refs coincide, their host labels share a commit marker.
 
 The detail column keeps project placement visible above a scrolling README.
-Selecting a commit replaces the overview with graph metadata, not file content
-or diffs. Remote-only projects remain discoverable but must be brought to this
-Mac before Git history or README content can be rendered.
+Selecting a commit replaces the overview with graph metadata and its diff, not a
+file browser. Remote-only projects remain discoverable and their Git history,
+README, GitHub origin, and commit diffs are read on demand from a selected live
+host or backup snapshot. These reads never create a local repository or mutate
+the source.
 
 The UI uses no custom palette or typography. Semantic system colors carry state,
 SF Symbols accompany every status label, and monospaced system text is reserved
@@ -136,6 +138,12 @@ and constructs the repository under a temporary sibling before atomically moving
 it into place. Because `HEAD` is not replicated, `main`, then `master`, then the
 first branch is selected for checkout.
 
+The same control socket streams read-only graph, README, and diff payloads for an
+individual backup snapshot. Snapshot branches and tags are projected as local refs
+for presentation while peer refs remain labeled as peers; the stored bare repository
+is not changed. Large payloads follow a bounded control header as raw bytes rather
+than enlarging the control-message envelope.
+
 The foreground app registers the embedded menu helper as its per-user login item.
 The menu helper is the sole writer of configuration, starts the bundled headless
 `git-sync` executable, and writes one connection and ordering-state file per host.
@@ -228,8 +236,9 @@ process to own a state file.
 - **Deletion:** the prior tip remains reachable in the expiry namespace for 30
   days, then ordinary Git GC may reclaim it.
 - **SSH command execution:** configuration chooses the SSH target and remote
-  executable. Dynamic repository/ref data is framed on stdin, never placed in
-  a shell command.
+  executable. Replication data is framed on stdin. Administrative and read-only
+  commands accept validated child names and object IDs as individually shell-quoted
+  arguments.
 - **Opt-in checkout syncing:** a peer can fast-forward the current local branch
   only while both checkouts are clean and the local tip is an ancestor of the
   peer tip. Dirty state, divergent committed work, branch changes, and

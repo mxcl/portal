@@ -162,21 +162,33 @@ public enum Runner {
     public static func backupContent(_ name: String, snapshotID: String,
                                      configuration: Configuration) throws -> RepositoryContent {
         try Validator.project(name)
-        let data = try backupPayload(
-            BackupControlRequest(action: .content, repository: name, snapshotID: snapshotID),
-            configuration: configuration
-        )
-        return try JSONDecoder().decode(RepositoryContent.self, from: data)
+        do {
+            let data = try backupPayload(
+                BackupControlRequest(action: .content, repository: name, snapshotID: snapshotID),
+                configuration: configuration
+            )
+            return try JSONDecoder().decode(RepositoryContent.self, from: data)
+        } catch {
+            throw SyncError.invalidConfiguration(
+                "Could not read \(name) from the backup host. Update Git Sync on that host if remote browsing is unavailable: \(error)"
+            )
+        }
     }
 
     public static func backupDiff(_ name: String, snapshotID: String, oid: String,
                                   configuration: Configuration) throws -> String {
         try Validator.project(name)
         try Validator.oid(oid)
-        return String(decoding: try backupPayload(
-            BackupControlRequest(action: .diff, repository: name, snapshotID: snapshotID, oid: oid),
-            configuration: configuration
-        ), as: UTF8.self)
+        do {
+            return String(decoding: try backupPayload(
+                BackupControlRequest(action: .diff, repository: name, snapshotID: snapshotID, oid: oid),
+                configuration: configuration
+            ), as: UTF8.self)
+        } catch {
+            throw SyncError.invalidConfiguration(
+                "Could not read the commit diff from the backup host. Update Git Sync on that host if remote browsing is unavailable: \(error)"
+            )
+        }
     }
 
     public static func replaceBackupCatalog(machine: String, repositories: [String],

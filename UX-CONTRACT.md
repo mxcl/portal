@@ -36,17 +36,20 @@
   refs. Missing or stale host state cannot produce an archived project.
 - Assigning an archived project to a host restores it. Divergent stored snapshots
   require an explicit source choice.
-- A remote-only or remotely archived project shows known metadata but no graph or
-  README until it is brought to this Mac.
+- A remote-only or remotely archived project can render its graph, README, and
+  commit diffs from a live host or individual backup snapshot without being brought
+  to this Mac. Live hosts precede backups, and a source picker appears when needed.
 
 ## Git presentation
 
 - The graph is a conventional vertical commit log with lanes. It shows local
   branches, peer branches, and tags; stashes and expired recovery refs stay hidden.
 - Normal branch divergence is information, never a warning.
-- Commit detail contains message, author, date, object ID, parents, and pointing
-  refs. The MVP has no file browser, diff, graph filters, or activity pane.
+- Commit detail contains message, author, date, object ID, parents, pointing refs,
+  and a diff. The MVP has no file browser, graph filters, or activity pane.
 - README rendering supports basic native Markdown and labels its source ref.
+- A local repository is always the presentation source when present; remote source
+  selection and reads never change refs, the index, `HEAD`, or a working tree.
 
 ## Settings and lifecycle
 

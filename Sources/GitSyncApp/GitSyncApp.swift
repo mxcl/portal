@@ -1367,6 +1367,7 @@ private struct CommitList: View {
                           references: snapshot.references.filter { $0.oid == commit.oid },
                           graph: graph,
                           rowIndex: index)
+                    .listRowSeparator(.hidden)
                     .tag(commit.oid)
             }
         }

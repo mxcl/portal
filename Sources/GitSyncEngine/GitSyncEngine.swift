@@ -99,8 +99,7 @@ public final class EngineModel: ObservableObject {
 
     private let executableURL: URL
     private let label = "dev.mxcl.git-sync"
-    private let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("GitSync", isDirectory: true)
+    private let support: URL
     private var configURL: URL { support.appendingPathComponent("config-v2.json") }
     private var previousConfigURL: URL { support.appendingPathComponent("config.json") }
     private var legacyConfigURL: URL { support.appendingPathComponent("config-v1-legacy.json") }
@@ -115,9 +114,17 @@ public final class EngineModel: ObservableObject {
     private var backupRefreshGeneration = 0
     private var discoveryTask: Task<Void, Never>?
 
-    public init(executableURL: URL) {
+    init(executableURL: URL, configuration: AppConfiguration, support: URL) {
         self.executableURL = executableURL
-        configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
+        self.configuration = configuration
+        self.support = support
+    }
+
+    public convenience init(executableURL: URL) {
+        self.init(executableURL: executableURL,
+                  configuration: AppConfiguration(root: "", machine: Configuration.defaultMachine),
+                  support: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("GitSync", isDirectory: true))
         removeLegacyAgent()
         preserveLegacyConfiguration()
         if let data = try? Data(contentsOf: configURL) {
@@ -297,8 +304,8 @@ public final class EngineModel: ObservableObject {
                 try startHostProcess(hostID)
             } catch {
                 placementInProgress = nil
-                fail(error)
                 try? startHostProcess(hostID)
+                fail(error)
             }
         }
     }

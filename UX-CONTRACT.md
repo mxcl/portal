@@ -1,0 +1,68 @@
+# App UX contract
+
+## Shell and navigation
+
+- Git Sync remains a menu-bar-only app and opens one reusable project window.
+- The menu-bar menu owns global status, Pause/Resume, recent events, Settings,
+  and opening the project window.
+- The window uses sidebar, content, and detail columns. Detail hides before the
+  sidebar as the window narrows. Selection is restored when possible.
+- Projects sort alphabetically and are searchable. Active and archived projects
+  are separate sidebar sections.
+
+## Project and host state
+
+- Same-named repositories form one project. Adding a host warns before pairing
+  names present on both hosts; unrelated repositories must be renamed first.
+- Every configured host reports one project state: `notPresent`, `mirrored`, or
+  `checkedOut`. Mirrored and checked-out projects always participate in sync.
+- State changes apply immediately to the affected host. Offline hosts cannot be
+  mutated and are never inferred to be absent.
+- Creating a checkout uses published default-branch metadata, then `main`, then
+  `master`, and otherwise asks the user to choose a branch.
+- A checkout can become a mirror only when clean. Removing a repository moves it
+  to a recoverable Trash; permanent deletion is never a fallback.
+- Remote commands accept validated project names beneath a configured root only.
+  The target host rechecks every safety condition.
+
+## Backup and archive
+
+- One optional system-wide backup destination protects every project and is
+  propagated to configured hosts.
+- `archived` is derived, not an action: every host has confirmed `notPresent`
+  and the backup destination holds the sole repository.
+- Removing the final host copy requires an acknowledged backup of its current
+  refs. Missing or stale host state cannot produce an archived project.
+- Assigning an archived project to a host restores it. Divergent stored snapshots
+  require an explicit source choice.
+- A remote-only or remotely archived project shows known metadata but no graph or
+  README until it is brought to this Mac.
+
+## Git presentation
+
+- The graph is a conventional vertical commit log with lanes. It shows local
+  branches, peer branches, and tags; stashes and expired recovery refs stay hidden.
+- Normal branch divergence is information, never a warning.
+- Commit detail contains message, author, date, object ID, parents, and pointing
+  refs. The MVP has no file browser, diff, graph filters, or activity pane.
+- README rendering supports basic native Markdown and labels its source ref.
+
+## Settings and lifecycle
+
+- First run chooses the projects root and machine identity. Both are read-only
+  afterward. Existing configuration is preserved separately but not migrated.
+- Settings contains General, Hosts, and Backup. The folder matrix is removed.
+- Checkout fast-forwarding remains one global, opt-in setting.
+- Sync runs automatically when configured. Pause/Resume is independent of Launch
+  at Login.
+- The backup destination is optional, but once chosen is read-only in the MVP.
+- Host removal is blocked while it is the backup destination or the only active
+  location of a project. It never deletes repositories, Git remotes, or refs.
+
+## Feedback and accessibility
+
+- Project and host failures appear on their owning row. App-wide failures appear
+  in the toolbar status control and menu-bar menu.
+- Pending operations keep controls stable and disable duplicate submission.
+- Native keyboard navigation, sidebar/detail commands, visible focus, accessible
+  labels, semantic colors, and text alternatives are required.

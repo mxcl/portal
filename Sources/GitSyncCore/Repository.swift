@@ -1,5 +1,66 @@
 import Foundation
 
+public struct RepositoryReference: Equatable, Identifiable, Sendable {
+    public var id: String { fullName }
+    public let fullName: String
+    public let oid: String
+
+    public init(fullName: String, oid: String) {
+        self.fullName = fullName
+        self.oid = oid
+    }
+
+    public var name: String {
+        for prefix in ["refs/heads/", "refs/remotes/", "refs/tags/", "refs/sync/"] {
+            if fullName.hasPrefix(prefix) { return String(fullName.dropFirst(prefix.count)) }
+        }
+        return fullName
+    }
+}
+
+public struct RepositoryCommit: Equatable, Identifiable, Sendable {
+    public var id: String { oid }
+    public let oid: String
+    public let parents: [String]
+    public let author: String
+    public let date: Date
+    public let message: String
+
+    public init(oid: String, parents: [String], author: String, date: Date, message: String) {
+        self.oid = oid
+        self.parents = parents
+        self.author = author
+        self.date = date
+        self.message = message
+    }
+
+    public var subject: String { message.split(whereSeparator: \.isNewline).first.map(String.init) ?? oid }
+}
+
+public struct RepositorySnapshot: Equatable, Sendable {
+    public let commits: [RepositoryCommit]
+    public let references: [RepositoryReference]
+    public let head: String?
+    public let branches: [String]
+
+    public init(commits: [RepositoryCommit], references: [RepositoryReference], head: String?, branches: [String]) {
+        self.commits = commits
+        self.references = references
+        self.head = head
+        self.branches = branches
+    }
+}
+
+public struct RepositoryReadme: Equatable, Sendable {
+    public let markdown: String
+    public let source: String
+
+    public init(markdown: String, source: String) {
+        self.markdown = markdown
+        self.source = source
+    }
+}
+
 public struct Repository: Equatable {
     public let name: String
     public let url: URL
@@ -32,6 +93,79 @@ public struct Repository: Equatable {
     public var commonDirectory: URL? {
         guard let path = try? Git.text(["-C", url.path, "rev-parse", "--git-common-dir"]) else { return nil }
         return URL(fileURLWithPath: path, relativeTo: url).standardizedFileURL
+    }
+
+    public func snapshot(limit: Int = 250) throws -> RepositorySnapshot {
+        let references = try referenceSnapshot()
+        let data = try Git.run([
+            "-C", url.path, "log", "--all", "--topo-order", "--date-order", "-n", String(max(1, limit)),
+            "--format=%H%x00%P%x00%an%x00%aI%x00%B%x00%x1e",
+        ])
+        let formatter = ISO8601DateFormatter()
+        let commits = data.split(separator: 0x1e).compactMap { record -> RepositoryCommit? in
+            let fields = record.split(separator: 0, maxSplits: 5, omittingEmptySubsequences: false)
+            guard fields.count >= 5 else { return nil }
+            let oid = String(decoding: fields[0], as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !oid.isEmpty else { return nil }
+            let parents = String(decoding: fields[1], as: UTF8.self).split(separator: " ").map(String.init)
+            let author = String(decoding: fields[2], as: UTF8.self)
+            let date = formatter.date(from: String(decoding: fields[3], as: UTF8.self)) ?? .distantPast
+            let message = String(decoding: fields[4], as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            return RepositoryCommit(oid: oid, parents: parents, author: author, date: date, message: message)
+        }
+        let head = try? Git.text(["-C", url.path, "symbolic-ref", "--quiet", "--short", "HEAD"])
+        let branches = references.filter { $0.fullName.hasPrefix("refs/heads/") }.map(\.name).sorted()
+        return RepositorySnapshot(commits: commits, references: references, head: head, branches: branches)
+    }
+
+    public func readme(at requestedRef: String? = nil) -> RepositoryReadme? {
+        if requestedRef == nil,
+           Git.succeeds(["-C", url.path, "rev-parse", "--is-inside-work-tree"]),
+           Git.succeeds(["-C", url.path, "rev-parse", "--verify", "HEAD"]),
+           let file = readmeFile(in: url),
+           let markdown = try? String(contentsOf: file, encoding: .utf8) {
+            return RepositoryReadme(markdown: markdown, source: "Checked out HEAD")
+        }
+
+        let ref = requestedRef ?? defaultReadmeRef()
+        guard let ref else { return nil }
+        for name in ["README.md", "README", "README.markdown", "README.txt"] {
+            if let markdown = try? Git.text(["-C", url.path, "show", "\(ref):\(name)"]) {
+                return RepositoryReadme(markdown: markdown, source: ref)
+            }
+        }
+        return nil
+    }
+
+    private func referenceSnapshot() throws -> [RepositoryReference] {
+        let data = try Git.run([
+            "-C", url.path, "for-each-ref", "--format=%(refname)%00%(objectname)",
+            "refs/heads", "refs/remotes", "refs/tags", "refs/sync",
+        ])
+        return data.split(separator: 10).compactMap { line in
+            let fields = line.split(separator: 0, maxSplits: 1)
+            guard fields.count == 2 else { return nil }
+            return RepositoryReference(
+                fullName: String(decoding: fields[0], as: UTF8.self),
+                oid: String(decoding: fields[1], as: UTF8.self)
+            )
+        }
+    }
+
+    private func defaultReadmeRef() -> String? {
+        if let remoteHead = try? Git.text(["-C", url.path, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]),
+           !remoteHead.isEmpty { return remoteHead }
+        for ref in ["refs/heads/main", "refs/heads/master"] where Git.succeeds(["-C", url.path, "rev-parse", "--verify", ref]) {
+            return ref
+        }
+        return nil
+    }
+
+    private func readmeFile(in directory: URL) -> URL? {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        return names.first { $0.lowercased() == "readme.md" }
+            .map { directory.appendingPathComponent($0) }
+            ?? names.first { $0.lowercased().hasPrefix("readme") }.map { directory.appendingPathComponent($0) }
     }
 
     public func sourceRefs() throws -> [String: String] {

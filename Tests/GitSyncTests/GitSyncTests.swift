@@ -128,6 +128,23 @@ private final class Fixture {
 
 extension GitSyncTests {
 
+@Test("repository snapshot exposes commits, refs, and README")
+func repositorySnapshot() throws {
+    let fixture = try Fixture()
+    let repository = Repository(name: "project", url: fixture.a.appendingPathComponent("project"))
+    let snapshot = try repository.snapshot()
+
+    #expect(snapshot.commits.count == 1)
+    #expect(snapshot.commits[0].subject == "initial")
+    #expect(snapshot.head == "main")
+    #expect(snapshot.branches == ["main"])
+    #expect(snapshot.references.contains { $0.fullName == "refs/heads/main" })
+
+    try Data("# Project\n\nHello.\n".utf8).write(to: repository.url.appendingPathComponent("README.md"))
+    #expect(repository.readme()?.markdown == "# Project\n\nHello.\n")
+    #expect(repository.readme()?.source == "Checked out HEAD")
+}
+
 @Test("ordinary commit copies objects without touching checkout state")
 func ordinaryCommitSafety() throws {
     let fixture = try Fixture(); try fixture.cloneToB()

@@ -1,5 +1,30 @@
 # Design
 
+## App UI
+
+Git Sync is a menu-bar utility with one project browser window. The window is a
+native three-column `NavigationSplitView`: an alphabetical project sidebar, a
+commit graph, and contextual detail. The interface is deliberately dense and
+quiet, like Finder or Xcode; the colored commit lanes are its only expressive
+visual element. System colors, materials, typography, spacing, controls, and
+selection behavior remain canonical.
+
+The sidebar groups active and archived projects. A project is the shared name
+of repositories observed across configured hosts and backup inventory. Rows
+show host presence and operational state without treating normal Git divergence
+as an error. The graph renders this Mac's local branches, received peer branches,
+and tags. When refs coincide, their host labels share a commit marker.
+
+The detail column keeps project placement visible above a scrolling README.
+Selecting a commit replaces the overview with graph metadata, not file content
+or diffs. Remote-only projects remain discoverable but must be brought to this
+Mac before Git history or README content can be rendered.
+
+The UI uses no custom palette or typography. Semantic system colors carry state,
+SF Symbols accompany every status label, and monospaced system text is reserved
+for refs and object IDs. It supports light, dark, increased-contrast, keyboard,
+and VoiceOver behavior through native SwiftUI components.
+
 ## Product contract
 
 `git-sync` implements a continuous bidirectional Git fetch/push system. By

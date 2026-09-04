@@ -1586,26 +1586,25 @@ private struct CommitDetail: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(commit.message).font(.headline).textSelection(.enabled)
-                    LabeledContent("Author", value: commit.author)
-                    LabeledContent("Date") { Text(commit.date.formatted(date: .long, time: .standard)) }
-                    LabeledContent("SHA") { Text(commit.oid).monospaced().textSelection(.enabled) }
-                    if !commit.parents.isEmpty {
-                        LabeledContent("Parents") {
-                            VStack(alignment: .trailing) {
-                                ForEach(commit.parents, id: \.self) { Text($0).monospaced() }
-                            }
+            VStack(alignment: .leading, spacing: 10) {
+                Text(commit.message).font(.headline).textSelection(.enabled)
+                LabeledContent("Author", value: commit.author)
+                LabeledContent("Date") { Text(commit.date.formatted(date: .long, time: .standard)) }
+                LabeledContent("SHA") { Text(commit.oid).monospaced().textSelection(.enabled) }
+                if !commit.parents.isEmpty {
+                    LabeledContent("Parents") {
+                        VStack(alignment: .trailing) {
+                            ForEach(commit.parents, id: \.self) { Text($0).monospaced() }
                         }
                     }
-                    if !references.isEmpty {
-                        LabeledContent("References", value: references.map(\.name).joined(separator: ", "))
-                    }
                 }
-                .padding()
+                if !references.isEmpty {
+                    LabeledContent("References", value: references.map(\.name).joined(separator: ", "))
+                }
             }
-            .frame(maxHeight: 240)
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
             Divider()
             if isLoadingDiff {
                 ProgressView("Reading commit diff…").frame(maxWidth: .infinity, maxHeight: .infinity)

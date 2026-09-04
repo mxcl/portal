@@ -65,6 +65,11 @@ public struct Repository: Equatable {
     public let name: String
     public let url: URL
 
+    public init(name: String, url: URL) {
+        self.name = name
+        self.url = url
+    }
+
     public static func discover(in root: URL) throws -> [Repository] {
         let children = try FileManager.default.contentsOfDirectory(
             at: root, includingPropertiesForKeys: [.isDirectoryKey],
@@ -211,19 +216,12 @@ public struct Repository: Equatable {
     }
 
     public func readme(at requestedRef: String? = nil) -> RepositoryReadme? {
-        if requestedRef == nil,
-           Git.succeeds(["-C", url.path, "rev-parse", "--is-inside-work-tree"]),
-           Git.succeeds(["-C", url.path, "rev-parse", "--verify", "HEAD"]),
-           let file = readmeFile(in: url),
-           let markdown = try? String(contentsOf: file, encoding: .utf8) {
-            return RepositoryReadme(markdown: markdown, source: "Checked out HEAD")
-        }
-
-        let ref = requestedRef ?? defaultReadmeRef()
+        let checkedOut = requestedRef == nil && placement == .checkedOut
+        let ref = requestedRef ?? (checkedOut ? "HEAD" : defaultReadmeRef())
         guard let ref else { return nil }
         for name in ["README.md", "README", "README.markdown", "README.txt"] {
             if let markdown = try? Git.text(["-C", url.path, "show", "\(ref):\(name)"]) {
-                return RepositoryReadme(markdown: markdown, source: ref)
+                return RepositoryReadme(markdown: markdown, source: checkedOut ? "Checked out HEAD" : ref)
             }
         }
         return nil
@@ -231,15 +229,17 @@ public struct Repository: Equatable {
 
     private func referenceSnapshot() throws -> [RepositoryReference] {
         let data = try Git.run([
-            "-C", url.path, "for-each-ref", "--format=%(refname)%00%(objectname)",
+            "-C", url.path, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(*objectname)",
             "refs/heads", "refs/remotes", "refs/tags", "refs/sync",
         ])
         return data.split(separator: 10).compactMap { line in
-            let fields = line.split(separator: 0, maxSplits: 1)
-            guard fields.count == 2 else { return nil }
+            let fields = line.split(separator: 0, maxSplits: 2, omittingEmptySubsequences: false)
+            guard fields.count >= 2 else { return nil }
             return RepositoryReference(
                 fullName: String(decoding: fields[0], as: UTF8.self),
-                oid: String(decoding: fields[1], as: UTF8.self)
+                oid: fields.count == 3 && !fields[2].isEmpty
+                    ? String(decoding: fields[2], as: UTF8.self)
+                    : String(decoding: fields[1], as: UTF8.self)
             )
         }
     }
@@ -247,14 +247,12 @@ public struct Repository: Equatable {
     private func defaultReadmeRef() -> String? {
         if let remoteHead = try? Git.text(["-C", url.path, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]),
            !remoteHead.isEmpty { return remoteHead }
-        return defaultBranch.map { "refs/heads/\($0)" }
-    }
-
-    private func readmeFile(in directory: URL) -> URL? {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        return names.first { $0.lowercased() == "readme.md" }
-            .map { directory.appendingPathComponent($0) }
-            ?? names.first { $0.lowercased().hasPrefix("readme") }.map { directory.appendingPathComponent($0) }
+        for ref in ["refs/heads/main", "refs/heads/master"]
+            where Git.succeeds(["-C", url.path, "rev-parse", "--verify", ref]) { return ref }
+        let refs = (try? Git.text([
+            "-C", url.path, "for-each-ref", "--format=%(refname)", "refs/remotes"
+        ]).split(whereSeparator: \.isNewline).map(String.init)) ?? []
+        return refs.first(where: { $0.hasSuffix("/main") }) ?? refs.first(where: { $0.hasSuffix("/master") })
     }
 
     public func sourceRefs() throws -> [String: String] {

@@ -85,12 +85,10 @@ public final class BackupIndex: @unchecked Sendable {
             let status: BackupStatus
             if !mirroredBy.isEmpty {
                 status = .mirrored
-            } else if document.archived.contains(repository.name) {
-                status = .archived
             } else if document.catalogs.isEmpty || !snapshotSources.isSubset(of: knownSources) {
                 status = .unknown
             } else {
-                status = .candidate
+                status = .archived
             }
             return BackupItem(name: repository.name, status: status, mirroredBy: mirroredBy,
                               snapshots: snapshots)
@@ -99,8 +97,8 @@ public final class BackupIndex: @unchecked Sendable {
 
     public func archive(_ name: String, in root: URL) throws {
         try Validator.project(name)
-        guard try items(in: root).first(where: { $0.name == name })?.status == .candidate else {
-            throw SyncError.invalidConfiguration("Only backups absent from every known host can be archived.")
+        guard try items(in: root).first(where: { $0.name == name })?.status == .archived else {
+            throw SyncError.invalidConfiguration("Only backups confirmed absent from every known host are archived.")
         }
         lock.lock(); defer { lock.unlock() }
         guard !document.catalogs.values.contains(where: { $0.repositories.contains(name) }) else {

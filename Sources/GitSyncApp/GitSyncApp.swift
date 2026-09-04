@@ -9,8 +9,24 @@ struct GitSyncApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        MenuBarExtra("Git Sync", systemImage: model.isRunning ? "arrow.triangle.2.circlepath" : "arrow.triangle.2.circlepath.circle") {
+        MenuBarExtra("Git Sync", systemImage: model.isPaused ? "pause.circle" : "arrow.triangle.2.circlepath") {
             StatusMenu(model: model)
+        }
+
+        Window("Git Sync", id: "projects") {
+            ProjectBrowserView(model: model)
+        }
+        .defaultSize(width: 1180, height: 720)
+        .windowResizability(.contentMinSize)
+        .commands {
+            SidebarCommands()
+            CommandGroup(after: .toolbar) {
+                Button(model.isPaused ? "Resume Sync" : "Pause Sync") {
+                    model.isPaused ? model.resume() : model.pause()
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+                .disabled(!model.isConfigured)
+            }
         }
 
         Settings {
@@ -27,6 +43,13 @@ private struct HostDraft {
     var executable = Configuration.defaultRemoteExecutable
 }
 
+struct CheckoutRequest: Identifiable {
+    let id = UUID()
+    let project: String
+    let hostID: UUID?
+    let branches: [String]
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var configuration: AppConfiguration
@@ -35,6 +58,7 @@ final class AppModel: ObservableObject {
     @Published var hostError: String?
     @Published var isChecking = false
     @Published var isRunning = false
+    @Published var isPaused = false
     @Published var logs: [String] = []
     @Published var backupItems: [BackupItem] = []
     @Published var backupError: String?
@@ -44,6 +68,14 @@ final class AppModel: ObservableObject {
     @Published var showingRenameHost = false
     @Published var showingOverlapConfirmation = false
     @Published var overlappingRepositories: [String] = []
+    @Published var selectedProjectName: String?
+    @Published var selectedCommitID: String?
+    @Published var projectSnapshot: RepositorySnapshot?
+    @Published var projectReadme: RepositoryReadme?
+    @Published var isLoadingProject = false
+    @Published var placementInProgress: String?
+    @Published var remoteProjects: [UUID: [String: PeerProject]] = [:]
+    @Published var checkoutRequest: CheckoutRequest?
 
     fileprivate var hostDraft = HostDraft()
     fileprivate var hostNameDraft = ""
@@ -51,6 +83,7 @@ final class AppModel: ObservableObject {
     private var loginItemRegistered: Bool {
         SMAppService.mainApp.status == .enabled || SMAppService.mainApp.status == .requiresApproval
     }
+    var launchesAtLogin: Bool { loginItemRegistered }
     var canStop: Bool { isRunning || loginItemRegistered }
     var configurationLocked: Bool {
         isRunning || isChecking || showingOverlapConfirmation || restoringBackup != nil
@@ -63,7 +96,9 @@ final class AppModel: ObservableObject {
     private let label = "dev.mxcl.git-sync"
     private let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("GitSync", isDirectory: true)
-    private var configURL: URL { support.appendingPathComponent("config.json") }
+    private var configURL: URL { support.appendingPathComponent("config-v2.json") }
+    private var previousConfigURL: URL { support.appendingPathComponent("config.json") }
+    private var legacyConfigURL: URL { support.appendingPathComponent("config-v1-legacy.json") }
     private var legacyAgentURL: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/\(label).plist")
     }
@@ -78,6 +113,7 @@ final class AppModel: ObservableObject {
     init() {
         configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
         removeLegacyAgent()
+        preserveLegacyConfiguration()
         if let data = try? Data(contentsOf: configURL) {
             if let saved = try? JSONDecoder().decode(AppConfiguration.self, from: data) {
                 configuration = saved
@@ -88,19 +124,41 @@ final class AppModel: ObservableObject {
         }
         refreshLocalNow()
         do { try loadBackupIndex() } catch { fail(error) }
-        let startAfterInspection = SMAppService.mainApp.status == .enabled
         if !configuration.hosts.isEmpty {
             isChecking = true
             status = "Checking Hosts"
-            Task { await refreshHostIdentities(startAfter: startAfterInspection) }
-        } else if startAfterInspection {
+            Task { await refreshHostIdentities(startAfter: true) }
+        } else if isConfigured {
             do { try launchAll() } catch { fail(error) }
         } else {
             status = configuration.backupDestination == nil ? "Add a host" : "Stopped"
         }
     }
 
+    var isConfigured: Bool { !configuration.root.isEmpty }
+
+    var projectNames: [String] {
+        let archived = Set(archivedProjects.map(\.name))
+        return configuration.folders.map(\.name).filter { !archived.contains($0) }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    var archivedProjects: [BackupItem] {
+        backupItems.filter { $0.status == .archived }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private func preserveLegacyConfiguration() {
+        let manager = FileManager.default
+        guard !manager.fileExists(atPath: configURL.path),
+              manager.fileExists(atPath: previousConfigURL.path),
+              !manager.fileExists(atPath: legacyConfigURL.path) else { return }
+        try? manager.createDirectory(at: support, withIntermediateDirectories: true)
+        try? manager.copyItem(at: previousConfigURL, to: legacyConfigURL)
+    }
+
     func chooseRoot() {
+        guard configuration.root.isEmpty else { return }
         let panel = NSOpenPanel()
         panel.title = "Choose the folder containing your Git projects"
         panel.canChooseDirectories = true
@@ -112,7 +170,129 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func pause() {
+        guard isConfigured else { return }
+        stopProcesses()
+        isPaused = true
+        status = "Paused"
+    }
+
+    func resume() {
+        guard isConfigured else { return }
+        isPaused = false
+        do { try launchAll() } catch { fail(error) }
+    }
+
+    func selectProject(_ name: String?) {
+        selectedProjectName = name
+        selectedCommitID = nil
+        projectSnapshot = nil
+        projectReadme = nil
+        guard let name,
+              let folder = configuration.folders.first(where: { $0.name == name }),
+              folder.availableLocally else { return }
+        isLoadingProject = true
+        let root = expandedRoot
+        Task {
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    let repository = Repository(name: name, url: root.appendingPathComponent(name, isDirectory: true))
+                    return (try repository.snapshot(), repository.readme())
+                }.value
+                guard selectedProjectName == name else { return }
+                projectSnapshot = result.0
+                projectReadme = result.1
+                isLoadingProject = false
+            } catch {
+                guard selectedProjectName == name else { return }
+                isLoadingProject = false
+                self.error = String(describing: error)
+            }
+        }
+    }
+
+    func placement(of project: String, on hostID: UUID?) -> ProjectPlacement {
+        if let hostID { return remoteProjects[hostID]?[project]?.placement ?? .unknown }
+        guard let folder = configuration.folders.first(where: { $0.name == project }), folder.availableLocally else {
+            return .notPresent
+        }
+        let repository = Repository(name: project, url: expandedRoot.appendingPathComponent(project, isDirectory: true))
+        return repository.placement
+    }
+
+    func checkOut(_ project: String, hostID: UUID?) {
+        let preferred: String?
+        if let hostID { preferred = remoteProjects[hostID]?[project]?.defaultBranch }
+        else {
+            let repository = Repository(name: project, url: expandedRoot.appendingPathComponent(project, isDirectory: true))
+            preferred = repository.defaultBranch
+        }
+        if let preferred {
+            setPlacement(.checkedOut, project: project, hostID: hostID, branch: preferred)
+            return
+        }
+        let branches = Set((projectSnapshot?.references ?? []).compactMap { reference -> String? in
+            if reference.fullName.hasPrefix("refs/heads/") { return reference.name }
+            guard reference.fullName.hasPrefix("refs/remotes/") else { return nil }
+            let pieces = reference.name.split(separator: "/", maxSplits: 1)
+            return pieces.count == 2 && pieces[1] != "HEAD" ? String(pieces[1]) : nil
+        }).sorted()
+        guard !branches.isEmpty else {
+            error = "No branch is available to check out yet."
+            return
+        }
+        checkoutRequest = CheckoutRequest(project: project, hostID: hostID, branches: branches)
+    }
+
+    func setPlacement(_ placement: ProjectPlacement, project: String, hostID: UUID?, branch: String? = nil) {
+        guard placementInProgress == nil else { return }
+        if placement == .notPresent {
+            let otherPlacements = ([nil] + configuration.hosts.map { Optional($0.id) })
+                .filter { $0 != hostID }.map { self.placement(of: project, on: $0) }
+            let hasOtherCopy = otherPlacements.contains(.checkedOut) || otherPlacements.contains(.mirrored)
+            let hasBackup = backupItems.first(where: { $0.name == project })?.snapshots.isEmpty == false
+            guard hasOtherCopy || hasBackup else {
+                error = "A current backup is required before removing the last host copy."
+                return
+            }
+        }
+        placementInProgress = hostID?.uuidString ?? "local"
+        error = nil
+        let root = expandedRoot
+        let host = hostID.flatMap { id in configuration.hosts.first(where: { $0.id == id }) }
+        let connection = host.map {
+            Configuration(root: configuration.root, machine: configuration.machine,
+                          peer: $0.peer, remoteRoot: $0.root, remoteExecutable: $0.executable,
+                          repositories: [], remoteMachine: $0.machine)
+        }
+        stopHostProcess(hostID)
+        Task {
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    if let connection {
+                        return try Runner.setPeerPlacement(placement, repository: project,
+                                                           branch: branch, configuration: connection)
+                    }
+                    let repository = try Repository.setPlacement(name: project, in: root, to: placement,
+                                                                  branch: branch)
+                    return PeerProject(name: project, placement: placement == .notPresent ? .notPresent : repository.placement,
+                                       defaultBranch: placement == .notPresent ? nil : repository.defaultBranch)
+                }.value
+                updatePlacement(result, hostID: hostID)
+                try save()
+                placementInProgress = nil
+                selectProject(project)
+                try startHostProcess(hostID)
+            } catch {
+                placementInProgress = nil
+                fail(error)
+                try? startHostProcess(hostID)
+            }
+        }
+    }
+
     func chooseBackupDestination() {
+        guard configuration.backupDestination == nil, configuration.backup == nil else { return }
         let panel = NSOpenPanel()
         panel.title = "Choose where this Mac receives backups"
         panel.prompt = "Use for Backups"
@@ -134,7 +314,8 @@ final class AppModel: ObservableObject {
         do {
             try save()
             try loadBackupIndex()
-            status = "Stopped"
+            if isRunning { restartIfRunning() }
+            else if isConfigured && !isPaused { try launchAll() }
         } catch { fail(error) }
     }
 
@@ -230,6 +411,7 @@ final class AppModel: ObservableObject {
                 error = nil
                 try save()
                 restartIfRunning()
+                selectProject(selectedProjectName ?? projectNames.first)
             } catch { fail(error) }
         }
     }
@@ -276,6 +458,8 @@ final class AppModel: ObservableObject {
                 let host = SyncHost(machine: inspection.machine, peer: probe.peer,
                                     root: probe.remoteRoot, executable: probe.remoteExecutable)
                 let matches = try candidate.addHost(host, repositories: inspection.repositories)
+                recordInspection(inspection, hostID: host.id,
+                                 knownProjects: candidate.folders.map(\.name))
                 isChecking = false
                 showingAddHost = false
                 await Task.yield()
@@ -310,7 +494,19 @@ final class AppModel: ObservableObject {
 
     func removeSelectedHost() {
         guard let selectedHostID else { return }
+        if configuration.backup?.hostID == selectedHostID {
+            hostError = "This host owns the backup destination and cannot be removed."
+            return
+        }
+        let soleProjects = configuration.folders.filter {
+            !$0.availableLocally && $0.availableHosts == [selectedHostID]
+        }.map(\.name)
+        if !soleProjects.isEmpty {
+            hostError = "This host is the only active location for: \(soleProjects.joined(separator: ", "))."
+            return
+        }
         configuration.removeHost(selectedHostID)
+        remoteProjects.removeValue(forKey: selectedHostID)
         self.selectedHostID = nil
         do {
             try save()
@@ -345,6 +541,18 @@ final class AppModel: ObservableObject {
         refreshBackupItems()
     }
 
+    func chooseBackupHost(_ hostID: UUID) {
+        guard configuration.backup == nil, configuration.backupDestination == nil else { return }
+        configuration.backup = BackupConfiguration(hostID: hostID)
+        configurationChanged()
+        refreshBackupItems()
+    }
+
+    func setSyncCheckouts(_ enabled: Bool) {
+        configuration.syncCheckouts = enabled
+        configurationChanged()
+    }
+
     func refreshBackups() { refreshBackupItems() }
 
     func start() {
@@ -376,25 +584,35 @@ final class AppModel: ObservableObject {
         SMAppService.openSystemSettingsLoginItems()
     }
 
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled && !loginItemRegistered { try SMAppService.mainApp.register() }
+            if !enabled && loginItemRegistered { try SMAppService.mainApp.unregister() }
+            objectWillChange.send()
+        } catch { fail(error) }
+    }
+
     func quit() {
         stopProcesses()
         NSApplication.shared.terminate(nil)
     }
 
     private func apply(_ candidate: AppConfiguration) throws {
-        let wasRunning = isRunning
         configuration = candidate
         overlappingRepositories = []
         error = nil
         try save()
-        if wasRunning { restartIfRunning() }
-        else { status = "Stopped" }
+        if !isPaused {
+            stopProcesses()
+            try launchAll()
+        }
     }
 
     private func configurationChanged() {
         do {
             try save()
-            restartIfRunning()
+            if isRunning { restartIfRunning() }
+            else if isConfigured && !isPaused { try launchAll() }
         } catch { fail(error) }
     }
 
@@ -414,6 +632,57 @@ final class AppModel: ObservableObject {
         guard isRunning else { return }
         stopProcesses()
         do { try launchAll() } catch { fail(error) }
+    }
+
+    private func updatePlacement(_ project: PeerProject, hostID: UUID?) {
+        if let hostID {
+            remoteProjects[hostID, default: [:]][project.name] = project
+        }
+        if !configuration.folders.contains(where: { $0.name == project.name }) {
+            configuration.folders.append(SyncFolder(name: project.name))
+        }
+        guard let index = configuration.folders.firstIndex(where: { $0.name == project.name }) else { return }
+        let present = project.placement == .checkedOut || project.placement == .mirrored
+        if let hostID {
+            if present {
+                configuration.folders[index].hosts.insert(hostID)
+                configuration.folders[index].availableHosts.insert(hostID)
+            } else {
+                configuration.folders[index].hosts.remove(hostID)
+                configuration.folders[index].availableHosts.remove(hostID)
+            }
+        } else {
+            configuration.folders[index].isLocal = present
+            configuration.folders[index].availableLocally = present
+        }
+        configuration.folders.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private func stopHostProcess(_ hostID: UUID?) {
+        guard let hostID else { stopProcesses(); return }
+        guard let process = syncProcesses.removeValue(forKey: hostID) else { return }
+        process.terminationHandler = nil
+        if process.isRunning { process.terminate() }
+    }
+
+    private func startHostProcess(_ hostID: UUID?) throws {
+        guard !isPaused else { return }
+        guard let hostID else { try launchAll(); return }
+        guard let host = configuration.hosts.first(where: { $0.id == hostID }) else { return }
+        let repositories = configuration.repositories(for: host.id)
+        guard !repositories.isEmpty else { return }
+        guard let helper = Bundle.main.url(forResource: "git-sync", withExtension: nil) else {
+            throw SyncError.invalidConfiguration("The app bundle is missing git-sync. Re-run scripts/install.sh.")
+        }
+        let connection = Configuration(root: configuration.root, machine: configuration.machine,
+                                       peer: host.peer, remoteRoot: host.root,
+                                       remoteExecutable: host.executable, repositories: repositories,
+                                       remoteMachine: host.machine,
+                                       syncCheckouts: configuration.syncCheckouts)
+        try connection.validate()
+        try launch(connection, id: host.id, name: host.name, helper: helper)
+        isRunning = true
+        status = "Standing By"
     }
 
     private func launchAll() throws {
@@ -581,6 +850,7 @@ final class AppModel: ObservableObject {
         let root = URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath)
         if let names = try? Repository.discover(in: root).map(\.name) {
             try? configuration.discoverLocal(names)
+            if selectedProjectName == nil { selectedProjectName = projectNames.first }
         }
     }
 
@@ -593,6 +863,8 @@ final class AppModel: ObservableObject {
                 try Runner.inspectPeer(probe)
             }).value {
                 try? configuration.updateHostIdentity(host.id, machine: inspection.machine)
+                recordInspection(inspection, hostID: host.id,
+                                 knownProjects: configuration.folders.map(\.name))
             }
         }
         isChecking = false
@@ -602,6 +874,33 @@ final class AppModel: ObservableObject {
         } else {
             status = configuration.hosts.isEmpty && configuration.backupDestination == nil ? "Add a host" : "Stopped"
         }
+        selectProject(selectedProjectName ?? projectNames.first)
+    }
+
+    private func recordInspection(_ inspection: PeerInspection, hostID: UUID,
+                                  knownProjects: [String]) {
+        let reported = inspection.projects ?? inspection.repositories.map {
+            PeerProject(name: $0, placement: .unknown)
+        }
+        var states = Dictionary(uniqueKeysWithValues: reported.map { ($0.name, $0) })
+        for name in knownProjects where states[name] == nil {
+            states[name] = PeerProject(name: name, placement: .notPresent)
+        }
+        remoteProjects[hostID] = states
+        let present = Set(inspection.repositories)
+        for index in configuration.folders.indices {
+            if present.contains(configuration.folders[index].name) {
+                configuration.folders[index].hosts.insert(hostID)
+                configuration.folders[index].availableHosts.insert(hostID)
+            } else {
+                configuration.folders[index].hosts.remove(hostID)
+                configuration.folders[index].availableHosts.remove(hostID)
+            }
+        }
+        for project in reported where !configuration.folders.contains(where: { $0.name == project.name }) {
+            configuration.folders.append(SyncFolder(name: project.name, hosts: [hostID], availableHosts: [hostID]))
+        }
+        configuration.folders.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     private var expandedRoot: URL {
@@ -849,6 +1148,7 @@ private final class BackupReceiver: @unchecked Sendable {
 struct StatusMenu: View {
     @ObservedObject var model: AppModel
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Text(model.status)
@@ -859,8 +1159,14 @@ struct StatusMenu: View {
             }
         }
         Divider()
-        if model.canStop { Button("Stop Sync", action: model.stop) }
-        else { settingsLink("Start Sync…") }
+        Button(model.isPaused ? "Resume Sync" : "Pause Sync") {
+            model.isPaused ? model.resume() : model.pause()
+        }
+        .disabled(!model.isConfigured)
+        Button("Open Git Sync") {
+            openWindow(id: "projects")
+            NSApplication.shared.activate()
+        }
         settingsLink("Settings…").keyboardShortcut(",", modifiers: .command)
         if model.status.contains("approval") { Button("Login Items…", action: model.openLoginItems) }
         Divider()
@@ -872,6 +1178,445 @@ struct StatusMenu: View {
             openSettings()
             NSApplication.shared.activate()
         }
+    }
+}
+
+struct ProjectBrowserView: View {
+    @ObservedObject var model: AppModel
+    @State private var search = ""
+    @State private var visibility: NavigationSplitViewVisibility = .all
+
+    private var projects: [String] {
+        model.projectNames.filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }
+    }
+
+    var body: some View {
+        NavigationSplitView(columnVisibility: $visibility) {
+            List(selection: Binding(get: { model.selectedProjectName }, set: model.selectProject)) {
+                Section("Projects") {
+                    ForEach(projects, id: \.self) { name in
+                        ProjectRow(name: name, model: model).tag(name)
+                    }
+                }
+                if !model.archivedProjects.isEmpty {
+                    Section("Archived") {
+                        ForEach(model.archivedProjects) { item in
+                            Label(item.name, systemImage: "archivebox").tag(item.name)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Projects")
+            .searchable(text: $search, placement: .sidebar, prompt: "Projects")
+        } content: {
+            ProjectHistoryView(model: model)
+        } detail: {
+            ProjectDetailView(model: model)
+        }
+        .navigationSplitViewStyle(.balanced)
+        .frame(minWidth: 860, minHeight: 520)
+        .onAppear {
+            if model.selectedProjectName == nil { model.selectProject(model.projectNames.first) }
+        }
+        .sheet(item: $model.checkoutRequest) { request in
+            BranchPicker(request: request, model: model)
+        }
+    }
+}
+
+private struct BranchPicker: View {
+    let request: CheckoutRequest
+    @ObservedObject var model: AppModel
+    @State private var branch: String
+
+    init(request: CheckoutRequest, model: AppModel) {
+        self.request = request
+        self.model = model
+        _branch = State(initialValue: request.branches.first ?? "")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Choose a Branch").font(.title2.bold())
+            Picker("Branch", selection: $branch) {
+                ForEach(request.branches, id: \.self) { Text($0).tag($0) }
+            }
+            HStack {
+                Button("Cancel") { model.checkoutRequest = nil }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Check Out") {
+                    model.checkoutRequest = nil
+                    model.setPlacement(.checkedOut, project: request.project,
+                                       hostID: request.hostID, branch: branch)
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+    }
+}
+
+private struct ProjectRow: View {
+    let name: String
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "folder")
+                .foregroundStyle(.secondary)
+            Text(name).lineLimit(1)
+            Spacer(minLength: 4)
+            if let folder = model.configuration.folders.first(where: { $0.name == name }) {
+                if folder.availableLocally { Circle().fill(.primary).frame(width: 6, height: 6) }
+                ForEach(model.configuration.hosts.filter { folder.availableHosts.contains($0.id) }) { _ in
+                    Circle().stroke(.secondary, lineWidth: 1).frame(width: 6, height: 6)
+                }
+            }
+        }
+        .help(projectSummary)
+    }
+
+    private var projectSummary: String {
+        guard let folder = model.configuration.folders.first(where: { $0.name == name }) else { return name }
+        let count = (folder.availableLocally ? 1 : 0) + folder.availableHosts.count
+        return "\(name) — on \(count) host\(count == 1 ? "" : "s")"
+    }
+}
+
+private struct ProjectHistoryView: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        Group {
+            if !model.isConfigured {
+                ContentUnavailableView("Choose a Projects Folder", systemImage: "folder.badge.plus",
+                                       description: Text("Open Settings to set up this Mac."))
+            } else if model.selectedProjectName == nil {
+                ContentUnavailableView("Select a Project", systemImage: "sidebar.left")
+            } else if model.isLoadingProject {
+                ProgressView("Reading Git history…")
+            } else if let snapshot = model.projectSnapshot {
+                CommitList(snapshot: snapshot, selection: $model.selectedCommitID)
+            } else {
+                ContentUnavailableView("Not on This Mac", systemImage: "desktopcomputer.trianglebadge.exclamationmark",
+                                       description: Text("Bring this project to this Mac to render its Git tree and README."))
+            }
+        }
+        .navigationTitle(model.selectedProjectName ?? "Git Tree")
+        .toolbar {
+            ToolbarItem { Button("Refresh", systemImage: "arrow.clockwise") { model.selectProject(model.selectedProjectName) } }
+        }
+    }
+}
+
+private struct CommitList: View {
+    let snapshot: RepositorySnapshot
+    @Binding var selection: String?
+    private var graph: [String: CommitGraphPosition] { CommitGraph.positions(snapshot.commits) }
+
+    var body: some View {
+        List(snapshot.commits, selection: $selection) { commit in
+            CommitRow(commit: commit,
+                      references: snapshot.references.filter { $0.oid == commit.oid },
+                      graph: graph[commit.oid] ?? .init(lane: 0, continuing: [], parents: [], width: 1))
+                .tag(commit.oid)
+        }
+        .overlay {
+            if snapshot.commits.isEmpty {
+                ContentUnavailableView("No Commits", systemImage: "point.3.connected.trianglepath.dotted")
+            }
+        }
+    }
+}
+
+private struct CommitRow: View {
+    let commit: RepositoryCommit
+    let references: [RepositoryReference]
+    let graph: CommitGraphPosition
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            CommitGraphView(position: graph)
+                .frame(width: CGFloat(max(1, graph.width)) * 12 + 8, height: 44)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 5) {
+                    Text(commit.subject).lineLimit(1)
+                    ForEach(references.prefix(4)) { reference in
+                        Text(reference.name)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
+                    }
+                }
+                HStack {
+                    Text(commit.author)
+                    Text(commit.oid.prefix(8)).monospaced()
+                    Spacer()
+                    Text(commit.date, style: .relative)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct CommitGraphPosition {
+    let lane: Int
+    let continuing: [Int]
+    let parents: [Int]
+    let width: Int
+}
+
+private enum CommitGraph {
+    static func positions(_ commits: [RepositoryCommit]) -> [String: CommitGraphPosition] {
+        var lanes: [String] = []
+        var result: [String: CommitGraphPosition] = [:]
+        for commit in commits {
+            let lane: Int
+            if let existing = lanes.firstIndex(of: commit.oid) { lane = existing }
+            else { lanes.append(commit.oid); lane = lanes.count - 1 }
+            let continuing = lanes.indices.filter { $0 != lane }.map { $0 }
+            lanes.remove(at: lane)
+            for parent in commit.parents.reversed() where !lanes.contains(parent) { lanes.insert(parent, at: min(lane, lanes.count)) }
+            let parents = commit.parents.compactMap { lanes.firstIndex(of: $0) }
+            result[commit.oid] = CommitGraphPosition(lane: lane, continuing: continuing, parents: parents,
+                                                     width: max(lane + 1, lanes.count))
+        }
+        return result
+    }
+}
+
+private struct CommitGraphView: View {
+    let position: CommitGraphPosition
+
+    var body: some View {
+        Canvas { context, size in
+            let x: (Int) -> CGFloat = { CGFloat($0) * 12 + 8 }
+            var path = Path()
+            for lane in position.continuing {
+                path.move(to: CGPoint(x: x(lane), y: 0)); path.addLine(to: CGPoint(x: x(lane), y: size.height))
+            }
+            path.move(to: CGPoint(x: x(position.lane), y: 0))
+            path.addLine(to: CGPoint(x: x(position.lane), y: size.height / 2))
+            for parent in position.parents {
+                path.move(to: CGPoint(x: x(position.lane), y: size.height / 2))
+                path.addLine(to: CGPoint(x: x(parent), y: size.height))
+            }
+            context.stroke(path, with: .color(.secondary.opacity(0.55)), lineWidth: 1.5)
+            context.fill(Path(ellipseIn: CGRect(x: x(position.lane) - 4, y: size.height / 2 - 4, width: 8, height: 8)),
+                         with: .color(.accentColor))
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+private struct ProjectDetailView: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        if let name = model.selectedProjectName {
+            if let commitID = model.selectedCommitID,
+               let commit = model.projectSnapshot?.commits.first(where: { $0.oid == commitID }) {
+                CommitDetail(commit: commit, references: model.projectSnapshot?.references.filter { $0.oid == commitID } ?? [])
+            } else if let archived = model.archivedProjects.first(where: { $0.name == name }) {
+                ArchivedProjectDetail(item: archived, model: model)
+            } else {
+                ProjectOverview(name: name, model: model)
+            }
+        } else {
+            ContentUnavailableView("Project Details", systemImage: "info.circle")
+        }
+    }
+}
+
+private struct ProjectOverview: View {
+    let name: String
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(name).font(.title2.bold())
+                    Text("Project").foregroundStyle(.secondary)
+                }
+                HostControls(project: name, model: model)
+                Divider()
+                if let readme = model.projectReadme {
+                    HStack {
+                        Text("README").font(.headline)
+                        Spacer()
+                        Text(readme.source).font(.caption).foregroundStyle(.secondary)
+                    }
+                    MarkdownDocument(markdown: readme.markdown)
+                } else if model.projectSnapshot != nil {
+                    ContentUnavailableView("No README", systemImage: "doc.plaintext")
+                        .frame(minHeight: 180)
+                } else {
+                    Text("Bring this project to this Mac to render its details and README.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(20)
+        }
+        .navigationTitle(name)
+    }
+}
+
+private struct HostControls: View {
+    let project: String
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Hosts").font(.headline)
+            PlacementRow(name: model.configuration.machine, placement: model.placement(of: project, on: nil),
+                         progress: model.placementInProgress == "local") {
+                $0 == .checkedOut ? model.checkOut(project, hostID: nil)
+                    : model.setPlacement($0, project: project, hostID: nil)
+            }
+            ForEach(model.configuration.hosts) { host in
+                PlacementRow(name: host.name, placement: model.placement(of: project, on: host.id),
+                             progress: model.placementInProgress == host.id.uuidString) {
+                    $0 == .checkedOut ? model.checkOut(project, hostID: host.id)
+                        : model.setPlacement($0, project: project, hostID: host.id)
+                }
+            }
+            if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+        }
+    }
+}
+
+private struct PlacementRow: View {
+    let name: String
+    let placement: ProjectPlacement
+    let progress: Bool
+    let change: (ProjectPlacement) -> Void
+
+    var body: some View {
+        HStack {
+            Label(name, systemImage: "desktopcomputer")
+            Spacer()
+            if progress { ProgressView().controlSize(.small) }
+            Menu {
+                switch placement {
+                case .checkedOut:
+                    Button("Keep Mirrored") { change(.mirrored) }
+                case .mirrored:
+                    Button("Check Out") { change(.checkedOut) }
+                    Button("Move Repository to Trash", role: .destructive) { change(.notPresent) }
+                case .notPresent:
+                    Button("Mirror on This Host") { change(.mirrored) }
+                case .unknown:
+                    Text("Host unavailable")
+                }
+            } label: {
+                Label(placement.title, systemImage: placement.symbol)
+                    .foregroundStyle(placement == .unknown ? .secondary : .primary)
+            }
+            .menuStyle(.borderlessButton)
+            .disabled(progress || placement == .unknown)
+        }
+    }
+}
+
+private extension ProjectPlacement {
+    var title: String {
+        switch self {
+        case .checkedOut: "Checked Out"
+        case .mirrored: "Mirrored"
+        case .notPresent: "Not Present"
+        case .unknown: "Unavailable"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .checkedOut: "checkmark.circle.fill"
+        case .mirrored: "externaldrive.fill"
+        case .notPresent: "minus.circle"
+        case .unknown: "questionmark.circle"
+        }
+    }
+}
+
+private struct CommitDetail: View {
+    let commit: RepositoryCommit
+    let references: [RepositoryReference]
+
+    var body: some View {
+        Form {
+            Section("Commit") { Text(commit.message).textSelection(.enabled) }
+            LabeledContent("Author", value: commit.author)
+            LabeledContent("Date") { Text(commit.date.formatted(date: .long, time: .standard)) }
+            LabeledContent("SHA") { Text(commit.oid).monospaced().textSelection(.enabled) }
+            if !commit.parents.isEmpty {
+                LabeledContent("Parents") {
+                    VStack(alignment: .trailing) { ForEach(commit.parents, id: \.self) { Text($0).monospaced() } }
+                }
+            }
+            if !references.isEmpty {
+                Section("References") { ForEach(references) { Text($0.name) } }
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle(commit.subject)
+    }
+}
+
+private struct ArchivedProjectDetail: View {
+    let item: BackupItem
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Archived", systemImage: "archivebox.fill").font(.title2.bold())
+            Text(item.name).font(.title3)
+            Text("This project has no active checkout or mirror. Its repository is stored only at the backup destination.")
+                .foregroundStyle(.secondary)
+            if item.snapshots.count == 1, let snapshot = item.snapshots.first {
+                Button("Bring to This Mac") { model.unarchiveBackup(item, snapshot: snapshot) }
+            } else if !item.snapshots.isEmpty {
+                Menu("Bring to This Mac") {
+                    ForEach(item.snapshots) { snapshot in
+                        Button("From \(snapshot.machine)") { model.unarchiveBackup(item, snapshot: snapshot) }
+                    }
+                }
+            }
+            Spacer()
+        }
+        .padding(20)
+        .navigationTitle(item.name)
+    }
+}
+
+private struct MarkdownDocument: View {
+    let markdown: String
+
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(markdown.components(separatedBy: .newlines).enumerated()), id: \.offset) { _, line in
+                if line.hasPrefix("### ") { inline(String(line.dropFirst(4))).font(.headline) }
+                else if line.hasPrefix("## ") { inline(String(line.dropFirst(3))).font(.title3.bold()) }
+                else if line.hasPrefix("# ") { inline(String(line.dropFirst(2))).font(.title2.bold()) }
+                else if line.hasPrefix("- ") || line.hasPrefix("* ") {
+                    HStack(alignment: .top) { Text("•"); inline(String(line.dropFirst(2))) }
+                } else if line.hasPrefix("    ") {
+                    Text(String(line.dropFirst(4))).font(.system(.body, design: .monospaced))
+                        .padding(8).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                } else if !line.isEmpty { inline(line) }
+                else { Spacer().frame(height: 4) }
+            }
+        }
+        .textSelection(.enabled)
+    }
+
+    private func inline(_ source: String) -> Text {
+        (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            .map(Text.init) ?? Text(source)
     }
 }
 
@@ -920,207 +1665,92 @@ struct SettingsView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        VStack(spacing: 12) {
-            TabView {
-                Form {
-                    Section("Projects") {
-                        HStack {
-                            TextField("Projects folder", text: $model.configuration.root)
+        TabView {
+            Form {
+                Section("This Mac") {
+                    LabeledContent("Projects folder") {
+                        if model.configuration.root.isEmpty {
                             Button("Choose…", action: model.chooseRoot)
-                            Button("Refresh", action: model.refreshLocal)
-                                .disabled(model.configuration.root.isEmpty || model.isChecking)
-                        }
-                        Text("Choose the folder that contains this Mac’s Git repositories.")
-                            .foregroundStyle(.secondary)
-                    }
-                    Section("Identity") {
-                        TextField("Machine name", text: $model.configuration.machine)
-                        Text("This name identifies the Mac to your other hosts.")
-                            .foregroundStyle(.secondary)
-                    }
-                    Section("Checkouts") {
-                        Toggle("Keep matching clean checkouts in sync", isOn: Binding(
-                            get: { model.configuration.syncCheckouts == true },
-                            set: { model.configuration.syncCheckouts = $0 }
-                        ))
-                        Text("Fast-forwards the same checked-out branch only while both Macs are clean and were previously at the same commit. Any local change stops automatic checkout updates.")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .formStyle(.grouped)
-                .disabled(model.configurationLocked)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .tabItem { Label("This Mac", systemImage: "desktopcomputer") }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("Hosts").font(.headline)
-                        Spacer()
-                        if model.isChecking { ProgressView().controlSize(.small) }
-                        Button(action: model.beginAddingHost) { Label("Add Host", systemImage: "plus") }
-                        Button(action: model.beginRenamingHost) { Label("Rename Host", systemImage: "pencil") }
-                            .disabled(model.selectedHostID == nil)
-                        Button(action: model.removeSelectedHost) { Label("Remove Host", systemImage: "minus") }
-                            .disabled(model.selectedHostID == nil)
-                    }
-                    Table(model.configuration.hosts, selection: $model.selectedHostID) {
-                        TableColumn("Name", value: \.name)
-                        TableColumn("SSH Host", value: \.peer)
-                        TableColumn("Projects Folder", value: \.root)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .tabItem { Label("Hosts", systemImage: "desktopcomputer.and.arrow.down") }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    if model.configuration.folders.isEmpty {
-                        ContentUnavailableView(
-                            "No Git Folders",
-                            systemImage: "folder",
-                            description: Text("Choose the parent folder that contains your repositories.")
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        Table(model.configuration.folders) {
-                            TableColumn("Folder", value: \.name)
-                                .width(240)
-                            TableColumn(model.configuration.machine) { folder in
-                                Toggle("Sync \(folder.name) on \(model.configuration.machine)", isOn: Binding(
-                                    get: { folder.isLocal },
-                                    set: { model.setLocal($0, folder: folder.name) }
-                                ))
-                                .toggleStyle(.checkbox)
-                                .labelsHidden()
-                            }
-                            .width(100)
-                            TableColumnForEach(model.configuration.hosts) { host in
-                                TableColumn(host.name) { folder in
-                                    Toggle("Sync \(folder.name) on \(host.name)", isOn: Binding(
-                                        get: { folder.hosts.contains(host.id) },
-                                        set: { model.setHost(host.id, enabled: $0, folder: folder.name) }
-                                    ))
-                                    .toggleStyle(.checkbox)
-                                    .labelsHidden()
-                                }
-                                .width(100)
-                            }
+                        } else {
+                            Text(model.configuration.root).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                         }
                     }
-                    Text("A folder syncs with a host only while both checkboxes are selected.")
-                        .font(.callout)
+                    LabeledContent("Machine name") {
+                        if model.configuration.root.isEmpty {
+                            TextField("Machine name", text: $model.configuration.machine).frame(width: 220)
+                        } else {
+                            Text(model.configuration.machine).textSelection(.enabled)
+                        }
+                    }
+                    Text("The projects folder and Git identity are fixed after setup.").foregroundStyle(.secondary)
+                }
+                Section("Startup") {
+                    Toggle("Launch Git Sync at login", isOn: Binding(get: { model.launchesAtLogin }, set: model.setLaunchAtLogin))
+                }
+                Section("Checkouts") {
+                    Toggle("Fast-forward matching clean checkouts", isOn: Binding(
+                        get: { model.configuration.syncCheckouts == true }, set: model.setSyncCheckouts
+                    ))
+                    Text("Off by default. When enabled, only matching branches with clean working trees are advanced.")
                         .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .tabItem { Label("Folders", systemImage: "folder") }
+            }
+            .formStyle(.grouped)
+            .tabItem { Label("General", systemImage: "gear") }
 
-                Form {
-                    Section("Back Up This Mac") {
-                        Toggle("Back up every repository", isOn: Binding(
-                            get: { model.configuration.backup != nil },
-                            set: model.setBackupEnabled
-                        ))
-                        .disabled(model.configuration.hosts.isEmpty)
-                        .opacity(model.isRunning ? 0.45 : 1)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Hosts").font(.headline)
+                    Spacer()
+                    if model.isChecking { ProgressView().controlSize(.small) }
+                    Button(action: model.beginAddingHost) { Label("Add Host", systemImage: "plus") }
+                        .disabled(!model.isConfigured)
+                    Button(action: model.beginRenamingHost) { Label("Rename Host", systemImage: "pencil") }
+                        .disabled(model.selectedHostID == nil)
+                    Button(action: model.removeSelectedHost) { Label("Remove Host", systemImage: "minus") }
+                        .disabled(model.selectedHostID == nil)
+                }
+                Table(model.configuration.hosts, selection: $model.selectedHostID) {
+                    TableColumn("Name", value: \.name)
+                    TableColumn("SSH Host", value: \.peer)
+                    TableColumn("Projects Folder", value: \.root)
+                }
+                Text("Removing a host forgets the connection only; it never deletes repositories or Git refs.")
+                    .foregroundStyle(.secondary)
+            }
+            .padding(20)
+            .tabItem { Label("Hosts", systemImage: "desktopcomputer.and.arrow.down") }
 
-                        if model.isRunning {
-                            Text("can only be toggled when stopped")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if model.configuration.hosts.isEmpty {
-                            Text("Add a host in the Hosts tab before configuring a backup.")
-                                .foregroundStyle(.secondary)
-                        } else if let backup = model.configuration.backup {
-                            Picker("Backup host", selection: Binding(
-                                get: { model.configuration.backup?.hostID ?? backup.hostID },
-                                set: model.setBackupHost
-                            )) {
-                                ForEach(model.configuration.hosts) { host in
-                                    Text(host.name).tag(host.id)
-                                }
+            Form {
+                Section("Destination") {
+                    if let destination = model.configuration.backupDestination {
+                        LabeledContent("Host", value: model.configuration.machine)
+                        LabeledContent("Folder", value: destination.root)
+                    } else if let backup = model.configuration.backup,
+                              let host = model.configuration.hosts.first(where: { $0.id == backup.hostID }) {
+                        LabeledContent("Host", value: host.name)
+                        Text("The destination folder is configured on that host.").foregroundStyle(.secondary)
+                    } else {
+                        Menu("Choose Backup Host…") {
+                            Button("This Mac…", action: model.chooseBackupDestination)
+                            ForEach(model.configuration.hosts) { host in
+                                Button(host.name) { model.chooseBackupHost(host.id) }
                             }
-                            Text("Choose the destination in Git Sync on the backup host. Backups receive every repository but never publish changes back.")
-                                .foregroundStyle(.secondary)
                         }
-                    }
-                    .disabled(model.configurationLocked)
-
-                    Section("Receive Backups on This Mac") {
-                        HStack {
-                            if let destination = model.configuration.backupDestination {
-                                Text(destination.root)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .textSelection(.enabled)
-                                Spacer()
-                                Button("Clear", action: model.clearBackupDestination)
-                            } else {
-                                Text("No destination selected")
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                            }
-                            Button("Choose…", action: model.chooseBackupDestination)
-                        }
-                        Text("The folder must differ from this Mac’s projects folder. Git Sync.app—not SSH—owns access to the selected destination.")
+                        .disabled(!model.isConfigured)
+                        Text("Once chosen, the backup destination cannot be changed in this version.")
                             .foregroundStyle(.secondary)
                     }
-                    .disabled(model.configurationLocked)
-
-                    if model.hasBackupCatalog {
-                        Section("Stored Backups") {
-                            HStack {
-                                Spacer()
-                                Button("Refresh", action: model.refreshBackups)
-                                    .disabled(model.restoringBackup != nil)
-                            }
-                            if let error = model.backupError {
-                                Text(error)
-                                    .foregroundStyle(.red)
-                                    .textSelection(.enabled)
-                            } else if model.backupItems.isEmpty {
-                                Text("No backup repositories found")
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Table(model.backupItems) {
-                                    TableColumn("Repository", value: \.name)
-                                    TableColumn("Status") { item in Text(item.status.title) }
-                                    TableColumn("Snapshots") { item in Text(item.snapshotTitle) }
-                                    TableColumn("") { item in BackupActions(model: model, item: item) }
-                                        .width(min: 90, ideal: 110)
-                                }
-                                .frame(minHeight: 180)
-                            }
-                            Text("Archive marks repositories that no known host currently contains. Unarchive restores a selected snapshot into this Mac’s projects folder, even when the backup is stored on another host.")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
                 }
-                .formStyle(.grouped)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .tabItem { Label("Backup", systemImage: "externaldrive") }
-            }
-            .contentMargins(.vertical, 20, for: .scrollContent)
-
-            Divider()
-
-            HStack {
-                Label(model.status, systemImage: model.isRunning ? "arrow.triangle.2.circlepath" : "pause.circle")
-                if let error = model.error {
-                    Text(error)
-                        .foregroundStyle(.red)
-                        .lineLimit(2)
-                        .textSelection(.enabled)
+                Section("Behavior") {
+                    Text("Every known project is backed up continuously. A project becomes Archived only after every host confirms it is absent.")
+                        .foregroundStyle(.secondary)
                 }
-                Spacer()
-                if model.canStop { Button("Stop Sync", action: model.stop) }
-                Button(model.isChecking ? "Checking…" : "Save & Start", action: model.start)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(model.isChecking || model.isRunning)
             }
-            .scenePadding(.bottom)
+            .formStyle(.grouped)
+            .tabItem { Label("Backup", systemImage: "externaldrive") }
         }
-        .scenePadding(.horizontal)
+        .contentMargins(.vertical, 20, for: .scrollContent)
         .frame(minWidth: 720, minHeight: 520)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sheet(isPresented: $model.showingAddHost) { AddHostView(model: model) }

@@ -141,6 +141,8 @@ func repositorySnapshot() throws {
     #expect(snapshot.references.contains { $0.fullName == "refs/heads/main" })
 
     try Data("# Project\n\nHello.\n".utf8).write(to: repository.url.appendingPathComponent("README.md"))
+    _ = try git(["-C", repository.url.path, "add", "README.md"])
+    _ = try git(["-C", repository.url.path, "commit", "-qm", "readme"])
     #expect(repository.readme()?.markdown == "# Project\n\nHello.\n")
     #expect(repository.readme()?.source == "Checked out HEAD")
 }
@@ -416,7 +418,7 @@ func backupArchiveClassification() throws {
     #expect(try index.items(in: fixture.b).first?.status == .mirrored)
 
     try index.replaceCatalog(machine: "A", repositories: [])
-    #expect(try index.items(in: fixture.b).first?.status == .candidate)
+    #expect(try index.items(in: fixture.b).first?.status == .archived)
     try index.archive("project", in: fixture.b)
     #expect(try index.items(in: fixture.b).first?.status == .archived)
 
@@ -546,7 +548,7 @@ func backupControl() throws {
     }
 
     let candidate = try #require(request(BackupControlRequest(action: .list)).items?.first)
-    #expect(candidate.status == .candidate)
+    #expect(candidate.status == .archived)
     #expect(throws: (any Error).self) {
         try request(BackupControlRequest(version: 0, action: .list))
     }

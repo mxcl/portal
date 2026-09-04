@@ -1400,7 +1400,7 @@ private struct CommitRow: View {
                 }
                 HStack {
                     Text(commit.author)
-                    Text(commit.oid.prefix(8)).monospaced()
+                    CopyableCommitSHA(sha: commit.oid)
                     Spacer()
                     Text(commit.date, style: .relative)
                 }
@@ -1410,6 +1410,36 @@ private struct CommitRow: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+private struct CopyableCommitSHA: View {
+    let sha: String
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Text(sha.prefix(8))
+                .monospaced()
+            Button("Copy commit SHA", systemImage: "doc.on.doc", action: copy)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .font(.caption2)
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 1)
+        .background(isHovered ? Color.secondary.opacity(0.18) : .clear, in: Capsule())
+        .contentShape(Capsule())
+        .onHover { isHovered = $0 }
+        .help("Copy full commit SHA")
+        .accessibilityAction(named: "Copy commit SHA", copy)
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(sha, forType: .string)
     }
 }
 

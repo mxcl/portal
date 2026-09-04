@@ -55,6 +55,20 @@ struct CheckoutRequest: Identifiable {
     let branches: [String]
 }
 
+fileprivate enum ProjectSource: Hashable, Identifiable, Sendable {
+    case local
+    case host(UUID)
+    case backup(String)
+
+    var id: String {
+        switch self {
+        case .local: "local"
+        case .host(let id): "host-\(id)"
+        case .backup(let id): "backup-\(id)"
+        }
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
@@ -82,6 +96,7 @@ final class AppModel: ObservableObject {
     @Published var projectGitHubURL: URL?
     @Published var projectError: String?
     @Published var isLoadingProject = false
+    @Published fileprivate var projectSource: ProjectSource?
     @Published var placementInProgress: String?
     @Published var localProjects: [String: PeerProject] = [:]
     @Published var remoteProjects: [UUID: [String: PeerProject]] = [:]
@@ -100,6 +115,8 @@ final class AppModel: ObservableObject {
     private var fetchingSnapshot = false
     private var snapshotPending = false
     private var connecting = false
+    private var projectLoadGeneration = 0
+    private var diffLoadGeneration = 0
 
     init() {
         if embeddedHelperURL != nil { migrateLegacyLoginItem() }
@@ -139,8 +156,31 @@ final class AppModel: ObservableObject {
     }
 
     var selectedLocalRepositoryURL: URL? {
-        guard let name = selectedProjectName, localProjects[name] != nil else { return nil }
-        return expandedRoot.appendingPathComponent(name, isDirectory: true)
+        guard let name = selectedProjectName else { return nil }
+        return repositoryURL(for: name)
+    }
+
+    fileprivate var projectSources: [ProjectSource] {
+        guard let name = selectedProjectName else { return [] }
+        return sources(for: name)
+    }
+
+    fileprivate func projectSourceLabel(_ source: ProjectSource) -> String {
+        switch source {
+        case .local:
+            return "This Mac"
+        case .host(let id):
+            return configuration.hosts.first(where: { $0.id == id })?.name ?? "Unavailable Host"
+        case .backup(let id):
+            let snapshot = backupItems.first(where: { $0.name == selectedProjectName })?
+                .snapshots.first(where: { $0.id == id })
+            return "Backup — \(snapshot?.machine ?? id)"
+        }
+    }
+
+    fileprivate func projectSourceSymbol(_ source: ProjectSource) -> String {
+        if case .backup = source { return "archivebox" }
+        return "desktopcomputer"
     }
 
     func retryHelper() {
@@ -223,6 +263,7 @@ final class AppModel: ObservableObject {
         let oldLocal = selectedProjectName.flatMap { name in
             configuration.folders.first(where: { $0.name == name })?.availableLocally
         }
+        let oldSource = projectSource
         configuration = snapshot.configuration
         status = snapshot.status
         error = snapshot.error
@@ -244,7 +285,9 @@ final class AppModel: ObservableObject {
             selectProject(selection)
         } else if let name = selectedProjectName {
             let newLocal = configuration.folders.first(where: { $0.name == name })?.availableLocally
-            if oldLocal != newLocal { selectProject(name) }
+            if oldLocal != newLocal || oldSource.map({ !sources(for: name).contains($0) }) == true {
+                selectProject(name)
+            }
         }
     }
 
@@ -271,46 +314,80 @@ final class AppModel: ObservableObject {
         projectReadme = nil
         projectGitHubURL = nil
         projectError = nil
+        projectSource = nil
         guard let name else { return }
-        let repositoryURL = repositoryURL(for: name)
-        guard let repositoryURL else { return }
+        loadProject(name, from: sources(for: name))
+    }
+
+    func refreshProject() {
+        guard let name = selectedProjectName else { return }
+        loadProject(name, from: projectSource.map { [$0] } ?? sources(for: name))
+    }
+
+    fileprivate func selectProjectSource(_ source: ProjectSource) {
+        guard source != projectSource, let name = selectedProjectName else { return }
+        selectCommit(nil)
+        projectSnapshot = nil
+        projectReadme = nil
+        projectGitHubURL = nil
+        projectError = nil
+        projectSource = source
+        loadProject(name, from: [source])
+    }
+
+    private func loadProject(_ name: String, from sources: [ProjectSource]) {
+        projectLoadGeneration += 1
+        let generation = projectLoadGeneration
+        guard let first = sources.first else { return }
+        projectSource = first
         isLoadingProject = true
+        let configuration = configuration
         Task {
-            do {
-                let result = try await Task.detached(priority: .userInitiated) {
-                    let repository = Repository(name: name, url: repositoryURL)
-                    return (try repository.snapshot(), repository.readme(), repository.githubURL)
-                }.value
-                guard selectedProjectName == name else { return }
-                projectSnapshot = result.0
-                projectReadme = result.1
-                projectGitHubURL = result.2
-                isLoadingProject = false
-            } catch {
-                guard selectedProjectName == name else { return }
-                isLoadingProject = false
-                projectError = String(describing: error)
+            var lastError: Error?
+            for source in sources {
+                do {
+                    let content = try await Task.detached(priority: .userInitiated) {
+                        try Self.content(for: name, source: source, configuration: configuration)
+                    }.value
+                    guard generation == projectLoadGeneration, selectedProjectName == name else { return }
+                    projectSource = source
+                    projectSnapshot = content.snapshot
+                    projectReadme = content.readme
+                    projectGitHubURL = content.githubURL
+                    isLoadingProject = false
+                    return
+                } catch {
+                    lastError = error
+                }
             }
+            guard generation == projectLoadGeneration, selectedProjectName == name else { return }
+            isLoadingProject = false
+            projectError = lastError.map(String.init(describing:)) ?? "No project source is available."
         }
     }
 
     func selectCommit(_ oid: String?) {
+        diffLoadGeneration += 1
+        let generation = diffLoadGeneration
         selectedCommitID = oid
         selectedCommitDiff = nil
         commitDiffError = nil
         isLoadingCommitDiff = false
-        guard let oid, let name = selectedProjectName, let repositoryURL = repositoryURL(for: name) else { return }
+        guard let oid, let name = selectedProjectName, let source = projectSource else { return }
         isLoadingCommitDiff = true
+        let configuration = configuration
         Task {
             do {
                 let diff = try await Task.detached(priority: .userInitiated) {
-                    try Repository(name: name, url: repositoryURL).diff(at: oid)
+                    try Self.diff(for: name, oid: oid, source: source, configuration: configuration)
                 }.value
-                guard selectedProjectName == name, selectedCommitID == oid else { return }
+                guard generation == diffLoadGeneration, selectedProjectName == name,
+                      selectedCommitID == oid, projectSource == source else { return }
                 selectedCommitDiff = diff
                 isLoadingCommitDiff = false
             } catch {
-                guard selectedProjectName == name, selectedCommitID == oid else { return }
+                guard generation == diffLoadGeneration, selectedProjectName == name,
+                      selectedCommitID == oid, projectSource == source else { return }
                 commitDiffError = String(describing: error)
                 isLoadingCommitDiff = false
             }
@@ -532,12 +609,75 @@ final class AppModel: ObservableObject {
     }
 
     private func repositoryURL(for name: String) -> URL? {
-        if configuration.folders.first(where: { $0.name == name })?.availableLocally == true {
-            return expandedRoot.appendingPathComponent(name, isDirectory: true)
+        guard configuration.folders.first(where: { $0.name == name })?.availableLocally == true else { return nil }
+        return expandedRoot.appendingPathComponent(name, isDirectory: true)
+    }
+
+    private func sources(for name: String) -> [ProjectSource] {
+        if repositoryURL(for: name) != nil { return [.local] }
+        let live = configuration.folders.first(where: { $0.name == name }).map { folder in
+            configuration.hosts.filter { folder.availableHosts.contains($0.id) }.map { ProjectSource.host($0.id) }
+        } ?? []
+        let backups = backupItems.first(where: { $0.name == name })?.snapshots.map {
+            ProjectSource.backup($0.id)
+        } ?? []
+        return live + backups
+    }
+
+    private nonisolated static func content(for name: String, source: ProjectSource,
+                                            configuration: AppConfiguration) throws -> RepositoryContent {
+        switch source {
+        case .local:
+            let root = URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath)
+            return try Repository(name: name, url: root.appendingPathComponent(name)).content()
+        case .host(let id):
+            guard let host = configuration.hosts.first(where: { $0.id == id }) else {
+                throw SyncError.invalidConfiguration("The selected host is no longer configured.")
+            }
+            return try Runner.projectContent(name, configuration: remoteConfiguration(host, in: configuration))
+        case .backup(let snapshotID):
+            if let root = try configuration.validatedBackupDestination() {
+                return try BackupIndex.content(name, snapshotID: snapshotID, from: root)
+            }
+            guard let host = try configuration.backupHost() else {
+                throw SyncError.invalidConfiguration("The backup destination is unavailable.")
+            }
+            return try Runner.backupContent(name, snapshotID: snapshotID,
+                                            configuration: remoteConfiguration(host, in: configuration,
+                                                                               receiveOnly: true))
         }
-        guard let destination = configuration.backupDestination else { return nil }
-        let url = URL(fileURLWithPath: destination.root).appendingPathComponent("\(name).git", isDirectory: true)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private nonisolated static func diff(for name: String, oid: String, source: ProjectSource,
+                                         configuration: AppConfiguration) throws -> String {
+        switch source {
+        case .local:
+            let root = URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath)
+            return try Repository(name: name, url: root.appendingPathComponent(name)).diff(at: oid)
+        case .host(let id):
+            guard let host = configuration.hosts.first(where: { $0.id == id }) else {
+                throw SyncError.invalidConfiguration("The selected host is no longer configured.")
+            }
+            return try Runner.projectDiff(name, oid: oid,
+                                          configuration: remoteConfiguration(host, in: configuration))
+        case .backup(let snapshotID):
+            if let root = try configuration.validatedBackupDestination() {
+                return try BackupIndex.diff(name, snapshotID: snapshotID, oid: oid, from: root)
+            }
+            guard let host = try configuration.backupHost() else {
+                throw SyncError.invalidConfiguration("The backup destination is unavailable.")
+            }
+            return try Runner.backupDiff(name, snapshotID: snapshotID, oid: oid,
+                                         configuration: remoteConfiguration(host, in: configuration,
+                                                                            receiveOnly: true))
+        }
+    }
+
+    private nonisolated static func remoteConfiguration(_ host: SyncHost, in app: AppConfiguration,
+                                                        receiveOnly: Bool = false) -> Configuration {
+        Configuration(root: app.root, machine: app.machine, peer: host.peer,
+                      remoteRoot: receiveOnly ? "" : host.root, remoteExecutable: host.executable,
+                      remoteMachine: host.machine, remoteReceiveOnly: receiveOnly ? true : nil)
     }
 
     private var embeddedHelperURL: URL? {
@@ -748,34 +888,54 @@ private struct ProjectHistoryView: View {
                 } description: {
                     Text(error)
                 } actions: {
-                    Button("Try Again") { model.selectProject(model.selectedProjectName) }
+                    Button("Try Again", action: model.refreshProject)
                 }
             } else if let snapshot = model.projectSnapshot {
                 CommitList(snapshot: snapshot, selection: Binding(
                     get: { model.selectedCommitID }, set: model.selectCommit
                 ))
             } else {
-                ContentUnavailableView("Not on This Mac", systemImage: "desktopcomputer.trianglebadge.exclamationmark",
-                                       description: Text("Bring this project to this Mac to render its Git tree and README."))
+                ContentUnavailableView("No Available Copy", systemImage: "desktopcomputer.trianglebadge.exclamationmark",
+                                       description: Text("Bring this project to a configured host to render its Git tree and README."))
             }
         }
         .navigationTitle(model.selectedProjectName ?? "Git Tree")
         .toolbar {
+            if let source = model.projectSource, source != .local {
+                ToolbarItem {
+                    Picker("Git tree source", selection: Binding(
+                        get: { source }, set: model.selectProjectSource
+                    )) {
+                        ForEach(model.projectSources) { option in
+                            Label(model.projectSourceLabel(option),
+                                  systemImage: model.projectSourceSymbol(option)).tag(option)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .disabled(model.projectSources.count < 2)
+                    .accessibilityLabel("Git tree source")
+                    .help("Git tree source: \(model.projectSourceLabel(source))")
+                }
+                ToolbarSpacer(.fixed)
+            }
             ToolbarItem {
                 ControlGroup {
                     Button("Reveal in Finder", systemImage: "folder", action: model.revealSelectedProjectInFinder)
                         .help("Reveal project in Finder")
+                        .disabled(model.selectedLocalRepositoryURL == nil)
                     Button("Open in Editor", systemImage: "curlybraces", action: model.openSelectedProjectInEditor)
                         .help("Open project in the default editor")
+                        .disabled(model.selectedLocalRepositoryURL == nil)
                     Button("Open in Terminal", systemImage: "terminal", action: model.openSelectedProjectInTerminal)
                         .help("Open project in the default terminal")
+                        .disabled(model.selectedLocalRepositoryURL == nil)
                     if model.projectGitHubURL != nil {
                         Button("Open on GitHub", systemImage: "arrow.up.right.square",
                                action: model.openSelectedProjectOnGitHub)
                             .help("Open project on GitHub")
                     }
                 }
-                .disabled(model.selectedLocalRepositoryURL == nil)
             }
             ToolbarSpacer(.fixed)
             ToolbarItem {
@@ -784,7 +944,7 @@ private struct ProjectHistoryView: View {
                     .help("Show project details")
             }
             ToolbarItem {
-                Button("Refresh", systemImage: "arrow.clockwise") { model.selectProject(model.selectedProjectName) }
+                Button("Refresh", systemImage: "arrow.clockwise", action: model.refreshProject)
                     .help("Refresh project")
             }
         }
@@ -905,6 +1065,7 @@ private struct ProjectDetailView: View {
                let commit = model.projectSnapshot?.commits.first(where: { $0.oid == commitID }) {
                 CommitDetail(commit: commit,
                              references: model.projectSnapshot?.references.filter { $0.oid == commitID } ?? [],
+                             source: model.projectSource.map(model.projectSourceLabel),
                              diff: model.selectedCommitDiff,
                              isLoadingDiff: model.isLoadingCommitDiff,
                              error: model.commitDiffError)
@@ -928,7 +1089,11 @@ private struct ProjectOverview: View {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(name).font(.title2.bold())
-                    Text("Project").foregroundStyle(.secondary)
+                    if let source = model.projectSource, source != .local {
+                        Text("From \(model.projectSourceLabel(source))").foregroundStyle(.secondary)
+                    } else {
+                        Text("Project").foregroundStyle(.secondary)
+                    }
                 }
                 HostControls(project: name, model: model)
                 Divider()
@@ -943,7 +1108,7 @@ private struct ProjectOverview: View {
                     ContentUnavailableView("No README", systemImage: "doc.plaintext")
                         .frame(minHeight: 180)
                 } else {
-                    Text("Bring this project to this Mac to render its details and README.")
+                    Text("Project details and README are unavailable from the selected source.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -1032,6 +1197,7 @@ private extension ProjectPlacement {
 private struct CommitDetail: View {
     let commit: RepositoryCommit
     let references: [RepositoryReference]
+    let source: String?
     let diff: String?
     let isLoadingDiff: Bool
     let error: String?
@@ -1042,6 +1208,7 @@ private struct CommitDetail: View {
             VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(commit.message).font(.headline).textSelection(.enabled)
+                    if let source { LabeledContent("Source", value: source) }
                     LabeledContent("Author", value: commit.author)
                     LabeledContent("Date") { Text(commit.date.formatted(date: .long, time: .standard)) }
                     LabeledContent("SHA") { Text(commit.oid).monospaced().textSelection(.enabled) }
@@ -1090,6 +1257,10 @@ private struct ArchivedProjectDetail: View {
             Text(item.name).font(.title3)
             Text("This project has no active checkout or mirror. Its repository is stored only at the backup destination.")
                 .foregroundStyle(.secondary)
+            if let source = model.projectSource {
+                Label(model.projectSourceLabel(source), systemImage: model.projectSourceSymbol(source))
+                    .foregroundStyle(.secondary)
+            }
             if model.restoringBackup == item.name {
                 ProgressView("Bringing to this Mac…")
             } else if item.snapshots.count == 1, let snapshot = item.snapshots.first {

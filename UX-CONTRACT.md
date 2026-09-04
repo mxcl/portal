@@ -2,9 +2,10 @@
 
 ## Shell and navigation
 
-- Git Sync remains a menu-bar-only app and opens one reusable project window.
-- The menu-bar menu owns global status, Pause/Resume, recent events, Settings,
-  and opening the project window.
+- Git Sync is a conventional foreground app with one reusable project window
+  and an embedded menu-bar helper that continues syncing after the app closes.
+- The helper menu owns global status, Pause/Resume, recent events, Settings,
+  opening the project window, and quitting both processes.
 - The window uses sidebar, content, and detail columns. Detail hides before the
   sidebar as the window narrows. Selection is restored when possible.
 - Projects sort alphabetically and are searchable. Active and archived projects
@@ -55,6 +56,10 @@
 - Checkout fast-forwarding remains one global, opt-in setting.
 - Sync runs automatically when configured. Pause/Resume is independent of Launch
   at Login.
+- Opening the app starts the helper for the current session. Launch at Login
+  controls future logins; turning it off does not stop the current session.
+- Closing or quitting the foreground app leaves the helper running. Quitting
+  from the helper stops both processes without changing the login preference.
 - The backup destination is optional, but once chosen is read-only in the MVP.
 - Host removal is blocked while it is the backup destination or the only active
   location of a project. It never deletes repositories, Git remotes, or refs.

@@ -2,9 +2,10 @@
 
 ## App UI
 
-Git Sync is a menu-bar utility with one project browser window. The window is a
-native three-column `NavigationSplitView`: an alphabetical project sidebar, a
-commit graph, and contextual detail. The interface is deliberately dense and
+Git Sync has a conventional foreground app and an embedded menu-bar helper. The
+app owns one project browser window, a native three-column
+`NavigationSplitView`: an alphabetical project sidebar, a commit graph, and
+contextual detail. The interface is deliberately dense and
 quiet, like Finder or Xcode; the colored commit lanes are its only expressive
 visual element. System colors, materials, typography, spacing, controls, and
 selection behavior remain canonical.
@@ -89,8 +90,8 @@ is an explicit Git operation and is outside the background replication contract.
 Each `git-sync run` owns one source parent and one long-lived
 `ssh -T <peer> git-sync daemon --stdio …` child process. Both endpoints run the
 same session engine, so repository discovery and ref transfer are symmetric on
-that single full-duplex stream. The Mac app starts one such process per host
-that has at least one enabled project. macOS uses FSEvents and Linux uses
+that single full-duplex stream. The embedded menu helper starts one such process
+per host that has at least one enabled project. macOS uses FSEvents and Linux uses
 inotify only to wake the engine; every wake re-reads durable state through Git.
 
 Only immediate child directories are projects. The child directory name is
@@ -100,24 +101,23 @@ message creates a missing enabled peer project with `git init <root>/<name>`,
 producing only `.git` and no checkout. Names containing path separators, `.` or
 `..` are rejected.
 
-The Mac app stores one local root, a table of inspected SSH hosts, and a folder
-selection matrix. Adding a host first runs its installed helper's `inspect`
+The menu helper stores one local root, a table of inspected SSH hosts, and a
+folder selection matrix. Adding a host first runs its installed helper's `inspect`
 command; an unreachable host, missing helper, invalid response, or incompatible
 protocol is rejected before configuration changes. Inspection prepopulates the
 matrix from repositories already present on each host. A project participates
-in a connection only when both the local and remote host cells are selected, so
 disabling either cell stops both directions. Equal names already present at
 both ends require explicit confirmation before the host is added.
 
 An optional backup selects one inspected host. The receiving host separately
 chooses a parent folder, distinct from its normal root, through Git Sync.app.
-The app owns an owner-only Unix socket and a receive-only session rooted at that
+The menu helper owns an owner-only Unix socket and a receive-only session rooted at that
 user-selected folder. The SSH-launched helper only relays the framed byte stream
 to that socket, so macOS attributes destination access to Git Sync.app rather
 than Remote Login. No network listener or additional credential is introduced.
 The endpoint accepts catalogs, objects, and ref snapshots but never advertises
 repositories or publishes its own refs back. Its ordering state has one writer
-inside the receiving app and can run beside ordinary bidirectional connections.
+inside the receiving helper and can run beside ordinary bidirectional connections.
 It stores each backup as a bare `<name>.git` repository directly beneath the
 selected parent folder; backup storage never creates a checkout-shaped wrapper.
 The receiving app persists the latest complete repository catalog from each
@@ -136,9 +136,12 @@ and constructs the repository under a temporary sibling before atomically moving
 it into place. Because `HEAD` is not replicated, `main`, then `master`, then the
 first branch is selected for checkout.
 
-The app controls its own per-user login item and writes one connection and
-ordering-state file per host. The bundled helper is the same headless executable
-used on Linux.
+The foreground app registers the embedded menu helper as its per-user login item.
+The menu helper is the sole writer of configuration, starts the bundled headless
+`git-sync` executable, and writes one connection and ordering-state file per host.
+The app communicates with it through a separately versioned, owner-only control
+socket; notifications only tell the app to request a fresh snapshot. The same
+headless executable is used on Linux.
 
 ## Protocol
 

@@ -58,9 +58,9 @@ retries the fast-forward during reconciliation (within five minutes).
 $ ./scripts/install.sh
 ```
 
-This builds, Developer ID signs, and installs the menu-bar-only `Git Sync.app`
-in `/Applications`. Open it and choose the one parent folder. Add each SSH host
-before choosing folders; the app rejects the host if its Git Sync helper cannot
+This builds, Developer ID signs, and installs `Git Sync.app` plus its embedded
+menu-bar Sync Helper in `/Applications`. Open the app and choose the one parent
+folder. Add each SSH host before choosing folders; the app rejects the host if its Git Sync helper cannot
 be inspected. The folder table is prepopulated from every host. Select both the
 local and remote host cells to enable a folder in both directions. Matching
 repository names already present on both hosts retain the initial “Are You
@@ -81,9 +81,10 @@ without moving or deleting their data. **Unarchive** transfers a selected
 snapshot from the receiver into the projects folder on the Mac where the action
 was chosen; it refuses to overwrite an existing repository.
 
-The app launches at login and shows live transfer logs in its menu. It uses the
-copy of `git-sync` inside each peer's `/Applications/Git Sync.app`; the path can
-be changed while adding that host.
+The embedded helper owns continuous syncing and shows live transfer logs in its
+menu, even while the project window is closed. The Launch at Login setting
+registers that helper. It uses the copy of `git-sync` inside each peer's
+`/Applications/Git Sync.app`; the path can be changed while adding that host.
 
 ## Linux / CLI install
 

@@ -300,6 +300,30 @@ public final class EngineModel: ObservableObject {
                 }.value
                 updatePlacement(result, hostID: hostID)
                 try save()
+                if placement == .notPresent {
+                    let index = backupIndex
+                    let backup = try backupControlConfiguration()
+                    let machine = configuration.machine
+                    try await Task.detached(priority: .userInitiated) {
+                        guard index != nil || backup != nil else { return }
+                        let names: [String]
+                        let sourceMachine: String
+                        if let connection {
+                            let inspection = try Runner.inspectPeer(connection)
+                            names = inspection.repositories
+                            sourceMachine = inspection.machine
+                        } else {
+                            names = try Repository.discover(in: root).map(\.name)
+                            sourceMachine = machine
+                        }
+                        if let index { try index.replaceCatalog(machine: sourceMachine, repositories: names) }
+                        else if let backup {
+                            try Runner.replaceBackupCatalog(machine: sourceMachine, repositories: names,
+                                                            configuration: backup)
+                        }
+                    }.value
+                    await refreshBackupItems()?.value
+                }
                 placementInProgress = nil
                 try startHostProcess(hostID)
             } catch {
@@ -785,7 +809,7 @@ public final class EngineModel: ObservableObject {
         URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath).standardizedFileURL
     }
 
-    private func loadBackupIndex() throws {
+    func loadBackupIndex() throws {
         guard let destination = configuration.backupDestination else {
             backupIndex = nil
             backupIndexID = nil
@@ -804,18 +828,19 @@ public final class EngineModel: ObservableObject {
         return index
     }
 
-    private func refreshBackupItems() {
+    @discardableResult
+    private func refreshBackupItems() -> Task<Void, Never>? {
         let index = backupIndex
         let root = try? configuration.validatedBackupDestination()
         let remote = root == nil ? try? backupControlConfiguration() : nil
         guard (index != nil && root != nil) || remote != nil else {
             backupItems = []
             backupError = nil
-            return
+            return nil
         }
         backupRefreshGeneration += 1
         let generation = backupRefreshGeneration
-        Task {
+        return Task {
             do {
                 let items = try await Task.detached(priority: .utility) {
                     if let index, let root { return try index.items(in: root) }

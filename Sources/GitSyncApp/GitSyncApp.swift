@@ -125,7 +125,8 @@ final class AppModel: ObservableObject {
     private var watcherSetup: Task<Void, Never>?
     private var projectRefreshPending = false
 
-    init() {
+    init(connectToHelper: Bool = true) {
+        guard connectToHelper else { return }
         if embeddedHelperURL != nil { migrateLegacyLoginItem() }
         notificationObserver = DistributedNotificationCenter.default().addObserver(
             forName: EngineControlProtocol.changedNotification,
@@ -267,7 +268,7 @@ final class AppModel: ObservableObject {
         if let snapshot = reply.snapshot { apply(snapshot) }
     }
 
-    private func apply(_ snapshot: EngineSnapshot) {
+    func apply(_ snapshot: EngineSnapshot) {
         let oldLocal = selectedProjectName.flatMap { name in
             configuration.folders.first(where: { $0.name == name })?.availableLocally
         }
@@ -293,15 +294,16 @@ final class AppModel: ObservableObject {
             selectProject(selection)
         } else if let name = selectedProjectName {
             let newLocal = configuration.folders.first(where: { $0.name == name })?.availableLocally
-            if oldLocal != newLocal || oldSource.map({ !sources(for: name).contains($0) }) == true {
-                selectProject(name)
+            if oldLocal != newLocal || oldSource.map({ !sources(for: name).contains($0) }) == true
+                || oldSource == nil && !sources(for: name).isEmpty {
+                loadProject(name, from: sources(for: name))
             }
         }
         updateRepositoryWatcher()
     }
 
     private func updateRepositoryWatcher() {
-        let url = projectSource == .local ? selectedLocalRepositoryURL : nil
+        let url = projectSource == .local && placementInProgress != "local" ? selectedLocalRepositoryURL : nil
         guard url != watchedRepositoryURL else { return }
         watcherSetup?.cancel()
         repositoryWatcher = nil
@@ -339,6 +341,7 @@ final class AppModel: ObservableObject {
     func resume() { perform(.resume) }
 
     func selectProject(_ name: String?) {
+        guard name != selectedProjectName else { return }
         selectedProjectName = name
         if let name { UserDefaults.standard.set(name, forKey: selectedProjectKey) }
         else { UserDefaults.standard.removeObject(forKey: selectedProjectKey) }
@@ -373,8 +376,13 @@ final class AppModel: ObservableObject {
     private func loadProject(_ name: String, from sources: [ProjectSource]) {
         projectLoadGeneration += 1
         let generation = projectLoadGeneration
-        guard let first = sources.first else { return }
+        guard let first = sources.first else {
+            projectSource = nil
+            isLoadingProject = false
+            return
+        }
         projectSource = first
+        projectError = nil
         isLoadingProject = true
         let configuration = configuration
         Task {
@@ -397,6 +405,9 @@ final class AppModel: ObservableObject {
                     projectReadme = content.readme
                     projectGitHubURL = content.githubURL
                     isLoadingProject = false
+                    if let oid = selectedCommitID, selectedCommitDiff == nil {
+                        selectCommit(oid)
+                    }
                     return
                 } catch {
                     lastError = error
@@ -508,6 +519,7 @@ final class AppModel: ObservableObject {
     func setPlacement(_ placement: ProjectPlacement, project: String, hostID: UUID?, branch: String? = nil) {
         guard placementInProgress == nil else { return }
         placementInProgress = hostID?.uuidString ?? "local"
+        updateRepositoryWatcher()
         perform(.setPlacement(placement, project: project, hostID: hostID, branch: branch))
     }
 
@@ -781,7 +793,9 @@ struct ProjectBrowserView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $visibility) {
-            List(selection: Binding(get: { model.selectedProjectName }, set: model.selectProject)) {
+            List(selection: Binding(get: { model.selectedProjectName }, set: { name in
+                if let name { model.selectProject(name) }
+            })) {
                 ForEach(projects, id: \.self) { name in
                     ProjectRow(name: name, model: model).tag(name)
                 }
@@ -1110,8 +1124,6 @@ private struct ProjectDetailView: View {
                              diff: model.selectedCommitDiff,
                              isLoadingDiff: model.isLoadingCommitDiff,
                              error: model.commitDiffError)
-            } else if let archived = model.archivedProjects.first(where: { $0.name == name }) {
-                ArchivedProjectDetail(item: archived, model: model)
             } else {
                 ProjectOverview(name: name, model: model)
             }
@@ -1136,7 +1148,11 @@ private struct ProjectOverview: View {
                         Text("Project").foregroundStyle(.secondary)
                     }
                 }
-                HostControls(project: name, model: model)
+                if let archived = model.archivedProjects.first(where: { $0.name == name }) {
+                    ArchivedProjectControls(item: archived, model: model)
+                } else {
+                    HostControls(project: name, model: model)
+                }
                 Divider()
                 if let readme = model.projectReadme {
                     HStack {
@@ -1302,14 +1318,13 @@ private struct CommitDetail: View {
     }
 }
 
-private struct ArchivedProjectDetail: View {
+private struct ArchivedProjectControls: View {
     let item: BackupItem
     @ObservedObject var model: AppModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label("Archived", systemImage: "archivebox.fill").font(.title2.bold())
-            Text(item.name).font(.title3)
+            Label("Archived", systemImage: "archivebox.fill").font(.headline)
             Text("This project has no active checkout or mirror. Its repository is stored only at the backup destination.")
                 .foregroundStyle(.secondary)
             if let source = model.projectSource {
@@ -1328,19 +1343,7 @@ private struct ArchivedProjectDetail: View {
                 }
             }
             if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
-            if let readme = model.projectReadme {
-                Divider()
-                HStack {
-                    Text("README").font(.headline)
-                    Spacer()
-                    Text(readme.source).font(.caption).foregroundStyle(.secondary)
-                }
-                ScrollView { MarkdownDocument(markdown: readme.markdown) }
-            }
-            Spacer()
         }
-        .padding(20)
-        .navigationTitle(item.name)
     }
 }
 

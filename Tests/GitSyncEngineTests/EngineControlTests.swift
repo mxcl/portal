@@ -3,6 +3,46 @@ import Testing
 @testable import GitSyncCore
 @testable import GitSyncEngine
 
+@Test("archive completion publishes absence and refreshes the backup inventory while paused")
+@MainActor
+func archiveRefreshesInventory() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let source = root.appendingPathComponent("source")
+    let backup = root.appendingPathComponent("backup")
+    let support = root.appendingPathComponent("support")
+    for directory in [source, backup, support] {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+    defer { try? FileManager.default.removeItem(at: root) }
+    let project = source.appendingPathComponent("project")
+    _ = try Git.run(["init", "-q", "-b", "main", project.path])
+    _ = try Git.run(["-C", project.path, "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                     "commit", "-q", "--allow-empty", "-m", "Initial commit"])
+    try OneShot.sync(sourceRoot: source, destinationRoot: backup, machine: "test",
+                     stateURL: root.appendingPathComponent("state.json"), bareDestination: true)
+    let destination = BackupDestinationConfiguration(root: backup.path)
+    let indexURL = support.appendingPathComponent("backup-index-\(destination.id.uuidString).json")
+    try BackupIndex(url: indexURL).replaceCatalog(machine: "test", repositories: ["project"])
+    let model = EngineModel(executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+                            configuration: AppConfiguration(root: source.path, machine: "test",
+                                folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)],
+                                backupDestination: destination), support: support)
+    model.pause()
+    try model.loadBackupIndex()
+    var deadline = Date().addingTimeInterval(5)
+    while model.backupItems.isEmpty && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+    try #require(model.backupItems.first?.status == .mirrored)
+    // Retry after the folder was removed, but before its absence reached the backup.
+    try FileManager.default.removeItem(at: project)
+    model.setPlacement(.notPresent, project: "project", hostID: nil)
+    deadline = Date().addingTimeInterval(5)
+    while model.placementInProgress != nil && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(model.error == nil)
+    #expect(model.backupItems.first?.status == .archived)
+    #expect(try BackupIndex(url: indexURL).items(in: backup).first?.status == .archived)
+    #expect(model.placement(of: "project", on: nil) == .notPresent)
+}
+
 @Test("placement failures remain visible after restarting local sync")
 @MainActor
 func placementFailureSurvivesRestart() async throws {

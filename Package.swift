@@ -33,5 +33,6 @@ let package = Package(
         .testTarget(name: "GitSyncTests", dependencies: ["GitSyncCore"]),
         .testTarget(name: "GitSyncGraphTests", dependencies: ["GitSyncGraph", "GitSyncCore"]),
         .testTarget(name: "GitSyncEngineTests", dependencies: ["GitSyncEngine"]),
+        .testTarget(name: "GitSyncAppTests", dependencies: ["GitSyncApp"]),
     ]
 )

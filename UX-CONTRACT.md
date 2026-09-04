@@ -10,6 +10,10 @@
   sidebar as the window narrows. Selection is restored when possible.
 - Projects sort alphabetically and are searchable. Active and archived projects
   are separate sidebar sections.
+- Archiving refreshes the backup inventory before completing. Once all hosts
+  confirm absence, the selected project moves to Archived without resetting its
+  selected commit, graph, README, or diff. Reading from its backup preserves the
+  existing content during the source transition and uses the same overview layout.
 
 ## Project and host state
 

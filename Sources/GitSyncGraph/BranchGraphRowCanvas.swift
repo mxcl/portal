@@ -20,6 +20,7 @@ import SwiftUI
 public struct BranchGraphRowCanvas: View {
     static let rowHeight: CGFloat = 44
     static let preferredLaneWidth: CGFloat = 14
+    static let dotSize: CGFloat = 8
     static let maximumWidth: CGFloat = 180
     static let trailingPadding: CGFloat = 4
 
@@ -64,7 +65,7 @@ public struct BranchGraphRowCanvas: View {
         guard model.rowSlices.indices.contains(rowIndex) else { return }
         let row = model.rowSlices[rowIndex]
         let strokeStyle = StrokeStyle(
-            lineWidth: min(2.2, laneWidth * 0.45),
+            lineWidth: 2.2,
             lineCap: .round,
             lineJoin: .round
         )
@@ -110,7 +111,7 @@ public struct BranchGraphRowCanvas: View {
                 in: &context,
                 rowHeight: Self.rowHeight,
                 laneWidth: laneWidth,
-                dotSize: min(8, max(3, laneWidth * 0.7)),
+                dotSize: Self.dotSize,
                 rowOffset: rowOffset,
                 background: dotBackground
             )

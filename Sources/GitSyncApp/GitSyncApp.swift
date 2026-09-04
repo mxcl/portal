@@ -75,6 +75,7 @@ final class AppModel: ObservableObject {
     @Published var projectError: String?
     @Published var isLoadingProject = false
     @Published var placementInProgress: String?
+    @Published var localProjects: [String: PeerProject] = [:]
     @Published var remoteProjects: [UUID: [String: PeerProject]] = [:]
     @Published var checkoutRequest: CheckoutRequest?
 
@@ -137,8 +138,8 @@ final class AppModel: ObservableObject {
         }
         discoveryTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 30_000_000_000)
                 await self?.refreshDiscovery()
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
             }
         }
     }
@@ -233,17 +234,13 @@ final class AppModel: ObservableObject {
         guard let folder = configuration.folders.first(where: { $0.name == project }), folder.availableLocally else {
             return .notPresent
         }
-        let repository = Repository(name: project, url: expandedRoot.appendingPathComponent(project, isDirectory: true))
-        return repository.placement
+        return localProjects[project]?.placement ?? .unknown
     }
 
     func checkOut(_ project: String, hostID: UUID?) {
         let preferred: String?
         if let hostID { preferred = remoteProjects[hostID]?[project]?.defaultBranch }
-        else {
-            let repository = Repository(name: project, url: expandedRoot.appendingPathComponent(project, isDirectory: true))
-            preferred = repository.defaultBranch
-        }
+        else { preferred = localProjects[project]?.defaultBranch }
         if let preferred {
             setPlacement(.checkedOut, project: project, hostID: hostID, branch: preferred)
             return
@@ -384,13 +381,9 @@ final class AppModel: ObservableObject {
         guard !configuration.root.isEmpty else { return }
         isChecking = true
         error = nil
-        let root = configuration.root
         Task {
             do {
-                let names = try await Task.detached(priority: .userInitiated) {
-                    try Repository.discover(in: URL(fileURLWithPath: NSString(string: root).expandingTildeInPath)).map(\.name)
-                }.value
-                try configuration.discoverLocal(names)
+                try await discoverLocalProjects(priority: .userInitiated)
                 isChecking = false
                 error = nil
                 try save()
@@ -568,6 +561,8 @@ final class AppModel: ObservableObject {
     private func updatePlacement(_ project: PeerProject, hostID: UUID?) {
         if let hostID {
             remoteProjects[hostID, default: [:]][project.name] = project
+        } else {
+            localProjects[project.name] = project
         }
         if !configuration.folders.contains(where: { $0.name == project.name }) {
             configuration.folders.append(SyncFolder(name: project.name))
@@ -781,8 +776,22 @@ final class AppModel: ObservableObject {
         let root = URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath)
         if let names = try? Repository.discover(in: root).map(\.name) {
             try? configuration.discoverLocal(names)
+            localProjects = Dictionary(uniqueKeysWithValues: names.map {
+                ($0, PeerProject(name: $0, placement: .unknown))
+            })
             if selectedProjectName == nil { selectedProjectName = projectNames.first }
         }
+    }
+
+    private func discoverLocalProjects(priority: TaskPriority) async throws {
+        let root = expandedRoot
+        let projects = try await Task.detached(priority: priority) {
+            try Repository.discover(in: root).map {
+                PeerProject(name: $0.name, placement: $0.placement, defaultBranch: $0.defaultBranch)
+            }
+        }.value
+        try configuration.discoverLocal(projects.map(\.name))
+        localProjects = Dictionary(uniqueKeysWithValues: projects.map { ($0.name, $0) })
     }
 
     private func refreshHostIdentities(startAfter: Bool) async {
@@ -798,6 +807,7 @@ final class AppModel: ObservableObject {
                                  knownProjects: configuration.folders.map(\.name))
             }
         }
+        try? await discoverLocalProjects(priority: .utility)
         isChecking = false
         try? save()
         if startAfter {
@@ -814,12 +824,7 @@ final class AppModel: ObservableObject {
         let selectedWasLocal = selectedProjectName.flatMap { name in
             original.folders.first(where: { $0.name == name })?.availableLocally
         } == true
-        let root = expandedRoot
-        if let names = try? await Task.detached(priority: .utility, operation: {
-            try Repository.discover(in: root).map(\.name)
-        }).value {
-            try? configuration.discoverLocal(names)
-        }
+        try? await discoverLocalProjects(priority: .utility)
         for host in configuration.hosts {
             let probe = Configuration(root: configuration.root, machine: configuration.machine,
                                       peer: host.peer, remoteRoot: host.root,

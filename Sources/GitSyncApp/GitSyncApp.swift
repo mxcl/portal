@@ -97,7 +97,9 @@ final class AppModel: ObservableObject {
     @Published var projectGitHubURL: URL?
     @Published var projectError: String?
     @Published var isLoadingProject = false
-    @Published fileprivate var projectSource: ProjectSource?
+    @Published fileprivate var projectSource: ProjectSource? {
+        didSet { updateRepositoryWatcher() }
+    }
     @Published var placementInProgress: String?
     @Published var localProjects: [String: PeerProject] = [:]
     @Published var remoteProjects: [UUID: [String: PeerProject]] = [:]
@@ -118,6 +120,10 @@ final class AppModel: ObservableObject {
     private var connecting = false
     private var projectLoadGeneration = 0
     private var diffLoadGeneration = 0
+    private var repositoryWatcher: RepositoryWatcher?
+    private var watchedRepositoryURL: URL?
+    private var watcherSetup: Task<Void, Never>?
+    private var projectRefreshPending = false
 
     init() {
         if embeddedHelperURL != nil { migrateLegacyLoginItem() }
@@ -132,6 +138,7 @@ final class AppModel: ObservableObject {
     }
 
     deinit {
+        watcherSetup?.cancel()
         if let notificationObserver {
             DistributedNotificationCenter.default().removeObserver(notificationObserver)
         }
@@ -290,6 +297,31 @@ final class AppModel: ObservableObject {
                 selectProject(name)
             }
         }
+        updateRepositoryWatcher()
+    }
+
+    private func updateRepositoryWatcher() {
+        let url = projectSource == .local ? selectedLocalRepositoryURL : nil
+        guard url != watchedRepositoryURL else { return }
+        watcherSetup?.cancel()
+        repositoryWatcher = nil
+        watchedRepositoryURL = url
+        projectRefreshPending = false
+        guard let url else { return }
+        watcherSetup = Task { [weak self] in
+            do {
+                let paths = try await Task.detached { try RepositoryWatcher.paths(for: url) }.value
+                guard !Task.isCancelled, let self, watchedRepositoryURL == url else { return }
+                repositoryWatcher = try RepositoryWatcher(paths: paths) { [weak self] in
+                    guard let self, watchedRepositoryURL == url, projectSource == .local else { return }
+                    if isLoadingProject { projectRefreshPending = true }
+                    else { refreshProject() }
+                }
+            } catch {
+                guard !Task.isCancelled, let self, watchedRepositoryURL == url else { return }
+                projectError = "Automatic refresh unavailable: \(error.localizedDescription)"
+            }
+        }
     }
 
     func chooseRoot() {
@@ -316,6 +348,8 @@ final class AppModel: ObservableObject {
         projectGitHubURL = nil
         projectError = nil
         projectSource = nil
+        projectLoadGeneration += 1
+        isLoadingProject = false
         guard let name else { return }
         loadProject(name, from: sources(for: name))
     }
@@ -344,6 +378,12 @@ final class AppModel: ObservableObject {
         isLoadingProject = true
         let configuration = configuration
         Task {
+            defer {
+                if generation == projectLoadGeneration, projectRefreshPending {
+                    projectRefreshPending = false
+                    refreshProject()
+                }
+            }
             var lastError: Error?
             for source in sources {
                 do {
@@ -352,6 +392,7 @@ final class AppModel: ObservableObject {
                     }.value
                     guard generation == projectLoadGeneration, selectedProjectName == name else { return }
                     projectSource = source
+                    projectError = nil
                     projectSnapshot = content.snapshot
                     projectReadme = content.readme
                     projectGitHubURL = content.githubURL
@@ -881,7 +922,7 @@ private struct ProjectHistoryView: View {
                 }
             } else if model.selectedProjectName == nil {
                 ContentUnavailableView("Select a Project", systemImage: "sidebar.left")
-            } else if model.isLoadingProject {
+            } else if model.isLoadingProject && model.projectSnapshot == nil {
                 ProgressView("Reading Git history…")
             } else if let error = model.projectError {
                 ContentUnavailableView {

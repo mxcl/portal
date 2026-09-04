@@ -1164,3 +1164,53 @@ func initialSnapshotReusesSentObjects() throws {
 }
 
 }
+
+#if os(macOS)
+extension GitSyncTests {
+@Test("repository watch debounces nested edits, observes worktree refs, and stops on release")
+@MainActor
+func selectedRepositoryWatcher() async throws {
+    let fixture = try Fixture()
+    let repository = fixture.a.appendingPathComponent("project")
+    let worktree = fixture.b.appendingPathComponent("worktree")
+    _ = try git(["-C", repository.path, "worktree", "add", "-qb", "linked", worktree.path])
+    let paths = try RepositoryWatcher.paths(for: worktree)
+    #expect(paths.contains(repository.appendingPathComponent(".git").resolvingSymlinksInPath().path))
+    #expect(paths.contains(worktree.resolvingSymlinksInPath().path))
+    var changes = 0
+    var watcher: RepositoryWatcher? = try RepositoryWatcher(paths: paths) { changes += 1 }
+    #expect(watcher != nil)
+
+    func waitForChange(_ expected: Int) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while changes < expected, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(changes == expected)
+    }
+
+    let nested = worktree.appendingPathComponent("nested/new")
+    try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+    for index in 0..<5 {
+        try Data("edit \(index)".utf8).write(to: nested.appendingPathComponent("README.md"), options: .atomic)
+        try await Task.sleep(for: .milliseconds(80))
+    }
+    #expect(changes == 0)
+    try await waitForChange(1)
+    try await Task.sleep(for: .milliseconds(800))
+    #expect(changes == 1)
+
+    _ = try git(["-C", repository.path, "branch", "watch-test"])
+    try await waitForChange(2)
+    try await Task.sleep(for: .milliseconds(800))
+    #expect(changes == 2)
+
+    try Data("pending".utf8).write(to: nested.appendingPathComponent("README.md"))
+    try await Task.sleep(for: .milliseconds(200))
+    watcher = nil
+    try Data("after release".utf8).write(to: nested.appendingPathComponent("README.md"))
+    try await Task.sleep(for: .seconds(1))
+    #expect(changes == 2)
+}
+}
+#endif

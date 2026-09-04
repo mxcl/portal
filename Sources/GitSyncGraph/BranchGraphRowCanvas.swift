@@ -19,9 +19,8 @@ import SwiftUI
 
 public struct BranchGraphRowCanvas: View {
     static let rowHeight: CGFloat = 44
-    static let preferredLaneWidth: CGFloat = 14
+    static let laneWidth: CGFloat = 14
     static let dotSize: CGFloat = 8
-    static let maximumWidth: CGFloat = 180
     static let trailingPadding: CGFloat = 4
 
     let model: CommitGraphModel
@@ -33,10 +32,6 @@ public struct BranchGraphRowCanvas: View {
         Self.graphWidth(model: model, commitOID: commitOID)
     }
 
-    private var laneWidth: CGFloat {
-        Self.laneWidth(model: model)
-    }
-
     public init(model: CommitGraphModel, rowIndex: Int, commitOID: String) {
         self.model = model
         self.rowIndex = rowIndex
@@ -44,11 +39,7 @@ public struct BranchGraphRowCanvas: View {
     }
 
     static func graphWidth(model: CommitGraphModel, commitOID: String) -> CGFloat {
-        CGFloat(model.laneCount(for: commitOID)) * laneWidth(model: model) + trailingPadding
-    }
-
-    private static func laneWidth(model: CommitGraphModel) -> CGFloat {
-        min(preferredLaneWidth, (maximumWidth - trailingPadding) / CGFloat(model.laneCount))
+        CGFloat(model.laneCount(for: commitOID)) * laneWidth + trailingPadding
     }
 
     public var body: some View {
@@ -77,7 +68,7 @@ public struct BranchGraphRowCanvas: View {
                 BranchGraphCanvas.path(
                     for: graphPath,
                     rowHeight: Self.rowHeight,
-                    laneWidth: laneWidth,
+                    laneWidth: Self.laneWidth,
                     rowOffset: rowOffset
                 ),
                 with: .color(BranchGraphCanvas.lineColor(
@@ -94,7 +85,7 @@ public struct BranchGraphRowCanvas: View {
                 BranchGraphCanvas.linkPath(
                     for: link,
                     rowHeight: Self.rowHeight,
-                    laneWidth: laneWidth,
+                    laneWidth: Self.laneWidth,
                     rowOffset: rowOffset
                 ),
                 with: .color(BranchGraphCanvas.lineColor(
@@ -110,7 +101,7 @@ public struct BranchGraphRowCanvas: View {
                 model.dots[dotIndex],
                 in: &context,
                 rowHeight: Self.rowHeight,
-                laneWidth: laneWidth,
+                laneWidth: Self.laneWidth,
                 dotSize: Self.dotSize,
                 rowOffset: rowOffset,
                 background: dotBackground

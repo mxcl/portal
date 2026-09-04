@@ -188,6 +188,19 @@ func mirroredProjectCreatesCheckout() throws {
     #expect(try String(contentsOf: project.appendingPathComponent("file.txt"), encoding: .utf8) == "one\n")
 }
 
+@Test("archiving refuses a dirty checkout")
+func archiveRequiresCleanCheckout() throws {
+    let fixture = try Fixture()
+    let project = fixture.a.appendingPathComponent("project")
+    try Data("dirty\n".utf8).write(to: project.appendingPathComponent("file.txt"))
+
+    let error = #expect(throws: SyncError.self) {
+        try Repository.setPlacement(name: "project", in: fixture.a, to: .notPresent)
+    }
+    #expect(error?.description == "The checkout must be on a branch and completely clean.")
+    #expect(FileManager.default.fileExists(atPath: project.path))
+}
+
 @Test("ordinary commit copies objects without touching checkout state")
 func ordinaryCommitSafety() throws {
     let fixture = try Fixture(); try fixture.cloneToB()

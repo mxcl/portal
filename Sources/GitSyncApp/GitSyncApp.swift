@@ -1123,15 +1123,18 @@ private struct HostControls: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
+        let canArchive = model.configuration.backup != nil || model.configuration.backupDestination != nil
         VStack(alignment: .leading, spacing: 10) {
             Text("Hosts").font(.headline)
-            PlacementRow(name: model.configuration.machine, placement: model.placement(of: project, on: nil),
+            PlacementRow(project: project, name: model.configuration.machine,
+                         placement: model.placement(of: project, on: nil), canArchive: canArchive,
                          progress: model.placementInProgress == "local") {
                 $0 == .checkedOut ? model.checkOut(project, hostID: nil)
                     : model.setPlacement($0, project: project, hostID: nil)
             }
             ForEach(model.configuration.hosts) { host in
-                PlacementRow(name: host.name, placement: model.placement(of: project, on: host.id),
+                PlacementRow(project: project, name: host.name,
+                             placement: model.placement(of: project, on: host.id), canArchive: canArchive,
                              progress: model.placementInProgress == host.id.uuidString) {
                     $0 == .checkedOut ? model.checkOut(project, hostID: host.id)
                         : model.setPlacement($0, project: project, hostID: host.id)
@@ -1143,10 +1146,13 @@ private struct HostControls: View {
 }
 
 private struct PlacementRow: View {
+    let project: String
     let name: String
     let placement: ProjectPlacement
+    let canArchive: Bool
     let progress: Bool
     let change: (ProjectPlacement) -> Void
+    @State private var showingArchiveConfirmation = false
 
     var body: some View {
         HStack {
@@ -1156,7 +1162,9 @@ private struct PlacementRow: View {
             Menu {
                 switch placement {
                 case .checkedOut:
-                    Button("Keep Mirrored") { change(.mirrored) }
+                    if canArchive {
+                        Button("Archive…", role: .destructive) { showingArchiveConfirmation = true }
+                    }
                 case .mirrored:
                     Button("Check Out") { change(.checkedOut) }
                     Button("Move Repository to Trash", role: .destructive) { change(.notPresent) }
@@ -1170,7 +1178,13 @@ private struct PlacementRow: View {
                     .foregroundStyle(placement == .unknown ? .secondary : .primary)
             }
             .menuStyle(.borderlessButton)
-            .disabled(progress || placement == .unknown)
+            .disabled(progress || placement == .unknown || placement == .checkedOut && !canArchive)
+            .alert("Archive \(project)?", isPresented: $showingArchiveConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Archive", role: .destructive) { change(.notPresent) }
+            } message: {
+                Text("The checkout on \(name) will be moved to Trash. The backup will remain available to restore.")
+            }
         }
     }
 }

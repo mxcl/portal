@@ -187,8 +187,8 @@ public struct Repository: Equatable {
         case .notPresent:
             guard exists else { return Repository(name: name, url: repositoryURL) }
             let repository = Repository(name: name, url: repositoryURL)
-            guard repository.placement != .checkedOut else {
-                throw SyncError.invalidConfiguration("Remove the checkout before removing the repository.")
+            if repository.placement == .checkedOut, repository.cleanCheckoutRef() == nil {
+                throw SyncError.invalidConfiguration("The checkout must be on a branch and completely clean.")
             }
             try repository.moveToTrash()
             return repository

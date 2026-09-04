@@ -21,8 +21,9 @@
   mutated and are never inferred to be absent.
 - Creating a checkout uses published default-branch metadata, then `main`, then
   `master`, and otherwise asks the user to choose a branch.
-- A checkout can become a mirror only when clean. Removing a repository moves it
-  to a recoverable Trash; permanent deletion is never a fallback.
+- Archive is offered only when a backup destination is configured. It requires
+  confirmation, moves the selected host's clean checkout to recoverable Trash,
+  and leaves the backup available to restore. Permanent deletion is never a fallback.
 - Remote commands accept validated project names beneath a configured root only.
   The target host rechecks every safety condition.
 
@@ -30,8 +31,8 @@
 
 - One optional system-wide backup destination protects every project and is
   propagated to configured hosts.
-- `archived` is derived, not an action: every host has confirmed `notPresent`
-  and the backup destination holds the sole repository.
+- `archived` remains derived after the Archive action: every host has confirmed
+  `notPresent` and the backup destination holds the sole repository.
 - Removing the final host copy requires an acknowledged backup of its current
   refs. Missing or stale host state cannot produce an archived project.
 - Assigning an archived project to a host restores it. Divergent stored snapshots

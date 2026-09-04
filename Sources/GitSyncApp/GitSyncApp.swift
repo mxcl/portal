@@ -1614,38 +1614,42 @@ private struct CommitDetail: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(commit.message).font(.headline).textSelection(.enabled)
-                LabeledContent("Author", value: commit.author)
-                LabeledContent("Date") { Text(commit.date.formatted(date: .long, time: .standard)) }
-                LabeledContent("SHA") { Text(commit.oid).monospaced().textSelection(.enabled) }
-                if !commit.parents.isEmpty {
-                    LabeledContent("Parents") {
-                        VStack(alignment: .trailing) {
-                            ForEach(commit.parents, id: \.self) { Text($0).monospaced() }
+        ScrollView {
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(commit.message).font(.headline).textSelection(.enabled)
+                    LabeledContent("Author", value: commit.author)
+                    LabeledContent("Date") { Text(commit.date.formatted(date: .long, time: .standard)) }
+                    LabeledContent("SHA") { Text(commit.oid).monospaced().textSelection(.enabled) }
+                    if !commit.parents.isEmpty {
+                        LabeledContent("Parents") {
+                            VStack(alignment: .trailing) {
+                                ForEach(commit.parents, id: \.self) { Text($0).monospaced() }
+                            }
                         }
                     }
+                    if !references.isEmpty {
+                        LabeledContent("References", value: references.map(\.name).joined(separator: ", "))
+                    }
                 }
-                if !references.isEmpty {
-                    LabeledContent("References", value: references.map(\.name).joined(separator: ", "))
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+                if isLoadingDiff {
+                    ProgressView("Reading commit diff…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let error {
+                    ContentUnavailableView("Couldn’t Read Diff", systemImage: "exclamationmark.triangle",
+                                           description: Text(error))
+                } else if let diff {
+                    DiffRenderer(diffText: diff)
+                        .diffConfiguration(.codeReview.with(theme: colorScheme == .dark ? .dark : .light))
+                        .scrollDisabled(true)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ContentUnavailableView("No Diff", systemImage: "doc.text.magnifyingglass")
                 }
-            }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Divider()
-            if isLoadingDiff {
-                ProgressView("Reading commit diff…").frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error {
-                ContentUnavailableView("Couldn’t Read Diff", systemImage: "exclamationmark.triangle",
-                                       description: Text(error))
-            } else if let diff {
-                DiffRenderer(diffText: diff)
-                    .diffConfiguration(.codeReview.with(theme: colorScheme == .dark ? .dark : .light))
-                    .padding()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ContentUnavailableView("No Diff", systemImage: "doc.text.magnifyingglass")
             }
         }
         .navigationTitle(commit.subject)

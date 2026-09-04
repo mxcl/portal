@@ -20,6 +20,8 @@ public enum BackupControlAction: String, Codable, Sendable {
     case archive
     case export
     case catalog
+    case content
+    case diff
 }
 
 public struct BackupControlRequest: Codable, Sendable {
@@ -27,16 +29,18 @@ public struct BackupControlRequest: Codable, Sendable {
     public let action: BackupControlAction
     public let repository: String?
     public let snapshotID: String?
+    public let oid: String?
     public let machine: String?
     public let repositories: [String]?
 
     public init(version: Int = SyncProtocol.version, action: BackupControlAction,
                 repository: String? = nil, snapshotID: String? = nil,
-                machine: String? = nil, repositories: [String]? = nil) {
+                oid: String? = nil, machine: String? = nil, repositories: [String]? = nil) {
         self.version = version
         self.action = action
         self.repository = repository
         self.snapshotID = snapshotID
+        self.oid = oid
         self.machine = machine
         self.repositories = repositories
     }
@@ -94,6 +98,11 @@ public enum BackupControlConnection {
         }
     }
 
+    public static func receivePayload(_ count: Int, from handle: FileHandle) throws -> Data {
+        guard count >= 0 else { throw SyncError.invalidProtocol("Invalid payload length") }
+        return try readExactly(count, from: handle)
+    }
+
     private static func readExactly(_ count: Int, from handle: FileHandle) throws -> Data {
         var data = Data()
         while data.count < count {
@@ -143,6 +152,24 @@ public enum BackupControlService {
                 }
                 try index.replaceCatalog(machine: machine, repositories: repositories)
                 try BackupControlConnection.send(BackupControlResponse(), to: connection)
+            case .content:
+                guard let repository = request.repository, let snapshotID = request.snapshotID else {
+                    throw SyncError.invalidProtocol("Content request is incomplete")
+                }
+                let data = try JSONEncoder().encode(
+                    BackupIndex.content(repository, snapshotID: snapshotID, from: root)
+                )
+                try BackupControlConnection.send(BackupControlResponse(byteCount: data.count), to: connection)
+                try connection.write(contentsOf: data)
+            case .diff:
+                guard let repository = request.repository, let snapshotID = request.snapshotID,
+                      let oid = request.oid else {
+                    throw SyncError.invalidProtocol("Diff request is incomplete")
+                }
+                let data = Data(try BackupIndex.diff(repository, snapshotID: snapshotID,
+                                                     oid: oid, from: root).utf8)
+                try BackupControlConnection.send(BackupControlResponse(byteCount: data.count), to: connection)
+                try connection.write(contentsOf: data)
             }
         } catch {
             try BackupControlConnection.send(BackupControlResponse(error: String(describing: error)),

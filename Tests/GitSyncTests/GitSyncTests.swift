@@ -459,14 +459,38 @@ func unarchiveOntoThisHost() throws {
     let source = fixture.a.appendingPathComponent("project")
     _ = try git(["-C", source.path, "branch", "feature"])
     _ = try git(["-C", source.path, "tag", "v1"])
+    try Data("# Archived Project\n".utf8).write(to: source.appendingPathComponent("README.md"))
+    _ = try git(["-C", source.path, "add", "README.md"])
+    _ = try git(["-C", source.path, "commit", "-qm", "readme"])
     try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
                      stateURL: fixture.state, bareDestination: true)
+    let backup = fixture.b.appendingPathComponent("project.git")
+    let tip = try git(["-C", backup.path, "rev-parse", "refs/remotes/a/main"])
+    _ = try git(["-C", backup.path, "update-ref", "refs/heads/backup-only", tip])
+    _ = try git(["-C", backup.path, "update-ref", "refs/remotes/b/peer", tip])
     let restoreRoot = fixture.root.appendingPathComponent("restored")
     try FileManager.default.createDirectory(at: restoreRoot, withIntermediateDirectories: true)
     let index = try BackupIndex(url: fixture.root.appendingPathComponent("backup-index.json"))
     try index.replaceCatalog(machine: "A", repositories: [])
     let item = try #require(index.items(in: fixture.b).first)
-    let snapshot = try #require(item.snapshots.first)
+    let snapshot = try #require(item.snapshots.first { $0.machine == "A" })
+
+    let content = try BackupIndex.content(item.name, snapshotID: snapshot.id, from: fixture.b)
+    #expect(content.snapshot.head == "main")
+    #expect(content.snapshot.branches == ["feature", "main"])
+    #expect(content.snapshot.references.contains { $0.fullName == "refs/heads/main" })
+    #expect(content.snapshot.references.contains { $0.fullName == "refs/tags/v1" })
+    #expect(content.snapshot.references.contains { $0.fullName == "refs/remotes/b/peer" })
+    #expect(!content.snapshot.references.contains { $0.fullName == "refs/heads/backup-only" })
+    #expect(content.readme?.markdown == "# Archived Project\n")
+    #expect(try BackupIndex.diff(item.name, snapshotID: snapshot.id,
+                                 oid: content.snapshot.commits[0].oid, from: fixture.b).contains("README.md"))
+    #expect(throws: (any Error).self) {
+        try BackupIndex.content(item.name, snapshotID: "missing", from: fixture.b)
+    }
+    #expect(throws: (any Error).self) {
+        try BackupIndex.diff(item.name, snapshotID: snapshot.id, oid: "HEAD", from: fixture.b)
+    }
 
     try BackupIndex.restore(item.name, snapshotID: snapshot.id, from: fixture.b, to: restoreRoot)
 
@@ -502,6 +526,10 @@ func archivedBareBranchesRemainRestorable() throws {
     #expect(item.status == .archived)
     let snapshot = try #require(item.snapshots.first { $0.machine == "Stored backup" })
     #expect(snapshot.branches == ["main"])
+    let content = try BackupIndex.content(item.name, snapshotID: snapshot.id, from: fixture.b)
+    #expect(content.snapshot.head == "main")
+    #expect(content.snapshot.branches == ["main"])
+    #expect(content.snapshot.references.contains { $0.fullName == "refs/tags/v1" })
     let restoreRoot = fixture.root.appendingPathComponent("restored")
     try FileManager.default.createDirectory(at: restoreRoot, withIntermediateDirectories: true)
     let bundle = fixture.root.appendingPathComponent("stored.bundle")
@@ -542,6 +570,10 @@ func localBackupSocket() throws {
 @Test("backup control lists, archives, and exports a restorable snapshot")
 func backupControl() throws {
     let fixture = try Fixture()
+    let largeReadme = String(repeating: "x", count: 1_100_000)
+    try Data(largeReadme.utf8).write(to: fixture.a.appendingPathComponent("project/README.md"))
+    _ = try git(["-C", fixture.a.appendingPathComponent("project").path, "add", "README.md"])
+    _ = try git(["-C", fixture.a.appendingPathComponent("project").path, "commit", "-qm", "large readme"])
     try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
                      stateURL: fixture.state, bareDestination: true)
     let index = try BackupIndex(url: fixture.root.appendingPathComponent("backup-index.json"))
@@ -573,6 +605,20 @@ func backupControl() throws {
         return response
     }
 
+    func requestPayload(_ request: BackupControlRequest) throws -> Data {
+        let client = try LocalBackupTransport.connect(mode: LocalBackupTransport.session, to: socket)
+        defer { try? client.close() }
+        DispatchQueue.global().async {
+            guard let server = try? listener.accept() else { return }
+            defer { try? server.close() }
+            guard (try? LocalBackupTransport.mode(from: server)) == LocalBackupTransport.session else { return }
+            try? BackupControlService.serve(server, root: fixture.b, index: index)
+        }
+        try BackupControlConnection.send(request, to: client)
+        let response = try BackupControlConnection.receive(BackupControlResponse.self, from: client).checked()
+        return try BackupControlConnection.receivePayload(try #require(response.byteCount), from: client)
+    }
+
     let candidate = try #require(request(BackupControlRequest(action: .list)).items?.first)
     #expect(candidate.status == .archived)
     #expect(throws: (any Error).self) {
@@ -583,6 +629,17 @@ func backupControl() throws {
 
     let bundle = fixture.root.appendingPathComponent("export.bundle")
     let snapshot = try #require(candidate.snapshots.first)
+    let contentData = try requestPayload(BackupControlRequest(
+        action: .content, repository: candidate.name, snapshotID: snapshot.id
+    ))
+    #expect(contentData.count > 1_048_576)
+    let content = try JSONDecoder().decode(RepositoryContent.self, from: contentData)
+    #expect(content.readme?.markdown == largeReadme)
+    let commit = try #require(content.snapshot.commits.first)
+    let diff = try requestPayload(BackupControlRequest(
+        action: .diff, repository: candidate.name, snapshotID: snapshot.id, oid: commit.oid
+    ))
+    #expect(diff.count > 1_048_576)
     _ = try request(BackupControlRequest(action: .export, repository: candidate.name,
                                          snapshotID: snapshot.id), exportTo: bundle)
     let restored = fixture.root.appendingPathComponent("restored")

@@ -159,6 +159,26 @@ public enum Runner {
                               configuration: configuration)
     }
 
+    public static func backupContent(_ name: String, snapshotID: String,
+                                     configuration: Configuration) throws -> RepositoryContent {
+        try Validator.project(name)
+        let data = try backupPayload(
+            BackupControlRequest(action: .content, repository: name, snapshotID: snapshotID),
+            configuration: configuration
+        )
+        return try JSONDecoder().decode(RepositoryContent.self, from: data)
+    }
+
+    public static func backupDiff(_ name: String, snapshotID: String, oid: String,
+                                  configuration: Configuration) throws -> String {
+        try Validator.project(name)
+        try Validator.oid(oid)
+        return String(decoding: try backupPayload(
+            BackupControlRequest(action: .diff, repository: name, snapshotID: snapshotID, oid: oid),
+            configuration: configuration
+        ), as: UTF8.self)
+    }
+
     public static func replaceBackupCatalog(machine: String, repositories: [String],
                                             configuration: Configuration) throws {
         try Validator.machine(machine)
@@ -282,6 +302,25 @@ public enum Runner {
             let response = try BackupControlConnection.receive(BackupControlResponse.self, from: output).checked()
             try finishBackupControl(process, error: error)
             return response
+        } catch {
+            if process.isRunning { process.terminate() }
+            throw error
+        }
+    }
+
+    private static func backupPayload(_ request: BackupControlRequest,
+                                      configuration: Configuration) throws -> Data {
+        let (process, input, output, error) = try startBackupControl(configuration)
+        do {
+            try BackupControlConnection.send(request, to: input)
+            try input.close()
+            let response = try BackupControlConnection.receive(BackupControlResponse.self, from: output).checked()
+            guard let byteCount = response.byteCount else {
+                throw SyncError.invalidProtocol("Backup response has no payload length")
+            }
+            let data = try BackupControlConnection.receivePayload(byteCount, from: output)
+            try finishBackupControl(process, error: error)
+            return data
         } catch {
             if process.isRunning { process.terminate() }
             throw error

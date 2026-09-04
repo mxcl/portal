@@ -134,6 +134,84 @@ public final class BackupIndex: @unchecked Sendable {
         _ = try Git.run(["-C", repository.url.path, "bundle", "create", bundle.path, "--all"])
     }
 
+    public static func content(_ name: String, snapshotID: String,
+                               from backupRoot: URL, limit: Int = 250) throws -> RepositoryContent {
+        let (repository, snapshot) = try snapshotRepository(name, snapshotID: snapshotID, in: backupRoot)
+        let references = try repository.referenceSnapshot()
+        var projected: [String: RepositoryReference] = [:]
+        var revisions = Set<String>()
+
+        func include(_ reference: RepositoryReference, as fullName: String? = nil) {
+            let fullName = fullName ?? reference.fullName
+            projected[fullName] = projected[fullName]
+                ?? RepositoryReference(fullName: fullName, oid: reference.oid)
+            revisions.insert(reference.fullName)
+        }
+
+        for reference in references {
+            let ref = reference.fullName
+            if ref.hasPrefix("refs/remotes/") {
+                include(reference)
+                let prefix = "refs/remotes/\(snapshot.id)/"
+                if snapshot.id != storedSnapshotID, ref.hasPrefix(prefix) {
+                    include(reference, as: "refs/heads/\(ref.dropFirst(prefix.count))")
+                }
+            } else if ref.hasPrefix("refs/sync/") {
+                if ref.contains("/tags/") { include(reference) }
+                for machine in snapshot.syncMachines {
+                    let prefix = "refs/sync/\(machine)/tags/"
+                    if ref.hasPrefix(prefix) {
+                        include(reference, as: "refs/tags/\(ref.dropFirst(prefix.count))")
+                    }
+                }
+            } else if snapshot.id == storedSnapshotID,
+                      ref.hasPrefix("refs/heads/") || ref.hasPrefix("refs/tags/") {
+                include(reference)
+            }
+        }
+
+        if snapshot.id == storedSnapshotID {
+            if Git.succeeds(["-C", repository.url.path, "rev-parse", "--verify", "refs/stash"]) {
+                revisions.insert("refs/stash")
+            }
+        } else {
+            for machine in snapshot.syncMachines {
+                let stash = "refs/sync/\(machine)/stash"
+                if Git.succeeds(["-C", repository.url.path, "rev-parse", "--verify", stash]) {
+                    revisions.insert(stash)
+                }
+            }
+        }
+
+        let branch = preferredBranch(snapshot.branches)
+        let readmeRef = branch.map {
+            snapshot.id == storedSnapshotID ? "refs/heads/\($0)" : "refs/remotes/\(snapshot.id)/\($0)"
+        }
+        return RepositoryContent(
+            snapshot: try repository.snapshot(limit: limit,
+                                              references: projected.values.sorted { $0.fullName < $1.fullName },
+                                              revisions: revisions.sorted(), head: branch),
+            readme: readmeRef.flatMap(repository.readme(at:)),
+            githubURL: nil
+        )
+    }
+
+    public static func diff(_ name: String, snapshotID: String, oid: String,
+                            from backupRoot: URL) throws -> String {
+        let (repository, _) = try snapshotRepository(name, snapshotID: snapshotID, in: backupRoot)
+        return try repository.diff(at: oid)
+    }
+
+    private static func snapshotRepository(_ name: String, snapshotID: String, in root: URL) throws
+        -> (Repository, BackupSnapshot) {
+        try Validator.project(name)
+        guard let info = try repositories(in: root).first(where: { $0.name == name }),
+              let snapshot = info.snapshots.first(where: { $0.id == snapshotID }) else {
+            throw SyncError.invalidConfiguration("The selected backup snapshot is no longer available.")
+        }
+        return (Repository(name: name, url: info.url), snapshot)
+    }
+
     private static func restoreSource(_ name: String, snapshot: BackupSnapshot,
                                      from source: URL, to projectsRoot: URL) throws {
         let manager = FileManager.default

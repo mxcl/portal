@@ -256,7 +256,8 @@ public struct Repository: Equatable {
     func snapshot(limit: Int, references: [RepositoryReference], revisions: [String],
                   head: String?) throws -> RepositorySnapshot {
         guard !revisions.isEmpty else {
-            return RepositorySnapshot(commits: [], references: references, head: head, branches: [])
+            let branches = references.filter { $0.fullName.hasPrefix("refs/heads/") }.map(\.name).sorted()
+            return RepositorySnapshot(commits: [], references: references, head: head, branches: branches)
         }
         let data = try Git.run([
             "-C", url.path, "log", "--topo-order", "--date-order", "-n", String(max(1, limit)),

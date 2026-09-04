@@ -12,7 +12,7 @@ let package = Package(
         .executable(name: "GitSyncMenuBar", targets: ["GitSyncMenuBar"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/tornikegomareli/gitdiff.git", exact: "0.1.0"),
+        .package(path: "vendor/gitdiff"),
         .package(url: "https://github.com/gonzalezreal/textual.git", exact: "0.5.0"),
     ],
     targets: [

@@ -1604,7 +1604,6 @@ private struct CommitDetail: View {
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
             Divider()
             if isLoadingDiff {
                 ProgressView("Reading commit diff…").frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1615,6 +1614,7 @@ private struct CommitDetail: View {
                 DiffRenderer(diffText: diff)
                     .diffConfiguration(.codeReview.with(theme: colorScheme == .dark ? .dark : .light))
                     .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView("No Diff", systemImage: "doc.text.magnifyingglass")
             }

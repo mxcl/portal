@@ -91,6 +91,7 @@ public struct Repository: Equatable {
         if !Git.succeeds(["-C", url.path, "rev-parse", "--git-dir"]) {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             _ = try Git.run(["init", "--quiet"] + (bare ? ["--bare"] : []) + [url.path])
+            if !bare { _ = try Git.run(["-C", url.path, "config", "--local", "git-sync.mirrored", "true"]) }
         }
         return Repository(name: name, url: url)
     }
@@ -101,7 +102,9 @@ public struct Repository: Equatable {
     }
 
     public var placement: ProjectPlacement {
-        Git.succeeds(["-C", url.path, "rev-parse", "--verify", "HEAD"])
+        if (try? Git.text(["-C", url.path, "rev-parse", "--is-bare-repository"])) == "true" { return .mirrored }
+        let markedMirror = (try? Git.text(["-C", url.path, "config", "--bool", "git-sync.mirrored"])) == "true"
+        return !markedMirror && Git.succeeds(["-C", url.path, "rev-parse", "--verify", "HEAD"])
             ? .checkedOut : .mirrored
     }
 
@@ -123,6 +126,10 @@ public struct Repository: Equatable {
     public static func setPlacement(name: String, in root: URL, to requested: ProjectPlacement,
                                     branch: String? = nil) throws -> Repository {
         try Validator.project(name)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw SyncError.invalidConfiguration("Projects folder does not exist: \(root.path)")
+        }
         let repositoryURL = root.appendingPathComponent(name, isDirectory: true)
         let exists = Git.succeeds(["-C", repositoryURL.path, "rev-parse", "--git-dir"])
 
@@ -155,15 +162,16 @@ public struct Repository: Equatable {
         }
         if Git.succeeds(["-C", url.path, "rev-parse", "--verify", "refs/heads/\(branch)"]) {
             _ = try Git.run(["-C", url.path, "checkout", "--quiet", branch])
-            return
+        } else {
+            let refs = try Git.text([
+                "-C", url.path, "for-each-ref", "--format=%(refname)", "refs/remotes"
+            ]).split(whereSeparator: \.isNewline).map(String.init).sorted()
+            guard let source = refs.first(where: { $0.hasSuffix("/\(branch)") }) else {
+                throw SyncError.invalidConfiguration("Branch \(branch) is not available yet.")
+            }
+            _ = try Git.run(["-C", url.path, "checkout", "--quiet", "-b", branch, source])
         }
-        let refs = try Git.text([
-            "-C", url.path, "for-each-ref", "--format=%(refname)", "refs/remotes"
-        ]).split(whereSeparator: \.isNewline).map(String.init).sorted()
-        guard let source = refs.first(where: { $0.hasSuffix("/\(branch)") }) else {
-            throw SyncError.invalidConfiguration("Branch \(branch) is not available yet.")
-        }
-        _ = try Git.run(["-C", url.path, "checkout", "--quiet", "-b", branch, source])
+        _ = try Git.run(["-C", url.path, "config", "--local", "--unset-all", "git-sync.mirrored"], allowFailure: true)
     }
 
     private func removeCheckout() throws {
@@ -179,6 +187,7 @@ public struct Repository: Equatable {
         }
         try manager.createDirectory(at: url, withIntermediateDirectories: true)
         try manager.moveItem(at: trashed.appendingPathComponent(".git"), to: url.appendingPathComponent(".git"))
+        _ = try Git.run(["-C", url.path, "config", "--local", "git-sync.mirrored", "true"])
         #else
         throw SyncError.invalidConfiguration("Removing repositories requires a host with recoverable Trash.")
         #endif
@@ -220,7 +229,8 @@ public struct Repository: Equatable {
         let ref = requestedRef ?? (checkedOut ? "HEAD" : defaultReadmeRef())
         guard let ref else { return nil }
         for name in ["README.md", "README", "README.markdown", "README.txt"] {
-            if let markdown = try? Git.text(["-C", url.path, "show", "\(ref):\(name)"]) {
+            if let data = try? Git.run(["-C", url.path, "show", "\(ref):\(name)"]) {
+                let markdown = String(decoding: data, as: UTF8.self)
                 return RepositoryReadme(markdown: markdown, source: checkedOut ? "Checked out HEAD" : ref)
             }
         }

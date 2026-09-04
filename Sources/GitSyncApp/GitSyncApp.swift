@@ -72,6 +72,7 @@ final class AppModel: ObservableObject {
     @Published var selectedCommitID: String?
     @Published var projectSnapshot: RepositorySnapshot?
     @Published var projectReadme: RepositoryReadme?
+    @Published var projectError: String?
     @Published var isLoadingProject = false
     @Published var placementInProgress: String?
     @Published var remoteProjects: [UUID: [String: PeerProject]] = [:]
@@ -84,11 +85,6 @@ final class AppModel: ObservableObject {
         SMAppService.mainApp.status == .enabled || SMAppService.mainApp.status == .requiresApproval
     }
     var launchesAtLogin: Bool { loginItemRegistered }
-    var canStop: Bool { isRunning || loginItemRegistered }
-    var configurationLocked: Bool {
-        isRunning || isChecking || showingOverlapConfirmation || restoringBackup != nil
-    }
-    var hasBackupCatalog: Bool { configuration.backupDestination != nil || configuration.backup != nil }
     var menuLogs: [String] {
         logs.suffix(8).reversed().map { $0.count > 90 ? String($0.prefix(89)) + "…" : $0 }
     }
@@ -188,15 +184,22 @@ final class AppModel: ObservableObject {
         selectedCommitID = nil
         projectSnapshot = nil
         projectReadme = nil
-        guard let name,
-              let folder = configuration.folders.first(where: { $0.name == name }),
-              folder.availableLocally else { return }
+        projectError = nil
+        guard let name else { return }
+        let local = configuration.folders.first(where: { $0.name == name })?.availableLocally == true
+        let localURL = expandedRoot.appendingPathComponent(name, isDirectory: true)
+        let backupURL = configuration.backupDestination.map {
+            URL(fileURLWithPath: $0.root).appendingPathComponent("\(name).git", isDirectory: true)
+        }
+        let repositoryURL = local ? localURL : backupURL.flatMap {
+            FileManager.default.fileExists(atPath: $0.path) ? $0 : nil
+        }
+        guard let repositoryURL else { return }
         isLoadingProject = true
-        let root = expandedRoot
         Task {
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
-                    let repository = Repository(name: name, url: root.appendingPathComponent(name, isDirectory: true))
+                    let repository = Repository(name: name, url: repositoryURL)
                     return (try repository.snapshot(), repository.readme())
                 }.value
                 guard selectedProjectName == name else { return }
@@ -206,7 +209,7 @@ final class AppModel: ObservableObject {
             } catch {
                 guard selectedProjectName == name else { return }
                 isLoadingProject = false
-                self.error = String(describing: error)
+                projectError = String(describing: error)
             }
         }
     }
@@ -319,40 +322,6 @@ final class AppModel: ObservableObject {
         } catch { fail(error) }
     }
 
-    func clearBackupDestination() {
-        configuration.backupDestination = nil
-        backupIndex = nil
-        backupIndexID = nil
-        do {
-            try save()
-            refreshBackupItems()
-        } catch { fail(error) }
-    }
-
-    func archiveBackup(_ item: BackupItem) {
-        do {
-            let root = try configuration.validatedBackupDestination()
-            let index = backupIndex
-            let remote = root == nil ? try backupControlConfiguration() : nil
-            guard (root != nil && index != nil) || remote != nil else { return }
-            restoringBackup = item.name
-            Task {
-                do {
-                    try await Task.detached(priority: .userInitiated) {
-                        if let root, let index { try index.archive(item.name, in: root) }
-                        else if let remote { try Runner.archiveBackup(item.name, configuration: remote) }
-                    }.value
-                    restoringBackup = nil
-                    refreshBackupItems()
-                    appendLog("Archived backup \(item.name)")
-                } catch {
-                    restoringBackup = nil
-                    fail(error)
-                }
-            }
-        } catch { fail(error) }
-    }
-
     func unarchiveBackup(_ item: BackupItem, snapshot: BackupSnapshot) {
         do {
             let backupRoot = try configuration.validatedBackupDestination()
@@ -362,7 +331,7 @@ final class AppModel: ObservableObject {
             let projectsRoot = expandedRoot
             let machine = configuration.machine
             restoringBackup = item.name
-            status = "Unarchiving \(item.name)"
+            status = "Bringing \(item.name) to this Mac"
             Task {
                 do {
                     let names = try await Task.detached(priority: .userInitiated) {
@@ -387,7 +356,8 @@ final class AppModel: ObservableObject {
                     restoringBackup = nil
                     status = isRunning ? "Standing By" : "Stopped"
                     refreshBackupItems()
-                    appendLog("Unarchived \(item.name) onto this Mac from \(snapshot.machine)")
+                    appendLog("Brought \(item.name) to this Mac from \(snapshot.machine)")
+                    selectProject(item.name)
                 } catch {
                     restoringBackup = nil
                     fail(error)
@@ -515,32 +485,6 @@ final class AppModel: ObservableObject {
         } catch { fail(error) }
     }
 
-    func setLocal(_ enabled: Bool, folder: String) {
-        guard let index = configuration.folders.firstIndex(where: { $0.name == folder }) else { return }
-        configuration.folders[index].isLocal = enabled
-        configurationChanged()
-    }
-
-    func setHost(_ hostID: UUID, enabled: Bool, folder: String) {
-        guard let index = configuration.folders.firstIndex(where: { $0.name == folder }) else { return }
-        if enabled { configuration.folders[index].hosts.insert(hostID) }
-        else { configuration.folders[index].hosts.remove(hostID) }
-        configurationChanged()
-    }
-
-    func setBackupEnabled(_ enabled: Bool) {
-        configuration.backup = enabled
-            ? configuration.hosts.first.map { BackupConfiguration(hostID: $0.id, root: "") }
-            : nil
-        refreshBackupItems()
-    }
-
-    func setBackupHost(_ hostID: UUID) {
-        guard let backup = configuration.backup, backup.hostID != hostID else { return }
-        configuration.backup = BackupConfiguration(id: backup.id, hostID: hostID)
-        refreshBackupItems()
-    }
-
     func chooseBackupHost(_ hostID: UUID) {
         guard configuration.backup == nil, configuration.backupDestination == nil else { return }
         configuration.backup = BackupConfiguration(hostID: hostID)
@@ -551,33 +495,6 @@ final class AppModel: ObservableObject {
     func setSyncCheckouts(_ enabled: Bool) {
         configuration.syncCheckouts = enabled
         configurationChanged()
-    }
-
-    func refreshBackups() { refreshBackupItems() }
-
-    func start() {
-        guard !isChecking else { return }
-        do {
-            try save()
-            guard configuration.backup != nil || configuration.backupDestination != nil
-                    || configuration.hosts.contains(where: {
-                !configuration.repositories(for: $0.id).isEmpty
-            }) else {
-                throw SyncError.invalidConfiguration("Choose folders to sync or configure a backup before starting.")
-            }
-            if SMAppService.mainApp.status == .notRegistered || SMAppService.mainApp.status == .notFound {
-                try SMAppService.mainApp.register()
-            }
-            try launchAll()
-        } catch { fail(error) }
-    }
-
-    func stop() {
-        stopProcesses()
-        do {
-            if loginItemRegistered { try SMAppService.mainApp.unregister() }
-            status = configuration.hosts.isEmpty && configuration.backupDestination == nil ? "Add a host" : "Stopped"
-        } catch { fail(error) }
     }
 
     func openLoginItems() {
@@ -662,7 +579,7 @@ final class AppModel: ObservableObject {
         guard let hostID else { stopProcesses(); return }
         guard let process = syncProcesses.removeValue(forKey: hostID) else { return }
         process.terminationHandler = nil
-        if process.isRunning { process.terminate() }
+        if process.isRunning { process.terminate(); process.waitUntilExit() }
     }
 
     private func startHostProcess(_ hostID: UUID?) throws {
@@ -832,7 +749,7 @@ final class AppModel: ObservableObject {
         syncProcesses.removeAll()
         for process in processes {
             process.terminationHandler = nil
-            if process.isRunning { process.terminate() }
+            if process.isRunning { process.terminate(); process.waitUntilExit() }
         }
         isRunning = false
     }
@@ -1189,6 +1106,9 @@ struct ProjectBrowserView: View {
     private var projects: [String] {
         model.projectNames.filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }
     }
+    private var archived: [BackupItem] {
+        model.archivedProjects.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+    }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $visibility) {
@@ -1198,9 +1118,9 @@ struct ProjectBrowserView: View {
                         ProjectRow(name: name, model: model).tag(name)
                     }
                 }
-                if !model.archivedProjects.isEmpty {
+                if !archived.isEmpty {
                     Section("Archived") {
-                        ForEach(model.archivedProjects) { item in
+                        ForEach(archived) { item in
                             Label(item.name, systemImage: "archivebox").tag(item.name)
                         }
                     }
@@ -1208,6 +1128,11 @@ struct ProjectBrowserView: View {
             }
             .navigationTitle("Projects")
             .searchable(text: $search, placement: .sidebar, prompt: "Projects")
+            .overlay {
+                if projects.isEmpty && archived.isEmpty {
+                    ContentUnavailableView.search(text: search)
+                }
+            }
         } content: {
             ProjectHistoryView(model: model)
         } detail: {
@@ -1275,6 +1200,8 @@ private struct ProjectRow: View {
             }
         }
         .help(projectSummary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(projectSummary)
     }
 
     private var projectSummary: String {
@@ -1286,16 +1213,30 @@ private struct ProjectRow: View {
 
 private struct ProjectHistoryView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Group {
             if !model.isConfigured {
-                ContentUnavailableView("Choose a Projects Folder", systemImage: "folder.badge.plus",
-                                       description: Text("Open Settings to set up this Mac."))
+                ContentUnavailableView {
+                    Label("Choose a Projects Folder", systemImage: "folder.badge.plus")
+                } description: {
+                    Text("Set up this Mac to discover its Git projects.")
+                } actions: {
+                    Button("Open Settings") { openSettings(); NSApplication.shared.activate() }
+                }
             } else if model.selectedProjectName == nil {
                 ContentUnavailableView("Select a Project", systemImage: "sidebar.left")
             } else if model.isLoadingProject {
                 ProgressView("Reading Git history…")
+            } else if let error = model.projectError {
+                ContentUnavailableView {
+                    Label("Couldn’t Read Git History", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("Try Again") { model.selectProject(model.selectedProjectName) }
+                }
             } else if let snapshot = model.projectSnapshot {
                 CommitList(snapshot: snapshot, selection: $model.selectedCommitID)
             } else {
@@ -1305,6 +1246,10 @@ private struct ProjectHistoryView: View {
         }
         .navigationTitle(model.selectedProjectName ?? "Git Tree")
         .toolbar {
+            ToolbarItem {
+                Button("Show Project Details", systemImage: "info.circle") { model.selectedCommitID = nil }
+                    .disabled(model.selectedProjectName == nil || model.selectedCommitID == nil)
+            }
             ToolbarItem { Button("Refresh", systemImage: "arrow.clockwise") { model.selectProject(model.selectedProjectName) } }
         }
     }
@@ -1361,6 +1306,7 @@ private struct CommitRow: View {
             }
         }
         .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -1577,7 +1523,9 @@ private struct ArchivedProjectDetail: View {
             Text(item.name).font(.title3)
             Text("This project has no active checkout or mirror. Its repository is stored only at the backup destination.")
                 .foregroundStyle(.secondary)
-            if item.snapshots.count == 1, let snapshot = item.snapshots.first {
+            if model.restoringBackup == item.name {
+                ProgressView("Bringing to this Mac…")
+            } else if item.snapshots.count == 1, let snapshot = item.snapshots.first {
                 Button("Bring to This Mac") { model.unarchiveBackup(item, snapshot: snapshot) }
             } else if !item.snapshots.isEmpty {
                 Menu("Bring to This Mac") {
@@ -1585,6 +1533,16 @@ private struct ArchivedProjectDetail: View {
                         Button("From \(snapshot.machine)") { model.unarchiveBackup(item, snapshot: snapshot) }
                     }
                 }
+            }
+            if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+            if let readme = model.projectReadme {
+                Divider()
+                HStack {
+                    Text("README").font(.headline)
+                    Spacer()
+                    Text(readme.source).font(.caption).foregroundStyle(.secondary)
+                }
+                ScrollView { MarkdownDocument(markdown: readme.markdown) }
             }
             Spacer()
         }
@@ -1598,20 +1556,43 @@ private struct MarkdownDocument: View {
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(markdown.components(separatedBy: .newlines).enumerated()), id: \.offset) { _, line in
-                if line.hasPrefix("### ") { inline(String(line.dropFirst(4))).font(.headline) }
-                else if line.hasPrefix("## ") { inline(String(line.dropFirst(3))).font(.title3.bold()) }
-                else if line.hasPrefix("# ") { inline(String(line.dropFirst(2))).font(.title2.bold()) }
-                else if line.hasPrefix("- ") || line.hasPrefix("* ") {
-                    HStack(alignment: .top) { Text("•"); inline(String(line.dropFirst(2))) }
-                } else if line.hasPrefix("    ") {
-                    Text(String(line.dropFirst(4))).font(.system(.body, design: .monospaced))
-                        .padding(8).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                } else if !line.isEmpty { inline(line) }
-                else { Spacer().frame(height: 4) }
+            ForEach(blocks) { block in
+                switch block.kind {
+                case .heading1: inline(block.text).font(.title2.bold())
+                case .heading2: inline(block.text).font(.title3.bold())
+                case .heading3: inline(block.text).font(.headline)
+                case .list: HStack(alignment: .top) { Text("•"); inline(block.text) }
+                case .code:
+                    ScrollView(.horizontal) {
+                        Text(block.text).font(.system(.body, design: .monospaced)).fixedSize(horizontal: true, vertical: false)
+                    }
+                    .padding(8).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                case .paragraph: inline(block.text)
+                case .space: Spacer().frame(height: 4)
+                }
             }
         }
         .textSelection(.enabled)
+    }
+
+    private var blocks: [MarkdownBlock] {
+        var result: [MarkdownBlock] = [], code: [String] = []
+        var inCode = false
+        for line in markdown.components(separatedBy: .newlines) {
+            if line.hasPrefix("```") {
+                if inCode { result.append(MarkdownBlock(kind: .code, text: code.joined(separator: "\n"))); code = [] }
+                inCode.toggle()
+            } else if inCode { code.append(line) }
+            else if line.hasPrefix("### ") { result.append(MarkdownBlock(kind: .heading3, text: String(line.dropFirst(4)))) }
+            else if line.hasPrefix("## ") { result.append(MarkdownBlock(kind: .heading2, text: String(line.dropFirst(3)))) }
+            else if line.hasPrefix("# ") { result.append(MarkdownBlock(kind: .heading1, text: String(line.dropFirst(2)))) }
+            else if line.hasPrefix("- ") || line.hasPrefix("* ") { result.append(MarkdownBlock(kind: .list, text: String(line.dropFirst(2)))) }
+            else if line.hasPrefix("    ") { result.append(MarkdownBlock(kind: .code, text: String(line.dropFirst(4)))) }
+            else if line.isEmpty { result.append(MarkdownBlock(kind: .space, text: "")) }
+            else { result.append(MarkdownBlock(kind: .paragraph, text: line)) }
+        }
+        if !code.isEmpty { result.append(MarkdownBlock(kind: .code, text: code.joined(separator: "\n"))) }
+        return result
     }
 
     private func inline(_ source: String) -> Text {
@@ -1620,45 +1601,11 @@ private struct MarkdownDocument: View {
     }
 }
 
-private extension BackupStatus {
-    var title: String {
-        switch self {
-        case .mirrored: "Mirrored"
-        case .candidate: "Not on any host"
-        case .unknown: "Waiting for host"
-        case .archived: "Archived"
-        }
-    }
-}
-
-private extension BackupItem {
-    var snapshotTitle: String {
-        snapshots.map(\.machine).joined(separator: ", ")
-    }
-}
-
-private struct BackupActions: View {
-    @ObservedObject var model: AppModel
-    let item: BackupItem
-
-    var body: some View {
-        if model.restoringBackup == item.name {
-            ProgressView().controlSize(.small)
-        } else if item.status == .candidate {
-            Button("Archive") { model.archiveBackup(item) }
-        } else if item.status == .archived, item.snapshots.count == 1,
-                  let snapshot = item.snapshots.first {
-            Button("Unarchive") { model.unarchiveBackup(item, snapshot: snapshot) }
-        } else if item.status == .archived, !item.snapshots.isEmpty {
-            Menu("Unarchive") {
-                ForEach(item.snapshots) { snapshot in
-                    Button("From \(snapshot.machine)") {
-                        model.unarchiveBackup(item, snapshot: snapshot)
-                    }
-                }
-            }
-        }
-    }
+private struct MarkdownBlock: Identifiable {
+    enum Kind { case heading1, heading2, heading3, list, code, paragraph, space }
+    let id = UUID()
+    let kind: Kind
+    let text: String
 }
 
 struct SettingsView: View {
@@ -1715,6 +1662,7 @@ struct SettingsView: View {
                     TableColumn("SSH Host", value: \.peer)
                     TableColumn("Projects Folder", value: \.root)
                 }
+                if let error = model.hostError { Text(error).foregroundStyle(.red).textSelection(.enabled) }
                 Text("Removing a host forgets the connection only; it never deletes repositories or Git refs.")
                     .foregroundStyle(.secondary)
             }
@@ -1753,6 +1701,17 @@ struct SettingsView: View {
         .contentMargins(.vertical, 20, for: .scrollContent)
         .frame(minWidth: 720, minHeight: 520)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Label(model.status, systemImage: model.isPaused ? "pause.circle" : "arrow.triangle.2.circlepath")
+                if let error = model.error {
+                    Text(error).foregroundStyle(.red).lineLimit(2).textSelection(.enabled)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20).padding(.vertical, 10)
+            .background(.bar)
+        }
         .sheet(isPresented: $model.showingAddHost) { AddHostView(model: model) }
         .sheet(isPresented: $model.showingRenameHost) { RenameHostView(model: model) }
         .sheet(isPresented: $model.showingOverlapConfirmation) {

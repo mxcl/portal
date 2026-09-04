@@ -19,21 +19,35 @@ import SwiftUI
 
 public struct BranchGraphRowCanvas: View {
     static let rowHeight: CGFloat = 44
-    static let laneWidth: CGFloat = 14
-    static let dotSize: CGFloat = 8
+    static let preferredLaneWidth: CGFloat = 14
+    static let maximumWidth: CGFloat = 180
     static let trailingPadding: CGFloat = 4
 
     let model: CommitGraphModel
     let rowIndex: Int
+    let commitOID: String
     @Environment(\.backgroundProminence) private var backgroundProminence
 
     private var graphWidth: CGFloat {
-        CGFloat(model.laneCount) * Self.laneWidth + Self.trailingPadding
+        Self.graphWidth(model: model, commitOID: commitOID)
     }
 
-    public init(model: CommitGraphModel, rowIndex: Int) {
+    private var laneWidth: CGFloat {
+        Self.laneWidth(model: model)
+    }
+
+    public init(model: CommitGraphModel, rowIndex: Int, commitOID: String) {
         self.model = model
         self.rowIndex = rowIndex
+        self.commitOID = commitOID
+    }
+
+    static func graphWidth(model: CommitGraphModel, commitOID: String) -> CGFloat {
+        CGFloat(model.laneCount(for: commitOID)) * laneWidth(model: model) + trailingPadding
+    }
+
+    private static func laneWidth(model: CommitGraphModel) -> CGFloat {
+        min(preferredLaneWidth, (maximumWidth - trailingPadding) / CGFloat(model.laneCount))
     }
 
     public var body: some View {
@@ -50,7 +64,7 @@ public struct BranchGraphRowCanvas: View {
         guard model.rowSlices.indices.contains(rowIndex) else { return }
         let row = model.rowSlices[rowIndex]
         let strokeStyle = StrokeStyle(
-            lineWidth: 2.2,
+            lineWidth: min(2.2, laneWidth * 0.45),
             lineCap: .round,
             lineJoin: .round
         )
@@ -62,7 +76,7 @@ public struct BranchGraphRowCanvas: View {
                 BranchGraphCanvas.path(
                     for: graphPath,
                     rowHeight: Self.rowHeight,
-                    laneWidth: Self.laneWidth,
+                    laneWidth: laneWidth,
                     rowOffset: rowOffset
                 ),
                 with: .color(BranchGraphCanvas.lineColor(
@@ -79,7 +93,7 @@ public struct BranchGraphRowCanvas: View {
                 BranchGraphCanvas.linkPath(
                     for: link,
                     rowHeight: Self.rowHeight,
-                    laneWidth: Self.laneWidth,
+                    laneWidth: laneWidth,
                     rowOffset: rowOffset
                 ),
                 with: .color(BranchGraphCanvas.lineColor(
@@ -95,8 +109,8 @@ public struct BranchGraphRowCanvas: View {
                 model.dots[dotIndex],
                 in: &context,
                 rowHeight: Self.rowHeight,
-                laneWidth: Self.laneWidth,
-                dotSize: Self.dotSize,
+                laneWidth: laneWidth,
+                dotSize: min(8, max(3, laneWidth * 0.7)),
                 rowOffset: rowOffset,
                 background: dotBackground
             )

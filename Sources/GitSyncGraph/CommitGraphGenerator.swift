@@ -224,7 +224,7 @@ public nonisolated enum CommitGraphGenerator {
             metadata[commit.oid] = GraphCommitMetadata(
                 colorIndex: dotColor,
                 isHighlighted: isHighlighted,
-                leftMargin: max(offsetX, maxOffsetOld) + halfWidth + 2
+                laneCount: max(1, lane(forX: max(offsetX, maxOffsetOld)) + 1)
             )
         }
 

@@ -27,3 +27,16 @@ func commitGraphMerge() {
     #expect(model.rowSlices.count == 4)
     #expect(model.dots.first?.type == .head)
 }
+
+@Test("wide histories leave room for commit text")
+func wideHistoryRowWidth() {
+    let root = RepositoryCommit(oid: "root", parents: [], author: "", date: .distantPast, message: "root")
+    let tips = (0..<18).map {
+        RepositoryCommit(oid: "tip-\($0)", parents: [root.oid], author: "", date: .distantPast, message: "tip")
+    }
+    let model = CommitGraphGenerator.generate(commits: tips + [root], headOID: nil)
+
+    #expect(model.laneCount * 14 + 4 > 240)
+    #expect(BranchGraphRowCanvas.graphWidth(model: model, commitOID: tips[0].oid) < 20)
+    #expect(BranchGraphRowCanvas.graphWidth(model: model, commitOID: tips.last!.oid) <= 180)
+}

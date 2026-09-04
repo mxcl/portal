@@ -1386,7 +1386,7 @@ private struct CommitRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            BranchGraphRowCanvas(model: graph, rowIndex: rowIndex)
+            BranchGraphRowCanvas(model: graph, rowIndex: rowIndex, commitOID: commit.oid)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 5) {
                     Text(commit.subject).lineLimit(1)

@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "GitSyncCore", targets: ["GitSyncCore"]),
         .executable(name: "git-sync", targets: ["git-sync"]),
         .executable(name: "GitSync", targets: ["GitSyncApp"]),
+        .executable(name: "GitSyncMenuBar", targets: ["GitSyncMenuBar"]),
     ],
     dependencies: [
         .package(url: "https://github.com/tornikegomareli/gitdiff.git", exact: "0.1.0"),
@@ -19,14 +20,17 @@ let package = Package(
             linkerSettings: [.linkedFramework("CoreServices", .when(platforms: [.macOS]))]
         ),
         .target(name: "GitSyncCore", dependencies: ["GitSyncWatch"]),
+        .target(name: "GitSyncEngine", dependencies: ["GitSyncCore"]),
         .target(name: "GitSyncGraph", dependencies: ["GitSyncCore"]),
         .executableTarget(name: "git-sync", dependencies: ["GitSyncCore"]),
         .executableTarget(
             name: "GitSyncApp",
-            dependencies: ["GitSyncCore", "GitSyncGraph", .product(name: "gitdiff", package: "gitdiff")]
+            dependencies: ["GitSyncCore", "GitSyncEngine", "GitSyncGraph", .product(name: "gitdiff", package: "gitdiff")]
         ),
+        .executableTarget(name: "GitSyncMenuBar", dependencies: ["GitSyncEngine"]),
         .testTarget(name: "GitSyncTests", dependencies: ["GitSyncCore"]),
         .testTarget(name: "GitSyncGraphTests", dependencies: ["GitSyncGraph", "GitSyncCore"]),
         .testTarget(name: "GitSyncAppTests", dependencies: ["GitSyncApp"]),
+        .testTarget(name: "GitSyncEngineTests", dependencies: ["GitSyncEngine"]),
     ]
 )

@@ -2,6 +2,7 @@
 import AppKit
 import ServiceManagement
 import SwiftUI
+import Textual
 import UniformTypeIdentifiers
 import GitSyncCore
 import GitSyncEngine
@@ -1293,56 +1294,10 @@ private struct MarkdownDocument: View {
     let markdown: String
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                switch block.kind {
-                case .heading1: inline(block.text).font(.title2.bold())
-                case .heading2: inline(block.text).font(.title3.bold())
-                case .heading3: inline(block.text).font(.headline)
-                case .list: HStack(alignment: .top) { Text("•"); inline(block.text) }
-                case .code:
-                    ScrollView(.horizontal) {
-                        Text(block.text).font(.system(.body, design: .monospaced)).fixedSize(horizontal: true, vertical: false)
-                    }
-                    .padding(8).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                case .paragraph: inline(block.text)
-                case .space: Spacer().frame(height: 4)
-                }
-            }
-        }
-        .textSelection(.enabled)
+        StructuredText(markdown: markdown)
+            .textual.textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
-
-    private var blocks: [MarkdownBlock] {
-        var result: [MarkdownBlock] = [], code: [String] = []
-        var inCode = false
-        for line in markdown.components(separatedBy: .newlines) {
-            if line.hasPrefix("```") {
-                if inCode { result.append(MarkdownBlock(kind: .code, text: code.joined(separator: "\n"))); code = [] }
-                inCode.toggle()
-            } else if inCode { code.append(line) }
-            else if line.hasPrefix("### ") { result.append(MarkdownBlock(kind: .heading3, text: String(line.dropFirst(4)))) }
-            else if line.hasPrefix("## ") { result.append(MarkdownBlock(kind: .heading2, text: String(line.dropFirst(3)))) }
-            else if line.hasPrefix("# ") { result.append(MarkdownBlock(kind: .heading1, text: String(line.dropFirst(2)))) }
-            else if line.hasPrefix("- ") || line.hasPrefix("* ") { result.append(MarkdownBlock(kind: .list, text: String(line.dropFirst(2)))) }
-            else if line.hasPrefix("    ") { result.append(MarkdownBlock(kind: .code, text: String(line.dropFirst(4)))) }
-            else if line.isEmpty { result.append(MarkdownBlock(kind: .space, text: "")) }
-            else { result.append(MarkdownBlock(kind: .paragraph, text: line)) }
-        }
-        if !code.isEmpty { result.append(MarkdownBlock(kind: .code, text: code.joined(separator: "\n"))) }
-        return result
-    }
-
-    private func inline(_ source: String) -> Text {
-        (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            .map(Text.init) ?? Text(source)
-    }
-}
-
-private struct MarkdownBlock {
-    enum Kind { case heading1, heading2, heading3, list, code, paragraph, space }
-    let kind: Kind
-    let text: String
 }
 
 struct SettingsView: View {

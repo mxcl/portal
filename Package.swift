@@ -13,6 +13,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/tornikegomareli/gitdiff.git", exact: "0.1.0"),
+        .package(url: "https://github.com/gonzalezreal/textual.git", exact: "0.5.0"),
     ],
     targets: [
         .target(
@@ -25,7 +26,8 @@ let package = Package(
         .executableTarget(name: "git-sync", dependencies: ["GitSyncCore"]),
         .executableTarget(
             name: "GitSyncApp",
-            dependencies: ["GitSyncCore", "GitSyncEngine", "GitSyncGraph", .product(name: "gitdiff", package: "gitdiff")]
+            dependencies: ["GitSyncCore", "GitSyncEngine", "GitSyncGraph", .product(name: "gitdiff", package: "gitdiff"),
+                           .product(name: "Textual", package: "textual", condition: .when(platforms: [.macOS]))]
         ),
         .executableTarget(name: "GitSyncMenuBar", dependencies: ["GitSyncEngine"]),
         .testTarget(name: "GitSyncTests", dependencies: ["GitSyncCore"]),

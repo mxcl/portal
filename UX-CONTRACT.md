@@ -47,7 +47,8 @@
 - Normal branch divergence is information, never a warning.
 - Commit detail contains message, author, date, object ID, parents, pointing refs,
   and a diff. The MVP has no file browser, graph filters, or activity pane.
-- README rendering supports basic native Markdown and labels its source ref.
+- Both README views use Textual for Markdown headings, blockquotes, lists, code
+  blocks, and tables, preserve text selection, and label the source ref.
 - A local repository is always the presentation source when present; remote source
   selection and reads never change refs, the index, `HEAD`, or a working tree.
 

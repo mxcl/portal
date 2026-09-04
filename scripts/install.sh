@@ -21,6 +21,7 @@ menu="$app/Contents/Library/LoginItems/Git Sync Menu.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" \
   "$menu/Contents/MacOS" "$(dirname -- "$destination")"
 cp "$build_dir/GitSync" "$app/Contents/MacOS/GitSync"
+cp -R "$build_dir/textual_Textual.bundle" "$app/Contents/Resources/"
 cp "$build_dir/git-sync" "$app/Contents/Resources/git-sync"
 cp "$build_dir/GitSyncMenuBar" "$menu/Contents/MacOS/GitSyncMenuBar"
 cp "$repo_dir/app/Info.plist" "$app/Contents/Info.plist"

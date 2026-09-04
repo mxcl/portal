@@ -150,6 +150,24 @@ func repositorySnapshot() throws {
     #expect(repository.readme()?.source == "Checked out HEAD")
 }
 
+@Test("repository maps GitHub origins to project pages")
+func githubOriginURL() throws {
+    let expected = "https://github.com/mxcl/git-sync"
+    for origin in [
+        "git@github.com:mxcl/git-sync.git",
+        "ssh://git@github.com/mxcl/git-sync.git",
+        "https://github.com/mxcl/git-sync.git",
+    ] {
+        #expect(Repository.githubURL(forOrigin: origin)?.absoluteString == expected)
+    }
+    #expect(Repository.githubURL(forOrigin: "git@gitlab.com:mxcl/git-sync.git") == nil)
+
+    let fixture = try Fixture()
+    let repository = Repository(name: "project", url: fixture.a.appendingPathComponent("project"))
+    _ = try git(["-C", repository.url.path, "remote", "add", "origin", "git@github.com:mxcl/git-sync.git"])
+    #expect(repository.githubURL?.absoluteString == expected)
+}
+
 @Test("a mirrored project can create a checkout from a peer branch")
 func mirroredProjectCreatesCheckout() throws {
     let fixture = try Fixture()

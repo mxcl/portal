@@ -123,6 +123,36 @@ public struct Repository: Equatable {
         return nil
     }
 
+    public var githubURL: URL? {
+        guard let origin = try? Git.text(["-C", url.path, "remote", "get-url", "origin"]) else { return nil }
+        return Self.githubURL(forOrigin: origin)
+    }
+
+    static func githubURL(forOrigin origin: String) -> URL? {
+        let origin = origin.trimmingCharacters(in: .whitespacesAndNewlines)
+        let path: String
+        if let components = URLComponents(string: origin), let host = components.host {
+            guard host.lowercased() == "github.com" || host.lowercased() == "www.github.com" else { return nil }
+            path = components.path
+        } else {
+            let parts = origin.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2,
+                  parts[0].split(separator: "@").last?.lowercased() == "github.com" else { return nil }
+            path = String(parts[1])
+        }
+
+        var components = path.split(separator: "/").map(String.init)
+        guard components.count == 2 else { return nil }
+        if components[1].lowercased().hasSuffix(".git") { components[1].removeLast(4) }
+        guard components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
+
+        var url = URLComponents()
+        url.scheme = "https"
+        url.host = "github.com"
+        url.path = "/\(components[0])/\(components[1])"
+        return url.url
+    }
+
     public static func setPlacement(name: String, in root: URL, to requested: ProjectPlacement,
                                     branch: String? = nil) throws -> Repository {
         try Validator.project(name)

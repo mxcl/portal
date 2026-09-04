@@ -79,6 +79,7 @@ final class AppModel: ObservableObject {
     @Published var isLoadingCommitDiff = false
     @Published var projectSnapshot: RepositorySnapshot?
     @Published var projectReadme: RepositoryReadme?
+    @Published var projectGitHubURL: URL?
     @Published var projectError: String?
     @Published var isLoadingProject = false
     @Published var placementInProgress: String?
@@ -268,6 +269,7 @@ final class AppModel: ObservableObject {
         selectCommit(nil)
         projectSnapshot = nil
         projectReadme = nil
+        projectGitHubURL = nil
         projectError = nil
         guard let name else { return }
         let repositoryURL = repositoryURL(for: name)
@@ -277,11 +279,12 @@ final class AppModel: ObservableObject {
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
                     let repository = Repository(name: name, url: repositoryURL)
-                    return (try repository.snapshot(), repository.readme())
+                    return (try repository.snapshot(), repository.readme(), repository.githubURL)
                 }.value
                 guard selectedProjectName == name else { return }
                 projectSnapshot = result.0
                 projectReadme = result.1
+                projectGitHubURL = result.2
                 isLoadingProject = false
             } catch {
                 guard selectedProjectName == name else { return }
@@ -328,6 +331,13 @@ final class AppModel: ObservableObject {
     func revealSelectedProjectInFinder() {
         guard let repositoryURL = selectedLocalRepositoryURL else { return }
         NSWorkspace.shared.activateFileViewerSelecting([repositoryURL])
+    }
+
+    func openSelectedProjectOnGitHub() {
+        guard let projectGitHubURL else { return }
+        if !NSWorkspace.shared.open(projectGitHubURL) {
+            error = "Couldn’t open the project on GitHub."
+        }
     }
 
     private func openSelectedProject(with contentType: UTType, applicationName: String) {
@@ -764,6 +774,10 @@ private struct ProjectHistoryView: View {
                     Button("Reveal in Finder", systemImage: "folder", action: model.revealSelectedProjectInFinder)
                     Button("Open in Editor", systemImage: "curlybraces", action: model.openSelectedProjectInEditor)
                     Button("Open in Terminal", systemImage: "terminal", action: model.openSelectedProjectInTerminal)
+                    if model.projectGitHubURL != nil {
+                        Button("Open on GitHub", systemImage: "arrow.up.right.square",
+                               action: model.openSelectedProjectOnGitHub)
+                    }
                 }
                 .disabled(model.selectedLocalRepositoryURL == nil)
             }

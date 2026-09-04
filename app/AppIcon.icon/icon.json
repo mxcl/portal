@@ -2,8 +2,8 @@
   "color-space-for-untagged-svg-colors" : "display-p3",
   "fill" : {
     "linear-gradient" : [
-      "srgb:0.98824,0.98431,0.97255,1.00000",
-      "srgb:0.85882,0.87059,0.88235,1.00000"
+      "srgb:0.27059,0.27843,0.28627,1.00000",
+      "srgb:0.11765,0.12549,0.13333,1.00000"
     ],
     "orientation" : {
       "start" : {
@@ -22,7 +22,7 @@
         {
           "glass" : false,
           "image-name" : "GitSync.png",
-          "name" : "Peer repositories and sync arrows",
+          "name" : "Gold sync ribbon",
           "position" : {
             "scale" : 0.75,
             "translation-in-points" : [

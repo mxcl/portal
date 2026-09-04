@@ -600,10 +600,8 @@ struct ProjectBrowserView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $visibility) {
             List(selection: Binding(get: { model.selectedProjectName }, set: model.selectProject)) {
-                Section("Projects") {
-                    ForEach(projects, id: \.self) { name in
-                        ProjectRow(name: name, model: model).tag(name)
-                    }
+                ForEach(projects, id: \.self) { name in
+                    ProjectRow(name: name, model: model).tag(name)
                 }
                 if !archived.isEmpty {
                     Section("Archived") {

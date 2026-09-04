@@ -811,6 +811,9 @@ final class AppModel: ObservableObject {
     private func refreshDiscovery() async {
         guard isConfigured, !isChecking, placementInProgress == nil else { return }
         let original = configuration
+        let selectedWasLocal = selectedProjectName.flatMap { name in
+            original.folders.first(where: { $0.name == name })?.availableLocally
+        } == true
         let root = expandedRoot
         if let names = try? await Task.detached(priority: .utility, operation: {
             try Repository.discover(in: root).map(\.name)
@@ -833,8 +836,15 @@ final class AppModel: ObservableObject {
             restartIfRunning()
         }
         refreshBackupItems()
-        if let selectedProjectName { selectProject(selectedProjectName) }
-        else { selectProject(projectNames.first ?? archivedProjects.first?.name) }
+        if let selectedProjectName {
+            let selectedIsLocal = configuration.folders.first(where: { $0.name == selectedProjectName })?.availableLocally == true
+            if selectedWasLocal != selectedIsLocal { selectProject(selectedProjectName) }
+            else if !configuration.folders.contains(where: { $0.name == selectedProjectName }) {
+                selectProject(projectNames.first ?? archivedProjects.first?.name)
+            }
+        } else {
+            selectProject(projectNames.first ?? archivedProjects.first?.name)
+        }
     }
 
     private func recordInspection(_ inspection: PeerInspection, hostID: UUID,
@@ -1599,7 +1609,7 @@ private struct MarkdownDocument: View {
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 8) {
-            ForEach(blocks) { block in
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 switch block.kind {
                 case .heading1: inline(block.text).font(.title2.bold())
                 case .heading2: inline(block.text).font(.title3.bold())
@@ -1644,9 +1654,8 @@ private struct MarkdownDocument: View {
     }
 }
 
-private struct MarkdownBlock: Identifiable {
+private struct MarkdownBlock {
     enum Kind { case heading1, heading2, heading3, list, code, paragraph, space }
-    let id = UUID()
     let kind: Kind
     let text: String
 }

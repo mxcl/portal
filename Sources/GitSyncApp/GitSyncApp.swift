@@ -1348,7 +1348,6 @@ private struct ProjectHistoryView: View {
 private struct CommitList: View {
     let snapshot: RepositorySnapshot
     @Binding var selection: String?
-    @State private var availableWidth: CGFloat = 344
     private let graph: CommitGraphModel
 
     init(snapshot: RepositorySnapshot, selection: Binding<String?>) {
@@ -1367,8 +1366,7 @@ private struct CommitList: View {
                 CommitRow(commit: commit,
                           references: snapshot.references.filter { $0.oid == commit.oid },
                           graph: graph,
-                          rowIndex: index,
-                          graphMaximumWidth: BranchGraphRowCanvas.widthLimit(for: availableWidth))
+                          rowIndex: index)
                     .tag(commit.oid)
             }
         }
@@ -1377,7 +1375,6 @@ private struct CommitList: View {
                 ContentUnavailableView("No Commits", systemImage: "point.3.connected.trianglepath.dotted")
             }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
     }
 }
 
@@ -1386,11 +1383,10 @@ private struct CommitRow: View {
     let references: [RepositoryReference]
     let graph: CommitGraphModel
     let rowIndex: Int
-    let graphMaximumWidth: CGFloat
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            BranchGraphRowCanvas(model: graph, rowIndex: rowIndex, maximumWidth: graphMaximumWidth)
+            BranchGraphRowCanvas(model: graph, rowIndex: rowIndex, commitOID: commit.oid)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 5) {
                     Text(commit.subject).lineLimit(1)

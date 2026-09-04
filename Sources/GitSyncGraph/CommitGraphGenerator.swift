@@ -78,6 +78,7 @@ public nonisolated enum CommitGraphGenerator {
             offsetY += unitHeight
 
             var offsetX = 4 - halfWidth
+            let maxOffsetOld = unsolved.last?.lastX ?? offsetX + unitWidth
             var isHighlighted = false
 
             for path in unsolved {
@@ -222,7 +223,8 @@ public nonisolated enum CommitGraphGenerator {
 
             metadata[commit.oid] = GraphCommitMetadata(
                 colorIndex: dotColor,
-                isHighlighted: isHighlighted
+                isHighlighted: isHighlighted,
+                laneCount: max(1, lane(forX: max(offsetX, maxOffsetOld)) + 1)
             )
         }
 

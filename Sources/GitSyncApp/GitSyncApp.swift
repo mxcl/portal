@@ -1404,6 +1404,7 @@ private struct CommitRow: View {
                     Spacer()
                     Text(commit.date, style: .relative)
                 }
+                .lineLimit(1)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }

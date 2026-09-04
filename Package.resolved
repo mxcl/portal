@@ -1,0 +1,14 @@
+{
+  "pins" : [
+    {
+      "identity" : "gitdiff",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tornikegomareli/gitdiff.git",
+      "state" : {
+        "revision" : "114b571a6dd0660ec9a57ba58a897964020f6bc2",
+        "version" : "0.1.0"
+      }
+    }
+  ],
+  "version" : 2
+}

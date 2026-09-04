@@ -224,6 +224,14 @@ public struct Repository: Equatable {
         return RepositorySnapshot(commits: commits, references: references, head: head, branches: branches)
     }
 
+    public func diff(at oid: String) throws -> String {
+        try Validator.oid(oid)
+        return try Git.text([
+            "-C", url.path, "show", "--format=", "--no-color", "--no-ext-diff",
+            "--diff-merges=first-parent", "--find-renames", oid, "--",
+        ])
+    }
+
     public func readme(at requestedRef: String? = nil) -> RepositoryReadme? {
         let checkedOut = requestedRef == nil && placement == .checkedOut
         let ref = requestedRef ?? (checkedOut ? "HEAD" : defaultReadmeRef())

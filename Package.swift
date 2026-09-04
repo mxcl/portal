@@ -10,6 +10,9 @@ let package = Package(
         .executable(name: "git-sync", targets: ["git-sync"]),
         .executable(name: "GitSync", targets: ["GitSyncApp"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/tornikegomareli/gitdiff.git", exact: "0.1.0"),
+    ],
     targets: [
         .target(
             name: "GitSyncWatch",
@@ -17,7 +20,10 @@ let package = Package(
         ),
         .target(name: "GitSyncCore", dependencies: ["GitSyncWatch"]),
         .executableTarget(name: "git-sync", dependencies: ["GitSyncCore"]),
-        .executableTarget(name: "GitSyncApp", dependencies: ["GitSyncCore"]),
+        .executableTarget(
+            name: "GitSyncApp",
+            dependencies: ["GitSyncCore", .product(name: "gitdiff", package: "gitdiff")]
+        ),
         .testTarget(name: "GitSyncTests", dependencies: ["GitSyncCore"]),
     ]
 )

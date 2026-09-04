@@ -139,6 +139,9 @@ func repositorySnapshot() throws {
     #expect(snapshot.head == "main")
     #expect(snapshot.branches == ["main"])
     #expect(snapshot.references.contains { $0.fullName == "refs/heads/main" })
+    let diff = try repository.diff(at: snapshot.commits[0].oid)
+    #expect(diff.contains("diff --git a/file.txt b/file.txt"))
+    #expect(diff.contains("+one"))
 
     try Data("# Project\n\nHello.\n".utf8).write(to: repository.url.appendingPathComponent("README.md"))
     _ = try git(["-C", repository.url.path, "add", "README.md"])

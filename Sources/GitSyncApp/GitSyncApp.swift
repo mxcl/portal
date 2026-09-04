@@ -3,6 +3,7 @@ import AppKit
 import ServiceManagement
 import SwiftUI
 import GitSyncCore
+import gitdiff
 
 @main
 struct GitSyncApp: App {
@@ -70,6 +71,9 @@ final class AppModel: ObservableObject {
     @Published var overlappingRepositories: [String] = []
     @Published var selectedProjectName: String?
     @Published var selectedCommitID: String?
+    @Published var selectedCommitDiff: String?
+    @Published var commitDiffError: String?
+    @Published var isLoadingCommitDiff = false
     @Published var projectSnapshot: RepositorySnapshot?
     @Published var projectReadme: RepositoryReadme?
     @Published var projectError: String?
@@ -196,19 +200,12 @@ final class AppModel: ObservableObject {
         selectedProjectName = name
         if let name { UserDefaults.standard.set(name, forKey: selectedProjectKey) }
         else { UserDefaults.standard.removeObject(forKey: selectedProjectKey) }
-        selectedCommitID = nil
+        selectCommit(nil)
         projectSnapshot = nil
         projectReadme = nil
         projectError = nil
         guard let name else { return }
-        let local = configuration.folders.first(where: { $0.name == name })?.availableLocally == true
-        let localURL = expandedRoot.appendingPathComponent(name, isDirectory: true)
-        let backupURL = configuration.backupDestination.map {
-            URL(fileURLWithPath: $0.root).appendingPathComponent("\(name).git", isDirectory: true)
-        }
-        let repositoryURL = local ? localURL : backupURL.flatMap {
-            FileManager.default.fileExists(atPath: $0.path) ? $0 : nil
-        }
+        let repositoryURL = repositoryURL(for: name)
         guard let repositoryURL else { return }
         isLoadingProject = true
         Task {
@@ -225,6 +222,29 @@ final class AppModel: ObservableObject {
                 guard selectedProjectName == name else { return }
                 isLoadingProject = false
                 projectError = String(describing: error)
+            }
+        }
+    }
+
+    func selectCommit(_ oid: String?) {
+        selectedCommitID = oid
+        selectedCommitDiff = nil
+        commitDiffError = nil
+        isLoadingCommitDiff = false
+        guard let oid, let name = selectedProjectName, let repositoryURL = repositoryURL(for: name) else { return }
+        isLoadingCommitDiff = true
+        Task {
+            do {
+                let diff = try await Task.detached(priority: .userInitiated) {
+                    try Repository(name: name, url: repositoryURL).diff(at: oid)
+                }.value
+                guard selectedProjectName == name, selectedCommitID == oid else { return }
+                selectedCommitDiff = diff
+                isLoadingCommitDiff = false
+            } catch {
+                guard selectedProjectName == name, selectedCommitID == oid else { return }
+                commitDiffError = String(describing: error)
+                isLoadingCommitDiff = false
             }
         }
     }
@@ -882,6 +902,15 @@ final class AppModel: ObservableObject {
         URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath).standardizedFileURL
     }
 
+    private func repositoryURL(for name: String) -> URL? {
+        if configuration.folders.first(where: { $0.name == name })?.availableLocally == true {
+            return expandedRoot.appendingPathComponent(name, isDirectory: true)
+        }
+        guard let destination = configuration.backupDestination else { return nil }
+        let url = URL(fileURLWithPath: destination.root).appendingPathComponent("\(name).git", isDirectory: true)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     private func loadBackupIndex() throws {
         guard let destination = configuration.backupDestination else {
             backupIndex = nil
@@ -1296,7 +1325,9 @@ private struct ProjectHistoryView: View {
                     Button("Try Again") { model.selectProject(model.selectedProjectName) }
                 }
             } else if let snapshot = model.projectSnapshot {
-                CommitList(snapshot: snapshot, selection: $model.selectedCommitID)
+                CommitList(snapshot: snapshot, selection: Binding(
+                    get: { model.selectedCommitID }, set: model.selectCommit
+                ))
             } else {
                 ContentUnavailableView("Not on This Mac", systemImage: "desktopcomputer.trianglebadge.exclamationmark",
                                        description: Text("Bring this project to this Mac to render its Git tree and README."))
@@ -1305,7 +1336,7 @@ private struct ProjectHistoryView: View {
         .navigationTitle(model.selectedProjectName ?? "Git Tree")
         .toolbar {
             ToolbarItem {
-                Button("Show Project Details", systemImage: "info.circle") { model.selectedCommitID = nil }
+                Button("Show Project Details", systemImage: "info.circle") { model.selectCommit(nil) }
                     .disabled(model.selectedProjectName == nil || model.selectedCommitID == nil)
             }
             ToolbarItem { Button("Refresh", systemImage: "arrow.clockwise") { model.selectProject(model.selectedProjectName) } }
@@ -1425,7 +1456,11 @@ private struct ProjectDetailView: View {
         if let name = model.selectedProjectName {
             if let commitID = model.selectedCommitID,
                let commit = model.projectSnapshot?.commits.first(where: { $0.oid == commitID }) {
-                CommitDetail(commit: commit, references: model.projectSnapshot?.references.filter { $0.oid == commitID } ?? [])
+                CommitDetail(commit: commit,
+                             references: model.projectSnapshot?.references.filter { $0.oid == commitID } ?? [],
+                             diff: model.selectedCommitDiff,
+                             isLoadingDiff: model.isLoadingCommitDiff,
+                             error: model.commitDiffError)
             } else if let archived = model.archivedProjects.first(where: { $0.name == name }) {
                 ArchivedProjectDetail(item: archived, model: model)
             } else {
@@ -1550,23 +1585,47 @@ private extension ProjectPlacement {
 private struct CommitDetail: View {
     let commit: RepositoryCommit
     let references: [RepositoryReference]
+    let diff: String?
+    let isLoadingDiff: Bool
+    let error: String?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Form {
-            Section("Commit") { Text(commit.message).textSelection(.enabled) }
-            LabeledContent("Author", value: commit.author)
-            LabeledContent("Date") { Text(commit.date.formatted(date: .long, time: .standard)) }
-            LabeledContent("SHA") { Text(commit.oid).monospaced().textSelection(.enabled) }
-            if !commit.parents.isEmpty {
-                LabeledContent("Parents") {
-                    VStack(alignment: .trailing) { ForEach(commit.parents, id: \.self) { Text($0).monospaced() } }
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(commit.message).font(.headline).textSelection(.enabled)
+                    LabeledContent("Author", value: commit.author)
+                    LabeledContent("Date") { Text(commit.date.formatted(date: .long, time: .standard)) }
+                    LabeledContent("SHA") { Text(commit.oid).monospaced().textSelection(.enabled) }
+                    if !commit.parents.isEmpty {
+                        LabeledContent("Parents") {
+                            VStack(alignment: .trailing) {
+                                ForEach(commit.parents, id: \.self) { Text($0).monospaced() }
+                            }
+                        }
+                    }
+                    if !references.isEmpty {
+                        LabeledContent("References", value: references.map(\.name).joined(separator: ", "))
+                    }
                 }
+                .padding()
             }
-            if !references.isEmpty {
-                Section("References") { ForEach(references) { Text($0.name) } }
+            .frame(maxHeight: 240)
+            Divider()
+            if isLoadingDiff {
+                ProgressView("Reading commit diff…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error {
+                ContentUnavailableView("Couldn’t Read Diff", systemImage: "exclamationmark.triangle",
+                                       description: Text(error))
+            } else if let diff {
+                DiffRenderer(diffText: diff)
+                    .diffConfiguration(.codeReview.with(theme: colorScheme == .dark ? .dark : .light))
+                    .padding()
+            } else {
+                ContentUnavailableView("No Diff", systemImage: "doc.text.magnifyingglass")
             }
         }
-        .formStyle(.grouped)
         .navigationTitle(commit.subject)
     }
 }

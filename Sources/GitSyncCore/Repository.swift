@@ -1,6 +1,6 @@
 import Foundation
 
-public struct RepositoryReference: Equatable, Identifiable, Sendable {
+public struct RepositoryReference: Codable, Equatable, Identifiable, Sendable {
     public var id: String { fullName }
     public let fullName: String
     public let oid: String
@@ -18,7 +18,7 @@ public struct RepositoryReference: Equatable, Identifiable, Sendable {
     }
 }
 
-public struct RepositoryCommit: Equatable, Identifiable, Sendable {
+public struct RepositoryCommit: Codable, Equatable, Identifiable, Sendable {
     public var id: String { oid }
     public let oid: String
     public let parents: [String]
@@ -37,7 +37,7 @@ public struct RepositoryCommit: Equatable, Identifiable, Sendable {
     public var subject: String { message.split(whereSeparator: \.isNewline).first.map(String.init) ?? oid }
 }
 
-public struct RepositorySnapshot: Equatable, Sendable {
+public struct RepositorySnapshot: Codable, Equatable, Sendable {
     public let commits: [RepositoryCommit]
     public let references: [RepositoryReference]
     public let head: String?
@@ -51,13 +51,25 @@ public struct RepositorySnapshot: Equatable, Sendable {
     }
 }
 
-public struct RepositoryReadme: Equatable, Sendable {
+public struct RepositoryReadme: Codable, Equatable, Sendable {
     public let markdown: String
     public let source: String
 
     public init(markdown: String, source: String) {
         self.markdown = markdown
         self.source = source
+    }
+}
+
+public struct RepositoryContent: Codable, Equatable, Sendable {
+    public let snapshot: RepositorySnapshot
+    public let readme: RepositoryReadme?
+    public let githubURL: URL?
+
+    public init(snapshot: RepositorySnapshot, readme: RepositoryReadme?, githubURL: URL?) {
+        self.snapshot = snapshot
+        self.readme = readme
+        self.githubURL = githubURL
     }
 }
 
@@ -233,10 +245,23 @@ public struct Repository: Equatable {
 
     public func snapshot(limit: Int = 250) throws -> RepositorySnapshot {
         let references = try referenceSnapshot()
+        let head = try? Git.text(["-C", url.path, "symbolic-ref", "--quiet", "--short", "HEAD"])
+        return try snapshot(limit: limit, references: references, revisions: ["--all"], head: head)
+    }
+
+    public func content(limit: Int = 250) throws -> RepositoryContent {
+        RepositoryContent(snapshot: try snapshot(limit: limit), readme: readme(), githubURL: githubURL)
+    }
+
+    func snapshot(limit: Int, references: [RepositoryReference], revisions: [String],
+                  head: String?) throws -> RepositorySnapshot {
+        guard !revisions.isEmpty else {
+            return RepositorySnapshot(commits: [], references: references, head: head, branches: [])
+        }
         let data = try Git.run([
-            "-C", url.path, "log", "--all", "--topo-order", "--date-order", "-n", String(max(1, limit)),
+            "-C", url.path, "log", "--topo-order", "--date-order", "-n", String(max(1, limit)),
             "--format=%H%x00%P%x00%an%x00%aI%x00%B%x00%x1e",
-        ])
+        ] + revisions)
         let formatter = ISO8601DateFormatter()
         let commits = data.split(separator: 0x1e).compactMap { record -> RepositoryCommit? in
             let fields = record.split(separator: 0, maxSplits: 5, omittingEmptySubsequences: false)
@@ -249,7 +274,6 @@ public struct Repository: Equatable {
             let message = String(decoding: fields[4], as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             return RepositoryCommit(oid: oid, parents: parents, author: author, date: date, message: message)
         }
-        let head = try? Git.text(["-C", url.path, "symbolic-ref", "--quiet", "--short", "HEAD"])
         let branches = references.filter { $0.fullName.hasPrefix("refs/heads/") }.map(\.name).sorted()
         return RepositorySnapshot(commits: commits, references: references, head: head, branches: branches)
     }
@@ -275,7 +299,7 @@ public struct Repository: Equatable {
         return nil
     }
 
-    private func referenceSnapshot() throws -> [RepositoryReference] {
+    func referenceSnapshot() throws -> [RepositoryReference] {
         let data = try Git.run([
             "-C", url.path, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(*objectname)",
             "refs/heads", "refs/remotes", "refs/tags", "refs/sync",

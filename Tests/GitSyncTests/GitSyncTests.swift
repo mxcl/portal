@@ -139,6 +139,11 @@ func repositorySnapshot() throws {
     #expect(snapshot.head == "main")
     #expect(snapshot.branches == ["main"])
     #expect(snapshot.references.contains { $0.fullName == "refs/heads/main" })
+    let content = RepositoryContent(snapshot: snapshot,
+                                    readme: RepositoryReadme(markdown: "# Project", source: "HEAD"),
+                                    githubURL: URL(string: "https://github.com/mxcl/git-sync"))
+    #expect(try JSONDecoder().decode(RepositoryContent.self,
+                                     from: JSONEncoder().encode(content)) == content)
     let diff = try repository.diff(at: snapshot.commits[0].oid)
     #expect(diff.contains("diff --git a/file.txt b/file.txt"))
     #expect(diff.contains("+one"))

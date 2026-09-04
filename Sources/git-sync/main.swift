@@ -38,6 +38,8 @@ Usage:
   git-sync daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--receive-only] [--sync-checkouts] [--state PATH]
   git-sync list --root PATH
   git-sync inspect --root PATH [--machine NAME]
+  git-sync project-content --root PATH --repository NAME
+  git-sync project-diff --root PATH --repository NAME --oid OID
   git-sync project-state --root PATH --repository NAME --placement checkedOut|mirrored|notPresent [--branch NAME]
   git-sync check-backup
   git-sync relay-backup
@@ -97,6 +99,18 @@ do {
                                                         defaultBranch: $0.defaultBranch)
                                         })
         print(String(decoding: try JSONEncoder().encode(inspection), as: UTF8.self))
+    case "project-content", "project-diff":
+        let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
+        let name = try required("--repository", in: arguments).precomposedStringWithCanonicalMapping
+        guard let repository = try Repository.discover(in: root).first(where: { $0.name == name }) else {
+            throw SyncError.invalidConfiguration("Project does not exist: \(name)")
+        }
+        if command == "project-content" {
+            try FileHandle.standardOutput.write(contentsOf: JSONEncoder().encode(repository.content()))
+        } else {
+            let diff = try repository.diff(at: required("--oid", in: arguments))
+            try FileHandle.standardOutput.write(contentsOf: Data(diff.utf8))
+        }
     case "project-state":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
         let name = try required("--repository", in: arguments)

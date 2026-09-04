@@ -39,6 +39,33 @@ public enum Runner {
         return try JSONDecoder().decode(PeerProject.self, from: data)
     }
 
+    public static func projectContent(_ repository: String,
+                                      configuration: Configuration) throws -> RepositoryContent {
+        try configuration.validate()
+        try Validator.project(repository)
+        let data = try runRemote(
+            configuration,
+            arguments: ["project-content", "--root", configuration.remoteRoot,
+                        "--repository", repository],
+            failure: "Could not read \(repository) on the peer. Update Git Sync on that host if remote browsing is unavailable"
+        )
+        return try JSONDecoder().decode(RepositoryContent.self, from: data)
+    }
+
+    public static func projectDiff(_ repository: String, oid: String,
+                                   configuration: Configuration) throws -> String {
+        try configuration.validate()
+        try Validator.project(repository)
+        try Validator.oid(oid)
+        let data = try runRemote(
+            configuration,
+            arguments: ["project-diff", "--root", configuration.remoteRoot,
+                        "--repository", repository, "--oid", oid],
+            failure: "Could not read the commit diff on the peer. Update Git Sync on that host if remote browsing is unavailable"
+        )
+        return String(decoding: data, as: UTF8.self)
+    }
+
     public static func overlap(local: [String], remote: [String]) -> [String] {
         let local = Set(local.map(\.precomposedStringWithCanonicalMapping))
         let remote = Set(remote.map(\.precomposedStringWithCanonicalMapping))
@@ -206,9 +233,20 @@ public enum Runner {
         process.standardOutput = output
         process.standardError = error
         try process.run()
+        let group = DispatchGroup()
+        var stdout = Data(), stderr = Data()
+        group.enter()
+        DispatchQueue.global().async {
+            stdout = output.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+        group.enter()
+        DispatchQueue.global().async {
+            stderr = error.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
         process.waitUntilExit()
-        let stdout = output.fileHandleForReading.readDataToEndOfFile()
-        let stderr = error.fileHandleForReading.readDataToEndOfFile()
+        group.wait()
         guard process.terminationStatus == 0 else {
             throw SyncError.invalidConfiguration(
                 failure + ": " + String(decoding: stderr, as: UTF8.self)

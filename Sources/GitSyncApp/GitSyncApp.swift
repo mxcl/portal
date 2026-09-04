@@ -764,22 +764,30 @@ private struct ProjectHistoryView: View {
         .navigationTitle(model.selectedProjectName ?? "Git Tree")
         .toolbar {
             ToolbarItem {
-                Button("Show Project Details", systemImage: "info.circle") { model.selectCommit(nil) }
-                    .disabled(model.selectedProjectName == nil || model.selectedCommitID == nil)
-            }
-            ToolbarItem { Button("Refresh", systemImage: "arrow.clockwise") { model.selectProject(model.selectedProjectName) } }
-            ToolbarSpacer(.fixed)
-            ToolbarItem {
                 ControlGroup {
                     Button("Reveal in Finder", systemImage: "folder", action: model.revealSelectedProjectInFinder)
+                        .help("Reveal project in Finder")
                     Button("Open in Editor", systemImage: "curlybraces", action: model.openSelectedProjectInEditor)
+                        .help("Open project in the default editor")
                     Button("Open in Terminal", systemImage: "terminal", action: model.openSelectedProjectInTerminal)
+                        .help("Open project in the default terminal")
                     if model.projectGitHubURL != nil {
                         Button("Open on GitHub", systemImage: "arrow.up.right.square",
                                action: model.openSelectedProjectOnGitHub)
+                            .help("Open project on GitHub")
                     }
                 }
                 .disabled(model.selectedLocalRepositoryURL == nil)
+            }
+            ToolbarSpacer(.fixed)
+            ToolbarItem {
+                Button("Show Project Details", systemImage: "info.circle") { model.selectCommit(nil) }
+                    .disabled(model.selectedProjectName == nil || model.selectedCommitID == nil)
+                    .help("Show project details")
+            }
+            ToolbarItem {
+                Button("Refresh", systemImage: "arrow.clockwise") { model.selectProject(model.selectedProjectName) }
+                    .help("Refresh project")
             }
         }
     }

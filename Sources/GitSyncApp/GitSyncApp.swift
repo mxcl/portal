@@ -931,11 +931,10 @@ private struct ProjectHistoryView: View {
                     Button("Open in Terminal", systemImage: "terminal", action: model.openSelectedProjectInTerminal)
                         .help("Open project in the default terminal")
                         .disabled(model.selectedLocalRepositoryURL == nil)
-                    if model.projectGitHubURL != nil {
-                        Button("Open on GitHub", systemImage: "arrow.up.right.square",
-                               action: model.openSelectedProjectOnGitHub)
-                            .help("Open project on GitHub")
-                    }
+                    Button("Open on GitHub", systemImage: "arrow.up.right.square",
+                           action: model.openSelectedProjectOnGitHub)
+                        .disabled(model.projectGitHubURL == nil)
+                        .help("Open project on GitHub")
                 }
             }
             ToolbarSpacer(.fixed)

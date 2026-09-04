@@ -115,11 +115,33 @@ public struct PeerInspection: Codable, Equatable, Sendable {
     public let version: Int
     public let machine: String
     public let repositories: [String]
+    public let projects: [PeerProject]?
 
-    public init(version: Int, machine: String, repositories: [String]) {
+    public init(version: Int, machine: String, repositories: [String], projects: [PeerProject]? = nil) {
         self.version = version
         self.machine = machine
         self.repositories = repositories
+        self.projects = projects
+    }
+}
+
+public enum ProjectPlacement: String, Codable, Equatable, Sendable {
+    case checkedOut
+    case mirrored
+    case notPresent
+    case unknown
+}
+
+public struct PeerProject: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { name }
+    public let name: String
+    public let placement: ProjectPlacement
+    public let defaultBranch: String?
+
+    public init(name: String, placement: ProjectPlacement, defaultBranch: String? = nil) {
+        self.name = name
+        self.placement = placement
+        self.defaultBranch = defaultBranch
     }
 }
 

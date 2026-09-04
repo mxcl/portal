@@ -145,6 +145,21 @@ func repositorySnapshot() throws {
     #expect(repository.readme()?.source == "Checked out HEAD")
 }
 
+@Test("a mirrored project can create a checkout from a peer branch")
+func mirroredProjectCreatesCheckout() throws {
+    let fixture = try Fixture()
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
+                     machine: "A", stateURL: fixture.state)
+    let project = fixture.b.appendingPathComponent("project")
+
+    #expect(Repository(name: "project", url: project).placement == .mirrored)
+    let repository = try Repository.setPlacement(name: "project", in: fixture.b,
+                                                  to: .checkedOut, branch: "main")
+
+    #expect(repository.placement == .checkedOut)
+    #expect(try String(contentsOf: project.appendingPathComponent("file.txt"), encoding: .utf8) == "one\n")
+}
+
 @Test("ordinary commit copies objects without touching checkout state")
 func ordinaryCommitSafety() throws {
     let fixture = try Fixture(); try fixture.cloneToB()

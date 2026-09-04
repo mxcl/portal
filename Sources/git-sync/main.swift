@@ -38,6 +38,7 @@ Usage:
   git-sync daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--receive-only] [--sync-checkouts] [--state PATH]
   git-sync list --root PATH
   git-sync inspect --root PATH [--machine NAME]
+  git-sync project-state --root PATH --repository NAME --placement checkedOut|mirrored|notPresent [--branch NAME]
   git-sync check-backup
   git-sync relay-backup
   git-sync relay-backup-control
@@ -87,10 +88,28 @@ do {
         print(String(decoding: data, as: UTF8.self))
     case "inspect":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
+        let repositories = try Repository.discover(in: root)
         let inspection = PeerInspection(version: SyncProtocol.version,
                                         machine: value("--machine", in: arguments) ?? Configuration.defaultMachine,
-                                        repositories: try Repository.discover(in: root).map(\.name))
+                                        repositories: repositories.map(\.name),
+                                        projects: repositories.map {
+                                            PeerProject(name: $0.name, placement: $0.placement,
+                                                        defaultBranch: $0.defaultBranch)
+                                        })
         print(String(decoding: try JSONEncoder().encode(inspection), as: UTF8.self))
+    case "project-state":
+        let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
+        let name = try required("--repository", in: arguments)
+        guard let placement = ProjectPlacement(rawValue: try required("--placement", in: arguments)),
+              placement != .unknown else {
+            throw SyncError.invalidConfiguration("Invalid project placement")
+        }
+        let repository = try Repository.setPlacement(name: name, in: root, to: placement,
+                                                      branch: value("--branch", in: arguments))
+        let result = PeerProject(name: name,
+                                 placement: placement == .notPresent ? .notPresent : repository.placement,
+                                 defaultBranch: placement == .notPresent ? nil : repository.defaultBranch)
+        print(String(decoding: try JSONEncoder().encode(result), as: UTF8.self))
     case "check-backup":
         try LocalBackupTransport.connect(mode: LocalBackupTransport.check).close()
     case "relay-backup":

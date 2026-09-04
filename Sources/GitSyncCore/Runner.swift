@@ -14,6 +14,7 @@ public enum Runner {
         }
         try Validator.machine(inspection.machine)
         for name in inspection.repositories { try Validator.project(name) }
+        for project in inspection.projects ?? [] { try Validator.project(project.name) }
         return inspection
     }
 
@@ -21,6 +22,21 @@ public enum Runner {
         try configuration.validate()
         let local = try Repository.discover(in: configuration.expandedRoot).map(\.name)
         return overlap(local: local, remote: try inspectPeer(configuration).repositories)
+    }
+
+    public static func setPeerPlacement(_ placement: ProjectPlacement, repository: String,
+                                        branch: String? = nil, configuration: Configuration) throws -> PeerProject {
+        try configuration.validate()
+        try Validator.project(repository)
+        guard placement != .unknown else {
+            throw SyncError.invalidConfiguration("Unknown is not a project placement.")
+        }
+        var arguments = ["project-state", "--root", configuration.remoteRoot,
+                         "--repository", repository, "--placement", placement.rawValue]
+        if let branch { arguments += ["--branch", branch] }
+        let data = try runRemote(configuration, arguments: arguments,
+                                 failure: "Could not change \(repository) on the peer")
+        return try JSONDecoder().decode(PeerProject.self, from: data)
     }
 
     public static func overlap(local: [String], remote: [String]) -> [String] {

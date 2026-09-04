@@ -1433,6 +1433,11 @@ private struct CommitRow: View {
                 .foregroundStyle(.secondary)
             }
         }
+        .overlay(alignment: .bottom) {
+            Divider()
+                .padding(.leading, BranchGraphRowCanvas.graphWidth(model: graph, commitOID: commit.oid) + 8)
+                .offset(y: 4)
+        }
         .accessibilityElement(children: .combine)
     }
 }

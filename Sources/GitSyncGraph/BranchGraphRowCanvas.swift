@@ -22,6 +22,7 @@ public struct BranchGraphRowCanvas: View {
     static let laneWidth: CGFloat = 14
     static let dotSize: CGFloat = 8
     static let trailingPadding: CGFloat = 4
+    static let verticalBleed: CGFloat = 2
 
     let model: CommitGraphModel
     let rowIndex: Int
@@ -38,17 +39,18 @@ public struct BranchGraphRowCanvas: View {
         self.commitOID = commitOID
     }
 
-    static func graphWidth(model: CommitGraphModel, commitOID: String) -> CGFloat {
+    public static func graphWidth(model: CommitGraphModel, commitOID: String) -> CGFloat {
         CGFloat(model.laneCount(for: commitOID)) * laneWidth + trailingPadding
     }
 
     public var body: some View {
         Canvas { context, _ in
+            context.translateBy(x: 0, y: Self.verticalBleed)
             drawRow(in: &context)
         }
-        .frame(width: graphWidth, height: Self.rowHeight)
+        .frame(width: graphWidth, height: Self.rowHeight + Self.verticalBleed * 2)
         // Draw through List's native vertical insets so paths meet between rows.
-        .padding(.vertical, -4)
+        .padding(.vertical, -(4 + Self.verticalBleed))
         .accessibilityHidden(true)
     }
 

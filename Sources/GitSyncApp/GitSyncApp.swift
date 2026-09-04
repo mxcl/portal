@@ -315,15 +315,32 @@ final class AppModel: ObservableObject {
     }
 
     func openSelectedProjectInTerminal() {
-        guard let repositoryURL = selectedLocalRepositoryURL,
-              let terminalURL = NSWorkspace.shared.urlForApplication(
-                  toOpen: UTType(importedAs: "com.apple.terminal.shell-script")
-              ) else { return }
+        openSelectedProject(
+            with: UTType(importedAs: "com.apple.terminal.shell-script"),
+            applicationName: "Terminal"
+        )
+    }
+
+    func openSelectedProjectInEditor() {
+        openSelectedProject(with: .sourceCode, applicationName: "an editor")
+    }
+
+    func revealSelectedProjectInFinder() {
+        guard let repositoryURL = selectedLocalRepositoryURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([repositoryURL])
+    }
+
+    private func openSelectedProject(with contentType: UTType, applicationName: String) {
+        guard let repositoryURL = selectedLocalRepositoryURL else { return }
+        guard let applicationURL = NSWorkspace.shared.urlForApplication(toOpen: contentType) else {
+            error = "No app is registered as \(applicationName)."
+            return
+        }
         NSWorkspace.shared.open(
-            [repositoryURL], withApplicationAt: terminalURL, configuration: .init()
+            [repositoryURL], withApplicationAt: applicationURL, configuration: .init()
         ) { [weak self] _, openError in
             guard let openError else { return }
-            let message = "Couldn’t open the project in Terminal: \(openError.localizedDescription)"
+            let message = "Couldn’t open the project in \(applicationName): \(openError.localizedDescription)"
             Task { @MainActor in self?.error = message }
         }
     }
@@ -743,8 +760,12 @@ private struct ProjectHistoryView: View {
             ToolbarItem { Button("Refresh", systemImage: "arrow.clockwise") { model.selectProject(model.selectedProjectName) } }
             ToolbarSpacer(.fixed)
             ToolbarItem {
-                Button("Open in Terminal", systemImage: "terminal", action: model.openSelectedProjectInTerminal)
-                    .disabled(model.selectedLocalRepositoryURL == nil)
+                ControlGroup {
+                    Button("Reveal in Finder", systemImage: "folder", action: model.revealSelectedProjectInFinder)
+                    Button("Open in Editor", systemImage: "curlybraces", action: model.openSelectedProjectInEditor)
+                    Button("Open in Terminal", systemImage: "terminal", action: model.openSelectedProjectInTerminal)
+                }
+                .disabled(model.selectedLocalRepositoryURL == nil)
             }
         }
     }

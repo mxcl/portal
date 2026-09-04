@@ -15,6 +15,7 @@
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
+            <key>CFBundleTypeRole</key><string>Viewer</string>
             <key>CFBundleURLName</key><string>Git Sync Settings</string>
             <key>CFBundleURLSchemes</key>
             <array><string>gitsync</string></array>

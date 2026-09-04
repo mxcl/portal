@@ -27,7 +27,6 @@ public enum EngineCommand: Codable, Sendable {
     case setSyncCheckouts(Bool)
     case setPlacement(ProjectPlacement, project: String, hostID: UUID?, branch: String?)
     case restoreBackup(BackupItem, BackupSnapshot)
-    case prepareForUnregistration
 }
 
 public struct EngineRequest: Codable, Sendable {
@@ -213,8 +212,6 @@ public final class EngineModel: ObservableObject {
                 setPlacement(placement, project: project, hostID: hostID, branch: branch)
             case let .restoreBackup(item, backup):
                 restoreBackup(item, snapshot: backup)
-            case .prepareForUnregistration:
-                shutdown()
             }
             return EngineReply(snapshot: snapshot(), nameCollisions: collisions)
         } catch {
@@ -1015,12 +1012,12 @@ private final class BackupReceiver: @unchecked Sendable {
 }
 }
 
-private struct CountedEvent {
+struct CountedEvent: Equatable {
     let message: String
     var count = 1
 }
 
-private func countedEvents(_ events: [String]) -> [CountedEvent] {
+func countedEvents(_ events: [String]) -> [CountedEvent] {
     events.reduce(into: []) { result, message in
         if result.last?.message == message {
             result[result.count - 1].count += 1

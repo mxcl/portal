@@ -58,6 +58,8 @@
   at Login.
 - Opening the app starts the helper for the current session. Launch at Login
   controls future logins; turning it off does not stop the current session.
+- If the helper is unavailable, the app stays open with Retry and does not run a
+  second sync engine.
 - Closing or quitting the foreground app leaves the helper running. Quitting
   from the helper stops both processes without changing the login preference.
 - The backup destination is optional, but once chosen is read-only in the MVP.

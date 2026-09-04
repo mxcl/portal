@@ -2,6 +2,15 @@ import Foundation
 import Testing
 @testable import GitSyncEngine
 
+@Test("event log counts only adjacent repeated events")
+func eventLogCountsAdjacentRepeats() {
+    #expect(countedEvents(["Fetch", "Fetch", "Idle", "Fetch"]) == [
+        CountedEvent(message: "Fetch", count: 2),
+        CountedEvent(message: "Idle"),
+        CountedEvent(message: "Fetch"),
+    ])
+}
+
 @Test("engine control requests round trip")
 func engineControlRequestRoundTrip() throws {
     let request = EngineRequest(command: .addHost(

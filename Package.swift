@@ -30,7 +30,6 @@ let package = Package(
         .executableTarget(name: "GitSyncMenuBar", dependencies: ["GitSyncEngine"]),
         .testTarget(name: "GitSyncTests", dependencies: ["GitSyncCore"]),
         .testTarget(name: "GitSyncGraphTests", dependencies: ["GitSyncGraph", "GitSyncCore"]),
-        .testTarget(name: "GitSyncAppTests", dependencies: ["GitSyncApp"]),
         .testTarget(name: "GitSyncEngineTests", dependencies: ["GitSyncEngine"]),
     ]
 )

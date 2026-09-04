@@ -55,21 +55,6 @@ struct CheckoutRequest: Identifiable {
     let branches: [String]
 }
 
-struct CountedEvent: Equatable {
-    let message: String
-    var count = 1
-}
-
-func countedEvents(_ events: [String]) -> [CountedEvent] {
-    events.reduce(into: []) { result, message in
-        if result.last?.message == message {
-            result[result.count - 1].count += 1
-        } else {
-            result.append(CountedEvent(message: message))
-        }
-    }
-}
-
 @MainActor
 final class AppModel: ObservableObject {
     @Published var configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
@@ -137,6 +122,8 @@ final class AppModel: ObservableObject {
         loginItem.status == .enabled || loginItem.status == .requiresApproval
     }
 
+    var launchAtLoginRequiresApproval: Bool { loginItem.status == .requiresApproval }
+
     var isConfigured: Bool { !configuration.root.isEmpty }
 
     var projectNames: [String] {
@@ -167,6 +154,7 @@ final class AppModel: ObservableObject {
         Task {
             defer { connecting = false }
             for attempt in 0..<20 {
+                if attempt.isMultiple(of: 4) { launchHelper() }
                 do {
                     let reply = try await EngineClient.send(.snapshot)
                     apply(reply)
@@ -492,14 +480,9 @@ final class AppModel: ObservableObject {
             do {
                 if enabled {
                     if !launchesAtLogin { try loginItem.register() }
-                    launchHelper()
-                    scheduleSnapshot()
+                    retryHelper()
                 } else {
-                    if helperAvailable {
-                        _ = try? await EngineClient.send(.prepareForUnregistration)
-                    }
                     if launchesAtLogin { try await loginItem.unregister() }
-                    launchHelper()
                     retryHelper()
                 }
                 objectWillChange.send()
@@ -595,16 +578,7 @@ struct ProjectBrowserView: View {
         .frame(minWidth: 860, minHeight: 520)
         .overlay {
             if !model.helperAvailable {
-                ZStack {
-                    Color(nsColor: .windowBackgroundColor)
-                    ContentUnavailableView {
-                        Label("Sync Helper Unavailable", systemImage: "exclamationmark.arrow.trianglehead.2.clockwise.rotate.90")
-                    } description: {
-                        Text(model.helperError ?? "Starting the embedded Sync Helper…")
-                    } actions: {
-                        Button("Retry", action: model.retryHelper)
-                    }
-                }
+                HelperUnavailableView(model: model)
             }
         }
         .onAppear {
@@ -617,6 +591,23 @@ struct ProjectBrowserView: View {
             if url.scheme == "gitsync", url.host == "settings" {
                 openSettings()
                 NSApplication.shared.activate()
+            }
+        }
+    }
+}
+
+private struct HelperUnavailableView: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+            ContentUnavailableView {
+                Label("Sync Helper Unavailable", systemImage: "exclamationmark.arrow.trianglehead.2.clockwise.rotate.90")
+            } description: {
+                Text(model.helperError ?? "Starting the embedded Sync Helper…")
+            } actions: {
+                Button("Retry", action: model.retryHelper)
             }
         }
     }
@@ -1143,6 +1134,9 @@ struct SettingsView: View {
                 }
                 Section("Startup") {
                     Toggle("Launch Git Sync at login", isOn: Binding(get: { model.launchesAtLogin }, set: model.setLaunchAtLogin))
+                    if model.launchAtLoginRequiresApproval {
+                        Button("Open Login Items…", action: model.openLoginItems)
+                    }
                 }
                 Section("Checkouts") {
                     Toggle("Fast-forward matching clean checkouts", isOn: Binding(
@@ -1211,6 +1205,11 @@ struct SettingsView: View {
         .contentMargins(.vertical, 20, for: .scrollContent)
         .frame(minWidth: 720, minHeight: 520)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+            if !model.helperAvailable {
+                HelperUnavailableView(model: model)
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Label(model.status, systemImage: model.isPaused ? "pause.circle" : "arrow.triangle.2.circlepath")

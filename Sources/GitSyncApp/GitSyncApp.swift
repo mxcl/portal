@@ -90,6 +90,7 @@ final class AppModel: ObservableObject {
     }
 
     private let label = "dev.mxcl.git-sync"
+    private let selectedProjectKey = "selected-project-v2"
     private let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("GitSync", isDirectory: true)
     private var configURL: URL { support.appendingPathComponent("config-v2.json") }
@@ -105,6 +106,7 @@ final class AppModel: ObservableObject {
     private var backupIndex: BackupIndex?
     private var backupIndexID: UUID?
     private var backupRefreshGeneration = 0
+    private var discoveryTask: Task<Void, Never>?
 
     init() {
         configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
@@ -118,6 +120,10 @@ final class AppModel: ObservableObject {
                 configuration.machine = legacy.machine
             }
         }
+        if let saved = UserDefaults.standard.string(forKey: selectedProjectKey),
+           configuration.folders.contains(where: { $0.name == saved }) {
+            selectedProjectName = saved
+        }
         refreshLocalNow()
         do { try loadBackupIndex() } catch { fail(error) }
         if !configuration.hosts.isEmpty {
@@ -128,6 +134,12 @@ final class AppModel: ObservableObject {
             do { try launchAll() } catch { fail(error) }
         } else {
             status = configuration.backupDestination == nil ? "Add a host" : "Stopped"
+        }
+        discoveryTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                await self?.refreshDiscovery()
+            }
         }
     }
 
@@ -181,6 +193,8 @@ final class AppModel: ObservableObject {
 
     func selectProject(_ name: String?) {
         selectedProjectName = name
+        if let name { UserDefaults.standard.set(name, forKey: selectedProjectKey) }
+        else { UserDefaults.standard.removeObject(forKey: selectedProjectKey) }
         selectedCommitID = nil
         projectSnapshot = nil
         projectReadme = nil
@@ -792,6 +806,35 @@ final class AppModel: ObservableObject {
             status = configuration.hosts.isEmpty && configuration.backupDestination == nil ? "Add a host" : "Stopped"
         }
         selectProject(selectedProjectName ?? projectNames.first)
+    }
+
+    private func refreshDiscovery() async {
+        guard isConfigured, !isChecking, placementInProgress == nil else { return }
+        let original = configuration
+        let root = expandedRoot
+        if let names = try? await Task.detached(priority: .utility, operation: {
+            try Repository.discover(in: root).map(\.name)
+        }).value {
+            try? configuration.discoverLocal(names)
+        }
+        for host in configuration.hosts {
+            let probe = Configuration(root: configuration.root, machine: configuration.machine,
+                                      peer: host.peer, remoteRoot: host.root,
+                                      remoteExecutable: host.executable, repositories: [])
+            if let inspection = try? await Task.detached(priority: .utility, operation: {
+                try Runner.inspectPeer(probe)
+            }).value {
+                recordInspection(inspection, hostID: host.id,
+                                 knownProjects: configuration.folders.map(\.name))
+            }
+        }
+        if configuration != original {
+            try? save()
+            restartIfRunning()
+        }
+        refreshBackupItems()
+        if let selectedProjectName { selectProject(selectedProjectName) }
+        else { selectProject(projectNames.first ?? archivedProjects.first?.name) }
     }
 
     private func recordInspection(_ inspection: PeerInspection, hostID: UUID,

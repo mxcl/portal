@@ -20,33 +20,36 @@ import SwiftUI
 public struct BranchGraphRowCanvas: View {
     static let rowHeight: CGFloat = 44
     static let preferredLaneWidth: CGFloat = 14
-    static let maximumWidth: CGFloat = 180
     static let trailingPadding: CGFloat = 4
 
     let model: CommitGraphModel
     let rowIndex: Int
-    let commitOID: String
+    let maximumWidth: CGFloat
     @Environment(\.backgroundProminence) private var backgroundProminence
 
     private var graphWidth: CGFloat {
-        Self.graphWidth(model: model, commitOID: commitOID)
+        Self.graphWidth(model: model, maximumWidth: maximumWidth)
     }
 
     private var laneWidth: CGFloat {
-        Self.laneWidth(model: model)
+        Self.laneWidth(model: model, maximumWidth: maximumWidth)
     }
 
-    public init(model: CommitGraphModel, rowIndex: Int, commitOID: String) {
+    public init(model: CommitGraphModel, rowIndex: Int, maximumWidth: CGFloat) {
         self.model = model
         self.rowIndex = rowIndex
-        self.commitOID = commitOID
+        self.maximumWidth = maximumWidth
     }
 
-    static func graphWidth(model: CommitGraphModel, commitOID: String) -> CGFloat {
-        CGFloat(model.laneCount(for: commitOID)) * laneWidth(model: model) + trailingPadding
+    public static func widthLimit(for availableWidth: CGFloat) -> CGFloat {
+        min(180, max(72, availableWidth * 0.35))
     }
 
-    private static func laneWidth(model: CommitGraphModel) -> CGFloat {
+    static func graphWidth(model: CommitGraphModel, maximumWidth: CGFloat) -> CGFloat {
+        min(CGFloat(model.laneCount) * preferredLaneWidth + trailingPadding, maximumWidth)
+    }
+
+    private static func laneWidth(model: CommitGraphModel, maximumWidth: CGFloat) -> CGFloat {
         min(preferredLaneWidth, (maximumWidth - trailingPadding) / CGFloat(model.laneCount))
     }
 

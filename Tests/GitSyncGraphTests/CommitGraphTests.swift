@@ -30,13 +30,15 @@ func commitGraphMerge() {
 
 @Test("wide histories leave room for commit text")
 func wideHistoryRowWidth() {
+    let contentColumnWidth: CGFloat = 344
     let root = RepositoryCommit(oid: "root", parents: [], author: "", date: .distantPast, message: "root")
     let tips = (0..<18).map {
         RepositoryCommit(oid: "tip-\($0)", parents: [root.oid], author: "", date: .distantPast, message: "tip")
     }
     let model = CommitGraphGenerator.generate(commits: tips + [root], headOID: nil)
+    let maximumWidth = BranchGraphRowCanvas.widthLimit(for: contentColumnWidth)
 
     #expect(model.laneCount * 14 + 4 > 240)
-    #expect(BranchGraphRowCanvas.graphWidth(model: model, commitOID: tips[0].oid) < 20)
-    #expect(BranchGraphRowCanvas.graphWidth(model: model, commitOID: tips.last!.oid) <= 180)
+    #expect(maximumWidth <= contentColumnWidth * 0.35)
+    #expect(BranchGraphRowCanvas.graphWidth(model: model, maximumWidth: maximumWidth) == maximumWidth)
 }

@@ -30,7 +30,6 @@ nonisolated enum CommitGraphHighlighting: Equatable, Sendable {
 nonisolated struct GraphCommitMetadata: Sendable {
     let colorIndex: Int
     let isHighlighted: Bool
-    let laneCount: Int
 }
 
 nonisolated struct GraphPath: Sendable {
@@ -91,10 +90,6 @@ public nonisolated struct CommitGraphModel: Sendable {
 
     public func colorIndex(for commitOID: String) -> Int {
         commitMetadata[commitOID]?.colorIndex ?? 0
-    }
-
-    public func laneCount(for commitOID: String) -> Int {
-        commitMetadata[commitOID]?.laneCount ?? laneCount
     }
 }
 

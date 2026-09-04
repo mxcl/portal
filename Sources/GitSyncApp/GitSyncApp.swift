@@ -1404,6 +1404,7 @@ private struct CommitRow: View {
                     CopyableCommitSHA(sha: commit.oid)
                     Spacer()
                     Text(commit.date, style: .relative)
+                        .monospacedDigit()
                 }
                 .lineLimit(1)
                 .font(.caption)

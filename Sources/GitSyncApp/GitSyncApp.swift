@@ -2,6 +2,7 @@
 import AppKit
 import ServiceManagement
 import SwiftUI
+import UniformTypeIdentifiers
 import GitSyncCore
 import GitSyncGraph
 import gitdiff
@@ -276,8 +277,9 @@ final class AppModel: ObservableObject {
 
     func openSelectedProjectInTerminal() {
         guard let repositoryURL = selectedLocalRepositoryURL,
-              let terminalProbe = URL(string: "ssh://localhost"),
-              let terminalURL = NSWorkspace.shared.urlForApplication(toOpen: terminalProbe) else { return }
+              let terminalURL = NSWorkspace.shared.urlForApplication(
+                  toOpen: UTType(importedAs: "com.apple.terminal.shell-script")
+              ) else { return }
         NSWorkspace.shared.open(
             [repositoryURL], withApplicationAt: terminalURL, configuration: .init()
         ) { [weak self] _, openError in

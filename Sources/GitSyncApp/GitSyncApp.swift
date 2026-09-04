@@ -3,6 +3,7 @@ import AppKit
 import ServiceManagement
 import SwiftUI
 import GitSyncCore
+import GitSyncGraph
 import gitdiff
 
 @main
@@ -1347,14 +1348,27 @@ private struct ProjectHistoryView: View {
 private struct CommitList: View {
     let snapshot: RepositorySnapshot
     @Binding var selection: String?
-    private var graph: [String: CommitGraphPosition] { CommitGraph.positions(snapshot.commits) }
+    private let graph: CommitGraphModel
+
+    init(snapshot: RepositorySnapshot, selection: Binding<String?>) {
+        self.snapshot = snapshot
+        _selection = selection
+        let headOID = snapshot.head.flatMap { head in
+            snapshot.references.first { $0.fullName == "refs/heads/\(head)" }?.oid
+        }
+        graph = CommitGraphGenerator.generate(commits: snapshot.commits, headOID: headOID)
+    }
 
     var body: some View {
-        List(snapshot.commits, selection: $selection) { commit in
-            CommitRow(commit: commit,
-                      references: snapshot.references.filter { $0.oid == commit.oid },
-                      graph: graph[commit.oid] ?? .init(lane: 0, continuing: [], parents: [], width: 1))
-                .tag(commit.oid)
+        List(selection: $selection) {
+            ForEach(snapshot.commits.indices, id: \.self) { index in
+                let commit = snapshot.commits[index]
+                CommitRow(commit: commit,
+                          references: snapshot.references.filter { $0.oid == commit.oid },
+                          graph: graph,
+                          rowIndex: index)
+                    .tag(commit.oid)
+            }
         }
         .overlay {
             if snapshot.commits.isEmpty {
@@ -1367,12 +1381,12 @@ private struct CommitList: View {
 private struct CommitRow: View {
     let commit: RepositoryCommit
     let references: [RepositoryReference]
-    let graph: CommitGraphPosition
+    let graph: CommitGraphModel
+    let rowIndex: Int
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            CommitGraphView(position: graph)
-                .frame(width: CGFloat(max(1, graph.width)) * 12 + 8, height: 44)
+            BranchGraphRowCanvas(model: graph, rowIndex: rowIndex)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 5) {
                     Text(commit.subject).lineLimit(1)
@@ -1394,58 +1408,7 @@ private struct CommitRow: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-    }
-}
-
-private struct CommitGraphPosition {
-    let lane: Int
-    let continuing: [Int]
-    let parents: [Int]
-    let width: Int
-}
-
-private enum CommitGraph {
-    static func positions(_ commits: [RepositoryCommit]) -> [String: CommitGraphPosition] {
-        var lanes: [String] = []
-        var result: [String: CommitGraphPosition] = [:]
-        for commit in commits {
-            let lane: Int
-            if let existing = lanes.firstIndex(of: commit.oid) { lane = existing }
-            else { lanes.append(commit.oid); lane = lanes.count - 1 }
-            let continuing = lanes.indices.filter { $0 != lane }.map { $0 }
-            lanes.remove(at: lane)
-            for parent in commit.parents.reversed() where !lanes.contains(parent) { lanes.insert(parent, at: min(lane, lanes.count)) }
-            let parents = commit.parents.compactMap { lanes.firstIndex(of: $0) }
-            result[commit.oid] = CommitGraphPosition(lane: lane, continuing: continuing, parents: parents,
-                                                     width: max(lane + 1, lanes.count))
-        }
-        return result
-    }
-}
-
-private struct CommitGraphView: View {
-    let position: CommitGraphPosition
-
-    var body: some View {
-        Canvas { context, size in
-            let x: (Int) -> CGFloat = { CGFloat($0) * 12 + 8 }
-            var path = Path()
-            for lane in position.continuing {
-                path.move(to: CGPoint(x: x(lane), y: 0)); path.addLine(to: CGPoint(x: x(lane), y: size.height))
-            }
-            path.move(to: CGPoint(x: x(position.lane), y: 0))
-            path.addLine(to: CGPoint(x: x(position.lane), y: size.height / 2))
-            for parent in position.parents {
-                path.move(to: CGPoint(x: x(position.lane), y: size.height / 2))
-                path.addLine(to: CGPoint(x: x(parent), y: size.height))
-            }
-            context.stroke(path, with: .color(.secondary.opacity(0.55)), lineWidth: 1.5)
-            context.fill(Path(ellipseIn: CGRect(x: x(position.lane) - 4, y: size.height / 2 - 4, width: 8, height: 8)),
-                         with: .color(.accentColor))
-        }
-        .accessibilityHidden(true)
     }
 }
 

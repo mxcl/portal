@@ -107,3 +107,9 @@ $ swift test
 ```
 
 See [DESIGN.md](DESIGN.md) for the protocol, state model, and failure analysis.
+
+## License
+
+Git Sync is licensed under AGPL-3.0-or-later. Its commit graph renderer is
+adapted from [MacGit](https://github.com/Commit-Plus/macgit); the original
+copyright and license notices are preserved in those source files.

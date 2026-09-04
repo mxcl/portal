@@ -19,11 +19,13 @@ let package = Package(
             linkerSettings: [.linkedFramework("CoreServices", .when(platforms: [.macOS]))]
         ),
         .target(name: "GitSyncCore", dependencies: ["GitSyncWatch"]),
+        .target(name: "GitSyncGraph", dependencies: ["GitSyncCore"]),
         .executableTarget(name: "git-sync", dependencies: ["GitSyncCore"]),
         .executableTarget(
             name: "GitSyncApp",
-            dependencies: ["GitSyncCore", .product(name: "gitdiff", package: "gitdiff")]
+            dependencies: ["GitSyncCore", "GitSyncGraph", .product(name: "gitdiff", package: "gitdiff")]
         ),
         .testTarget(name: "GitSyncTests", dependencies: ["GitSyncCore"]),
+        .testTarget(name: "GitSyncGraphTests", dependencies: ["GitSyncGraph", "GitSyncCore"]),
     ]
 )

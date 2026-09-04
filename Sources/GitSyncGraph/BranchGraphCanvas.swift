@@ -1,0 +1,297 @@
+//
+//  BranchGraphCanvas.swift
+//  macgit
+//
+
+//
+//  macgit (Commit+) - a macOS Git client built with Swift and SwiftUI.
+//  Copyright (C) 2026  Thanh Tran <trantienthanh2412@gmail.com>
+//
+//  This program is free software: you can redistribute it and/or modify
+//  it under the terms of the GNU Affero General Public License as published by
+//  the Free Software Foundation, either version 3 of the License, or
+//  (at your option) any later version.
+//
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//  GNU Affero General Public License for more details.
+//
+//  You should have received a copy of the GNU Affero General Public License
+//  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+import SwiftUI
+
+struct BranchGraphCanvas: View {
+    let model: CommitGraphModel
+
+    let rowHeight: CGFloat = 24
+    let laneWidth: CGFloat = 14
+    let dotSize: CGFloat = 8
+    let graphTrailingPadding: CGFloat = 4
+
+    init(model: CommitGraphModel) {
+        self.model = model
+    }
+
+    var body: some View {
+        Canvas { context, _ in
+            drawGraph(in: &context)
+        }
+        .frame(
+            width: graphWidth,
+            height: CGFloat(model.dots.count) * rowHeight
+        )
+        .fixedSize()
+        .accessibilityHidden(true)
+    }
+
+    private var graphWidth: CGFloat {
+        CGFloat(model.laneCount) * laneWidth + graphTrailingPadding
+    }
+
+    private func drawGraph(in context: inout GraphicsContext) {
+        let strokeStyle = StrokeStyle(
+            lineWidth: 2.2,
+            lineCap: .round,
+            lineJoin: .round
+        )
+
+        for graphPath in model.paths {
+            context.stroke(
+                Self.path(
+                    for: graphPath,
+                    rowHeight: rowHeight,
+                    laneWidth: laneWidth,
+                    rowOffset: 0
+                ),
+                with: .color(Self.lineColor(
+                    colorIndex: graphPath.colorIndex,
+                    isHighlighted: graphPath.isHighlighted
+                )),
+                style: strokeStyle
+            )
+        }
+
+        for link in model.links {
+            context.stroke(
+                Self.linkPath(
+                    for: link,
+                    rowHeight: rowHeight,
+                    laneWidth: laneWidth,
+                    rowOffset: 0
+                ),
+                with: .color(Self.lineColor(
+                    colorIndex: link.colorIndex,
+                    isHighlighted: link.isHighlighted
+                )),
+                style: strokeStyle
+            )
+        }
+
+        for dot in model.dots {
+            Self.drawDot(
+                dot,
+                in: &context,
+                rowHeight: rowHeight,
+                laneWidth: laneWidth,
+                dotSize: dotSize,
+                rowOffset: 0,
+                background: Color(nsColor: .windowBackgroundColor)
+            )
+        }
+    }
+
+    static func lineColor(colorIndex: Int, isHighlighted: Bool) -> Color {
+        isHighlighted
+            ? GraphPalette.color(for: colorIndex)
+            : Color.gray.opacity(0.4)
+    }
+
+    static func drawDot(
+        _ dot: GraphDot,
+        in context: inout GraphicsContext,
+        rowHeight: CGFloat,
+        laneWidth: CGFloat,
+        dotSize: CGFloat,
+        rowOffset: Double,
+        background: Color
+    ) {
+        let center = Self.position(
+            for: dot.center,
+            rowHeight: rowHeight,
+            laneWidth: laneWidth,
+            rowOffset: rowOffset
+        )
+        let color = lineColor(
+            colorIndex: dot.colorIndex,
+            isHighlighted: dot.isHighlighted
+        )
+        let outerPath = Self.dotPath(
+            for: dot,
+            rowHeight: rowHeight,
+            laneWidth: laneWidth,
+            dotSize: dotSize,
+            rowOffset: rowOffset
+        )
+
+        switch dot.type {
+        case .default:
+            context.fill(outerPath, with: .color(color))
+            context.stroke(outerPath, with: .color(background), lineWidth: 1.5)
+
+        case .head:
+            context.fill(outerPath, with: .color(background))
+            context.stroke(outerPath, with: .color(color), lineWidth: 2)
+
+            let innerSize = dotSize - 2
+            let innerRect = CGRect(
+                x: center.x - innerSize / 2,
+                y: center.y - innerSize / 2,
+                width: innerSize,
+                height: innerSize
+            )
+            context.fill(Path(ellipseIn: innerRect), with: .color(color))
+
+        case .merge:
+            context.fill(outerPath, with: .color(color))
+
+            let plusRadius: CGFloat = 3
+            context.stroke(
+                Path { path in
+                    path.move(to: CGPoint(x: center.x, y: center.y - plusRadius))
+                    path.addLine(to: CGPoint(x: center.x, y: center.y + plusRadius))
+                },
+                with: .color(background),
+                lineWidth: 2
+            )
+            context.stroke(
+                Path { path in
+                    path.move(to: CGPoint(x: center.x - plusRadius, y: center.y))
+                    path.addLine(to: CGPoint(x: center.x + plusRadius, y: center.y))
+                },
+                with: .color(background),
+                lineWidth: 2
+            )
+        }
+    }
+
+    static func path(
+        for graphPath: GraphPath,
+        rowHeight: CGFloat,
+        laneWidth: CGFloat,
+        rowOffset: Double = 0
+    ) -> Path {
+        var path = Path()
+        let points = graphPath.points
+        guard points.count > 1 else { return path }
+
+        var last = position(
+            for: points[0],
+            rowHeight: rowHeight,
+            laneWidth: laneWidth,
+            rowOffset: rowOffset
+        )
+        path.move(to: last)
+
+        for index in 1..<points.count {
+            let current = position(
+                for: points[index],
+                rowHeight: rowHeight,
+                laneWidth: laneWidth,
+                rowOffset: rowOffset
+            )
+
+            if current.x > last.x {
+                path.addQuadCurve(
+                    to: current,
+                    control: CGPoint(x: current.x, y: last.y)
+                )
+            } else if current.x < last.x {
+                if index < points.count - 1 {
+                    let middleY = (last.y + current.y) / 2
+                    path.addCurve(
+                        to: current,
+                        control1: CGPoint(x: last.x, y: middleY + 4),
+                        control2: CGPoint(x: current.x, y: middleY - 4)
+                    )
+                } else {
+                    path.addQuadCurve(
+                        to: current,
+                        control: CGPoint(x: last.x, y: current.y)
+                    )
+                }
+            } else {
+                path.addLine(to: current)
+            }
+
+            last = current
+        }
+
+        return path
+    }
+
+    static func linkPath(
+        for link: GraphLink,
+        rowHeight: CGFloat,
+        laneWidth: CGFloat,
+        rowOffset: Double = 0
+    ) -> Path {
+        var path = Path()
+        path.move(to: position(
+            for: link.start,
+            rowHeight: rowHeight,
+            laneWidth: laneWidth,
+            rowOffset: rowOffset
+        ))
+        path.addQuadCurve(
+            to: position(
+                for: link.end,
+                rowHeight: rowHeight,
+                laneWidth: laneWidth,
+                rowOffset: rowOffset
+            ),
+            control: position(
+                for: link.control,
+                rowHeight: rowHeight,
+                laneWidth: laneWidth,
+                rowOffset: rowOffset
+            )
+        )
+        return path
+    }
+
+    static func dotPath(
+        for dot: GraphDot,
+        rowHeight: CGFloat,
+        laneWidth: CGFloat,
+        dotSize: CGFloat,
+        rowOffset: Double = 0
+    ) -> Path {
+        let center = position(
+            for: dot.center,
+            rowHeight: rowHeight,
+            laneWidth: laneWidth,
+            rowOffset: rowOffset
+        )
+        let size = dot.type == .default ? dotSize : dotSize + 4
+        return Path(ellipseIn: CGRect(
+            x: center.x - size / 2,
+            y: center.y - size / 2,
+            width: size,
+            height: size
+        ))
+    }
+
+    static func position(
+        for point: CGPoint,
+        rowHeight: CGFloat,
+        laneWidth: CGFloat,
+        rowOffset: Double = 0
+    ) -> CGPoint {
+        CGPoint(
+            x: CGFloat((point.x - 10) / 12) * laneWidth + laneWidth / 2,
+            y: CGFloat(point.y - rowOffset) * rowHeight
+        )
+    }
+}

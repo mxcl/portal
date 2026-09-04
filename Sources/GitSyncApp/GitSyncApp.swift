@@ -52,6 +52,21 @@ struct CheckoutRequest: Identifiable {
     let branches: [String]
 }
 
+struct CountedEvent: Equatable {
+    let message: String
+    var count = 1
+}
+
+func countedEvents(_ events: [String]) -> [CountedEvent] {
+    events.reduce(into: []) { result, message in
+        if result.last?.message == message {
+            result[result.count - 1].count += 1
+        } else {
+            result.append(CountedEvent(message: message))
+        }
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var configuration: AppConfiguration
@@ -92,7 +107,12 @@ final class AppModel: ObservableObject {
     }
     var launchesAtLogin: Bool { loginItemRegistered }
     var menuLogs: [String] {
-        logs.suffix(8).reversed().map { $0.count > 90 ? String($0.prefix(89)) + "…" : $0 }
+        countedEvents(logs).suffix(8).reversed().map { event in
+            let count = event.count > 1 ? " ×\(event.count)" : ""
+            let limit = 90 - count.count
+            let message = event.message.count > limit ? String(event.message.prefix(limit - 1)) + "…" : event.message
+            return message + count
+        }
     }
     var selectedLocalRepositoryURL: URL? {
         guard let name = selectedProjectName, localProjects[name] != nil else { return nil }

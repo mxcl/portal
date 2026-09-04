@@ -55,8 +55,12 @@ codesign --force --sign "$signing_identity" --options runtime --timestamp "$menu
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/MacOS/GitSync"
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app"
 if [ -e "$destination" ]; then
+  /usr/bin/osascript -e 'tell application id "dev.mxcl.git-sync.menu" to quit' >/dev/null 2>&1 || true
+  /usr/bin/osascript -e 'tell application id "dev.mxcl.git-sync" to quit' >/dev/null 2>&1 || true
+  sleep 1
   /usr/bin/pkill -x GitSyncMenuBar 2>/dev/null || true
   /usr/bin/pkill -x GitSync 2>/dev/null || true
+  /usr/bin/pkill -TERM -f "^$destination/Contents/Resources/git-sync run " 2>/dev/null || true
 fi
 /usr/bin/ditto "$app" "$destination"
 codesign --verify --strict --verbose=2 "$destination/Contents/Library/LoginItems/Git Sync Menu.app"

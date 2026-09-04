@@ -27,6 +27,7 @@ public enum EngineCommand: Codable, Sendable {
     case setSyncCheckouts(Bool)
     case setPlacement(ProjectPlacement, project: String, hostID: UUID?, branch: String?)
     case restoreBackup(BackupItem, BackupSnapshot)
+    case prepareForTermination
 }
 
 public struct EngineRequest: Codable, Sendable {
@@ -212,6 +213,8 @@ public final class EngineModel: ObservableObject {
                 setPlacement(placement, project: project, hostID: hostID, branch: branch)
             case let .restoreBackup(item, backup):
                 restoreBackup(item, snapshot: backup)
+            case .prepareForTermination:
+                shutdown()
             }
             return EngineReply(snapshot: snapshot(), nameCollisions: collisions)
         } catch {

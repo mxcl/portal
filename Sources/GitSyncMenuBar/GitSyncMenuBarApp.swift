@@ -24,6 +24,7 @@ private final class MenuBarRuntime: ObservableObject {
     let model: EngineModel
     private let server: EngineControlServer?
     private var observation: AnyCancellable?
+    private var terminationObservation: AnyCancellable?
 
     init() {
         model = EngineModel(executableURL: Self.gitSyncExecutableURL)
@@ -39,6 +40,9 @@ private final class MenuBarRuntime: ObservableObject {
                 )
             }
         }
+        terminationObservation = NotificationCenter.default
+            .publisher(for: NSApplication.willTerminateNotification)
+            .sink { [weak self] _ in self?.model.shutdown() }
     }
 
     func quitEverything() {

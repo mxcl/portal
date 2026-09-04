@@ -146,7 +146,7 @@ final class AppModel: ObservableObject {
         guard !connecting else { return }
         helperAvailable = false
         helperError = nil
-        guard launchHelper() else {
+        guard embeddedHelperURL != nil else {
             helperError = "The embedded Sync Helper is missing. Reinstall Git Sync."
             return
         }
@@ -154,7 +154,6 @@ final class AppModel: ObservableObject {
         Task {
             defer { connecting = false }
             for attempt in 0..<20 {
-                if attempt.isMultiple(of: 4) { launchHelper() }
                 do {
                     let reply = try await EngineClient.send(.snapshot)
                     apply(reply)
@@ -162,6 +161,9 @@ final class AppModel: ObservableObject {
                     helperError = nil
                     return
                 } catch {
+                    if (attempt + 1).isMultiple(of: 4) {
+                        launchHelper()
+                    }
                     if attempt < 19 { try? await Task.sleep(for: .milliseconds(250)) }
                     else { helperError = "Sync Helper unavailable: \(error.localizedDescription)" }
                 }
@@ -479,10 +481,16 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 if enabled {
-                    if !launchesAtLogin { try loginItem.register() }
+                    if !launchesAtLogin {
+                        await stopRunningHelpers()
+                        try loginItem.register()
+                    }
                     retryHelper()
                 } else {
-                    if launchesAtLogin { try await loginItem.unregister() }
+                    if launchesAtLogin {
+                        _ = try? await EngineClient.send(.prepareForTermination)
+                        try await loginItem.unregister()
+                    }
                     retryHelper()
                 }
                 objectWillChange.send()
@@ -514,11 +522,27 @@ final class AppModel: ObservableObject {
     @discardableResult
     private func launchHelper() -> Bool {
         guard let embeddedHelperURL else { return false }
+        guard NSRunningApplication.runningApplications(
+            withBundleIdentifier: "dev.mxcl.git-sync.menu"
+        ).isEmpty else { return true }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
         configuration.addsToRecentItems = false
         NSWorkspace.shared.openApplication(at: embeddedHelperURL, configuration: configuration)
         return true
+    }
+
+    private func stopRunningHelpers() async {
+        _ = try? await EngineClient.send(.prepareForTermination)
+        let helpers = NSRunningApplication.runningApplications(
+            withBundleIdentifier: "dev.mxcl.git-sync.menu"
+        )
+        helpers.forEach { $0.terminate() }
+        for _ in 0..<20 {
+            if helpers.allSatisfy(\.isTerminated) { return }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        helpers.filter { !$0.isTerminated }.forEach { $0.forceTerminate() }
     }
 
     private func migrateLegacyLoginItem() {

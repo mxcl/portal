@@ -94,6 +94,10 @@ final class AppModel: ObservableObject {
     var menuLogs: [String] {
         logs.suffix(8).reversed().map { $0.count > 90 ? String($0.prefix(89)) + "…" : $0 }
     }
+    var selectedLocalRepositoryURL: URL? {
+        guard let name = selectedProjectName, localProjects[name] != nil else { return nil }
+        return expandedRoot.appendingPathComponent(name, isDirectory: true)
+    }
 
     private let label = "dev.mxcl.git-sync"
     private let selectedProjectKey = "selected-project-v2"
@@ -247,6 +251,19 @@ final class AppModel: ObservableObject {
                 commitDiffError = String(describing: error)
                 isLoadingCommitDiff = false
             }
+        }
+    }
+
+    func openSelectedProjectInTerminal() {
+        guard let repositoryURL = selectedLocalRepositoryURL,
+              let terminalProbe = URL(string: "ssh://localhost"),
+              let terminalURL = NSWorkspace.shared.urlForApplication(toOpen: terminalProbe) else { return }
+        NSWorkspace.shared.open(
+            [repositoryURL], withApplicationAt: terminalURL, configuration: .init()
+        ) { [weak self] _, openError in
+            guard let openError else { return }
+            let message = "Couldn’t open the project in Terminal: \(openError.localizedDescription)"
+            Task { @MainActor in self?.error = message }
         }
     }
 
@@ -1341,6 +1358,11 @@ private struct ProjectHistoryView: View {
                     .disabled(model.selectedProjectName == nil || model.selectedCommitID == nil)
             }
             ToolbarItem { Button("Refresh", systemImage: "arrow.clockwise") { model.selectProject(model.selectedProjectName) } }
+            ToolbarSpacer(.fixed)
+            ToolbarItem {
+                Button("Open in Terminal", systemImage: "terminal", action: model.openSelectedProjectInTerminal)
+                    .disabled(model.selectedLocalRepositoryURL == nil)
+            }
         }
     }
 }

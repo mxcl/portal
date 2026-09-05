@@ -49,6 +49,8 @@
 
 - The graph is a conventional vertical commit log with lanes. It shows local
   branches, peer branches, and tags; stashes and expired recovery refs stay hidden.
+- Peer ref labels in the graph and commit detail use configured host names;
+  stored ref names and protocol identities remain unchanged.
 - Normal branch divergence is information, never a warning.
 - Commit detail contains message, author, date, object ID, parents, pointing refs,
   and a diff. The MVP has no file browser, graph filters, or activity pane.

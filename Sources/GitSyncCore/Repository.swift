@@ -10,6 +10,17 @@ public struct RepositoryReference: Codable, Equatable, Identifiable, Sendable {
         self.oid = oid
     }
 
+    public func displayName(hosts: [SyncHost]) -> String {
+        for host in hosts {
+            for prefix in ["refs/remotes/\(Validator.remote(host.machine))/", "refs/sync/\(host.machine)/"] {
+                if fullName.hasPrefix(prefix) {
+                    return "\(host.name)/\(fullName.dropFirst(prefix.count))"
+                }
+            }
+        }
+        return name
+    }
+
     public var name: String {
         for prefix in ["refs/heads/", "refs/remotes/", "refs/tags/", "refs/sync/"] {
             if fullName.hasPrefix(prefix) { return String(fullName.dropFirst(prefix.count)) }

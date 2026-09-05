@@ -994,7 +994,7 @@ private struct ProjectHistoryView: View {
                     Button("Try Again", action: model.refreshProject)
                 }
             } else if let snapshot = model.projectSnapshot {
-                CommitList(snapshot: snapshot, selection: Binding(
+                CommitList(snapshot: snapshot, hosts: model.configuration.hosts, selection: Binding(
                     get: { model.selectedCommitID }, set: model.selectCommit
                 ))
             } else {
@@ -1055,11 +1055,13 @@ private struct ProjectHistoryView: View {
 
 private struct CommitList: View {
     let snapshot: RepositorySnapshot
+    let hosts: [SyncHost]
     @Binding var selection: String?
     private let graph: CommitGraphModel
 
-    init(snapshot: RepositorySnapshot, selection: Binding<String?>) {
+    init(snapshot: RepositorySnapshot, hosts: [SyncHost], selection: Binding<String?>) {
         self.snapshot = snapshot
+        self.hosts = hosts
         _selection = selection
         let headOID = snapshot.head.flatMap { head in
             snapshot.references.first { $0.fullName == "refs/heads/\(head)" }?.oid
@@ -1073,6 +1075,7 @@ private struct CommitList: View {
                 let commit = snapshot.commits[index]
                 CommitRow(commit: commit,
                           references: snapshot.references.filter { $0.oid == commit.oid },
+                          hosts: hosts,
                           graph: graph,
                           rowIndex: index)
                     .listRowSeparator(.hidden)
@@ -1090,6 +1093,7 @@ private struct CommitList: View {
 private struct CommitRow: View {
     let commit: RepositoryCommit
     let references: [RepositoryReference]
+    let hosts: [SyncHost]
     let graph: CommitGraphModel
     let rowIndex: Int
 
@@ -1100,7 +1104,7 @@ private struct CommitRow: View {
                 HStack(spacing: 5) {
                     Text(commit.subject).lineLimit(1)
                     ForEach(references.prefix(4)) { reference in
-                        Text(reference.name)
+                        Text(reference.displayName(hosts: hosts))
                             .font(.caption2)
                             .lineLimit(1)
                             .padding(.horizontal, 5).padding(.vertical, 2)
@@ -1167,6 +1171,7 @@ private struct ProjectDetailView: View {
                let commit = model.projectSnapshot?.commits.first(where: { $0.oid == commitID }) {
                 CommitDetail(commit: commit,
                              references: model.projectSnapshot?.references.filter { $0.oid == commitID } ?? [],
+                             hosts: model.configuration.hosts,
                              source: model.projectSource.map(model.projectSourceLabel),
                              diff: model.selectedCommitDiff,
                              isLoadingDiff: model.isLoadingCommitDiff,
@@ -1321,6 +1326,7 @@ private extension ProjectPlacement {
 private struct CommitDetail: View {
     let commit: RepositoryCommit
     let references: [RepositoryReference]
+    let hosts: [SyncHost]
     let source: String?
     let diff: String?
     let isLoadingDiff: Bool
@@ -1344,7 +1350,7 @@ private struct CommitDetail: View {
                         }
                     }
                     if !references.isEmpty {
-                        LabeledContent("References", value: references.map(\.name).joined(separator: ", "))
+                        LabeledContent("References", value: references.map { $0.displayName(hosts: hosts) }.joined(separator: ", "))
                     }
                 }
                 .padding()

@@ -759,6 +759,24 @@ func managedGitRemote() throws {
             == "new-b:/code/project")
 }
 
+@Test("peer ref labels use chosen host names and preserve stored identities")
+func peerReferenceDisplayNames() {
+    let host = SyncHost(machine: "ip-172-31-47-224.internal", displayName: "Atlas", peer: "atlas", root: "/apps")
+    let branch = RepositoryReference(fullName: "refs/remotes/ip-172-31-47-224-internal/feature/topic", oid: "abc")
+    #expect(branch.displayName(hosts: [host]) == "Atlas/feature/topic")
+    #expect(branch.name == "ip-172-31-47-224-internal/feature/topic")
+    let tag = RepositoryReference(fullName: "refs/sync/ip-172-31-47-224.internal/tags/v1", oid: "abc")
+    #expect(tag.displayName(hosts: [host]) == "Atlas/tags/v1")
+    var renamed = host
+    renamed.displayName = "Build Server"
+    #expect(branch.displayName(hosts: [renamed]) == "Build Server/feature/topic")
+    #expect(branch.displayName(hosts: []) == branch.name)
+    for ref in ["refs/heads/ip-172-31-47-224-internal/main", "refs/tags/v1", "refs/remotes/origin/main"] {
+        let reference = RepositoryReference(fullName: ref, oid: "abc")
+        #expect(reference.displayName(hosts: [host]) == reference.name)
+    }
+}
+
 @Test("managed Git remotes use the chosen name without changing peer namespaces")
 func managedGitRemoteDisplayName() throws {
     let fixture = try Fixture()

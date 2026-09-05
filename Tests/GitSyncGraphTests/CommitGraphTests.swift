@@ -41,3 +41,27 @@ func wideHistoryLaneSpacing() {
     #expect(firstWidth == 18)
     #expect(abs(lastWidth - firstWidth - 17 * 14) < 0.001)
 }
+
+@Test("working changes start above history and connect to HEAD across other branches")
+func workingChangesGraph() throws {
+    let commits = [
+        RepositoryCommit(oid: "other", parents: ["root"], author: "", date: .distantPast, message: "other"),
+        RepositoryCommit(oid: "head", parents: ["root"], author: "", date: .distantPast, message: "head"),
+        RepositoryCommit(oid: "root", parents: [], author: "", date: .distantPast, message: "root"),
+    ]
+    let graph = CommitGraphGenerator.generate(commits: commits, headOID: "head", hasWorkingChanges: true)
+    #expect(graph.rowSlices.count == 4)
+    let changes = try #require(graph.dots.first)
+    let head = graph.dots[2]
+    #expect(changes.center.y == 0.5)
+    #expect(changes.type == .default)
+    #expect(head.type == .head)
+    #expect(changes.lane == head.lane)
+    #expect(graph.paths.contains { $0.points.first == changes.center && $0.points.contains { $0.y >= head.center.y } })
+    #expect(graph.rowSlices[1].pathIndices.contains { graph.paths[$0].points.first == changes.center })
+    let clean = CommitGraphGenerator.generate(commits: commits, headOID: "head")
+    #expect(clean.rowSlices.count == 3)
+    let unborn = CommitGraphGenerator.generate(commits: [], headOID: nil, hasWorkingChanges: true)
+    #expect(unborn.dots.count == 1)
+    #expect(unborn.paths.isEmpty)
+}

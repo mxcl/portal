@@ -177,6 +177,54 @@ func repositorySnapshot() throws {
     #expect(repository.readme()?.source == "Checked out HEAD")
 }
 
+@Test("history reports working changes and follows detached HEAD")
+func repositoryWorkingChanges() throws {
+    let fixture = try Fixture()
+    let repository = Repository(name: "project", url: fixture.a.appendingPathComponent("project"))
+    #expect(try repository.snapshot().workingChanges?.isEmpty == true)
+    try Data("two\n".utf8).write(to: repository.url.appendingPathComponent("file.txt"))
+    #expect(try repository.snapshot().workingChanges?.summary == "1 unstaged file")
+    _ = try git(["-C", repository.url.path, "add", "file.txt"])
+    #expect(try repository.snapshot().workingChanges?.summary == "1 staged file")
+    _ = try git(["-C", repository.url.path, "commit", "-qm", "staged changes"])
+    _ = try git(["-C", repository.url.path, "mv", "file.txt", "renamed\nfile.txt"])
+    try Data("three\n".utf8).write(to: repository.url.appendingPathComponent("renamed\nfile.txt"))
+    try Data().write(to: repository.url.appendingPathComponent("untracked\nfile.txt"))
+    _ = try git(["-C", repository.url.path, "checkout", "--detach", "HEAD"])
+    let snapshot = try repository.snapshot()
+    #expect(snapshot.head == nil)
+    #expect(snapshot.headOID == snapshot.commits.first?.oid)
+    #expect(snapshot.workingChanges?.summary == "1 staged file · 1 unstaged file · 1 untracked file")
+    #expect(try JSONDecoder().decode(RepositorySnapshot.self,
+                                     from: JSONEncoder().encode(snapshot)) == snapshot)
+    _ = try git(["-C", repository.url.path, "add", "--all"])
+    _ = try git(["-C", repository.url.path, "commit", "-qm", "changes"])
+    #expect(try repository.snapshot().workingChanges?.isEmpty == true)
+
+    let bare = try Repository.ensure(name: "bare", in: fixture.b, bare: true)
+    #expect(try bare.snapshot().workingChanges == nil)
+    let mirrored = try Repository.ensure(name: "mirror", in: fixture.b)
+    #expect(try mirrored.snapshot().workingChanges == nil)
+    let unborn = fixture.b.appendingPathComponent("unborn")
+    _ = try git(["init", "-q", "-b", "main", unborn.path])
+    try Data().write(to: unborn.appendingPathComponent("new.txt"))
+    let initial = try Repository(name: "unborn", url: unborn).snapshot()
+    #expect(initial.commits.isEmpty)
+    #expect(initial.headOID == nil)
+    #expect(initial.workingChanges?.summary == "1 untracked file")
+
+    let legacy = Data(#"{"commits":[],"references":[],"branches":[]}"#.utf8)
+    #expect(try JSONDecoder().decode(RepositorySnapshot.self, from: legacy).workingChanges == nil)
+}
+
+@Test("working status counts conflicts once and skips rename source paths")
+func workingStatusParsing() {
+    let status = RepositoryWorkingChanges(porcelain: Data(
+        "UU conflict\0AA added\0DD deleted\0RM destination\0?? source\0?? new\nfile\0 D removed\0!! ignored\0".utf8
+    ))
+    #expect(status.summary == "1 staged file · 2 unstaged files · 1 untracked file · 3 conflicted files")
+}
+
 @Test("repository maps GitHub origins to project pages")
 func githubOriginURL() throws {
     let expected = "https://github.com/mxcl/git-sync"

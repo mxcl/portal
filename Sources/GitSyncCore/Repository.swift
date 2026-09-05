@@ -53,12 +53,50 @@ public struct RepositorySnapshot: Codable, Equatable, Sendable {
     public let references: [RepositoryReference]
     public let head: String?
     public let branches: [String]
+    public let headOID: String?
+    public let workingChanges: RepositoryWorkingChanges?
 
-    public init(commits: [RepositoryCommit], references: [RepositoryReference], head: String?, branches: [String]) {
+    public init(commits: [RepositoryCommit], references: [RepositoryReference], head: String?, branches: [String],
+                headOID: String? = nil, workingChanges: RepositoryWorkingChanges? = nil) {
         self.commits = commits
         self.references = references
         self.head = head
         self.branches = branches
+        self.headOID = headOID
+        self.workingChanges = workingChanges
+    }
+}
+
+public struct RepositoryWorkingChanges: Codable, Equatable, Sendable {
+    public private(set) var staged = 0
+    public private(set) var unstaged = 0
+    public private(set) var untracked = 0
+    public private(set) var conflicted = 0
+
+    public var isEmpty: Bool { staged + unstaged + untracked + conflicted == 0 }
+
+    public var summary: String {
+        [(staged, "staged"), (unstaged, "unstaged"), (untracked, "untracked"), (conflicted, "conflicted")]
+            .filter { $0.0 > 0 }
+            .map { "\($0.0) \($0.1) file\($0.0 == 1 ? "" : "s")" }
+            .joined(separator: " · ")
+    }
+
+    init(porcelain: Data) {
+        var records = porcelain.split(separator: 0).makeIterator()
+        while let record = records.next() {
+            let status = String(decoding: record.prefix(2), as: UTF8.self)
+            guard status.count == 2, let x = status.first, let y = status.last else { continue }
+            if status.contains("R") || status.contains("C") {
+                _ = records.next() // -z renames/copies include a second pathname.
+            }
+            if status == "??" { untracked += 1 }
+            else if status.contains("U") || status == "AA" || status == "DD" { conflicted += 1 }
+            else if status != "!!" {
+                if x != " " { staged += 1 }
+                if y != " " { unstaged += 1 }
+            }
+        }
     }
 }
 
@@ -270,7 +308,15 @@ public struct Repository: Equatable {
     public func snapshot(limit: Int = 250) throws -> RepositorySnapshot {
         let references = try referenceSnapshot()
         let head = try? Git.text(["-C", url.path, "symbolic-ref", "--quiet", "--short", "HEAD"])
-        return try snapshot(limit: limit, references: references, revisions: ["--all"], head: head)
+        let history = try snapshot(limit: limit, references: references, revisions: ["--all"], head: head)
+        let headOID = try? Git.text(["-C", url.path, "rev-parse", "--verify", "HEAD"])
+        let mirrored = try Git.text(["-C", url.path, "rev-parse", "--is-bare-repository"]) == "true"
+            || (try? Git.text(["-C", url.path, "config", "--bool", "git-sync.mirrored"])) == "true"
+        let changes = try mirrored ? nil : RepositoryWorkingChanges(porcelain: Git.run([
+            "--no-optional-locks", "-C", url.path, "status", "--porcelain=v1", "-z", "--untracked-files=all",
+        ]))
+        return RepositorySnapshot(commits: history.commits, references: references, head: head,
+                                  branches: history.branches, headOID: headOID, workingChanges: changes)
     }
 
     public func content(limit: Int = 250) throws -> RepositoryContent {

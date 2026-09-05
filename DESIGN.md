@@ -20,6 +20,9 @@ of repositories observed across configured hosts and backup inventory. Rows
 show host presence and operational state without treating normal Git divergence
 as an error. The graph renders this Mac's local branches, received peer branches,
 and tags. When refs coincide, their host labels share a commit marker.
+Outstanding working changes add a row above the commits, connected to the source
+checkout's HEAD, with staged, unstaged, untracked, and conflicted file counts.
+This informational row disappears when clean and is absent for mirrors and backups.
 
 The detail column keeps project placement visible above a scrolling README.
 Selecting a commit replaces the overview with graph metadata and its diff, not a

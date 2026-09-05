@@ -24,6 +24,7 @@ import Foundation
 import GitSyncCore
 
 public nonisolated enum CommitGraphGenerator {
+    public static let workingChangesID = "working-changes"
     private static let unitWidth = 12.0
     private static let halfWidth = 6.0
     private static let unitHeight = 1.0
@@ -33,9 +34,14 @@ public nonisolated enum CommitGraphGenerator {
 
     public static func generate(
         commits: [RepositoryCommit],
-        headOID: String?
+        headOID: String?,
+        hasWorkingChanges: Bool = false
     ) -> CommitGraphModel {
-        generate(commits: commits, highlighting: .all, headHash: headOID, highlightRootHash: nil)
+        let rows = hasWorkingChanges ? [RepositoryCommit(
+            oid: workingChangesID, parents: headOID.map { [$0] } ?? [],
+            author: "", date: .distantPast, message: "Uncommitted changes"
+        )] + commits : commits
+        return generate(commits: rows, highlighting: .all, headHash: headOID, highlightRootHash: nil)
     }
 
     static func generate(

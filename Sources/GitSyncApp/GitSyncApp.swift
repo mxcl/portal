@@ -1058,32 +1058,51 @@ private struct CommitList: View {
     let hosts: [SyncHost]
     @Binding var selection: String?
     private let graph: CommitGraphModel
+    private var hasWorkingChanges: Bool { snapshot.workingChanges?.isEmpty == false }
 
     init(snapshot: RepositorySnapshot, hosts: [SyncHost], selection: Binding<String?>) {
         self.snapshot = snapshot
         self.hosts = hosts
         _selection = selection
-        let headOID = snapshot.head.flatMap { head in
+        let headOID = snapshot.headOID ?? snapshot.head.flatMap { head in
             snapshot.references.first { $0.fullName == "refs/heads/\(head)" }?.oid
         }
-        graph = CommitGraphGenerator.generate(commits: snapshot.commits, headOID: headOID)
+        graph = CommitGraphGenerator.generate(commits: snapshot.commits, headOID: headOID,
+                                              hasWorkingChanges: snapshot.workingChanges?.isEmpty == false)
     }
 
     var body: some View {
         List(selection: $selection) {
+            if hasWorkingChanges, let changes = snapshot.workingChanges {
+                HStack(alignment: .top, spacing: 8) {
+                    BranchGraphRowCanvas(model: graph, rowIndex: 0,
+                                         commitOID: CommitGraphGenerator.workingChangesID)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Uncommitted changes").lineLimit(1)
+                        Text(changes.summary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .help(changes.summary)
+                .accessibilityElement(children: .combine)
+                .listRowSeparator(.hidden)
+                .selectionDisabled()
+            }
             ForEach(snapshot.commits.indices, id: \.self) { index in
                 let commit = snapshot.commits[index]
                 CommitRow(commit: commit,
                           references: snapshot.references.filter { $0.oid == commit.oid },
                           hosts: hosts,
                           graph: graph,
-                          rowIndex: index)
+                          rowIndex: index + (hasWorkingChanges ? 1 : 0))
                     .listRowSeparator(.hidden)
                     .tag(commit.oid)
             }
         }
         .overlay {
-            if snapshot.commits.isEmpty {
+            if snapshot.commits.isEmpty && !hasWorkingChanges {
                 ContentUnavailableView("No Commits", systemImage: "point.3.connected.trianglepath.dotted")
             }
         }

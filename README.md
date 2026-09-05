@@ -97,7 +97,8 @@ registers only `Gitinuum Menu Helper.app`, which shares the main app’s icon fi
 Choose **Gitinuum → Install Command Line Tool…** to install `gitinuum` in
 `/usr/local/bin`. The bundled installer opens in Terminal and requests your
 administrator password via `sudo`. Run `gitinuum` to open the app, or
-`gitinuum --sync-help` to list the available sync commands. The app must remain
+`gitinuum /path/to/repository` to select a project. `gitinuum --sync-help` lists
+the daemon commands. The app must remain
 installed; run the menu installer again after an update to refresh the CLI.
 
 Existing hosts configured with `/Applications/Git Sync.app/Contents/Resources/gitinuumd`

@@ -32,6 +32,7 @@ let package = Package(
                            .product(name: "Textual", package: "textual", condition: .when(platforms: [.macOS]))]
         ),
         .executableTarget(name: "GitSyncMenuBar", dependencies: ["GitSyncEngine"]),
+        .testTarget(name: "GitinuumCLITests", dependencies: ["gitinuum"]),
         .testTarget(name: "GitSyncTests", dependencies: ["GitSyncCore"]),
         .testTarget(name: "GitSyncGraphTests", dependencies: ["GitSyncGraph", "GitSyncCore"]),
         .testTarget(name: "GitSyncEngineTests", dependencies: ["GitSyncEngine"]),

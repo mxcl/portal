@@ -28,6 +28,11 @@ README, GitHub origin, and commit diffs are read on demand from a selected live
 host or backup snapshot. These reads never create a local repository or mutate
 the source.
 
+When a commit has an off-screen file, the trailing header shows a compact file
+index. Its native menu lists every changed path and jumps to the selected diff;
+the first visible file is marked. The index hides when every file intersects the
+viewport and updates as the user scrolls or resizes the window.
+
 The UI uses no custom palette or typography. Semantic system colors carry state,
 SF Symbols accompany every status label, and monospaced system text is reserved
 for refs and object IDs. It supports light, dark, increased-contrast, keyboard,

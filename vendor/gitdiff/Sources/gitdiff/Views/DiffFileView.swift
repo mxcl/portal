@@ -8,12 +8,16 @@
 import SwiftUI
 
 /// View for rendering a single file's diff
-struct DiffFileView: View {
+public struct DiffFileView: View {
   let file: DiffFile
 
   @Environment(\.diffConfiguration) private var configuration
 
-  var body: some View {
+  public init(file: DiffFile) {
+    self.file = file
+  }
+
+  public var body: some View {
     let largestLineNumber = file.hunks.flatMap(\.lines).flatMap {
       [$0.oldLineNumber, $0.newLineNumber].compactMap { $0 }
     }.max() ?? 0

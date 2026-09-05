@@ -1176,6 +1176,7 @@ private struct ProjectDetailView: View {
                              diff: model.selectedCommitDiff,
                              isLoadingDiff: model.isLoadingCommitDiff,
                              error: model.commitDiffError)
+                    .id(commit.oid)
             } else {
                 ProjectOverview(name: name, model: model)
             }
@@ -1332,48 +1333,86 @@ private struct CommitDetail: View {
     let isLoadingDiff: Bool
     let error: String?
     @Environment(\.colorScheme) private var colorScheme
+    @State private var files: [DiffFile] = []
+    @State private var visibleFiles: Set<UUID> = []
+    @State private var isParsingDiff = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(commit.message).font(.headline).textSelection(.enabled)
-                    if let source { LabeledContent("Source", value: source) }
-                    LabeledContent("Author", value: commit.author)
-                    LabeledContent("Date") { Text(commit.date.formatted(date: .long, time: .standard)) }
-                    LabeledContent("SHA") { Text(commit.oid).monospaced().textSelection(.enabled) }
-                    if !commit.parents.isEmpty {
-                        LabeledContent("Parents") {
-                            VStack(alignment: .trailing) {
-                                ForEach(commit.parents, id: \.self) { Text($0).monospaced() }
+        GeometryReader { viewport in
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(commit.message).font(.headline).textSelection(.enabled)
+                            if let source { LabeledContent("Source", value: source) }
+                            LabeledContent("Author", value: commit.author)
+                            LabeledContent("Date") { Text(commit.date.formatted(date: .long, time: .standard)) }
+                            LabeledContent("SHA") { Text(commit.oid).monospaced().textSelection(.enabled) }
+                            if !commit.parents.isEmpty {
+                                LabeledContent("Parents") {
+                                    VStack(alignment: .trailing) {
+                                        ForEach(commit.parents, id: \.self) { Text($0).monospaced() }
+                                    }
+                                }
+                            }
+                            if !references.isEmpty {
+                                LabeledContent("References", value: references.map { $0.displayName(hosts: hosts) }.joined(separator: ", "))
+                            }
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Divider()
+                        if isLoadingDiff || isParsingDiff {
+                            ProgressView("Reading commit diff…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else if let error {
+                            ContentUnavailableView("Couldn’t Read Diff", systemImage: "exclamationmark.triangle",
+                                                   description: Text(error))
+                        } else if diff != nil, !files.isEmpty {
+                            VStack(spacing: 16) {
+                                ForEach(files) { file in
+                                    DiffFileView(file: file)
+                                        .id(file.id)
+                                        .onGeometryChange(for: Bool.self) { geometry in
+                                            CommitFileNavigator.isVisible(geometry.frame(in: .named("commitViewport")),
+                                                                          viewportHeight: viewport.size.height)
+                                        } action: { visible in
+                                            if visible { visibleFiles.insert(file.id) }
+                                            else { visibleFiles.remove(file.id) }
+                                        }
+                                }
+                            }
+                            .diffConfiguration(.codeReview.with(theme: colorScheme == .dark ? .dark : .light))
+                            .padding()
+                        } else {
+                            ContentUnavailableView("No Diff", systemImage: "doc.text.magnifyingglass")
+                        }
+                    }
+                }
+                .coordinateSpace(name: "commitViewport")
+                .toolbar {
+                    if !isLoadingDiff, error == nil, !files.isEmpty, visibleFiles.count < files.count {
+                        ToolbarSpacer(.flexible, placement: .primaryAction)
+                        ToolbarItem(placement: .primaryAction) {
+                            CommitFileNavigator(files: files, visibleFiles: visibleFiles) { id in
+                                scroll.scrollTo(id, anchor: .top)
                             }
                         }
                     }
-                    if !references.isEmpty {
-                        LabeledContent("References", value: references.map { $0.displayName(hosts: hosts) }.joined(separator: ", "))
-                    }
-                }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Divider()
-                if isLoadingDiff {
-                    ProgressView("Reading commit diff…").frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let error {
-                    ContentUnavailableView("Couldn’t Read Diff", systemImage: "exclamationmark.triangle",
-                                           description: Text(error))
-                } else if let diff {
-                    DiffRenderer(diffText: diff)
-                        .diffConfiguration(.codeReview.with(theme: colorScheme == .dark ? .dark : .light))
-                        .scrollDisabled(true)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ContentUnavailableView("No Diff", systemImage: "doc.text.magnifyingglass")
                 }
             }
         }
         .navigationTitle(commit.subject)
+        .task(id: diff) {
+            files = []
+            visibleFiles = []
+            isParsingDiff = false
+            guard let diff else { return }
+            isParsingDiff = true
+            let parsed = try? await UnifiedDiffParser().parse(diff)
+            guard !Task.isCancelled else { return }
+            files = parsed ?? []
+            isParsingDiff = false
+        }
     }
 }
 

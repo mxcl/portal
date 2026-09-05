@@ -30,7 +30,8 @@ Branches appear at `refs/remotes/<lowercase-kebab-machine>/…`, tags at
 `refs/sync/<machine>/stash`.
 
 Each enabled peer is also available as a Git remote named from its configured
-machine name in lowercase kebab case, so ordinary commands such as
+display name in lowercase kebab case (or its machine name when unnamed),
+so ordinary commands such as
 `git fetch linux` and `git push linux main` work over SSH. Gitinuum configures
 branch and tag fetch mappings without changing local branches or tags.
 

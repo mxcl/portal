@@ -737,6 +737,19 @@ func managedGitRemote() throws {
             == "new-b:/code/project")
 }
 
+@Test("managed Git remotes use the chosen name without changing peer namespaces")
+func managedGitRemoteDisplayName() throws {
+    let fixture = try Fixture()
+    let repository = try #require(Repository.discover(in: fixture.a).first)
+    let peer = PeerRepositoryLocation(machine: "ip-172-31-47-224.internal", sshTarget: "atlas",
+                                      root: "/apps", displayName: "Atlas")
+    try repository.configureRemote(peer)
+    #expect(try git(["-C", repository.url.path, "remote"]) == "atlas")
+    #expect(try git(["-C", repository.url.path, "remote", "get-url", "atlas"]) == "atlas:/apps/project")
+    #expect(try git(["-C", repository.url.path, "config", "--get-all", "remote.atlas.fetch"])
+            == "+refs/heads/*:refs/remotes/ip-172-31-47-224-internal/*\n+refs/tags/*:refs/sync/ip-172-31-47-224.internal/tags/*")
+}
+
 @Test("host discovery prepopulates locations but sync requires both hosts")
 func hostDiscoverySelection() throws {
     var configuration = AppConfiguration(root: "/tmp", machine: "A")

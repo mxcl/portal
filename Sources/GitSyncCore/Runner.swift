@@ -108,7 +108,7 @@ public enum Runner {
                     stateURL: stateURL, repositories: configuration.repositories.map(Set.init),
                     peerRepositoryLocation: configuration.remoteReceiveOnly == true ? nil : configuration.remoteMachine.map {
                         PeerRepositoryLocation(machine: $0, sshTarget: configuration.peer,
-                                               root: configuration.remoteRoot)
+                                               root: configuration.remoteRoot, displayName: configuration.remoteDisplayName)
                     },
                     isInitiator: true,
                     syncCheckouts: configuration.syncCheckouts == true,

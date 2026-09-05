@@ -435,6 +435,7 @@ public final class EngineModel: ObservableObject {
     public func renameHost(id: UUID, name: String) throws {
         try configuration.renameHost(id, name: name)
         try save()
+        restartIfRunning()
     }
 
     public func removeHost(_ id: UUID) throws {
@@ -549,7 +550,7 @@ public final class EngineModel: ObservableObject {
         let connection = Configuration(root: configuration.root, machine: configuration.machine,
                                        peer: host.peer, remoteRoot: host.root,
                                        remoteExecutable: host.executable, repositories: repositories,
-                                       remoteMachine: host.machine,
+                                       remoteMachine: host.machine, remoteDisplayName: host.name,
                                        syncCheckouts: configuration.syncCheckouts)
         try connection.validate()
         try launch(connection, id: host.id, name: host.name, helper: helper)
@@ -619,7 +620,7 @@ public final class EngineModel: ObservableObject {
                 let connection = Configuration(root: configuration.root, machine: configuration.machine,
                                                peer: host.peer, remoteRoot: host.root,
                                                remoteExecutable: host.executable, repositories: repositories,
-                                               remoteMachine: host.machine,
+                                               remoteMachine: host.machine, remoteDisplayName: host.name,
                                                syncCheckouts: configuration.syncCheckouts)
                 try connection.validate()
                 try launch(connection, id: host.id, name: host.name, helper: helper)
@@ -628,7 +629,7 @@ public final class EngineModel: ObservableObject {
                 let connection = Configuration(
                     root: configuration.root, machine: configuration.machine,
                     peer: host.peer, remoteRoot: "", remoteExecutable: host.executable,
-                    remoteMachine: host.machine,
+                    remoteMachine: host.machine, remoteDisplayName: host.name,
                     remoteReceiveOnly: true
                 )
                 try connection.validate()
@@ -862,7 +863,7 @@ public final class EngineModel: ObservableObject {
         guard let host = try configuration.backupHost() else { return nil }
         return Configuration(root: configuration.root, machine: configuration.machine,
                              peer: host.peer, remoteRoot: "", remoteExecutable: host.executable,
-                             remoteMachine: host.machine, remoteReceiveOnly: true)
+                             remoteMachine: host.machine, remoteDisplayName: host.name, remoteReceiveOnly: true)
     }
 
     private func removeLegacyAgent() {

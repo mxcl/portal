@@ -34,13 +34,14 @@ public struct Configuration: Codable, Equatable, Sendable {
     public var remoteExecutable: String
     public var repositories: [String]?
     public var remoteMachine: String?
+    public var remoteDisplayName: String?
     public var remoteState: String?
     public var remoteReceiveOnly: Bool?
     public var syncCheckouts: Bool?
 
     public init(root: String, machine: String, peer: String, remoteRoot: String,
                 remoteExecutable: String = Configuration.defaultRemoteExecutable,
-                repositories: [String]? = nil, remoteMachine: String? = nil,
+                repositories: [String]? = nil, remoteMachine: String? = nil, remoteDisplayName: String? = nil,
                 remoteState: String? = nil, remoteReceiveOnly: Bool? = nil,
                 syncCheckouts: Bool? = nil) {
         self.root = root
@@ -50,6 +51,7 @@ public struct Configuration: Codable, Equatable, Sendable {
         self.remoteExecutable = remoteExecutable
         self.repositories = repositories
         self.remoteMachine = remoteMachine
+        self.remoteDisplayName = remoteDisplayName
         self.remoteState = remoteState
         self.remoteReceiveOnly = remoteReceiveOnly
         self.syncCheckouts = syncCheckouts
@@ -84,11 +86,13 @@ public struct Configuration: Codable, Equatable, Sendable {
 
 public struct PeerRepositoryLocation: Equatable, Sendable {
     public let machine: String
+    public let displayName: String?
     public let sshTarget: String
     public let root: String
 
-    public init(machine: String, sshTarget: String, root: String) {
+    public init(machine: String, sshTarget: String, root: String, displayName: String? = nil) {
         self.machine = machine
+        self.displayName = displayName
         self.sshTarget = sshTarget
         self.root = root
     }
@@ -101,7 +105,8 @@ public struct PeerRepositoryLocation: Equatable, Sendable {
     }
 
     var remoteName: String {
-        Validator.remote(machine)
+        let chosen = Validator.remote(Configuration.sanitizedMachine(displayName ?? machine))
+        return chosen.isEmpty ? Validator.remote(machine) : chosen
     }
 
     func url(for repository: String) throws -> String {

@@ -31,7 +31,10 @@ func archivePreservesSelection() async throws {
     model.configuration = AppConfiguration(root: source.path, machine: "test",
         folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)],
         backupDestination: destination)
-    model.selectProject("project")
+    #expect(model.openProjectURL(URL(string: "gitsync://project?name=project")!))
+    #expect(model.selectedProjectName == "project")
+    #expect(!model.openProjectURL(URL(string: "gitsync://project?name=..%2Foutside")!))
+    #expect(model.selectedProjectName == "project")
     var deadline = Date().addingTimeInterval(5)
     while model.isLoadingProject && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
     model.selectCommit(oid)
@@ -65,4 +68,6 @@ func archivePreservesSelection() async throws {
     #expect(model.selectedCommitID == oid)
     #expect(model.selectedCommitDiff == diff)
     #expect(model.projectReadme?.markdown == "# Project\n")
+    #expect(model.openProjectURL(URL(string: "gitsync://project?name=space%20%26%20unicode%20%C3%A9")!))
+    #expect(model.selectedProjectName == "space & unicode é")
 }

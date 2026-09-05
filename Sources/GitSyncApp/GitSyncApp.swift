@@ -352,6 +352,17 @@ final class AppModel: ObservableObject {
     func pause() { perform(.pause) }
     func resume() { perform(.resume) }
 
+    @discardableResult
+    func openProjectURL(_ url: URL) -> Bool {
+        guard url.scheme == "gitsync", url.host == "project",
+              let name = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "name" })?.value,
+              !name.isEmpty, name != ".", name != "..",
+              !name.contains("/"), !name.contains("\\"), !name.contains("\0") else { return false }
+        selectProject(name)
+        return true
+    }
+
     func selectProject(_ name: String?) {
         guard name != selectedProjectName else { return }
         selectedProjectName = name
@@ -855,6 +866,8 @@ struct ProjectBrowserView: View {
         .onOpenURL { url in
             if url.scheme == "gitsync", url.host == "settings" {
                 openSettings()
+                NSApplication.shared.activate()
+            } else if model.openProjectURL(url) {
                 NSApplication.shared.activate()
             }
         }

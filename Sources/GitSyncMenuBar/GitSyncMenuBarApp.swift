@@ -86,7 +86,17 @@ private struct StatusMenu: View {
                 Text("No local repositories")
             }
             ForEach(runtime.model.localProjects.keys.sorted(), id: \.self) { name in
-                Text("\(name): \(runtime.model.projectStatuses[name] ?? "Checking…")")
+                Button {
+                    var url = URLComponents()
+                    url.scheme = "gitsync"
+                    url.host = "project"
+                    url.queryItems = [URLQueryItem(name: "name", value: name)]
+                    if let url = url.url { NSWorkspace.shared.open(url) }
+                } label: {
+                    let status = Text(runtime.model.projectStatuses[name] ?? "Checking…")
+                        .foregroundColor(Color(nsColor: .disabledControlTextColor))
+                    Text("\(name): \(status)")
+                }
             }
         }
         Menu("Events") {

@@ -17,12 +17,14 @@ cd "$repo_dir"
 swift build -c release
 
 app="$stage/Gitinuum.app"
-menu="$app/Contents/Library/LoginItems/Gitinuum Menu.app"
+menu="$app/Contents/Library/LoginItems/Gitinuum Menu Helper.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" \
-  "$menu/Contents/MacOS" "$(dirname -- "$destination")"
+  "$menu/Contents/MacOS" "$menu/Contents/Resources" "$(dirname -- "$destination")"
 cp "$build_dir/GitinuumApp" "$app/Contents/MacOS/GitinuumApp"
 cp -R "$build_dir/textual_Textual.bundle" "$app/Contents/Resources/"
-cp "$build_dir/git-sync" "$app/Contents/Resources/git-sync"
+cp "$build_dir/gitinuumd" "$app/Contents/Resources/gitinuumd"
+# Older installed gitinuum launchers still invoke this path.
+ln -s gitinuumd "$app/Contents/Resources/git-sync"
 cp "$build_dir/gitinuum" "$app/Contents/Resources/gitinuum"
 install -m 755 "$repo_dir/app/install-gitinuum.command" "$app/Contents/Resources/install-gitinuum.command"
 cp "$build_dir/GitSyncMenuBar" "$menu/Contents/MacOS/GitSyncMenuBar"
@@ -46,13 +48,16 @@ xcrun actool "$repo_dir/app/AppIcon.icon" \
   --output-partial-info-plist "$stage/IconInfo.plist" >/dev/null
 test -f "$app/Contents/Resources/Assets.car"
 test -f "$app/Contents/Resources/AppIcon.icns"
+for icon in AppIcon.icns Assets.car; do
+  ln "$app/Contents/Resources/$icon" "$menu/Contents/Resources/$icon"
+done
 
 if ! security find-identity -v -p codesigning | grep -Fq "\"$signing_identity\""; then
   echo "Code-signing identity not found: $signing_identity" >&2
   exit 1
 fi
 
-codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/Resources/git-sync"
+codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/Resources/gitinuumd"
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/Resources/gitinuum"
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$menu/Contents/MacOS/GitSyncMenuBar"
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$menu"
@@ -64,14 +69,21 @@ if [ -e "$destination" ]; then
   sleep 1
   /usr/bin/pkill -x GitSyncMenuBar 2>/dev/null || true
   /usr/bin/pkill -x GitinuumApp 2>/dev/null || true
-  /usr/bin/pkill -TERM -f "^$destination/Contents/Resources/git-sync run " 2>/dev/null || true
+  /usr/bin/pkill -TERM -f "^$destination/Contents/Resources/(git-sync|gitinuumd) run " 2>/dev/null || true
 fi
+# Remove obsolete bundle members before overlaying the renamed release.
+rm -rf "$destination/Contents/Library/LoginItems/Gitinuum Menu.app"
+rm -f "$destination/Contents/Resources/git-sync"
 /usr/bin/ditto "$app" "$destination"
-codesign --verify --strict --verbose=2 "$destination/Contents/Library/LoginItems/Gitinuum Menu.app"
+# Keep the icon files shared even when the copy tool expands hardlinks.
+for icon in AppIcon.icns Assets.car; do
+  ln -f "$destination/Contents/Resources/$icon" "$destination/Contents/Library/LoginItems/Gitinuum Menu Helper.app/Contents/Resources/$icon"
+done
+codesign --verify --strict --verbose=2 "$destination/Contents/Library/LoginItems/Gitinuum Menu Helper.app"
 codesign --verify --deep --strict --verbose=2 "$destination"
 
 cli_link="$HOME/.local/bin/git-sync"
-if [ -L "$cli_link" ] && [ "$(readlink "$cli_link")" = "$destination/Contents/Resources/git-sync" ]; then
+if [ -L "$cli_link" ] && [ "$(readlink "$cli_link")" = "$destination/Contents/Resources/gitinuumd" ]; then
   rm "$cli_link"
 fi
 

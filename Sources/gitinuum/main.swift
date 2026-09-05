@@ -9,7 +9,7 @@ if let first = arguments.first, ["help", "--help", "-h"].contains(first) {
     Usage: gitinuum [COMMAND [ARGUMENTS...]]
 
     With no arguments, opens Gitinuum.
-    Commands are forwarded to Gitinuum's bundled git-sync tool.
+    Commands are forwarded to Gitinuum's bundled gitinuumd tool.
     Use `gitinuum --sync-help` to list sync commands.
     """)
     exit(0)
@@ -20,7 +20,7 @@ guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "dev.
     exit(1)
 }
 
-let executable = arguments.isEmpty ? "/usr/bin/open" : app.appendingPathComponent("Contents/Resources/git-sync").path
+let executable = arguments.isEmpty ? "/usr/bin/open" : app.appendingPathComponent("Contents/Resources/gitinuumd").path
 let forwarded = arguments.isEmpty ? [app.path] : (arguments == ["--sync-help"] ? ["--help"] : arguments)
 let argv = ([executable] + forwarded).map { strdup($0) } + [nil]
 argv.withUnsafeBufferPointer { buffer in
@@ -29,6 +29,6 @@ argv.withUnsafeBufferPointer { buffer in
 perror("gitinuum")
 exit(1)
 #else
-FileHandle.standardError.write(Data("gitinuum: The Gitinuum app requires macOS. Use git-sync on this platform.\n".utf8))
+FileHandle.standardError.write(Data("gitinuum: The Gitinuum app requires macOS. Use gitinuumd on this platform.\n".utf8))
 exit(1)
 #endif

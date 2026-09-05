@@ -33,18 +33,18 @@ func defaultStateURL() -> URL {
 
 let usage = """
 Usage:
-  git-sync run --root PATH --machine NAME --peer SSH_TARGET --remote-root PATH [--remote-machine NAME] [--remote-executable PATH] [--selective --repository NAME ...] [--sync-checkouts] [--state PATH]
-  git-sync run --config PATH [--state PATH]
-  git-sync daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--receive-only] [--sync-checkouts] [--state PATH]
-  git-sync list --root PATH
-  git-sync inspect --root PATH [--machine NAME]
-  git-sync project-content --root PATH --repository NAME
-  git-sync project-diff --root PATH --repository NAME --oid OID
-  git-sync project-state --root PATH --repository NAME --placement checkedOut|mirrored|notPresent [--branch NAME]
-  git-sync check-backup
-  git-sync relay-backup
-  git-sync relay-backup-control
-  git-sync sync-once --source-root PATH --destination-root PATH --machine NAME [--sync-checkouts] [--state PATH]
+  gitinuumd run --root PATH --machine NAME --peer SSH_TARGET --remote-root PATH [--remote-machine NAME] [--remote-executable PATH] [--selective --repository NAME ...] [--sync-checkouts] [--state PATH]
+  gitinuumd run --config PATH [--state PATH]
+  gitinuumd daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--receive-only] [--sync-checkouts] [--state PATH]
+  gitinuumd list --root PATH
+  gitinuumd inspect --root PATH [--machine NAME]
+  gitinuumd project-content --root PATH --repository NAME
+  gitinuumd project-diff --root PATH --repository NAME --oid OID
+  gitinuumd project-state --root PATH --repository NAME --placement checkedOut|mirrored|notPresent [--branch NAME]
+  gitinuumd check-backup
+  gitinuumd relay-backup
+  gitinuumd relay-backup-control
+  gitinuumd sync-once --source-root PATH --destination-root PATH --machine NAME [--sync-checkouts] [--state PATH]
 """
 
 do {
@@ -53,7 +53,7 @@ do {
     arguments.removeFirst()
     let stateURL = URL(fileURLWithPath: NSString(string: value("--state", in: arguments) ?? defaultStateURL().path).expandingTildeInPath)
     let log: (String) -> Void = { message in
-        FileHandle.standardError.write(Data("[git-sync] \(message)\n".utf8))
+        FileHandle.standardError.write(Data("[gitinuumd] \(message)\n".utf8))
     }
 
     switch command {
@@ -140,6 +140,6 @@ do {
     default: throw SyncError.invalidConfiguration("Unknown command: \(command)\n\(usage)")
     }
 } catch {
-    FileHandle.standardError.write(Data("git-sync: \(error)\n".utf8))
+    FileHandle.standardError.write(Data("gitinuumd: \(error)\n".utf8))
     exit(1)
 }

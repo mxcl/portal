@@ -63,7 +63,7 @@ private final class MenuBarRuntime: ObservableObject {
     }
 
     private static var gitSyncExecutableURL: URL {
-        outerApplicationURL.appendingPathComponent("Contents/Resources/git-sync")
+        outerApplicationURL.appendingPathComponent("Contents/Resources/gitinuumd")
     }
 
     static func openMainApplication() {
@@ -108,5 +108,5 @@ private struct StatusMenu: View {
 }
 #else
 import Foundation
-@main enum GitSyncMenuBarApp { static func main() { print("Gitinuum Menu is available on macOS only") } }
+@main enum GitSyncMenuBarApp { static func main() { print("Gitinuum Menu Helper is available on macOS only") } }
 #endif

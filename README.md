@@ -1,14 +1,14 @@
 # Gitinuum
 
 Continuously exchange Git history between your own computers over one
-persistent SSH connection. `git-sync` implements a bidirectional, continuous
+persistent SSH connection. `gitinuumd` implements a bidirectional, continuous
 fetch/push system. Each host publishes snapshots of its refs into the other
 host's peer namespace while both working repositories remain independent by
 default. Incoming history leaves local branches, `HEAD`, the index, and working
 files alone unless guarded checkout syncing is explicitly enabled.
 
 ```console
-$ git-sync run \
+$ gitinuumd run \
     --root ~/src \
     --machine macbook \
     --peer linux \
@@ -90,7 +90,7 @@ picker hidden.
 
 The embedded helper owns continuous syncing and shows live transfer logs in its
 menu, even while the project window is closed. The Launch at Login setting
-registers that helper. It uses the copy of `git-sync` inside each peer's
+registers only `Gitinuum Menu Helper.app`, which shares the main app’s icon files. It uses the copy of `gitinuumd` inside each peer's
 `/Applications/Gitinuum.app`; the path can be changed while adding that host.
 
 Choose **Gitinuum → Install Command Line Tool…** to install `gitinuum` in
@@ -99,8 +99,11 @@ administrator password via `sudo`. Run `gitinuum` to open the app, or
 `gitinuum --sync-help` to list the available sync commands. The app must remain
 installed; run the menu installer again after an update to refresh the CLI.
 
-Existing hosts configured with `/Applications/Git Sync.app/Contents/Resources/git-sync`
+Existing hosts configured with `/Applications/Git Sync.app/Contents/Resources/gitinuumd`
 need their executable path updated after renaming the installed app.
+
+The bundle keeps `git-sync` as a compatibility symlink to `gitinuumd` for older
+installed launchers. New peer configurations use `gitinuumd`.
 
 ## Linux / CLI install
 
@@ -108,7 +111,7 @@ Swift 5.9 or newer and Git are required.
 
 ```console
 $ swift build -c release
-$ install .build/release/git-sync ~/.local/bin/git-sync
+$ install .build/release/gitinuumd ~/.local/bin/gitinuumd
 ```
 
 The peer needs ordinary SSH authentication. No network listener, repository

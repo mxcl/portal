@@ -667,7 +667,7 @@ public final class EngineModel: ObservableObject {
                 self.syncProcesses.removeValue(forKey: id)
                 self.isRunning = !self.syncProcesses.isEmpty || self.backupReceiver != nil || self.localBackup != nil
                 if process.terminationStatus != 0 {
-                    self.appendLog("\(name): git-sync exited with status \(process.terminationStatus)")
+                    self.appendLog("\(name): gitinuumd exited with status \(process.terminationStatus)")
                 }
                 if !self.isRunning { self.status = "Stopped" }
             }
@@ -680,7 +680,7 @@ public final class EngineModel: ObservableObject {
     private func appendLogs(_ data: Data, host: String) {
         String(decoding: data, as: UTF8.self)
             .split(whereSeparator: \.isNewline)
-            .map { $0.hasPrefix("[git-sync] ") ? $0.dropFirst(11) : $0[...] }
+            .map { $0.hasPrefix("[gitinuumd] ") ? $0.dropFirst(12) : $0[...] }
             .forEach { line in
                 appendLog(line.contains(" → ") || line.contains(" ← ") ? String(line) : "\(host): \(line)")
             }

@@ -123,7 +123,7 @@ final class AppModel: ObservableObject {
     fileprivate var hostNameDraft = ""
 
     private let selectedProjectKey = "selected-project-v2"
-    private let loginMigrationKey = "migrated-menu-login-item-v1"
+    private let loginMigrationKey = "migrated-menu-helper-login-item-v2"
     private let loginItem = SMAppService.loginItem(identifier: "dev.mxcl.git-sync.menu")
     private var pendingHostDraft: HostDraft?
     private var notificationObserver: NSObjectProtocol?
@@ -748,7 +748,7 @@ final class AppModel: ObservableObject {
 
     private var embeddedHelperURL: URL? {
         let url = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Library/LoginItems/Gitinuum Menu.app", isDirectory: true)
+            .appendingPathComponent("Contents/Library/LoginItems/Gitinuum Menu Helper.app", isDirectory: true)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
@@ -783,9 +783,15 @@ final class AppModel: ObservableObject {
         guard !defaults.bool(forKey: loginMigrationKey) else { return }
         let legacyEnabled = SMAppService.mainApp.status == .enabled
             || SMAppService.mainApp.status == .requiresApproval
-        if legacyEnabled && !launchesAtLogin { try? loginItem.register() }
-        if legacyEnabled { try? SMAppService.mainApp.unregister() }
-        defaults.set(true, forKey: loginMigrationKey)
+        do {
+            let helperEnabled = launchesAtLogin
+            if helperEnabled { try loginItem.unregister() }
+            if legacyEnabled || helperEnabled { try loginItem.register() }
+            if legacyEnabled { try SMAppService.mainApp.unregister() }
+            defaults.set(true, forKey: loginMigrationKey)
+        } catch {
+            self.error = "Could not update the login helper: \(error.localizedDescription)"
+        }
     }
 }
 
@@ -1531,7 +1537,7 @@ private struct AddHostView: View {
             Form {
                 TextField("SSH host", text: $model.hostDraft.peer)
                 TextField("Projects folder", text: $model.hostDraft.root)
-                TextField("git-sync executable", text: $model.hostDraft.executable)
+                TextField("gitinuumd executable", text: $model.hostDraft.executable)
             }
             .formStyle(.grouped)
             if let error = model.hostError { Text(error).foregroundStyle(.red).textSelection(.enabled) }

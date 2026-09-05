@@ -30,7 +30,7 @@ and VoiceOver behavior through native SwiftUI components.
 
 ## Product contract
 
-`git-sync` implements a continuous bidirectional Git fetch/push system. By
+`gitinuumd` implements a continuous bidirectional Git fetch/push system. By
 default both working repositories remain independent. Each host is authoritative
 for its own branches, tags, stash, `HEAD`, index, and working tree. It publishes
 selected local ref snapshots into a namespace owned by that host on its peer.
@@ -40,7 +40,7 @@ A refs/heads/main  ->  B refs/remotes/a/main
 B refs/heads/main  ->  A refs/remotes/b/main
 ```
 
-`git-sync` does not negotiate ordinary user Git operations. Commits, rebases,
+`gitinuumd` does not negotiate ordinary user Git operations. Commits, rebases,
 force pushes, branch deletion, garbage collection, and offline work remain
 local operations. The replication module observes their durable results
 through Git and publishes them. If both hosts move their local `main`, both
@@ -89,8 +89,8 @@ is an explicit Git operation and is outside the background replication contract.
 
 ## Architecture
 
-Each `git-sync run` owns one source parent and one long-lived
-`ssh -T <peer> git-sync daemon --stdio …` child process. Both endpoints run the
+Each `gitinuumd run` owns one source parent and one long-lived
+`ssh -T <peer> gitinuumd daemon --stdio …` child process. Both endpoints run the
 same session engine, so repository discovery and ref transfer are symmetric on
 that single full-duplex stream. The embedded menu helper starts one such process
 per host that has at least one enabled project. macOS uses FSEvents and Linux uses
@@ -146,7 +146,7 @@ than enlarging the control-message envelope.
 
 The foreground app registers the embedded menu helper as its per-user login item.
 The menu helper is the sole writer of configuration, starts the bundled headless
-`git-sync` executable, and writes one connection and ordering-state file per host.
+`gitinuumd` executable, and writes one connection and ordering-state file per host.
 The app communicates with it through a separately versioned, owner-only control
 socket; notifications only tell the app to request a fresh snapshot. The same
 headless executable is used on Linux.

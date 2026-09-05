@@ -8,7 +8,7 @@ let package = Package(
     products: [
         .library(name: "GitSyncCore", targets: ["GitSyncCore"]),
         .executable(name: "gitinuum", targets: ["gitinuum"]),
-        .executable(name: "git-sync", targets: ["git-sync"]),
+        .executable(name: "gitinuumd", targets: ["gitinuumd"]),
         .executable(name: "GitinuumApp", targets: ["GitSyncApp"]),
         .executable(name: "GitSyncMenuBar", targets: ["GitSyncMenuBar"]),
     ],
@@ -25,7 +25,7 @@ let package = Package(
         .target(name: "GitSyncEngine", dependencies: ["GitSyncCore"]),
         .target(name: "GitSyncGraph", dependencies: ["GitSyncCore"]),
         .executableTarget(name: "gitinuum"),
-        .executableTarget(name: "git-sync", dependencies: ["GitSyncCore"]),
+        .executableTarget(name: "gitinuumd", dependencies: ["GitSyncCore"]),
         .executableTarget(
             name: "GitSyncApp",
             dependencies: ["GitSyncCore", "GitSyncEngine", "GitSyncGraph", .product(name: "gitdiff", package: "gitdiff"),

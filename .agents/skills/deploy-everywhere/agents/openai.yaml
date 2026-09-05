@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deploy Everywhere"
+  short_description: "Deploy Gitinuum to both Macs and atlas"
+  default_prompt: "Use $deploy-everywhere to install and verify Gitinuum on Maliwan, pangolin, and atlas."

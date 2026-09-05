@@ -3,7 +3,7 @@ set -euo pipefail
 
 staged_app="${1:?staged app required}"
 backup_app="${2:?backup app required}"
-target_app="/Applications/Git Sync.app"
+target_app="/Applications/Gitinuum.app"
 
 [[ "$staged_app" == /Applications/.git-sync-app.install.* ]]
 [[ "$backup_app" == /Applications/.git-sync-app.previous.* ]]
@@ -20,7 +20,7 @@ restore() {
 trap restore EXIT
 
 # Login items can appear under their bundle identifier instead of the executable name.
-processes='GitSync|git-sync|GitSyncMenuBar|dev[.]mxcl[.]git-sync[.]menu'
+processes='GitinuumApp|gitinuumd|GitSync|git-sync|GitSyncMenuBar|dev[.]mxcl[.]git-sync[.]menu(-helper)?'
 pkill -x "$processes" 2>/dev/null || true
 for _ in {1..50}; do
   if ! pgrep -x "$processes" >/dev/null; then
@@ -45,18 +45,18 @@ rm -rf "$backup_app"
 trap - EXIT
 # A registered login item can respawn while the old bundle is being replaced.
 # Restart it after the swap so it cannot keep running the deleted executable.
-menu_service="gui/$(id -u)/dev.mxcl.git-sync.menu"
+menu_service="gui/$(id -u)/dev.mxcl.git-sync.menu-helper"
 if launchctl print "$menu_service" >/dev/null 2>&1; then
   launchctl kickstart -k "$menu_service"
 fi
 open "$target_app"
 
 for _ in {1..50}; do
-  if pgrep -x GitSync >/dev/null &&
-     /usr/sbin/lsof -t "$target_app/Contents/Library/LoginItems/Git Sync Menu.app/Contents/MacOS/GitSyncMenuBar" >/dev/null 2>&1; then
+  if pgrep -x GitinuumApp >/dev/null &&
+     /usr/sbin/lsof -t "$target_app/Contents/Library/LoginItems/Gitinuum Menu Helper.app/Contents/MacOS/GitSyncMenuBar" >/dev/null 2>&1; then
     exit 0
   fi
   sleep 0.1
 done
-echo "Git Sync or its installed menu helper did not restart" >&2
+echo "Gitinuum or its installed menu helper did not restart" >&2
 exit 1

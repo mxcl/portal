@@ -128,6 +128,28 @@ private final class Fixture {
 
 extension GitSyncTests {
 
+@Test("short status reports checkout changes, detached HEAD, and mirrors")
+func repositoryShortStatus() throws {
+    let fixture = try Fixture()
+    let repository = Repository(name: "project", url: fixture.a.appendingPathComponent("project"))
+    #expect(try repository.shortStatus() == "main · clean")
+    _ = try git(["-C", repository.url.path, "mv", "file.txt", "renamed.txt"])
+    try Data("changed\n".utf8).write(to: repository.url.appendingPathComponent("renamed.txt"))
+    try Data().write(to: repository.url.appendingPathComponent("untracked\nfile.txt"))
+    #expect(try repository.shortStatus() == "main · 2 changed")
+    _ = try git(["-C", repository.url.path, "checkout", "--detach", "HEAD"])
+    let oid = try git(["-C", repository.url.path, "rev-parse", "--short", "HEAD"])
+    #expect(try repository.shortStatus() == "Detached \(oid) · 2 changed")
+    let mirror = try Repository.ensure(name: "mirror", in: fixture.b, bare: true)
+    #expect(try mirror.shortStatus() == "Mirrored")
+    let unborn = fixture.b.appendingPathComponent("unborn")
+    _ = try git(["init", "-q", "-b", "main", unborn.path])
+    #expect(try Repository(name: "unborn", url: unborn).shortStatus() == "main · clean")
+    #expect(throws: (any Error).self) {
+        try Repository(name: "missing", url: fixture.b.appendingPathComponent("missing")).shortStatus()
+    }
+}
+
 @Test("repository snapshot exposes commits, refs, and README")
 func repositorySnapshot() throws {
     let fixture = try Fixture()

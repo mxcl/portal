@@ -10,6 +10,10 @@ quiet, like Finder or Xcode; the colored commit lanes are its only expressive
 visual element. System colors, materials, typography, spacing, controls, and
 selection behavior remain canonical.
 
+The menu-bar helper shows a Project Status section with each local repository's
+branch and changed-file count (or clean/mirrored state). It refreshes on menu
+appearance and during local discovery. Recent events live in an Events submenu.
+
 The sidebar groups active and archived projects. A project is the shared name
 of repositories observed across configured hosts and backup inventory. Rows
 show host presence and operational state without treating normal Git divergence

@@ -95,6 +95,7 @@ public final class EngineModel: ObservableObject {
     @Published public private(set) var restoringBackup: String?
     @Published public private(set) var placementInProgress: String?
     @Published public private(set) var localProjects: [String: PeerProject] = [:]
+    @Published public private(set) var projectStatuses: [String: String] = [:]
     @Published public private(set) var remoteProjects: [UUID: [String: PeerProject]] = [:]
 
     private let executableURL: URL
@@ -725,15 +726,30 @@ public final class EngineModel: ObservableObject {
         }
     }
 
+    public func refreshProjectStatuses() async {
+        guard isConfigured else { return }
+        do {
+            try await discoverLocalProjects(priority: .utility)
+        } catch {
+            projectStatuses = localProjects.mapValues { _ in "Status unavailable" }
+        }
+    }
+
     private func discoverLocalProjects(priority: TaskPriority) async throws {
         let root = expandedRoot
-        let projects = try await Task.detached(priority: priority) {
-            try Repository.discover(in: root).map {
+        let (projects, statuses) = try await Task.detached(priority: priority) {
+            let repositories = try Repository.discover(in: root)
+            let projects = repositories.map {
                 PeerProject(name: $0.name, placement: $0.placement, defaultBranch: $0.defaultBranch)
             }
+            let statuses = Dictionary(uniqueKeysWithValues: repositories.map {
+                ($0.name, (try? $0.shortStatus()) ?? "Status unavailable")
+            })
+            return (projects, statuses)
         }.value
         try configuration.discoverLocal(projects.map(\.name))
         localProjects = Dictionary(uniqueKeysWithValues: projects.map { ($0.name, $0) })
+        projectStatuses = statuses
     }
 
     private func refreshHostIdentities(startAfter: Bool) async {

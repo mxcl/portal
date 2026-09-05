@@ -12,6 +12,7 @@ struct GitSyncMenuBarApp: App {
     var body: some Scene {
         MenuBarExtra {
             StatusMenu(runtime: runtime)
+                .task { await runtime.model.refreshProjectStatuses() }
         } label: {
             Label("Gitinuum", systemImage: runtime.model.isPaused
                   ? "pause.circle" : "arrow.triangle.2.circlepath")
@@ -79,9 +80,19 @@ private struct StatusMenu: View {
 
     var body: some View {
         Text(runtime.model.status)
-        if !runtime.model.menuLogs.isEmpty {
-            Divider()
-            Section("Event Log") {
+        Divider()
+        Section("Project Status") {
+            if runtime.model.localProjects.isEmpty {
+                Text("No local repositories")
+            }
+            ForEach(runtime.model.localProjects.keys.sorted(), id: \.self) { name in
+                Text("\(name): \(runtime.model.projectStatuses[name] ?? "Checking…")")
+            }
+        }
+        Menu("Events") {
+            if runtime.model.menuLogs.isEmpty {
+                Text("No events yet")
+            } else {
                 ForEach(Array(runtime.model.menuLogs.enumerated()), id: \.offset) { Text($0.element) }
             }
         }

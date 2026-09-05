@@ -113,6 +113,19 @@ public struct Repository: Equatable {
         return URL(fileURLWithPath: path, relativeTo: url).standardizedFileURL
     }
 
+    public func shortStatus() throws -> String {
+        if try Git.text(["-C", url.path, "rev-parse", "--is-bare-repository"]) == "true"
+            || (try? Git.text(["-C", url.path, "config", "--bool", "git-sync.mirrored"])) == "true" {
+            return "Mirrored"
+        }
+        let branch = try (try? Git.text(["-C", url.path, "symbolic-ref", "--quiet", "--short", "HEAD"]))
+            ?? "Detached \(try Git.text(["-C", url.path, "rev-parse", "--short", "HEAD"]))"
+        let changes = try Git.text(["--no-optional-locks", "-C", url.path, "status",
+                                    "--porcelain=v1", "--untracked-files=all"])
+            .split(separator: "\n").count
+        return "\(branch) · \(changes == 0 ? "clean" : "\(changes) changed")"
+    }
+
     public var placement: ProjectPlacement {
         if (try? Git.text(["-C", url.path, "rev-parse", "--is-bare-repository"])) == "true" { return .mirrored }
         let markedMirror = (try? Git.text(["-C", url.path, "config", "--bool", "git-sync.mirrored"])) == "true"

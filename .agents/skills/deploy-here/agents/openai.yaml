@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deploy Here"
+  short_description: "Deploy Gitinuum on this Mac only"
+  default_prompt: "Use $deploy-here to install and verify Gitinuum on this Mac only."

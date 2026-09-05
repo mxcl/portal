@@ -99,7 +99,7 @@ private struct StatusMenu: View {
             }
         }
         .keyboardShortcut(",", modifiers: .command)
-        if SMAppService.loginItem(identifier: "dev.mxcl.git-sync.menu").status == .requiresApproval {
+        if SMAppService.loginItem(identifier: "dev.mxcl.git-sync.menu-helper").status == .requiresApproval {
             Button("Login Items…") { SMAppService.openSystemSettingsLoginItems() }
         }
         Divider()

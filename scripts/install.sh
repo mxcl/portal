@@ -31,7 +31,7 @@ cp "$build_dir/GitSyncMenuBar" "$menu/Contents/MacOS/GitSyncMenuBar"
 cp "$repo_dir/app/Info.plist" "$app/Contents/Info.plist"
 cp "$repo_dir/app/MenuInfo.plist" "$menu/Contents/Info.plist"
 test "$(/usr/bin/plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = "dev.mxcl.git-sync"
-test "$(/usr/bin/plutil -extract CFBundleIdentifier raw "$menu/Contents/Info.plist")" = "dev.mxcl.git-sync.menu"
+test "$(/usr/bin/plutil -extract CFBundleIdentifier raw "$menu/Contents/Info.plist")" = "dev.mxcl.git-sync.menu-helper"
 if /usr/bin/plutil -extract LSUIElement raw "$app/Contents/Info.plist" >/dev/null 2>&1; then
   echo "The foreground app must not be an LSUIElement." >&2
   exit 1
@@ -64,7 +64,7 @@ codesign --force --sign "$signing_identity" --options runtime --timestamp "$menu
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/MacOS/GitinuumApp"
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app"
 if [ -e "$destination" ]; then
-  /usr/bin/osascript -e 'tell application id "dev.mxcl.git-sync.menu" to quit' >/dev/null 2>&1 || true
+  /usr/bin/osascript -e 'tell application id "dev.mxcl.git-sync.menu-helper" to quit' >/dev/null 2>&1 || true
   /usr/bin/osascript -e 'tell application id "dev.mxcl.git-sync" to quit' >/dev/null 2>&1 || true
   sleep 1
   /usr/bin/pkill -x GitSyncMenuBar 2>/dev/null || true

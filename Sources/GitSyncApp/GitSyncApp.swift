@@ -123,8 +123,8 @@ final class AppModel: ObservableObject {
     fileprivate var hostNameDraft = ""
 
     private let selectedProjectKey = "selected-project-v2"
-    private let loginMigrationKey = "migrated-menu-helper-login-item-v2"
-    private let loginItem = SMAppService.loginItem(identifier: "dev.mxcl.git-sync.menu")
+    private let loginMigrationKey = "migrated-menu-helper-login-item-v5"
+    private let loginItem = SMAppService.loginItem(identifier: "dev.mxcl.git-sync.menu-helper")
     private var pendingHostDraft: HostDraft?
     private var notificationObserver: NSObjectProtocol?
     private var fetchingSnapshot = false
@@ -663,6 +663,7 @@ final class AppModel: ObservableObject {
                     }
                     retryHelper()
                 }
+                UserDefaults.standard.set(enabled, forKey: "launch-at-login")
                 objectWillChange.send()
             } catch {
                 self.error = error.localizedDescription
@@ -756,7 +757,7 @@ final class AppModel: ObservableObject {
     private func launchHelper() -> Bool {
         guard let embeddedHelperURL else { return false }
         guard NSRunningApplication.runningApplications(
-            withBundleIdentifier: "dev.mxcl.git-sync.menu"
+            withBundleIdentifier: "dev.mxcl.git-sync.menu-helper"
         ).isEmpty else { return true }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
@@ -768,7 +769,7 @@ final class AppModel: ObservableObject {
     private func stopRunningHelpers() async {
         _ = try? await EngineClient.send(.prepareForTermination)
         let helpers = NSRunningApplication.runningApplications(
-            withBundleIdentifier: "dev.mxcl.git-sync.menu"
+            withBundleIdentifier: "dev.mxcl.git-sync.menu-helper"
         )
         helpers.forEach { $0.terminate() }
         for _ in 0..<20 {
@@ -783,10 +784,11 @@ final class AppModel: ObservableObject {
         guard !defaults.bool(forKey: loginMigrationKey) else { return }
         let legacyEnabled = SMAppService.mainApp.status == .enabled
             || SMAppService.mainApp.status == .requiresApproval
+        let oldHelper = SMAppService.loginItem(identifier: "dev.mxcl.git-sync.menu")
+        let oldHelperEnabled = oldHelper.status == .enabled || oldHelper.status == .requiresApproval
         do {
-            let helperEnabled = launchesAtLogin
-            if helperEnabled { try loginItem.unregister() }
-            if legacyEnabled || helperEnabled { try loginItem.register() }
+            if oldHelperEnabled { try oldHelper.unregister() }
+            if (legacyEnabled || oldHelperEnabled || defaults.bool(forKey: "launch-at-login")) && !launchesAtLogin { try loginItem.register() }
             if legacyEnabled { try SMAppService.mainApp.unregister() }
             defaults.set(true, forKey: loginMigrationKey)
         } catch {

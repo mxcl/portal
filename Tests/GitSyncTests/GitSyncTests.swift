@@ -762,14 +762,14 @@ func managedGitRemote() throws {
 @Test("peer ref labels use chosen host names and preserve stored identities")
 func peerReferenceDisplayNames() {
     let host = SyncHost(machine: "ip-172-31-47-224.internal", displayName: "Atlas", peer: "atlas", root: "/apps")
-    let branch = RepositoryReference(fullName: "refs/remotes/ip-172-31-47-224-internal/feature/topic", oid: "abc")
-    #expect(branch.displayName(hosts: [host]) == "Atlas/feature/topic")
-    #expect(branch.name == "ip-172-31-47-224-internal/feature/topic")
+    let branch = RepositoryReference(fullName: "refs/remotes/ip-172-31-47-224-internal/feature/Topic", oid: "abc")
+    #expect(branch.displayName(hosts: [host]) == "atlas/feature/Topic")
+    #expect(branch.name == "ip-172-31-47-224-internal/feature/Topic")
     let tag = RepositoryReference(fullName: "refs/sync/ip-172-31-47-224.internal/tags/v1", oid: "abc")
-    #expect(tag.displayName(hosts: [host]) == "Atlas/tags/v1")
+    #expect(tag.displayName(hosts: [host]) == "atlas/tags/v1")
     var renamed = host
     renamed.displayName = "Build Server"
-    #expect(branch.displayName(hosts: [renamed]) == "Build Server/feature/topic")
+    #expect(branch.displayName(hosts: [renamed]) == "build server/feature/Topic")
     #expect(branch.displayName(hosts: []) == branch.name)
     for ref in ["refs/heads/ip-172-31-47-224-internal/main", "refs/tags/v1", "refs/remotes/origin/main"] {
         let reference = RepositoryReference(fullName: ref, oid: "abc")

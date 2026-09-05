@@ -14,7 +14,7 @@ public struct RepositoryReference: Codable, Equatable, Identifiable, Sendable {
         for host in hosts {
             for prefix in ["refs/remotes/\(Validator.remote(host.machine))/", "refs/sync/\(host.machine)/"] {
                 if fullName.hasPrefix(prefix) {
-                    return "\(host.name)/\(fullName.dropFirst(prefix.count))"
+                    return "\(host.name.lowercased())/\(fullName.dropFirst(prefix.count))"
                 }
             }
         }

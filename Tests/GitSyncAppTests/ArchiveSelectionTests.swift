@@ -28,9 +28,11 @@ func archivePreservesSelection() async throws {
                      stateURL: root.appendingPathComponent("state.json"), bareDestination: true)
     let destination = BackupDestinationConfiguration(root: backup.path)
     let model = AppModel(connectToHelper: false)
+    #expect(model.backupStatus(for: "project").title == "Backup not configured")
     model.configuration = AppConfiguration(root: source.path, machine: "test",
         folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)],
         backupDestination: destination)
+    #expect(model.backupStatus(for: "project").title == "No backup found")
     #expect(model.openProjectURL(URL(string: "gitsync://project?name=project")!))
     #expect(model.selectedProjectName == "project")
     #expect(!model.openProjectURL(URL(string: "gitsync://project?name=..%2Foutside")!))
@@ -55,6 +57,16 @@ func archivePreservesSelection() async throws {
     while engine.backupItems.isEmpty && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
     try #require(engine.backupItems.first?.status == .archived)
     model.apply(engine.snapshot())
+    #expect(model.backupStatus(for: "project").title == "Backup available")
+    #expect(model.backupStatus(for: "project").detail.contains("test"))
+    #expect(model.backupStatus(for: "another-project").title == "No backup found")
+    model.backupError = "Backup host offline"
+    #expect(model.backupStatus(for: "project").title == "Backup status unavailable")
+    #expect(model.backupStatus(for: "project").detail == "Backup host offline")
+    model.backupError = nil
+    model.helperError = "Helper unavailable"
+    #expect(model.backupStatus(for: "project").title == "Backup status unavailable")
+    model.helperError = nil
     #expect(model.selectedProjectName == "project")
     #expect(model.selectedCommitID == oid)
     #expect(model.projectReadme?.markdown == "# Project\n")

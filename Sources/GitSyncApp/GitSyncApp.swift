@@ -176,6 +176,20 @@ final class AppModel: ObservableObject {
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
+    func backupStatus(for project: String) -> (title: String, symbol: String, detail: String) {
+        guard configuration.backup != nil || configuration.backupDestination != nil else {
+            return ("Backup not configured", "externaldrive", "Choose a backup destination in Settings.")
+        }
+        if let error = backupError ?? helperError {
+            return ("Backup status unavailable", "exclamationmark.triangle", error)
+        }
+        guard let item = backupItems.first(where: { $0.name == project }), !item.snapshots.isEmpty else {
+            return ("No backup found", "externaldrive", "No stored snapshot is currently listed for this project.")
+        }
+        return ("Backup available", "externaldrive.badge.checkmark",
+                "Stored snapshots from: \(item.snapshots.map(\.machine).joined(separator: ", ")).")
+    }
+
     var selectedLocalRepositoryURL: URL? {
         guard let name = selectedProjectName else { return nil }
         return repositoryURL(for: name)
@@ -1180,6 +1194,12 @@ private struct ProjectOverview: View {
                     } else {
                         Text("Project").foregroundStyle(.secondary)
                     }
+                    let backup = model.backupStatus(for: name)
+                    Label(backup.title, systemImage: backup.symbol)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .help(backup.detail)
+                        .accessibilityHint(backup.detail)
                 }
                 if let archived = model.archivedProjects.first(where: { $0.name == name }) {
                     ArchivedProjectControls(item: archived, model: model)

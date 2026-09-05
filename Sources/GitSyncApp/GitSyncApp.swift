@@ -15,13 +15,25 @@ struct GitSyncApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        Window("Git Sync", id: "projects") {
+        Window("Gitinuum", id: "projects") {
             ProjectBrowserView(model: model)
         }
         .defaultSize(width: 1180, height: 720)
         .windowResizability(.contentMinSize)
         .commands {
             SidebarCommands()
+            CommandGroup(after: .appSettings) {
+                Button("Install Command Line Tool…") {
+                    guard let script = Bundle.main.url(forResource: "install-gitinuum", withExtension: "command"),
+                          NSWorkspace.shared.open(script) else {
+                        let alert = NSAlert()
+                        alert.messageText = "Could not open the command line installer"
+                        alert.informativeText = "Reinstall Gitinuum and try again."
+                        alert.runModal()
+                        return
+                    }
+                }
+            }
             CommandGroup(after: .toolbar) {
                 Button(model.isPaused ? "Resume Sync" : "Pause Sync") {
                     model.isPaused ? model.resume() : model.pause()
@@ -197,7 +209,7 @@ final class AppModel: ObservableObject {
         helperAvailable = false
         helperError = nil
         guard embeddedHelperURL != nil else {
-            helperError = "The embedded Sync Helper is missing. Reinstall Git Sync."
+            helperError = "The embedded Sync Helper is missing. Reinstall Gitinuum."
             return
         }
         connecting = true
@@ -736,7 +748,7 @@ final class AppModel: ObservableObject {
 
     private var embeddedHelperURL: URL? {
         let url = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Library/LoginItems/Git Sync Menu.app", isDirectory: true)
+            .appendingPathComponent("Contents/Library/LoginItems/Gitinuum Menu.app", isDirectory: true)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
@@ -1381,7 +1393,7 @@ struct SettingsView: View {
                     Text("The projects folder and Git identity are fixed after setup.").foregroundStyle(.secondary)
                 }
                 Section("Startup") {
-                    Toggle("Launch Git Sync at login", isOn: Binding(get: { model.launchesAtLogin }, set: model.setLaunchAtLogin))
+                    Toggle("Launch Gitinuum at login", isOn: Binding(get: { model.launchesAtLogin }, set: model.setLaunchAtLogin))
                     if model.launchAtLoginRequiresApproval {
                         Button("Open Login Items…", action: model.openLoginItems)
                     }
@@ -1496,7 +1508,7 @@ private struct RenameHostView: View {
         VStack(alignment: .leading) {
             Text("Rename Host").font(.title2.bold())
             TextField("Name", text: $model.hostNameDraft)
-            Text("This changes how the host appears in Git Sync, not its Git identity.")
+            Text("This changes how the host appears in Gitinuum, not its Git identity.")
                 .foregroundStyle(.secondary)
             if let error = model.hostError { Text(error).foregroundStyle(.red).textSelection(.enabled) }
             HStack {
@@ -1538,5 +1550,5 @@ private struct AddHostView: View {
 }
 #else
 import Foundation
-@main enum GitSyncApp { static func main() { print("Git Sync.app is available on macOS only") } }
+@main enum GitSyncApp { static func main() { print("Gitinuum.app is available on macOS only") } }
 #endif

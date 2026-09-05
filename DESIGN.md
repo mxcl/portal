@@ -2,7 +2,7 @@
 
 ## App UI
 
-Git Sync has a conventional foreground app and an embedded menu-bar helper. The
+Gitinuum has a conventional foreground app and an embedded menu-bar helper. The
 app owns one project browser window, a native three-column
 `NavigationSplitView`: an alphabetical project sidebar, a commit graph, and
 contextual detail. The interface is deliberately dense and
@@ -71,7 +71,7 @@ for the user.
 
 ## Managed Git remotes
 
-After a peer identifies itself, Git Sync adds it to each enabled local project
+After a peer identifies itself, Gitinuum adds it to each enabled local project
 using its configured machine name in lowercase kebab case, with URL
 `<ssh-target>:<remote-root>/<project>`. The remote's
 fetch mappings reuse the namespaces already owned by that peer:
@@ -112,10 +112,10 @@ disabling either cell stops both directions. Equal names already present at
 both ends require explicit confirmation before the host is added.
 
 An optional backup selects one inspected host. The receiving host separately
-chooses a parent folder, distinct from its normal root, through Git Sync.app.
+chooses a parent folder, distinct from its normal root, through Gitinuum.app.
 The menu helper owns an owner-only Unix socket and a receive-only session rooted at that
 user-selected folder. The SSH-launched helper only relays the framed byte stream
-to that socket, so macOS attributes destination access to Git Sync.app rather
+to that socket, so macOS attributes destination access to Gitinuum.app rather
 than Remote Login. No network listener or additional credential is introduced.
 The endpoint accepts catalogs, objects, and ref snapshots but never advertises
 repositories or publishes its own refs back. Its ordering state has one writer

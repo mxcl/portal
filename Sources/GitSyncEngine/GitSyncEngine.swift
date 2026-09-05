@@ -407,7 +407,7 @@ public final class EngineModel: ObservableObject {
 
     public func addHost(peer: String, root: String, executable: String,
                         allowNameCollisions: Bool) async throws -> [String] {
-        guard !isChecking else { throw EngineControlError.message("Git Sync is already checking hosts.") }
+        guard !isChecking else { throw EngineControlError.message("Gitinuum is already checking hosts.") }
         let probe = Configuration(root: configuration.root, machine: configuration.machine,
                                   peer: peer, remoteRoot: root, remoteExecutable: executable,
                                   repositories: [])

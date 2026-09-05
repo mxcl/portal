@@ -1,4 +1,4 @@
-# git-sync
+# Gitinuum
 
 Continuously exchange Git history between your own computers over one
 persistent SSH connection. `git-sync` implements a bidirectional, continuous
@@ -31,7 +31,7 @@ Branches appear at `refs/remotes/<lowercase-kebab-machine>/…`, tags at
 
 Each enabled peer is also available as a Git remote named from its configured
 machine name in lowercase kebab case, so ordinary commands such as
-`git fetch linux` and `git push linux main` work over SSH. Git Sync configures
+`git fetch linux` and `git push linux main` work over SSH. Gitinuum configures
 branch and tag fetch mappings without changing local branches or tags.
 
 If both machines advance `main`, both histories are retained:
@@ -45,7 +45,7 @@ You decide when to merge, rebase, reset, check out, or incorporate a
 peer ref, as you would after `git fetch`.
 
 `--sync-checkouts` (or **Keep matching clean checkouts in sync** in the Mac app)
-opts both ends of a connection into guarded fast-forwards. Git Sync advances a
+opts both ends of a connection into guarded fast-forwards. Gitinuum advances a
 checked-out branch only when that same branch is the peer's clean checkout, the
 local checkout is clean, and its current commit is an ancestor of the peer tip.
 Staged, unstaged, untracked, divergent committed work, and non-fast-forward
@@ -58,9 +58,9 @@ retries the fast-forward during reconciliation (within five minutes).
 $ ./scripts/install.sh
 ```
 
-This builds, Developer ID signs, and installs `Git Sync.app` plus its embedded
+This builds, Developer ID signs, and installs `Gitinuum.app` plus its embedded
 menu-bar Sync Helper in `/Applications`. Open the app and choose the one parent
-folder. Add each SSH host before choosing folders; the app rejects the host if its Git Sync helper cannot
+folder. Add each SSH host before choosing folders; the app rejects the host if its Gitinuum helper cannot
 be inspected. The folder table is prepopulated from every host. Select both the
 local and remote host cells to enable a folder in both directions. Matching
 repository names already present on both hosts retain the initial “Are You
@@ -68,7 +68,7 @@ Sure?” confirmation.
 
 The Backup tab can continuously send every local repository to one existing
 host. On the receiving Mac, use the same tab to choose **Receive Backups on This
-Mac**; that folder must differ from its projects folder. Git Sync.app owns the
+Mac**; that folder must differ from its projects folder. Gitinuum.app owns the
 destination and the SSH process only relays encrypted protocol bytes, so Remote
 Login does not need Full Disk Access. The connection is receive-only: refs
 created inside the backup are never published back to the source Mac. Each
@@ -81,7 +81,7 @@ without moving or deleting their data. **Unarchive** transfers a selected
 snapshot from the receiver into the projects folder on the Mac where the action
 was chosen; it refuses to overwrite an existing repository.
 
-Projects that are not on this Mac remain browsable. Git Sync reads their commit
+Projects that are not on this Mac remain browsable. Gitinuum reads their commit
 graph, README, and selected commit diffs over SSH without creating a local mirror;
 live repositories also expose their GitHub origin. When several live hosts or
 backup snapshots contain the project, the graph toolbar identifies the source and
@@ -91,7 +91,16 @@ picker hidden.
 The embedded helper owns continuous syncing and shows live transfer logs in its
 menu, even while the project window is closed. The Launch at Login setting
 registers that helper. It uses the copy of `git-sync` inside each peer's
-`/Applications/Git Sync.app`; the path can be changed while adding that host.
+`/Applications/Gitinuum.app`; the path can be changed while adding that host.
+
+Choose **Gitinuum → Install Command Line Tool…** to install `gitinuum` in
+`/usr/local/bin`. The bundled installer opens in Terminal and requests your
+administrator password via `sudo`. Run `gitinuum` to open the app, or
+`gitinuum --sync-help` to list the available sync commands. The app must remain
+installed; run the menu installer again after an update to refresh the CLI.
+
+Existing hosts configured with `/Applications/Git Sync.app/Contents/Resources/git-sync`
+need their executable path updated after renaming the installed app.
 
 ## Linux / CLI install
 
@@ -118,6 +127,6 @@ See [DESIGN.md](DESIGN.md) for the protocol, state model, and failure analysis.
 
 ## License
 
-Git Sync is licensed under AGPL-3.0-or-later. Its commit graph renderer is
+Gitinuum is licensed under AGPL-3.0-or-later. Its commit graph renderer is
 adapted from [MacGit](https://github.com/Commit-Plus/macgit); the original
 copyright and license notices are preserved in those source files.

@@ -11,7 +11,7 @@ struct GitSyncTests {
 @Test("peer executable defaults to the installed app bundle")
 func defaultPeerExecutable() {
     let configuration = Configuration(root: "/", machine: "mac", peer: "peer", remoteRoot: "/tmp")
-    #expect(configuration.remoteExecutable == "/Applications/Git Sync.app/Contents/Resources/git-sync")
+    #expect(configuration.remoteExecutable == "/Applications/Gitinuum.app/Contents/Resources/git-sync")
     #expect(configuration.syncCheckouts != true)
 }
 

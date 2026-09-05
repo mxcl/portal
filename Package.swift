@@ -7,8 +7,9 @@ let package = Package(
     platforms: [.macOS("26.0")],
     products: [
         .library(name: "GitSyncCore", targets: ["GitSyncCore"]),
+        .executable(name: "gitinuum", targets: ["gitinuum"]),
         .executable(name: "git-sync", targets: ["git-sync"]),
-        .executable(name: "GitSync", targets: ["GitSyncApp"]),
+        .executable(name: "GitinuumApp", targets: ["GitSyncApp"]),
         .executable(name: "GitSyncMenuBar", targets: ["GitSyncMenuBar"]),
     ],
     dependencies: [
@@ -23,6 +24,7 @@ let package = Package(
         .target(name: "GitSyncCore", dependencies: ["GitSyncWatch"]),
         .target(name: "GitSyncEngine", dependencies: ["GitSyncCore"]),
         .target(name: "GitSyncGraph", dependencies: ["GitSyncCore"]),
+        .executableTarget(name: "gitinuum"),
         .executableTarget(name: "git-sync", dependencies: ["GitSyncCore"]),
         .executableTarget(
             name: "GitSyncApp",

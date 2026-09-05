@@ -2,7 +2,7 @@
 
 ## Shell and navigation
 
-- Git Sync is a conventional foreground app with one reusable project window
+- Gitinuum is a conventional foreground app with one reusable project window
   and an embedded menu-bar helper that continues syncing after the app closes.
 - The helper menu owns global status, Pause/Resume, recent events, Settings,
   opening the project window, and quitting both processes.

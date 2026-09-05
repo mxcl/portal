@@ -13,7 +13,7 @@ struct GitSyncMenuBarApp: App {
         MenuBarExtra {
             StatusMenu(runtime: runtime)
         } label: {
-            Label("Git Sync", systemImage: runtime.model.isPaused
+            Label("Gitinuum", systemImage: runtime.model.isPaused
                   ? "pause.circle" : "arrow.triangle.2.circlepath")
         }
     }
@@ -90,7 +90,7 @@ private struct StatusMenu: View {
             runtime.model.isPaused ? runtime.model.resume() : runtime.model.pause()
         }
         .disabled(!runtime.model.isConfigured)
-        Button("Open Git Sync") {
+        Button("Open Gitinuum") {
             MenuBarRuntime.openMainApplication()
         }
         Button("Settings…") {
@@ -103,10 +103,10 @@ private struct StatusMenu: View {
             Button("Login Items…") { SMAppService.openSystemSettingsLoginItems() }
         }
         Divider()
-        Button("Quit Git Sync", action: runtime.quitEverything)
+        Button("Quit Gitinuum", action: runtime.quitEverything)
     }
 }
 #else
 import Foundation
-@main enum GitSyncMenuBarApp { static func main() { print("Git Sync Menu is available on macOS only") } }
+@main enum GitSyncMenuBarApp { static func main() { print("Gitinuum Menu is available on macOS only") } }
 #endif

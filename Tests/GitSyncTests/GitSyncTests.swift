@@ -608,6 +608,24 @@ func localBackupSocket() throws {
     #expect(try client.read(upToCount: 4) == Data("pong".utf8))
 }
 
+@Test("retired backup listeners cannot remove replacement sockets")
+func retiredBackupListenerPreservesReplacement() throws {
+    let root = URL(fileURLWithPath: "/tmp/gs-restart-\(UUID())")
+    let socket = root.appendingPathComponent("receiver.sock")
+    defer { try? FileManager.default.removeItem(at: root) }
+    var retired: LocalBackupListener? = try LocalBackupListener(url: socket)
+    retired?.close()
+    let replacement = try LocalBackupListener(url: socket)
+    defer { replacement.close() }
+    retired?.close()
+    retired = nil
+    let client = try LocalBackupTransport.connect(mode: LocalBackupTransport.check, to: socket)
+    defer { try? client.close() }
+    let server = try replacement.accept()
+    defer { try? server.close() }
+    #expect(try LocalBackupTransport.mode(from: server) == LocalBackupTransport.check)
+}
+
 @Test("backup control lists, archives, and exports a restorable snapshot")
 func backupControl() throws {
     let fixture = try Fixture()

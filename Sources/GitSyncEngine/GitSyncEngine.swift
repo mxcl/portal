@@ -270,7 +270,8 @@ public final class EngineModel: ObservableObject {
             let otherPlacements = ([nil] + configuration.hosts.map { Optional($0.id) })
                 .filter { $0 != hostID }.map { self.placement(of: project, on: $0) }
             let hasOtherCopy = otherPlacements.contains(.checkedOut) || otherPlacements.contains(.mirrored)
-            let hasBackup = backupItems.first(where: { $0.name == project })?.snapshots.isEmpty == false
+            let hasBackup = backupError == nil
+                && backupItems.first(where: { $0.name == project })?.snapshots.isEmpty == false
             guard hasOtherCopy || hasBackup else {
                 error = "A current backup is required before removing the last host copy."
                 return
@@ -852,7 +853,6 @@ public final class EngineModel: ObservableObject {
                 backupError = nil
             } catch {
                 guard generation == backupRefreshGeneration else { return }
-                backupItems = []
                 backupError = String(describing: error)
             }
         }

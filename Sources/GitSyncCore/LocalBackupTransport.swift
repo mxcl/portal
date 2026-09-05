@@ -310,13 +310,12 @@ public final class LocalBackupListener: @unchecked Sendable {
 
     public func close() {
         lock.lock()
+        defer { lock.unlock() }
         let listening = descriptor
+        guard listening >= 0 else { return }
         descriptor = -1
-        lock.unlock()
-        if listening >= 0 {
-            _ = Darwin.shutdown(listening, SHUT_RDWR)
-            Darwin.close(listening)
-        }
+        _ = Darwin.shutdown(listening, SHUT_RDWR)
+        Darwin.close(listening)
         Darwin.unlink(url.path)
     }
 

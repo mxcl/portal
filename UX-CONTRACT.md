@@ -56,6 +56,9 @@
   blocks, and tables, preserve text selection, and label the source ref.
 - A local repository is always the presentation source when present; remote source
   selection and reads never change refs, the index, `HEAD`, or a working tree.
+- A failed backup inventory refresh retains the last successful list and reports
+  the connection error. Cached inventory cannot authorize removal of a last host
+  copy while that error remains.
 
 ## Settings and lifecycle
 

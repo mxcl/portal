@@ -41,6 +41,23 @@ func archiveRefreshesInventory() async throws {
     #expect(model.backupItems.first?.status == .archived)
     #expect(try BackupIndex(url: indexURL).items(in: backup).first?.status == .archived)
     #expect(model.placement(of: "project", on: nil) == .notPresent)
+
+    let offline = root.appendingPathComponent("offline-backup")
+    try FileManager.default.moveItem(at: backup, to: offline)
+    try model.loadBackupIndex()
+    deadline = Date().addingTimeInterval(5)
+    while model.backupError == nil && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(model.backupError != nil)
+    #expect(model.backupItems.first?.status == .archived)
+    model.setPlacement(.notPresent, project: "project", hostID: nil)
+    #expect(model.error == "A current backup is required before removing the last host copy.")
+    #expect(model.placementInProgress == nil)
+    try FileManager.default.moveItem(at: offline, to: backup)
+    try model.loadBackupIndex()
+    deadline = Date().addingTimeInterval(5)
+    while model.backupError != nil && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(model.backupError == nil)
+    #expect(model.backupItems.first?.status == .archived)
 }
 
 @Test("placement failures remain visible after restarting local sync")

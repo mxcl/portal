@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -eux
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 export PATH
 

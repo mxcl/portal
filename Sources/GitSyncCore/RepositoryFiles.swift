@@ -31,7 +31,7 @@ extension Repository {
     }
 
     public func fileDiff(path: String, staged: Bool) throws -> String {
-        let args = ["--literal-pathspecs", "-C", url.path, "diff", "--no-ext-diff", "--no-textconv", "--no-color"]
+        let args = ["--no-optional-locks", "--literal-pathspecs", "-C", url.path, "diff", "--no-ext-diff", "--no-textconv", "--no-color"]
             + (staged ? ["--cached"] : []) + ["--", path]
         return String(decoding: try Git.run(args), as: UTF8.self)
     }

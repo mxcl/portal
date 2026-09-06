@@ -10,6 +10,29 @@ quiet, like Finder or Xcode; the colored commit lanes are its only expressive
 visual element. System colors, materials, typography, spacing, controls, and
 selection behavior remain canonical.
 
+The trailing segmented control selects Info, Diff, Terminal, or Editor. Info
+shows project placement and README; selecting a commit opens Diff. Editor
+replaces the graph and detail with a native file outline and CodeEditSourceEditor
+for this Mac's working copy. Terminal currently offers the external terminal
+action while its embedded view is deferred. External editor, Finder, and GitHub
+actions remain in the project menu.
+
+The editor lists tracked and non-ignored untracked files, including deleted paths
+for diff inspection. Green checkmarks identify staged files; orange marks identify
+unstaged or untracked files; conflicts have a warning symbol. A file may show both
+staged and unstaged marks. Separate diff choices compare saved work with the index
+or the index with HEAD using the existing gitdiff renderer. Saving never stages.
+The existing repository watcher refreshes file status and diffs.
+
+Save and Command-S atomically save a regular UTF-8 file, preserving line endings.
+The first editor supports files up to 2 MB; binary files, symlinks, and Git metadata
+cannot be edited. Unsaved text survives tab switches; file/project switches and
+window close/quit offer Save, Cancel, and Don't Save. Outside changes make Save
+fail with the draft retained; Reload is explicit and also guards unsaved text.
+Native AppKit alerts own these decisions, ProjectEditor owns the draft, and
+RepositoryTextFile owns lossless reading and saving. Semantic AppKit colors own
+editor syntax and status styling; no separate theme token system is introduced.
+
 The menu-bar helper shows a Project Status section with each local repository's
 branch and changed-file count (or clean/mirrored state). It refreshes on menu
 appearance and during local discovery. Recent events live in an Events submenu.
@@ -48,7 +71,7 @@ hash controls copy the full value and expose it in help and accessibility text.
 
 The UI uses no custom palette or typography. Semantic system colors carry state,
 SF Symbols accompany every status label, and monospaced system text is reserved
-for refs and object IDs. It supports light, dark, increased-contrast, keyboard,
+for source code, refs, and object IDs. It supports light, dark, increased-contrast, keyboard,
 and VoiceOver behavior through native SwiftUI components.
 
 ## Product contract

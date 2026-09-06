@@ -17,11 +17,14 @@ struct GitSyncApp: App {
     var body: some Scene {
         Window("Gitinuum", id: "projects") {
             ProjectBrowserView(model: model)
+                .onAppear { appDelegate.editor = model.editor }
+                .background(EditorCloseGuard(editor: model.editor))
         }
         .defaultSize(width: 1180, height: 720)
         .windowResizability(.contentMinSize)
         .commands {
             SidebarCommands()
+            EditorCommands(editor: model.editor)
             CommandGroup(after: .appSettings) {
                 Button("Install Command Line Tool…") {
                     guard let script = Bundle.main.url(forResource: "install-gitinuum", withExtension: "command"),
@@ -35,6 +38,11 @@ struct GitSyncApp: App {
                 }
             }
             CommandGroup(after: .toolbar) {
+                ForEach(ProjectTab.allCases) { tab in
+                    Button("Show \(tab.title)") { model.selectedTab = tab }
+                        .keyboardShortcut(KeyEquivalent(tab.rawValue.first!), modifiers: [.command, .option])
+                }
+                Divider()
                 Button(model.isPaused ? "Resume Sync" : "Pause Sync") {
                     model.isPaused ? model.resume() : model.pause()
                 }
@@ -52,7 +60,11 @@ struct GitSyncApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    weak var editor: ProjectEditor?
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        editor?.confirmDiscard() == false ? .terminateCancel : .terminateNow
+    }
 }
 
 private struct HostDraft {
@@ -84,6 +96,8 @@ fileprivate enum ProjectSource: Hashable, Identifiable, Sendable {
 
 @MainActor
 final class AppModel: ObservableObject {
+    let editor = ProjectEditor()
+    @Published var selectedTab: ProjectTab = .info
     @Published var configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
     @Published var globalShortcutEnabled = true
     @Published var status = "Starting Sync Helper"
@@ -194,6 +208,11 @@ final class AppModel: ObservableObject {
     var selectedLocalRepositoryURL: URL? {
         guard let name = selectedProjectName else { return nil }
         return repositoryURL(for: name)
+    }
+
+    var selectedEditorRepositoryURL: URL? {
+        guard let name = selectedProjectName, placement(of: name, on: nil) == .checkedOut else { return nil }
+        return selectedLocalRepositoryURL
     }
 
     fileprivate var projectSources: [ProjectSource] {
@@ -344,6 +363,7 @@ final class AppModel: ObservableObject {
                 guard !Task.isCancelled, let self, watchedRepositoryURL == url else { return }
                 repositoryWatcher = try RepositoryWatcher(paths: paths) { [weak self] in
                     guard let self, watchedRepositoryURL == url, projectSource == .local else { return }
+                    editor.refresh()
                     if isLoadingProject { projectRefreshPending = true }
                     else { refreshProject() }
                 }
@@ -381,7 +401,9 @@ final class AppModel: ObservableObject {
 
     func selectProject(_ name: String?) {
         guard name != selectedProjectName else { return }
+        guard editor.confirmDiscard() else { return }
         selectedProjectName = name
+        editor.connect(selectedEditorRepositoryURL)
         if let name { UserDefaults.standard.set(name, forKey: selectedProjectKey) }
         else { UserDefaults.standard.removeObject(forKey: selectedProjectKey) }
         selectCommit(nil)
@@ -557,6 +579,7 @@ final class AppModel: ObservableObject {
 
     func setPlacement(_ placement: ProjectPlacement, project: String, hostID: UUID?, branch: String? = nil) {
         guard placementInProgress == nil else { return }
+        if hostID == nil, project == selectedProjectName, !editor.confirmDiscard() { return }
         placementInProgress = hostID?.uuidString ?? "local"
         updateRepositoryWatcher()
         perform(.setPlacement(placement, project: project, hostID: hostID, branch: branch))
@@ -834,6 +857,7 @@ struct ProjectBrowserView: View {
     @Environment(\.openSettings) private var openSettings
     @State private var search = ""
     @State private var visibility: NavigationSplitViewVisibility = .all
+    @State private var projectSelection: String?
 
     private var projects: [String] {
         model.projectNames.filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }
@@ -844,9 +868,7 @@ struct ProjectBrowserView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $visibility) {
-            List(selection: Binding(get: { model.selectedProjectName }, set: { name in
-                if let name { model.selectProject(name) }
-            })) {
+            List(selection: $projectSelection) {
                 ForEach(projects, id: \.self) { name in
                     ProjectRow(name: name, model: model).tag(name)
                 }
@@ -866,9 +888,38 @@ struct ProjectBrowserView: View {
                 }
             }
         } content: {
-            ProjectHistoryView(model: model)
+            Group {
+                if model.selectedTab == .editor, model.selectedEditorRepositoryURL != nil {
+                    ProjectFileBrowser(editor: model.editor)
+                } else {
+                    ProjectHistoryView(model: model)
+                }
+            }
+            .toolbar { projectToolbar }
         } detail: {
-            ProjectDetailView(model: model)
+            switch model.selectedTab {
+            case .info:
+                if let name = model.selectedProjectName { ProjectOverview(name: name, model: model) }
+                else { ContentUnavailableView("Select a Project", systemImage: "sidebar.left") }
+            case .diff:
+                ProjectDetailView(model: model)
+            case .editor:
+                if model.selectedEditorRepositoryURL != nil {
+                    ProjectEditorView(editor: model.editor)
+                } else {
+                    ContentUnavailableView("No Local Working Copy", systemImage: "folder",
+                                           description: Text("Check out this project on this Mac to edit its files."))
+                }
+            case .terminal:
+                ContentUnavailableView {
+                    Label("Terminal", systemImage: "terminal")
+                } description: {
+                    Text("An embedded terminal is coming next. Open the local project in your terminal app.")
+                } actions: {
+                    Button("Open in Terminal", action: model.openSelectedProjectInTerminal)
+                        .disabled(model.selectedLocalRepositoryURL == nil)
+                }
+            }
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 860, minHeight: 520)
@@ -879,6 +930,19 @@ struct ProjectBrowserView: View {
         }
         .onAppear {
             if model.selectedProjectName == nil { model.selectProject(model.projectNames.first) }
+            projectSelection = model.selectedProjectName
+        }
+        .onChange(of: model.selectedProjectName) { _, name in projectSelection = name }
+        .onChange(of: projectSelection) { _, name in
+            guard let name, name != model.selectedProjectName else { return }
+            Task { @MainActor in
+                model.selectProject(name)
+                projectSelection = model.selectedProjectName
+            }
+        }
+        .onChange(of: model.selectedEditorRepositoryURL) { _, url in
+            // A checkout can become available without changing the selected project.
+            if !model.editor.isDirty { model.editor.connect(url) }
         }
         .sheet(item: $model.checkoutRequest) { request in
             BranchPicker(request: request, model: model)
@@ -890,6 +954,50 @@ struct ProjectBrowserView: View {
             } else if model.openProjectURL(url) {
                 NSApplication.shared.activate()
             }
+        }
+    }
+    @ToolbarContentBuilder private var projectToolbar: some ToolbarContent {
+        if let source = model.projectSource, source != .local {
+            ToolbarItem {
+                Picker("Git tree source", selection: Binding(
+                    get: { source }, set: model.selectProjectSource
+                )) {
+                    ForEach(model.projectSources) { option in
+                        Label(model.projectSourceLabel(option),
+                              systemImage: model.projectSourceSymbol(option)).tag(option)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .disabled(model.projectSources.count < 2)
+                .accessibilityLabel("Git tree source")
+                .help("Git tree source: \(model.projectSourceLabel(source))")
+            }
+            ToolbarSpacer(.fixed)
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Picker("Main view", selection: $model.selectedTab) {
+                ForEach(ProjectTab.allCases) { tab in
+                    Label("Show \(tab.title)", systemImage: tab.symbol).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelStyle(.iconOnly)
+            .help("Choose the main view")
+        }
+        ToolbarItem {
+            Menu("Open Project", systemImage: "ellipsis") {
+                Button("Reveal in Finder", action: model.revealSelectedProjectInFinder)
+                    .disabled(model.selectedLocalRepositoryURL == nil)
+                Button("Open in External Editor", action: model.openSelectedProjectInEditor)
+                    .disabled(model.selectedLocalRepositoryURL == nil)
+                Button("Open on GitHub", action: model.openSelectedProjectOnGitHub)
+                    .disabled(model.projectGitHubURL == nil)
+            }
+        }
+        ToolbarItem {
+            Button("Refresh", systemImage: "arrow.clockwise") { model.refreshProject(); model.editor.refresh() }
+                .help("Refresh project")
         }
     }
 }
@@ -1001,7 +1109,7 @@ private struct ProjectHistoryView: View {
                 }
             } else if let snapshot = model.projectSnapshot {
                 CommitList(snapshot: snapshot, hosts: model.configuration.hosts, selection: Binding(
-                    get: { model.selectedCommitID }, set: model.selectCommit
+                    get: { model.selectedCommitID }, set: { model.selectCommit($0); model.selectedTab = .diff }
                 ))
             } else {
                 ContentUnavailableView("No Available Copy", systemImage: "desktopcomputer.trianglebadge.exclamationmark",
@@ -1009,53 +1117,7 @@ private struct ProjectHistoryView: View {
             }
         }
         .navigationTitle(model.selectedProjectName ?? "Git Tree")
-        .toolbar {
-            if let source = model.projectSource, source != .local {
-                ToolbarItem {
-                    Picker("Git tree source", selection: Binding(
-                        get: { source }, set: model.selectProjectSource
-                    )) {
-                        ForEach(model.projectSources) { option in
-                            Label(model.projectSourceLabel(option),
-                                  systemImage: model.projectSourceSymbol(option)).tag(option)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .disabled(model.projectSources.count < 2)
-                    .accessibilityLabel("Git tree source")
-                    .help("Git tree source: \(model.projectSourceLabel(source))")
-                }
-                ToolbarSpacer(.fixed)
-            }
-            ToolbarItem {
-                ControlGroup {
-                    Button("Reveal in Finder", systemImage: "folder", action: model.revealSelectedProjectInFinder)
-                        .help("Reveal project in Finder")
-                        .disabled(model.selectedLocalRepositoryURL == nil)
-                    Button("Open in Editor", systemImage: "curlybraces", action: model.openSelectedProjectInEditor)
-                        .help("Open project in the default editor")
-                        .disabled(model.selectedLocalRepositoryURL == nil)
-                    Button("Open in Terminal", systemImage: "terminal", action: model.openSelectedProjectInTerminal)
-                        .help("Open project in the default terminal")
-                        .disabled(model.selectedLocalRepositoryURL == nil)
-                    Button("Open on GitHub", systemImage: "arrow.up.right.square",
-                           action: model.openSelectedProjectOnGitHub)
-                        .disabled(model.projectGitHubURL == nil)
-                        .help("Open project on GitHub")
-                }
-            }
-            ToolbarSpacer(.fixed)
-            ToolbarItem {
-                Button("Show Project Details", systemImage: "info.circle") { model.selectCommit(nil) }
-                    .disabled(model.selectedProjectName == nil || model.selectedCommitID == nil)
-                    .help("Show project details")
-            }
-            ToolbarItem {
-                Button("Refresh", systemImage: "arrow.clockwise", action: model.refreshProject)
-                    .help("Refresh project")
-            }
-        }
+
     }
 }
 
@@ -1192,7 +1254,7 @@ private struct ProjectDetailView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        if let name = model.selectedProjectName {
+        if model.selectedProjectName != nil {
             if let commitID = model.selectedCommitID,
                let commit = model.projectSnapshot?.commits.first(where: { $0.oid == commitID }) {
                 CommitDetail(commit: commit,
@@ -1204,7 +1266,8 @@ private struct ProjectDetailView: View {
                              error: model.commitDiffError)
                     .id(commit.oid)
             } else {
-                ProjectOverview(name: name, model: model)
+                ContentUnavailableView("Select a Commit", systemImage: "plus.forwardslash.minus",
+                                       description: Text("Choose a commit to view its changes, or open Editor for working-copy diffs."))
             }
         } else {
             ContentUnavailableView("Project Details", systemImage: "info.circle")

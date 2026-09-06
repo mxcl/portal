@@ -1177,7 +1177,8 @@ private struct CopyableCommitSHA: View {
         .background(isHovered ? Color.secondary.opacity(0.18) : .clear, in: Capsule())
         .contentShape(Capsule())
         .onHover { isHovered = $0 }
-        .help("Copy full commit SHA")
+        .help("Copy full commit SHA: \(sha)")
+        .accessibilityValue(sha)
         .accessibilityAction(named: "Copy commit SHA", copy)
     }
 
@@ -1397,25 +1398,7 @@ private struct CommitDetail: View {
             ScrollViewReader { scroll in
                 ScrollView {
                     VStack(spacing: 0) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(commit.message).font(.headline).textSelection(.enabled)
-                            if let source { LabeledContent("Source", value: source) }
-                            LabeledContent("Author", value: commit.author)
-                            LabeledContent("Date") { Text(commit.date.formatted(date: .long, time: .standard)) }
-                            LabeledContent("SHA") { Text(commit.oid).monospaced().textSelection(.enabled) }
-                            if !commit.parents.isEmpty {
-                                LabeledContent("Parents") {
-                                    VStack(alignment: .trailing) {
-                                        ForEach(commit.parents, id: \.self) { Text($0).monospaced() }
-                                    }
-                                }
-                            }
-                            if !references.isEmpty {
-                                LabeledContent("References", value: references.map { $0.displayName(hosts: hosts) }.joined(separator: ", "))
-                            }
-                        }
-                        .padding()
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        header
                         Divider()
                         if isLoadingDiff || isParsingDiff {
                             ProgressView("Reading commit diff…").frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1467,6 +1450,58 @@ private struct CommitDetail: View {
             guard !Task.isCancelled else { return }
             files = parsed ?? []
             isParsingDiff = false
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading) {
+            Text(commit.message).font(.headline).textSelection(.enabled)
+            ViewThatFits(in: .horizontal) {
+                HStack { byline }.fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .leading) { byline }
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top) { identifiers }.fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .leading) { identifiers }
+            }
+            .font(.caption)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var byline: some View {
+        Group {
+            Text(commit.author).textSelection(.enabled)
+            Text(commit.date.formatted(date: .abbreviated, time: .shortened))
+                .help(commit.date.formatted(date: .long, time: .standard))
+            if let source { Text("From \(source)") }
+        }
+    }
+
+    private var identifiers: some View {
+        Group {
+            HStack {
+                Text("Commit").foregroundStyle(.secondary)
+                CopyableCommitSHA(sha: commit.oid)
+            }
+            if !commit.parents.isEmpty {
+                HStack(alignment: .top) {
+                    Text(commit.parents.count == 1 ? "Parent" : "Parents").foregroundStyle(.secondary)
+                    VStack(alignment: .leading) {
+                        ForEach(commit.parents, id: \.self) { CopyableCommitSHA(sha: $0) }
+                    }
+                }
+            }
+            if !references.isEmpty {
+                Label(references.map { $0.displayName(hosts: hosts) }.joined(separator: ", "),
+                      systemImage: "point.3.connected.trianglepath.dotted")
+                    .textSelection(.enabled)
+                    .accessibilityLabel("References")
+                    .accessibilityValue(references.map { $0.displayName(hosts: hosts) }.joined(separator: ", "))
+            }
         }
     }
 }

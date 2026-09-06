@@ -85,6 +85,7 @@ fileprivate enum ProjectSource: Hashable, Identifiable, Sendable {
 @MainActor
 final class AppModel: ObservableObject {
     @Published var configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
+    @Published var globalShortcutEnabled = true
     @Published var status = "Starting Sync Helper"
     @Published var error: String?
     @Published var hostError: String?
@@ -300,6 +301,7 @@ final class AppModel: ObservableObject {
         }
         let oldSource = projectSource
         configuration = snapshot.configuration
+        globalShortcutEnabled = snapshot.globalShortcutEnabled
         status = snapshot.status
         error = snapshot.error
         isChecking = snapshot.isChecking
@@ -666,6 +668,10 @@ final class AppModel: ObservableObject {
 
     func setSyncCheckouts(_ enabled: Bool) {
         perform(.setSyncCheckouts(enabled))
+    }
+
+    func setGlobalShortcutEnabled(_ enabled: Bool) {
+        perform(.setGlobalShortcutEnabled(enabled))
     }
 
     func openLoginItems() {
@@ -1502,6 +1508,13 @@ struct SettingsView: View {
                     if model.launchAtLoginRequiresApproval {
                         Button("Open Login Items…", action: model.openLoginItems)
                     }
+                }
+                Section("Keyboard Shortcut") {
+                    Toggle("Open Gitinuum with ⌘⌥`", isOn: Binding(
+                        get: { model.globalShortcutEnabled }, set: model.setGlobalShortcutEnabled
+                    ))
+                    Text("Available from any app while the menu bar helper is running.")
+                        .foregroundStyle(.secondary)
                 }
                 Section("Checkouts") {
                     Toggle("Fast-forward matching clean checkouts", isOn: Binding(

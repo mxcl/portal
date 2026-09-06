@@ -5,7 +5,7 @@ import Foundation
 import GitSyncCore
 
 public enum EngineControlProtocol {
-    public static let version = 1
+    public static let version = 2
     public static let changedNotification = Notification.Name("dev.mxcl.git-sync.engine-changed")
     public static var socketURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -25,6 +25,7 @@ public enum EngineCommand: Codable, Sendable {
     case setBackupDestination(String)
     case chooseBackupHost(UUID)
     case setSyncCheckouts(Bool)
+    case setGlobalShortcutEnabled(Bool)
     case setPlacement(ProjectPlacement, project: String, hostID: UUID?, branch: String?)
     case restoreBackup(BackupItem, BackupSnapshot)
     case prepareForTermination
@@ -42,6 +43,7 @@ public struct EngineRequest: Codable, Sendable {
 
 public struct EngineSnapshot: Codable, Sendable {
     public let configuration: AppConfiguration
+    public let globalShortcutEnabled: Bool
     public let status: String
     public let error: String?
     public let isChecking: Bool
@@ -84,6 +86,8 @@ public enum EngineControlError: Error, LocalizedError {
 @MainActor
 public final class EngineModel: ObservableObject {
     @Published public private(set) var configuration: AppConfiguration
+    @Published public private(set) var globalShortcutEnabled: Bool
+    @Published public var globalShortcutError: String?
     @Published public private(set) var status = "Not configured"
     @Published public private(set) var error: String?
     @Published public private(set) var isChecking = false
@@ -99,6 +103,7 @@ public final class EngineModel: ObservableObject {
     @Published public private(set) var remoteProjects: [UUID: [String: PeerProject]] = [:]
 
     private let executableURL: URL
+    private let defaults: UserDefaults
     private let label = "dev.mxcl.git-sync"
     private let support: URL
     private var configURL: URL { support.appendingPathComponent("config-v2.json") }
@@ -115,10 +120,12 @@ public final class EngineModel: ObservableObject {
     private var backupRefreshGeneration = 0
     private var discoveryTask: Task<Void, Never>?
 
-    init(executableURL: URL, configuration: AppConfiguration, support: URL) {
+    init(executableURL: URL, configuration: AppConfiguration, support: URL, defaults: UserDefaults = .standard) {
         self.executableURL = executableURL
         self.configuration = configuration
         self.support = support
+        self.defaults = defaults
+        globalShortcutEnabled = defaults.object(forKey: "global-shortcut-enabled") as? Bool ?? true
     }
 
     public convenience init(executableURL: URL) {
@@ -176,7 +183,8 @@ public final class EngineModel: ObservableObject {
     }
 
     public func snapshot() -> EngineSnapshot {
-        EngineSnapshot(configuration: configuration, status: status, error: error,
+        EngineSnapshot(configuration: configuration, globalShortcutEnabled: globalShortcutEnabled,
+                       status: status, error: error ?? globalShortcutError,
                        isChecking: isChecking, isRunning: isRunning, isPaused: isPaused,
                        logs: logs, backupItems: backupItems, backupError: backupError,
                        restoringBackup: restoringBackup, placementInProgress: placementInProgress,
@@ -217,6 +225,9 @@ public final class EngineModel: ObservableObject {
                 chooseBackupHost(id)
             case .setSyncCheckouts(let enabled):
                 setSyncCheckouts(enabled)
+            case .setGlobalShortcutEnabled(let enabled):
+                defaults.set(enabled, forKey: "global-shortcut-enabled")
+                globalShortcutEnabled = enabled
             case let .setPlacement(placement, project, hostID, branch):
                 setPlacement(placement, project: project, hostID: hostID, branch: branch)
             case let .restoreBackup(item, backup):

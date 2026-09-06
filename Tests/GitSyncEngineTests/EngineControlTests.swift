@@ -115,3 +115,29 @@ func engineControlRequestRoundTrip() throws {
     #expect(executable == "git-sync")
     #expect(!allowNameCollisions)
 }
+
+@Test("global shortcut defaults on and persists toggles independently of repository setup")
+@MainActor
+func globalShortcutPreference() async throws {
+    let suite = "GitSyncTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let support = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let model = EngineModel(executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+                            configuration: AppConfiguration(root: "", machine: "test"),
+                            support: support, defaults: defaults)
+    #expect(model.snapshot().globalShortcutEnabled)
+    for enabled in [false, true, false] {
+        let request = try JSONDecoder().decode(EngineRequest.self, from: JSONEncoder().encode(
+            EngineRequest(command: .setGlobalShortcutEnabled(enabled))))
+        let reply = await model.handle(request.command)
+        #expect(reply.error == nil)
+        let decoded = try JSONDecoder().decode(EngineReply.self, from: JSONEncoder().encode(reply))
+        #expect(decoded.snapshot?.globalShortcutEnabled == enabled)
+        let restarted = EngineModel(executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+                                    configuration: AppConfiguration(root: "", machine: "test"),
+                                    support: support, defaults: defaults)
+        #expect(restarted.globalShortcutEnabled == enabled)
+    }
+    #expect(!FileManager.default.fileExists(atPath: support.path))
+}

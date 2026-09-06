@@ -21,16 +21,27 @@ struct GitSyncMenuBarApp: App {
 }
 
 @MainActor
-private final class MenuBarRuntime: ObservableObject {
+final class MenuBarRuntime: ObservableObject {
     let model: EngineModel
     private let server: EngineControlServer?
     private var observation: AnyCancellable?
     private var terminationObservation: AnyCancellable?
+    private let shortcut = GlobalShortcut()
+    private var shortcutObservation: AnyCancellable?
 
     init() {
         model = EngineModel(executableURL: Self.gitSyncExecutableURL)
         server = try? EngineControlServer()
         server?.start(model: model)
+        shortcutObservation = model.$globalShortcutEnabled.removeDuplicates().sink { [weak self] enabled in
+            guard let self else { return }
+            do {
+                try shortcut.setEnabled(enabled)
+                model.globalShortcutError = nil
+            } catch {
+                model.globalShortcutError = error.localizedDescription
+            }
+        }
         observation = model.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
             DispatchQueue.main.async {
@@ -80,6 +91,7 @@ private struct StatusMenu: View {
 
     var body: some View {
         Text(runtime.model.status)
+        if let error = runtime.model.globalShortcutError { Text(error) }
         Divider()
         Section("Project Status") {
             if runtime.model.localProjects.isEmpty {

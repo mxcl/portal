@@ -29,6 +29,9 @@ checkout's HEAD, with staged, unstaged, untracked, and conflicted file counts.
 This informational row disappears when clean and is absent for mirrors and backups.
 
 The detail column keeps project placement visible above a scrolling README.
+The overview pairs the project title with backup status and groups each host's
+menu above its placement status. These compact groups sit side by side when
+space permits and stack in narrow panes using native fitting layouts.
 Selecting a commit replaces the overview with graph metadata and its diff, not a
 file browser. Remote-only projects remain discoverable and their Git history,
 README, GitHub origin, and commit diffs are read on demand from a selected live

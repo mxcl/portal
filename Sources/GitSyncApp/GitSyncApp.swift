@@ -1218,19 +1218,22 @@ private struct ProjectOverview: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(name).font(.title2.bold())
-                    if let source = model.projectSource, source != .local {
-                        Text("From \(model.projectSourceLabel(source))").foregroundStyle(.secondary)
-                    } else {
-                        Text("Project").foregroundStyle(.secondary)
+                VStack(alignment: .leading) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(name).font(.title2.bold())
+                            Spacer()
+                            backupStatus
+                        }
+                        VStack(alignment: .leading) {
+                            Text(name).font(.title2.bold())
+                            backupStatus
+                        }
                     }
-                    let backup = model.backupStatus(for: name)
-                    Label(backup.title, systemImage: backup.symbol)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .help(backup.detail)
-                        .accessibilityHint(backup.detail)
+                    if let source = model.projectSource, source != .local {
+                        Text("From \(model.projectSourceLabel(source))")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
                 }
                 if let archived = model.archivedProjects.first(where: { $0.name == name }) {
                     ArchivedProjectControls(item: archived, model: model)
@@ -1257,6 +1260,15 @@ private struct ProjectOverview: View {
         }
         .navigationTitle(name)
     }
+
+    private var backupStatus: some View {
+        let backup = model.backupStatus(for: name)
+        return Label(backup.title, systemImage: backup.symbol)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .help(backup.detail)
+            .accessibilityHint(backup.detail)
+    }
 }
 
 private struct HostControls: View {
@@ -1264,9 +1276,21 @@ private struct HostControls: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
+        VStack(alignment: .leading) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top) { placements }
+                    .fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .leading) { placements }
+            }
+            if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Hosts")
+    }
+
+    private var placements: some View {
         let canArchive = model.configuration.backup != nil || model.configuration.backupDestination != nil
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Hosts").font(.headline)
+        return Group {
             PlacementRow(project: project, name: model.configuration.machine,
                          placement: model.placement(of: project, on: nil), canArchive: canArchive,
                          progress: model.placementInProgress == "local") {
@@ -1281,7 +1305,6 @@ private struct HostControls: View {
                         : model.setPlacement($0, project: project, hostID: host.id)
                 }
             }
-            if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
         }
     }
 }
@@ -1296,37 +1319,44 @@ private struct PlacementRow: View {
     @State private var showingArchiveConfirmation = false
 
     var body: some View {
-        HStack {
-            Label(name, systemImage: "desktopcomputer")
-            Spacer()
-            if progress { ProgressView().controlSize(.small) }
-            Menu {
-                switch placement {
-                case .checkedOut:
-                    if canArchive {
-                        Button("Archive…", role: .destructive) { showingArchiveConfirmation = true }
+        VStack(alignment: .leading) {
+            HStack {
+                Menu {
+                    switch placement {
+                    case .checkedOut:
+                        if canArchive {
+                            Button("Archive…", role: .destructive) { showingArchiveConfirmation = true }
+                        }
+                    case .mirrored:
+                        Button("Check Out") { change(.checkedOut) }
+                        Button("Move Repository to Trash", role: .destructive) { change(.notPresent) }
+                    case .notPresent:
+                        Button("Mirror on This Host") { change(.mirrored) }
+                    case .unknown:
+                        Text("Host unavailable")
                     }
-                case .mirrored:
-                    Button("Check Out") { change(.checkedOut) }
-                    Button("Move Repository to Trash", role: .destructive) { change(.notPresent) }
-                case .notPresent:
-                    Button("Mirror on This Host") { change(.mirrored) }
-                case .unknown:
-                    Text("Host unavailable")
+                } label: {
+                    Label(name, systemImage: "desktopcomputer")
+                        .fontWeight(.medium)
                 }
-            } label: {
-                Label(placement.title, systemImage: placement.symbol)
-                    .foregroundStyle(placement == .unknown ? .secondary : .primary)
+                .menuStyle(.borderlessButton)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(name)
+                .accessibilityValue(progress ? "Updating, \(placement.title)" : placement.title)
+                .disabled(progress || placement == .unknown || placement == .checkedOut && !canArchive)
+                .alert("Archive \(project)?", isPresented: $showingArchiveConfirmation) {
+                    Button("Cancel", role: .cancel) {}
+                    Button("Archive", role: .destructive) { change(.notPresent) }
+                } message: {
+                    Text("The checkout on \(name) will be moved to Trash. The backup will remain available to restore.")
+                }
+                if progress { ProgressView().controlSize(.small).accessibilityLabel("Updating \(name)") }
             }
-            .menuStyle(.borderlessButton)
-            .disabled(progress || placement == .unknown || placement == .checkedOut && !canArchive)
-            .alert("Archive \(project)?", isPresented: $showingArchiveConfirmation) {
-                Button("Cancel", role: .cancel) {}
-                Button("Archive", role: .destructive) { change(.notPresent) }
-            } message: {
-                Text("The checkout on \(name) will be moved to Trash. The backup will remain available to restore.")
-            }
+            Label(placement.title, systemImage: placement.symbol)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
+        .padding(.trailing)
     }
 }
 

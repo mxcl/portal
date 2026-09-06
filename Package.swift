@@ -15,6 +15,7 @@ let package = Package(
     dependencies: [
         .package(path: "vendor/gitdiff"),
         .package(url: "https://github.com/gonzalezreal/textual.git", exact: "0.5.0"),
+        .package(path: "vendor/CodeEditSourceEditor"),
     ],
     targets: [
         .target(
@@ -29,6 +30,7 @@ let package = Package(
         .executableTarget(
             name: "GitSyncApp",
             dependencies: ["GitSyncCore", "GitSyncEngine", "GitSyncGraph", .product(name: "gitdiff", package: "gitdiff"),
+                           .product(name: "CodeEditSourceEditor", package: "CodeEditSourceEditor", condition: .when(platforms: [.macOS])),
                            .product(name: "Textual", package: "textual", condition: .when(platforms: [.macOS]))]
         ),
         .executableTarget(name: "GitSyncMenuBar", dependencies: ["GitSyncEngine"]),

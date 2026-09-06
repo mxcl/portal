@@ -21,7 +21,9 @@ menu="$app/Contents/Library/LoginItems/Gitinuum Menu Helper.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" \
   "$menu/Contents/MacOS" "$menu/Contents/Resources" "$(dirname -- "$destination")"
 cp "$build_dir/GitinuumApp" "$app/Contents/MacOS/GitinuumApp"
-cp -R "$build_dir/textual_Textual.bundle" "$app/Contents/Resources/"
+for resource_bundle in "$build_dir"/*.bundle; do
+  cp -R "$resource_bundle" "$app/Contents/Resources/"
+done
 cp "$build_dir/gitinuumd" "$app/Contents/Resources/gitinuumd"
 # Older installed gitinuum launchers still invoke this path.
 ln -s gitinuumd "$app/Contents/Resources/git-sync"

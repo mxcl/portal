@@ -9,6 +9,7 @@ for icon in AppIcon.icns Assets.car; do
   test "$app/Contents/Resources/$icon" -ef "$helper/Contents/Resources/$icon"
 done
 test ! -e "$app/Contents/Library/LoginItems/Gitinuum Menu.app"
+test -d "$app/Contents/Resources/CodeEditLanguages_CodeEditLanguages.bundle"
 test "$(readlink "$app/Contents/Resources/git-sync")" = gitinuumd
 "$app/Contents/Resources/gitinuumd" --help | grep -q 'gitinuumd daemon'
 "$app/Contents/Resources/git-sync" --help | grep -q 'gitinuumd daemon'

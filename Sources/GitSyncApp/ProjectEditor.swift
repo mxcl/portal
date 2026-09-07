@@ -154,7 +154,8 @@ final class ProjectEditor: ObservableObject {
 struct EditorCommands: Commands {
     @ObservedObject var editor: ProjectEditor
     var body: some Commands {
-        CommandGroup(replacing: .saveItem) {
+        // SwiftUI's save group also contains Close; preserve the standard commands.
+        CommandGroup(after: .saveItem) {
             Button("Save") { editor.save() }.keyboardShortcut("s").disabled(!editor.isDirty)
         }
     }

@@ -3,6 +3,31 @@ import Testing
 @testable import GitSyncCore
 @testable import GitSyncEngine
 
+@Test("overlapping backup refreshes share a scan and publish its results")
+@MainActor
+func overlappingBackupRefreshes() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let backup = root.appendingPathComponent("backup")
+    try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+    _ = try Git.run(["init", "-q", "--bare", backup.appendingPathComponent("project.git").path])
+    let model = EngineModel(executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+        configuration: AppConfiguration(root: root.path, machine: "test",
+            backupDestination: BackupDestinationConfiguration(root: backup.path)),
+        support: root.appendingPathComponent("support"))
+    try model.loadBackupIndex()
+    let scan = try #require(model.refreshBackupItems())
+    for _ in 0..<20 {
+        #expect(model.refreshBackupItems() == scan)
+    }
+    await scan.value
+    #expect(model.backupError == nil)
+    #expect(model.backupItems.map(\.name) == ["project"])
+    let next = try #require(model.refreshBackupItems())
+    #expect(next != scan)
+    await next.value
+}
+
 @Test("archive completion publishes absence and refreshes the backup inventory while paused")
 @MainActor
 func archiveRefreshesInventory() async throws {

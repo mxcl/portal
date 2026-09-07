@@ -117,7 +117,8 @@ public final class EngineModel: ObservableObject {
     private var localBackup: LocalBackup?
     private var backupIndex: BackupIndex?
     private var backupIndexID: UUID?
-    private var backupRefreshGeneration = 0
+    private var backupRefreshTask: Task<Void, Never>?
+    private var backupRefreshPending = false
     private var discoveryTask: Task<Void, Never>?
 
     init(executableURL: URL, configuration: AppConfiguration, support: URL, defaults: UserDefaults = .standard) {
@@ -858,32 +859,33 @@ public final class EngineModel: ObservableObject {
     }
 
     @discardableResult
-    private func refreshBackupItems() -> Task<Void, Never>? {
-        let index = backupIndex
-        let root = try? configuration.validatedBackupDestination()
-        let remote = root == nil ? try? backupControlConfiguration() : nil
-        guard (index != nil && root != nil) || remote != nil else {
-            backupItems = []
-            backupError = nil
-            return nil
+    func refreshBackupItems() -> Task<Void, Never>? {
+        if let backupRefreshTask {
+            backupRefreshPending = true
+            return backupRefreshTask
         }
-        backupRefreshGeneration += 1
-        let generation = backupRefreshGeneration
-        return Task {
-            do {
-                let items = try await Task.detached(priority: .utility) {
-                    if let index, let root { return try index.items(in: root) }
-                    if let remote { return try Runner.backupItems(remote) }
-                    return []
-                }.value
-                guard generation == backupRefreshGeneration else { return }
-                backupItems = items
-                backupError = nil
-            } catch {
-                guard generation == backupRefreshGeneration else { return }
-                backupError = String(describing: error)
-            }
+        backupRefreshTask = Task {
+            defer { backupRefreshTask = nil }
+            repeat {
+                backupRefreshPending = false
+                let index = backupIndex
+                let root = try? configuration.validatedBackupDestination()
+                let remote = root == nil ? try? backupControlConfiguration() : nil
+                do {
+                    let items = try await Task.detached(priority: .utility) {
+                        if let index, let root { return try index.items(in: root) }
+                        if let remote { return try Runner.backupItems(remote) }
+                        return []
+                    }.value
+                    // Publish slow scans even when another refresh arrived while reading.
+                    backupItems = items
+                    backupError = nil
+                } catch {
+                    backupError = String(describing: error)
+                }
+            } while backupRefreshPending
         }
+        return backupRefreshTask
     }
 
     private func backupControlConfiguration() throws -> Configuration? {

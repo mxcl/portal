@@ -18,7 +18,7 @@ struct GitSyncApp: App {
         Window("Gitinuum", id: "projects") {
             ProjectBrowserView(model: model)
                 .onAppear { appDelegate.editor = model.editor }
-                .background(EditorCloseGuard(editor: model.editor))
+                .modifier(EditorCloseGuard(editor: model.editor))
         }
         .defaultSize(width: 1180, height: 720)
         .windowResizability(.contentMinSize)

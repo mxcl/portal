@@ -62,5 +62,9 @@ func editorDraftLifecycle() async throws {
     #expect(editor.isDirty)
     #expect(editor.text == "another draft\n")
     #expect(editor.error != nil)
+    editor.discard()
+    #expect(!editor.isDirty)
+    #expect(editor.text == "draft\n")
+    #expect(try String(contentsOf: url, encoding: .utf8) == "outside\n")
 }
 #endif

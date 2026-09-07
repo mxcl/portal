@@ -133,6 +133,10 @@ final class ProjectEditor: ObservableObject {
         }
     }
 
+    func discard() {
+        text = document?.text ?? ""
+    }
+
     func confirmDiscard() -> Bool {
         guard isDirty else { return true }
         let alert = NSAlert()
@@ -144,7 +148,7 @@ final class ProjectEditor: ObservableObject {
         switch alert.runModal() {
         case .alertFirstButtonReturn: return save()
         case .alertThirdButtonReturn:
-            text = document?.text ?? ""
+            discard()
             return true
         default: return false
         }
@@ -161,31 +165,26 @@ struct EditorCommands: Commands {
     }
 }
 
-/// Preserve SwiftUI's window delegate while checking drafts before the window disappears.
-struct EditorCloseGuard: NSViewRepresentable {
-    let editor: ProjectEditor
-    func makeNSView(context: Context) -> GuardView { GuardView(editor: editor) }
-    func updateNSView(_ view: GuardView, context: Context) {}
+/// Keep SwiftUI's window delegate intact so project URLs can open and reuse the window.
+struct EditorCloseGuard: ViewModifier {
+    @ObservedObject var editor: ProjectEditor
+    @Environment(\.dismiss) private var dismiss
 
-    final class GuardView: NSView, NSWindowDelegate {
-        let editor: ProjectEditor
-        weak var originalDelegate: NSWindowDelegate?
-        init(editor: ProjectEditor) { self.editor = editor; super.init(frame: .zero) }
-        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            guard let window, window.delegate !== self else { return }
-            originalDelegate = window.delegate
-            window.delegate = self
-        }
-        func windowShouldClose(_ sender: NSWindow) -> Bool {
-            editor.confirmDiscard() && (originalDelegate?.windowShouldClose?(sender) ?? true)
-        }
-        override func responds(to selector: Selector!) -> Bool {
-            super.responds(to: selector) || originalDelegate?.responds(to: selector) == true
-        }
-        override func forwardingTarget(for selector: Selector!) -> Any? {
-            originalDelegate?.responds(to: selector) == true ? originalDelegate : super.forwardingTarget(for: selector)
+    func body(content: Content) -> some View {
+        content.dismissalConfirmationDialog("Save changes to \(editor.path ?? "this file")?",
+                                            shouldPresent: editor.isDirty) {
+            // Cancel automatic dismissal; only close after saving succeeds.
+            Button("Save", role: .cancel) {
+                if editor.save() {
+                    // Let the confirmation dialog finish cancelling its dismissal first.
+                    DispatchQueue.main.async { dismiss() }
+                }
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Don’t Save", role: .destructive) { editor.discard() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your changes will be lost if you don’t save them.")
         }
     }
 }

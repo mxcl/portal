@@ -52,16 +52,17 @@ public enum Runner {
         return try JSONDecoder().decode(RepositoryContent.self, from: data)
     }
 
-    public static func projectDiff(_ repository: String, oid: String,
+    public static func projectDiff(_ repository: String, oid: String?, staged: Bool = false,
                                    configuration: Configuration) throws -> String {
         try configuration.validate()
         try Validator.project(repository)
-        try Validator.oid(oid)
+        if let oid { try Validator.oid(oid) }
         let data = try runRemote(
             configuration,
             arguments: ["project-diff", "--root", configuration.remoteRoot,
-                        "--repository", repository, "--oid", oid],
-            failure: "Could not read the commit diff on the peer. Update Gitinuum on that host if remote browsing is unavailable"
+                        "--repository", repository] + (oid.map { ["--oid", $0] }
+                            ?? ["--working-changes"] + (staged ? ["--staged"] : [])),
+            failure: "Could not read the diff on the peer. Update Gitinuum on that host if remote browsing is unavailable"
         )
         return String(decoding: data, as: UTF8.self)
     }

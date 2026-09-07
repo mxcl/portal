@@ -8,7 +8,8 @@ import Musl
 #endif
 
 enum Git {
-    static func run(_ arguments: [String], input: Data = Data(), allowFailure: Bool = false) throws -> Data {
+    static func run(_ arguments: [String], input: Data = Data(), allowFailure: Bool = false,
+                    successStatuses: Set<Int32> = [0]) throws -> Data {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git"] + arguments
@@ -40,7 +41,8 @@ enum Git {
         process.waitUntilExit()
         group.wait()
 
-        guard process.terminationStatus == 0 || allowFailure else {
+        guard (successStatuses.contains(process.terminationStatus)
+               && (process.terminationStatus == 0 || error.isEmpty)) || allowFailure else {
             throw SyncError.command(arguments, String(decoding: error, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return output

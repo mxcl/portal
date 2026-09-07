@@ -40,6 +40,7 @@ Usage:
   gitinuumd inspect --root PATH [--machine NAME]
   gitinuumd project-content --root PATH --repository NAME
   gitinuumd project-diff --root PATH --repository NAME --oid OID
+  gitinuumd project-diff --root PATH --repository NAME --working-changes [--staged]
   gitinuumd project-state --root PATH --repository NAME --placement checkedOut|mirrored|notPresent [--branch NAME]
   gitinuumd check-backup
   gitinuumd relay-backup
@@ -108,7 +109,9 @@ do {
         if command == "project-content" {
             try FileHandle.standardOutput.write(contentsOf: JSONEncoder().encode(repository.content()))
         } else {
-            let diff = try repository.diff(at: required("--oid", in: arguments))
+            let diff = try arguments.contains("--working-changes")
+                ? repository.workingDiff(staged: arguments.contains("--staged"))
+                : repository.diff(at: required("--oid", in: arguments))
             try FileHandle.standardOutput.write(contentsOf: Data(diff.utf8))
         }
     case "project-state":

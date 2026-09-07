@@ -52,10 +52,12 @@
 - Peer ref labels in the graph and commit detail use lowercase configured host names;
   stored ref names and protocol identities remain unchanged.
 - Normal branch divergence is information, never a warning.
-- Outstanding changes appear as one informational graph row above history, linked
+- Outstanding changes appear as one selectable graph row above history, linked
   to HEAD and labeled with staged, unstaged, untracked, and conflicted file counts.
   A partially staged file counts in both staged and unstaged totals. Local filesystem
-  refresh updates the row; clean repositories, mirrors, and backups omit it.
+  refresh updates the row and selected diff; clean repositories clear the selection.
+  Selecting the row opens Diff with Staged and Unstaged choices, including untracked
+  files. Mirrors and backups omit it. Reading diffs never changes the index or checkout.
 - Commit detail contains message, author, date, object ID, parents, pointing refs,
   and a diff. The MVP has no file browser, graph filters, or activity pane.
 - Both README views use Textual for Markdown headings, blockquotes, lists, code

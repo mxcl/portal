@@ -49,7 +49,9 @@ as an error. The graph renders this Mac's local branches, received peer branches
 and tags. When refs coincide, their host labels share a commit marker.
 Outstanding working changes add a row above the commits, connected to the source
 checkout's HEAD, with staged, unstaged, untracked, and conflicted file counts.
-This informational row disappears when clean and is absent for mirrors and backups.
+Selecting the row opens Diff with separate Staged and Unstaged views, including
+untracked files. The selected diff refreshes with the repository. The row and its
+selection disappear when clean; mirrors and backups omit it.
 
 The detail column keeps project placement visible above a scrolling README.
 The overview pairs the project title with backup status and groups each host's

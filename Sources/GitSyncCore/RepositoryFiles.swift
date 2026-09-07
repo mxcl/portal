@@ -35,6 +35,22 @@ extension Repository {
             + (staged ? ["--cached"] : []) + ["--", path]
         return String(decoding: try Git.run(args), as: UTF8.self)
     }
+
+    public func workingDiff(staged: Bool) throws -> String {
+        let args = ["--no-optional-locks", "-C", url.path, "diff", "--no-ext-diff", "--no-textconv",
+                    "--no-color", "--src-prefix=a/", "--dst-prefix=b/"]
+        // Unmerged files use a unified diff against the merge base, which the renderer can display.
+        var diff = try Git.run(args + (staged ? ["--cached"] : ["--base"]) + ["--"])
+        if !staged {
+            let paths = try Git.run(["-C", url.path, "ls-files", "--others", "--exclude-standard", "-z"])
+            for path in paths.split(separator: 0) {
+                // --no-index returns 1 for differences; stderr still indicates errors.
+                diff.append(try Git.run(args + ["--no-index", "--", "/dev/null", String(decoding: path, as: UTF8.self)],
+                                       successStatuses: [0, 1]))
+            }
+        }
+        return String(decoding: diff, as: UTF8.self)
+    }
 }
 
 /// A bounded, lossless UTF-8 document. Keep original bytes to detect outside edits before saving.

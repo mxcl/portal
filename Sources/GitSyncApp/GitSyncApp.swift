@@ -117,6 +117,7 @@ final class AppModel: ObservableObject {
     @Published var selectedProjectName: String?
     @Published var selectedCommitID: String?
     @Published var selectedCommitDiff: String?
+    @Published var workingDiffStaged = false
     @Published var commitDiffError: String?
     @Published var isLoadingCommitDiff = false
     @Published var projectSnapshot: RepositorySnapshot?
@@ -466,8 +467,12 @@ final class AppModel: ObservableObject {
                     projectReadme = content.readme
                     projectGitHubURL = content.githubURL
                     isLoadingProject = false
-                    if let oid = selectedCommitID, selectedCommitDiff == nil {
-                        selectCommit(oid)
+                    if let oid = selectedCommitID {
+                        if oid == CommitGraphGenerator.workingChangesID {
+                            selectCommit(content.snapshot.workingChanges?.isEmpty == false ? oid : nil)
+                        } else if selectedCommitDiff == nil {
+                            selectCommit(oid)
+                        }
                     }
                     return
                 } catch {
@@ -481,6 +486,10 @@ final class AppModel: ObservableObject {
     }
 
     func selectCommit(_ oid: String?) {
+        if oid == CommitGraphGenerator.workingChangesID, selectedCommitID != oid {
+            let changes = projectSnapshot?.workingChanges
+            workingDiffStaged = changes?.unstaged == 0 && changes?.untracked == 0 && changes?.conflicted == 0
+        }
         diffLoadGeneration += 1
         let generation = diffLoadGeneration
         selectedCommitID = oid
@@ -490,10 +499,11 @@ final class AppModel: ObservableObject {
         guard let oid, let name = selectedProjectName, let source = projectSource else { return }
         isLoadingCommitDiff = true
         let configuration = configuration
+        let staged = workingDiffStaged
         Task {
             do {
                 let diff = try await Task.detached(priority: .userInitiated) {
-                    try Self.diff(for: name, oid: oid, source: source, configuration: configuration)
+                    try Self.diff(for: name, oid: oid, staged: staged, source: source, configuration: configuration)
                 }.value
                 guard generation == diffLoadGeneration, selectedProjectName == name,
                       selectedCommitID == oid, projectSource == source else { return }
@@ -769,17 +779,19 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private nonisolated static func diff(for name: String, oid: String, source: ProjectSource,
+    private nonisolated static func diff(for name: String, oid: String, staged: Bool, source: ProjectSource,
                                          configuration: AppConfiguration) throws -> String {
         switch source {
         case .local:
             let root = URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath)
-            return try Repository(name: name, url: root.appendingPathComponent(name)).diff(at: oid)
+            let repository = Repository(name: name, url: root.appendingPathComponent(name))
+            return try oid == CommitGraphGenerator.workingChangesID
+                ? repository.workingDiff(staged: staged) : repository.diff(at: oid)
         case .host(let id):
             guard let host = configuration.hosts.first(where: { $0.id == id }) else {
                 throw SyncError.invalidConfiguration("The selected host is no longer configured.")
             }
-            return try Runner.projectDiff(name, oid: oid,
+            return try Runner.projectDiff(name, oid: oid == CommitGraphGenerator.workingChangesID ? nil : oid, staged: staged,
                                           configuration: remoteConfiguration(host, in: configuration))
         case .backup(let snapshotID):
             if let root = try configuration.validatedBackupDestination() {
@@ -1156,7 +1168,7 @@ private struct CommitList: View {
                 .help(changes.summary)
                 .accessibilityElement(children: .combine)
                 .listRowSeparator(.hidden)
-                .selectionDisabled()
+                .tag(CommitGraphGenerator.workingChangesID)
             }
             ForEach(snapshot.commits.indices, id: \.self) { index in
                 let commit = snapshot.commits[index]
@@ -1255,7 +1267,27 @@ private struct ProjectDetailView: View {
 
     var body: some View {
         if model.selectedProjectName != nil {
-            if let commitID = model.selectedCommitID,
+            if model.selectedCommitID == CommitGraphGenerator.workingChangesID {
+                DiffDetail(title: "Uncommitted changes", diff: model.selectedCommitDiff,
+                           isLoadingDiff: model.isLoadingCommitDiff, error: model.commitDiffError) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Uncommitted changes").font(.headline)
+                        Text(model.projectSnapshot?.workingChanges?.summary ?? "")
+                            .font(.callout).foregroundStyle(.secondary)
+                        if let source = model.projectSource {
+                            Text("From \(model.projectSourceLabel(source))").font(.callout).foregroundStyle(.secondary)
+                        }
+                        Picker("Changes", selection: Binding(get: { model.workingDiffStaged }, set: {
+                            model.workingDiffStaged = $0
+                            model.selectCommit(CommitGraphGenerator.workingChangesID)
+                        })) {
+                            Text("Unstaged").tag(false)
+                            Text("Staged").tag(true)
+                        }.pickerStyle(.segmented)
+                    }
+                    .padding().frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else if let commitID = model.selectedCommitID,
                let commit = model.projectSnapshot?.commits.first(where: { $0.oid == commitID }) {
                 CommitDetail(commit: commit,
                              references: model.projectSnapshot?.references.filter { $0.oid == commitID } ?? [],
@@ -1267,7 +1299,7 @@ private struct ProjectDetailView: View {
                     .id(commit.oid)
             } else {
                 ContentUnavailableView("Select a Commit", systemImage: "plus.forwardslash.minus",
-                                       description: Text("Choose a commit to view its changes, or open Editor for working-copy diffs."))
+                                       description: Text("Choose a commit or Uncommitted changes to view its diff."))
             }
         } else {
             ContentUnavailableView("Project Details", systemImage: "info.circle")
@@ -1451,69 +1483,8 @@ private struct CommitDetail: View {
     let diff: String?
     let isLoadingDiff: Bool
     let error: String?
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var files: [DiffFile] = []
-    @State private var visibleFiles: Set<UUID> = []
-    @State private var isParsingDiff = false
-
     var body: some View {
-        GeometryReader { viewport in
-            ScrollViewReader { scroll in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        header
-                        Divider()
-                        if isLoadingDiff || isParsingDiff {
-                            ProgressView("Reading commit diff…").frame(maxWidth: .infinity, maxHeight: .infinity)
-                        } else if let error {
-                            ContentUnavailableView("Couldn’t Read Diff", systemImage: "exclamationmark.triangle",
-                                                   description: Text(error))
-                        } else if diff != nil, !files.isEmpty {
-                            VStack(spacing: 16) {
-                                ForEach(files) { file in
-                                    DiffFileView(file: file)
-                                        .id(file.id)
-                                        .onGeometryChange(for: Bool.self) { geometry in
-                                            CommitFileNavigator.isVisible(geometry.frame(in: .named("commitViewport")),
-                                                                          viewportHeight: viewport.size.height)
-                                        } action: { visible in
-                                            if visible { visibleFiles.insert(file.id) }
-                                            else { visibleFiles.remove(file.id) }
-                                        }
-                                }
-                            }
-                            .diffConfiguration(.codeReview.with(theme: colorScheme == .dark ? .dark : .light))
-                            .padding()
-                        } else {
-                            ContentUnavailableView("No Diff", systemImage: "doc.text.magnifyingglass")
-                        }
-                    }
-                }
-                .coordinateSpace(name: "commitViewport")
-                .toolbar {
-                    if !isLoadingDiff, error == nil, !files.isEmpty, visibleFiles.count < files.count {
-                        ToolbarSpacer(.flexible, placement: .primaryAction)
-                        ToolbarItem(placement: .primaryAction) {
-                            CommitFileNavigator(files: files, visibleFiles: visibleFiles) { id in
-                                scroll.scrollTo(id, anchor: .top)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .navigationTitle(commit.subject)
-        .task(id: diff) {
-            files = []
-            visibleFiles = []
-            isParsingDiff = false
-            guard let diff else { return }
-            isParsingDiff = true
-            let parsed = try? await UnifiedDiffParser().parse(diff)
-            guard !Task.isCancelled else { return }
-            files = parsed ?? []
-            isParsingDiff = false
-        }
+        DiffDetail(title: commit.subject, diff: diff, isLoadingDiff: isLoadingDiff, error: error) { header }
     }
 
     private var header: some View {
@@ -1565,6 +1536,78 @@ private struct CommitDetail: View {
                     .accessibilityLabel("References")
                     .accessibilityValue(references.map { $0.displayName(hosts: hosts) }.joined(separator: ", "))
             }
+        }
+    }
+}
+
+private struct DiffDetail<Header: View>: View {
+    let title: String
+    let diff: String?
+    let isLoadingDiff: Bool
+    let error: String?
+    @ViewBuilder var header: Header
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var files: [DiffFile] = []
+    @State private var visibleFiles: Set<UUID> = []
+    @State private var isParsingDiff = false
+
+    var body: some View {
+        GeometryReader { viewport in
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        header
+                        Divider()
+                        if isLoadingDiff || isParsingDiff {
+                            ProgressView("Reading diff…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else if let error {
+                            ContentUnavailableView("Couldn’t Read Diff", systemImage: "exclamationmark.triangle",
+                                                   description: Text(error))
+                        } else if diff != nil, !files.isEmpty {
+                            VStack(spacing: 16) {
+                                ForEach(files) { file in
+                                    DiffFileView(file: file)
+                                        .id(file.id)
+                                        .onGeometryChange(for: Bool.self) { geometry in
+                                            CommitFileNavigator.isVisible(geometry.frame(in: .named("commitViewport")),
+                                                                          viewportHeight: viewport.size.height)
+                                        } action: { visible in
+                                            if visible { visibleFiles.insert(file.id) }
+                                            else { visibleFiles.remove(file.id) }
+                                        }
+                                }
+                            }
+                            .diffConfiguration(.codeReview.with(theme: colorScheme == .dark ? .dark : .light))
+                            .padding()
+                        } else {
+                            ContentUnavailableView("No Diff", systemImage: "doc.text.magnifyingglass")
+                        }
+                    }
+                }
+                .coordinateSpace(name: "commitViewport")
+                .toolbar {
+                    if !isLoadingDiff, error == nil, !files.isEmpty, visibleFiles.count < files.count {
+                        ToolbarSpacer(.flexible, placement: .primaryAction)
+                        ToolbarItem(placement: .primaryAction) {
+                            CommitFileNavigator(files: files, visibleFiles: visibleFiles) { id in
+                                scroll.scrollTo(id, anchor: .top)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(title)
+        .task(id: diff) {
+            files = []
+            visibleFiles = []
+            isParsingDiff = false
+            guard let diff else { return }
+            isParsingDiff = true
+            let parsed = try? await UnifiedDiffParser().parse(diff)
+            guard !Task.isCancelled else { return }
+            files = parsed ?? []
+            isParsingDiff = false
         }
     }
 }

@@ -126,6 +126,8 @@ private struct StatusMenu: View {
         Button("Open Gitinuum") {
             MenuBarRuntime.openMainApplication()
         }
+        .keyboardShortcut(runtime.model.globalShortcutEnabled
+                          ? KeyboardShortcut("`", modifiers: [.command, .option]) : nil)
         Button("Settings…") {
             if let url = URL(string: "gitsync://settings") {
                 NSWorkspace.shared.open(url)

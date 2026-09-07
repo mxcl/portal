@@ -123,17 +123,12 @@ private struct StatusMenu: View {
             runtime.model.isPaused ? runtime.model.resume() : runtime.model.pause()
         }
         .disabled(!runtime.model.isConfigured)
+        Divider()
         Button("Open Gitinuum") {
             MenuBarRuntime.openMainApplication()
         }
         .keyboardShortcut(runtime.model.globalShortcutEnabled
                           ? KeyboardShortcut("`", modifiers: [.command, .option]) : nil)
-        Button("Settings…") {
-            if let url = URL(string: "gitsync://settings") {
-                NSWorkspace.shared.open(url)
-            }
-        }
-        .keyboardShortcut(",", modifiers: .command)
         if SMAppService.loginItem(identifier: "dev.mxcl.git-sync.menu-helper").status == .requiresApproval {
             Button("Login Items…") { SMAppService.openSystemSettingsLoginItems() }
         }

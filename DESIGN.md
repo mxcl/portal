@@ -10,6 +10,9 @@ quiet, like Finder or Xcode; the colored commit lanes are its only expressive
 visual element. System colors, materials, typography, spacing, controls, and
 selection behavior remain canonical.
 
+The checked-out commit row has a thin, subdued system-accent outline, independent
+of the native selection fill. Its accessibility value identifies it as checked out.
+
 The trailing segmented control selects Info, Diff, Terminal, or Editor. Info
 shows project placement and README; selecting a commit opens Diff. Editor
 replaces the graph and detail with a native file outline and CodeEditSourceEditor

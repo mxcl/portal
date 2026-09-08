@@ -1138,13 +1138,14 @@ private struct CommitList: View {
     let hosts: [SyncHost]
     @Binding var selection: String?
     private let graph: CommitGraphModel
+    private let headOID: String?
     private var hasWorkingChanges: Bool { snapshot.workingChanges?.isEmpty == false }
 
     init(snapshot: RepositorySnapshot, hosts: [SyncHost], selection: Binding<String?>) {
         self.snapshot = snapshot
         self.hosts = hosts
         _selection = selection
-        let headOID = snapshot.headOID ?? snapshot.head.flatMap { head in
+        headOID = snapshot.headOID ?? snapshot.head.flatMap { head in
             snapshot.references.first { $0.fullName == "refs/heads/\(head)" }?.oid
         }
         graph = CommitGraphGenerator.generate(commits: snapshot.commits, headOID: headOID,
@@ -1173,6 +1174,7 @@ private struct CommitList: View {
             ForEach(snapshot.commits.indices, id: \.self) { index in
                 let commit = snapshot.commits[index]
                 CommitRow(commit: commit,
+                          isCurrent: commit.oid == headOID,
                           references: snapshot.references.filter { $0.oid == commit.oid },
                           hosts: hosts,
                           graph: graph,
@@ -1191,6 +1193,7 @@ private struct CommitList: View {
 
 private struct CommitRow: View {
     let commit: RepositoryCommit
+    let isCurrent: Bool
     let references: [RepositoryReference]
     let hosts: [SyncHost]
     let graph: CommitGraphModel
@@ -1227,7 +1230,14 @@ private struct CommitRow: View {
                 .padding(.leading, BranchGraphRowCanvas.graphWidth(model: graph, commitOID: commit.oid) + 8)
                 .offset(y: 4)
         }
+        .overlay {
+            RoundedRectangle(cornerRadius: 5)
+                .strokeBorder(isCurrent ? Color.accentColor.opacity(0.5) : .clear, lineWidth: 1)
+                .padding(-4)
+                .allowsHitTesting(false)
+        }
         .accessibilityElement(children: .combine)
+        .accessibilityValue(isCurrent ? "Checked out commit" : "")
     }
 }
 

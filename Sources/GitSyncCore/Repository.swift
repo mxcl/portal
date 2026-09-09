@@ -72,6 +72,7 @@ public struct RepositoryWorkingChanges: Codable, Equatable, Sendable {
     public private(set) var unstaged = 0
     public private(set) var untracked = 0
     public private(set) var conflicted = 0
+    public private(set) var files: [RepositoryFile]?
 
     public var isEmpty: Bool { staged + unstaged + untracked + conflicted == 0 }
 
@@ -83,13 +84,16 @@ public struct RepositoryWorkingChanges: Codable, Equatable, Sendable {
     }
 
     init(porcelain: Data) {
+        files = []
         var records = porcelain.split(separator: 0).makeIterator()
         while let record = records.next() {
             let status = String(decoding: record.prefix(2), as: UTF8.self)
-            guard status.count == 2, let x = status.first, let y = status.last else { continue }
+            guard record.count >= 4, status.count == 2, let x = status.first, let y = status.last else { continue }
             if status.contains("R") || status.contains("C") {
                 _ = records.next() // -z renames/copies include a second pathname.
             }
+            guard status != "!!" else { continue }
+            files?.append(RepositoryFile(path: String(decoding: record.dropFirst(3), as: UTF8.self), status: status))
             if status == "??" { untracked += 1 }
             else if status.contains("U") || status == "AA" || status == "DD" { conflicted += 1 }
             else if status != "!!" {
@@ -97,6 +101,28 @@ public struct RepositoryWorkingChanges: Codable, Equatable, Sendable {
                 if y != " " { unstaged += 1 }
             }
         }
+    }
+
+    mutating func addLineCounts(_ numstat: Data) {
+        guard var files else { return }
+        let indices = Dictionary(uniqueKeysWithValues: files.enumerated().map { ($0.element.path, $0.offset) })
+        var records = numstat.split(separator: 0).makeIterator()
+        while let record = records.next() {
+            let fields = record.split(separator: 9, maxSplits: 2, omittingEmptySubsequences: false)
+            guard fields.count == 3 else { continue }
+            var path = fields[2]
+            if path.isEmpty {
+                _ = records.next() // Rename/copy source.
+                guard let destination = records.next() else { break }
+                path = destination
+            }
+            guard let index = indices[String(decoding: path, as: UTF8.self)],
+                  let additions = Int(String(decoding: fields[0], as: UTF8.self)),
+                  let deletions = Int(String(decoding: fields[1], as: UTF8.self)) else { continue }
+            files[index].additions = (files[index].additions ?? 0) + additions
+            files[index].deletions = (files[index].deletions ?? 0) + deletions
+        }
+        self.files = files
     }
 }
 
@@ -312,11 +338,29 @@ public struct Repository: Equatable {
         let headOID = try? Git.text(["-C", url.path, "rev-parse", "--verify", "HEAD"])
         let mirrored = try Git.text(["-C", url.path, "rev-parse", "--is-bare-repository"]) == "true"
             || (try? Git.text(["-C", url.path, "config", "--bool", "git-sync.mirrored"])) == "true"
-        let changes = try mirrored ? nil : RepositoryWorkingChanges(porcelain: Git.run([
+        var changes = try mirrored ? nil : RepositoryWorkingChanges(porcelain: Git.run([
             "--no-optional-locks", "-C", url.path, "status", "--porcelain=v1", "-z", "--untracked-files=all",
         ]))
+        if changes?.isEmpty == false {
+            // Counts are optional: a disappearing file must not hide the repository's history.
+            if let numstat = try? workingLineCounts(files: changes?.files ?? []) {
+                changes?.addLineCounts(numstat)
+            }
+        }
         return RepositorySnapshot(commits: history.commits, references: references, head: head,
                                   branches: history.branches, headOID: headOID, workingChanges: changes)
+    }
+
+    private func workingLineCounts(files: [RepositoryFile]) throws -> Data {
+        let args = ["--no-optional-locks", "-C", url.path, "diff", "--no-ext-diff", "--no-textconv",
+                    "--numstat", "-z"]
+        var numstat = try Git.run(args + ["--cached", "--"])
+        numstat.append(try Git.run(args + ["--base", "--"]))
+        // ponytail: one Git call per untracked file; load counts on demand if large trees slow refresh.
+        for file in files where file.isUntracked {
+            numstat.append(try Git.run(args + ["--no-index", "--", "/dev/null", file.path], successStatuses: [0, 1]))
+        }
+        return numstat
     }
 
     public func content(limit: Int = 250) throws -> RepositoryContent {

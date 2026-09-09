@@ -55,6 +55,9 @@
 - Staging always appears as one selectable graph row immediately above HEAD,
   or first when HEAD has no visible commit, linked to HEAD and labeled with any
   staged, unstaged, untracked, and conflicted file counts, or “Clean” when empty.
+  Changed relative paths fill the secondary line as space allows, with green `+X`
+  and red `−Y` line counts per file. Counts sum staged and unstaged edits; binary
+  files or unavailable counts show paths alone. The tooltip includes the full list.
   A partially staged file counts in both staged and unstaged totals. Local filesystem
   refresh updates the row and selected diff; clean repositories keep the row and selection.
   Selecting the row opens the local editor and file browser together in the right

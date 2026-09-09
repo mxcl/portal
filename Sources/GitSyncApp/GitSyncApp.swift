@@ -1192,18 +1192,48 @@ private struct CommitList: View {
                 BranchGraphRowCanvas(model: graph, rowIndex: stagingIndex,
                                      commitOID: CommitGraphGenerator.workingChangesID)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Staging").lineLimit(1)
-                    Text(status)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Staging").fixedSize()
+                        if !changes.isEmpty {
+                            Text(changes.summary).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }.lineLimit(1)
+                    Text(stagingPaths(changes))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
-            .help(status)
+            .help(([status] + (changes.files ?? []).map { file in
+                file.path + (file.additions.map { " +\($0)" } ?? "")
+                    + (file.deletions.map { " −\($0)" } ?? "")
+            }).joined(separator: "\n"))
             .accessibilityElement(children: .combine)
             .listRowSeparator(.hidden)
             .tag(CommitGraphGenerator.workingChangesID)
         }
+    }
+
+    private func stagingPaths(_ changes: RepositoryWorkingChanges) -> AttributedString {
+        guard let files = changes.files, !files.isEmpty else {
+            return AttributedString(changes.isEmpty ? "Clean" : changes.summary)
+        }
+        var text = AttributedString()
+        for file in files {
+            if !text.characters.isEmpty { text += AttributedString(" · ") }
+            text += AttributedString(file.path)
+            if let count = file.additions, count > 0 {
+                var label = AttributedString(" +\(count)")
+                label.foregroundColor = .green
+                text += label
+            }
+            if let count = file.deletions, count > 0 {
+                var label = AttributedString(" −\(count)")
+                label.foregroundColor = .red
+                text += label
+            }
+        }
+        return text
     }
 }
 

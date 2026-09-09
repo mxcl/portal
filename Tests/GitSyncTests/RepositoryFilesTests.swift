@@ -40,6 +40,12 @@ func editorGitFiles() throws {
     #expect(unstaged.contains("-staged\n+unstaged"))
     #expect(unstaged.contains("+new"))
     #expect(!unstaged.contains("hidden"))
+    let changes = try #require(repo.snapshot().workingChanges?.files)
+    #expect(changes.map(\.path) == ["a.txt", "new name\n.txt", "untracked\n.txt"])
+    #expect(changes.first { $0.path == "a.txt" }?.additions == 2)
+    #expect(changes.first { $0.path == "a.txt" }?.deletions == 2)
+    #expect(changes.first { $0.path == "new name\n.txt" }?.additions == 0)
+    #expect(changes.first { $0.path == "untracked\n.txt" }?.additions == 1)
     #expect(try Data(contentsOf: root.appendingPathComponent(".git/index")) == index)
 }
 
@@ -53,6 +59,10 @@ func initialWorkingDiff() throws {
     try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("link").path,
                                               withDestinationPath: "new.txt")
     let repository = Repository(name: "project", url: root)
+    let files = try #require(repository.snapshot().workingChanges?.files)
+    #expect(files.first { $0.path == "new.txt" }?.additions == 1)
+    #expect(files.first { $0.path == "binary" }?.additions == nil)
+    #expect(files.first { $0.path == "link" }?.additions == 1)
     let unstaged = try repository.workingDiff(staged: false)
     #expect(unstaged.contains("+first"))
     #expect(unstaged.contains("Binary files"))

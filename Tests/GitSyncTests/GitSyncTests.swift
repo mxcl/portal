@@ -223,6 +223,20 @@ func workingStatusParsing() {
         "UU conflict\0AA added\0DD deleted\0RM destination\0?? source\0?? new\nfile\0 D removed\0!! ignored\0".utf8
     ))
     #expect(status.summary == "1 staged file · 2 unstaged files · 1 untracked file · 3 conflicted files")
+    #expect(status.files?.map(\.path) == ["conflict", "added", "deleted", "destination", "new\nfile", "removed"])
+}
+
+@Test("Staging line counts parse renamed paths, tabs, binary files, and legacy snapshots")
+func stagingLineCounts() throws {
+    var changes = RepositoryWorkingChanges(porcelain: Data("RM new\tpath\0old\0 M binary\0".utf8))
+    changes.addLineCounts(Data("3\t2\t\0old\0new\tpath\0-\t-\tbinary\0".utf8))
+    #expect(changes.files?.first?.path == "new\tpath")
+    #expect(changes.files?.first?.additions == 3)
+    #expect(changes.files?.first?.deletions == 2)
+    #expect(changes.files?.last?.additions == nil)
+    #expect(try JSONDecoder().decode(RepositoryWorkingChanges.self, from: JSONEncoder().encode(changes)) == changes)
+    let legacy = Data(#"{"staged":1,"unstaged":0,"untracked":0,"conflicted":0}"#.utf8)
+    #expect(try JSONDecoder().decode(RepositoryWorkingChanges.self, from: legacy).files == nil)
 }
 
 @Test("repository maps GitHub origins to project pages")

@@ -1,9 +1,11 @@
 import Foundation
 
-public struct RepositoryFile: Identifiable, Equatable, Sendable {
+public struct RepositoryFile: Codable, Identifiable, Equatable, Sendable {
     public var id: String { path }
     public let path: String
     public let status: String
+    public internal(set) var additions: Int? = nil
+    public internal(set) var deletions: Int? = nil
     public var isUntracked: Bool { status == "??" }
     public var isConflicted: Bool { status.contains("U") || status == "AA" || status == "DD" }
     public var isStaged: Bool { !isUntracked && status.first != " " }

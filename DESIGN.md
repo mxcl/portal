@@ -54,6 +54,10 @@ and tags. When refs coincide, their host labels share a commit marker.
 A persistent Staging row sits immediately above the source checkout's HEAD (or
 first when HEAD has no visible commit), with staged, unstaged, untracked, and
 conflicted file counts whenever present, or “Clean” when there are no changes.
+Changed relative paths fill one secondary line, truncated at the trailing edge;
+each path has green additions and red deletions where Git provides line counts.
+Counts sum the staged and unstaged diffs, including untracked files. The tooltip
+lists all paths and counts. Older hosts without file details retain the count summary.
 Diff remains available with separate
 Staged and Unstaged views, including untracked files, and refreshes with the
 repository. The row and its selection remain when clean; mirrors and backups omit it.

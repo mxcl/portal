@@ -188,11 +188,10 @@ public class TextViewController: NSViewController {
 
     var cancellables = Set<AnyCancellable>()
 
-    /// The trailing inset for the editor. Grows when line wrapping is disabled or when the minimap is shown.
+    /// Space for the fixed minimap and the overlay scrollbar beside it.
     var textViewTrailingInset: CGFloat {
-        // See https://github.com/CodeEditApp/CodeEditTextView/issues/66
-        // wrapLines ? 1 : 48
-        (minimapView?.isHidden ?? false) ? 0 : (minimapView?.frame.width ?? 0.0)
+        guard let minimapView, !minimapView.isHidden else { return 0 }
+        return minimapView.frame.width + NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
     }
 
     var textViewInsets: HorizontalEdgeInsets {

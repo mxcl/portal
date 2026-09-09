@@ -50,7 +50,7 @@ extension TextViewController {
         self.findViewController = findViewController
         self.view.addSubview(findViewController.view)
         // Keep the minimap outside the moving clip view so scrolling needs no position correction.
-        findViewController.view.addSubview(minimapView, positioned: .below, relativeTo: findViewController.findPanel)
+        findViewController.view.addSubview(minimapView, positioned: .above, relativeTo: scrollView)
         findViewController.view.viewDidMoveToSuperview()
         self.findViewController = findViewController
 
@@ -92,8 +92,11 @@ extension TextViewController {
             multiplier: 0.17
         )
         relativeWidthConstraint.priority = .defaultLow
+        // The minimap is above the scroll view; leave its overlay scrollers exposed.
+        let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: scrollView.scrollerStyle)
         let minimapXConstraint = minimapView.trailingAnchor.constraint(
-            equalTo: scrollView.contentView.safeAreaLayoutGuide.trailingAnchor
+            equalTo: scrollView.contentView.safeAreaLayoutGuide.trailingAnchor,
+            constant: -scrollerWidth
         )
 
         NSLayoutConstraint.activate([
@@ -103,7 +106,7 @@ extension TextViewController {
             findViewController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             minimapView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
-            minimapView.bottomAnchor.constraint(equalTo: scrollView.contentView.bottomAnchor),
+            minimapView.bottomAnchor.constraint(equalTo: scrollView.contentView.bottomAnchor, constant: -scrollerWidth),
             minimapXConstraint,
             maxWidthConstraint,
             relativeWidthConstraint

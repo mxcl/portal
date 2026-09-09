@@ -38,7 +38,7 @@ struct GitSyncApp: App {
                 }
             }
             CommandGroup(after: .toolbar) {
-                ForEach(ProjectTab.allCases) { tab in
+                ForEach(model.availableTabs) { tab in
                     Button("Show \(tab.title)") { model.selectedTab = tab }
                         .keyboardShortcut(KeyEquivalent(tab.rawValue.first!), modifiers: [.command, .option])
                 }
@@ -214,6 +214,10 @@ final class AppModel: ObservableObject {
     var selectedEditorRepositoryURL: URL? {
         guard let name = selectedProjectName, placement(of: name, on: nil) == .checkedOut else { return nil }
         return selectedLocalRepositoryURL
+    }
+
+    var availableTabs: [ProjectTab] {
+        selectedCommitID == CommitGraphGenerator.workingChangesID ? ProjectTab.allCases : [.info, .diff]
     }
 
     fileprivate var projectSources: [ProjectSource] {
@@ -469,7 +473,7 @@ final class AppModel: ObservableObject {
                     isLoadingProject = false
                     if let oid = selectedCommitID {
                         if oid == CommitGraphGenerator.workingChangesID {
-                            selectCommit(content.snapshot.workingChanges?.isEmpty == false ? oid : nil)
+                            selectCommit(content.snapshot.workingChanges != nil ? oid : nil)
                         } else if selectedCommitDiff == nil {
                             selectCommit(oid)
                         }
@@ -486,6 +490,11 @@ final class AppModel: ObservableObject {
     }
 
     func selectCommit(_ oid: String?) {
+        if selectedCommitID != oid {
+            selectedTab = oid == CommitGraphGenerator.workingChangesID
+                ? (selectedEditorRepositoryURL != nil ? .editor : .diff)
+                : (oid == nil ? .info : .diff)
+        }
         if oid == CommitGraphGenerator.workingChangesID, selectedCommitID != oid {
             let changes = projectSnapshot?.workingChanges
             workingDiffStaged = changes?.unstaged == 0 && changes?.untracked == 0 && changes?.conflicted == 0
@@ -900,14 +909,8 @@ struct ProjectBrowserView: View {
                 }
             }
         } content: {
-            Group {
-                if model.selectedTab == .editor, model.selectedEditorRepositoryURL != nil {
-                    ProjectFileBrowser(editor: model.editor)
-                } else {
-                    ProjectHistoryView(model: model)
-                }
-            }
-            .toolbar { projectToolbar }
+            ProjectHistoryView(model: model)
+                .toolbar { projectToolbar }
         } detail: {
             switch model.selectedTab {
             case .info:
@@ -917,7 +920,12 @@ struct ProjectBrowserView: View {
                 ProjectDetailView(model: model)
             case .editor:
                 if model.selectedEditorRepositoryURL != nil {
-                    ProjectEditorView(editor: model.editor)
+                    HSplitView {
+                        ProjectFileBrowser(editor: model.editor)
+                            .frame(minWidth: 160, idealWidth: 200, maxWidth: 260)
+                        ProjectEditorView(editor: model.editor)
+                            .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 } else {
                     ContentUnavailableView("No Local Working Copy", systemImage: "folder",
                                            description: Text("Check out this project on this Mac to edit its files."))
@@ -989,7 +997,7 @@ struct ProjectBrowserView: View {
         }
         ToolbarItem(placement: .primaryAction) {
             Picker("Main view", selection: $model.selectedTab) {
-                ForEach(ProjectTab.allCases) { tab in
+                ForEach(model.availableTabs) { tab in
                     Label("Show \(tab.title)", systemImage: tab.symbol).tag(tab)
                 }
             }
@@ -1121,7 +1129,7 @@ private struct ProjectHistoryView: View {
                 }
             } else if let snapshot = model.projectSnapshot {
                 CommitList(snapshot: snapshot, hosts: model.configuration.hosts, selection: Binding(
-                    get: { model.selectedCommitID }, set: { model.selectCommit($0); model.selectedTab = .diff }
+                    get: { model.selectedCommitID }, set: model.selectCommit
                 ))
             } else {
                 ContentUnavailableView("No Available Copy", systemImage: "desktopcomputer.trianglebadge.exclamationmark",
@@ -1139,7 +1147,7 @@ private struct CommitList: View {
     @Binding var selection: String?
     private let graph: CommitGraphModel
     private let headOID: String?
-    private var hasWorkingChanges: Bool { snapshot.workingChanges?.isEmpty == false }
+    private let stagingIndex: Int?
 
     init(snapshot: RepositorySnapshot, hosts: [SyncHost], selection: Binding<String?>) {
         self.snapshot = snapshot
@@ -1148,45 +1156,54 @@ private struct CommitList: View {
         headOID = snapshot.headOID ?? snapshot.head.flatMap { head in
             snapshot.references.first { $0.fullName == "refs/heads/\(head)" }?.oid
         }
+        stagingIndex = snapshot.workingChanges != nil
+            ? CommitGraphGenerator.stagingRowIndex(commits: snapshot.commits, headOID: headOID) : nil
         graph = CommitGraphGenerator.generate(commits: snapshot.commits, headOID: headOID,
-                                              hasWorkingChanges: snapshot.workingChanges?.isEmpty == false)
+                                              includeStaging: stagingIndex != nil)
     }
 
     var body: some View {
         List(selection: $selection) {
-            if hasWorkingChanges, let changes = snapshot.workingChanges {
-                HStack(alignment: .top, spacing: 8) {
-                    BranchGraphRowCanvas(model: graph, rowIndex: 0,
-                                         commitOID: CommitGraphGenerator.workingChangesID)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Uncommitted changes").lineLimit(1)
-                        Text(changes.summary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                .help(changes.summary)
-                .accessibilityElement(children: .combine)
-                .listRowSeparator(.hidden)
-                .tag(CommitGraphGenerator.workingChangesID)
-            }
             ForEach(snapshot.commits.indices, id: \.self) { index in
+                if stagingIndex == index { stagingRow }
                 let commit = snapshot.commits[index]
                 CommitRow(commit: commit,
                           isCurrent: commit.oid == headOID,
                           references: snapshot.references.filter { $0.oid == commit.oid },
                           hosts: hosts,
                           graph: graph,
-                          rowIndex: index + (hasWorkingChanges ? 1 : 0))
+                          rowIndex: index + (stagingIndex.map { index >= $0 } == true ? 1 : 0))
                     .listRowSeparator(.hidden)
                     .tag(commit.oid)
             }
+            if snapshot.commits.isEmpty { stagingRow }
         }
         .overlay {
-            if snapshot.commits.isEmpty && !hasWorkingChanges {
+            if snapshot.commits.isEmpty && stagingIndex == nil {
                 ContentUnavailableView("No Commits", systemImage: "point.3.connected.trianglepath.dotted")
             }
+        }
+    }
+
+    @ViewBuilder private var stagingRow: some View {
+        if let stagingIndex, let changes = snapshot.workingChanges {
+            HStack(alignment: .top, spacing: 8) {
+                BranchGraphRowCanvas(model: graph, rowIndex: stagingIndex,
+                                     commitOID: CommitGraphGenerator.workingChangesID)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Staging").lineLimit(1)
+                    if !changes.isEmpty {
+                        Text(changes.summary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .help(changes.summary)
+            .accessibilityElement(children: .combine)
+            .listRowSeparator(.hidden)
+            .tag(CommitGraphGenerator.workingChangesID)
         }
     }
 }
@@ -1278,10 +1295,10 @@ private struct ProjectDetailView: View {
     var body: some View {
         if model.selectedProjectName != nil {
             if model.selectedCommitID == CommitGraphGenerator.workingChangesID {
-                DiffDetail(title: "Uncommitted changes", diff: model.selectedCommitDiff,
+                DiffDetail(title: "Staging", diff: model.selectedCommitDiff,
                            isLoadingDiff: model.isLoadingCommitDiff, error: model.commitDiffError) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Uncommitted changes").font(.headline)
+                        Text("Staging").font(.headline)
                         Text(model.projectSnapshot?.workingChanges?.summary ?? "")
                             .font(.callout).foregroundStyle(.secondary)
                         if let source = model.projectSource {
@@ -1309,7 +1326,7 @@ private struct ProjectDetailView: View {
                     .id(commit.oid)
             } else {
                 ContentUnavailableView("Select a Commit", systemImage: "plus.forwardslash.minus",
-                                       description: Text("Choose a commit or Uncommitted changes to view its diff."))
+                                       description: Text("Choose a commit or Staging to view its diff."))
             }
         } else {
             ContentUnavailableView("Project Details", systemImage: "info.circle")

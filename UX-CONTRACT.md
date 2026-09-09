@@ -52,14 +52,18 @@
 - Peer ref labels in the graph and commit detail use lowercase configured host names;
   stored ref names and protocol identities remain unchanged.
 - Normal branch divergence is information, never a warning.
-- Outstanding changes appear as one selectable graph row above history, linked
-  to HEAD and labeled with staged, unstaged, untracked, and conflicted file counts.
+- Staging always appears as one selectable graph row immediately above HEAD,
+  or first when HEAD has no visible commit, linked to HEAD and labeled with any
+  staged, unstaged, untracked, and conflicted file counts.
   A partially staged file counts in both staged and unstaged totals. Local filesystem
-  refresh updates the row and selected diff; clean repositories clear the selection.
-  Selecting the row opens Diff with Staged and Unstaged choices, including untracked
-  files. Mirrors and backups omit it. Reading diffs never changes the index or checkout.
+  refresh updates the row and selected diff; clean repositories keep the row and selection.
+  Selecting the row opens the local editor and file browser together in the right
+  detail pane while the lanes remain visible. Editor and Terminal toolbar choices
+  appear only while Staging is selected. Remote staging opens Diff. Diff retains
+  Staged and Unstaged choices, including untracked files. Mirrors and backups omit
+  Staging. Reading diffs never changes the index or checkout.
 - Commit detail contains message, author, date, object ID, parents, pointing refs,
-  and a diff. The MVP has no file browser, graph filters, or activity pane.
+  and a diff. The file browser belongs to Staging; there are no graph filters or activity pane.
 - Both README views use Textual for Markdown headings, blockquotes, lists, code
   blocks, and tables, preserve text selection, and label the source ref.
 - A local repository is always the presentation source when present; remote source

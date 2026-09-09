@@ -268,7 +268,11 @@ struct ProjectEditorView: View {
                     Text("Edit").tag("Edit")
                     Text("Unstaged Diff").tag("Unstaged")
                     Text("Staged Diff").tag("Staged")
-                }.pickerStyle(.segmented).padding([.horizontal, .bottom], 10)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize(horizontal: false, vertical: true)
+                .padding([.horizontal, .bottom], 10)
                 if let error = editor.error {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(10)

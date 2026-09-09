@@ -13,12 +13,13 @@ selection behavior remain canonical.
 The checked-out commit row has a thin, subdued system-accent outline, independent
 of the native selection fill. Its accessibility value identifies it as checked out.
 
-The trailing segmented control selects Info, Diff, Terminal, or Editor. Info
-shows project placement and README; selecting a commit opens Diff. Editor
-replaces the graph and detail with a native file outline and CodeEditSourceEditor
-for this Mac's working copy. Terminal currently offers the external terminal
-action while its embedded view is deferred. External editor, Finder, and GitHub
-actions remain in the project menu.
+The trailing segmented control selects Info or Diff, with Editor and Terminal
+available only while Staging is selected. Info shows project placement and README;
+selecting a commit opens Diff. Selecting Staging opens the local editor: a native
+file outline and CodeEditSourceEditor share a resizable split in the detail column,
+keeping the commit lanes visible. Remote staging opens Diff. Terminal currently
+offers the external terminal action while its embedded view is deferred. External
+editor, Finder, and GitHub actions remain in the project menu.
 
 The editor lists tracked and non-ignored untracked files, including deleted paths
 for diff inspection. Green checkmarks identify staged files; orange marks identify
@@ -50,11 +51,11 @@ of repositories observed across configured hosts and backup inventory. Rows
 show host presence and operational state without treating normal Git divergence
 as an error. The graph renders this Mac's local branches, received peer branches,
 and tags. When refs coincide, their host labels share a commit marker.
-Outstanding working changes add a row above the commits, connected to the source
-checkout's HEAD, with staged, unstaged, untracked, and conflicted file counts.
-Selecting the row opens Diff with separate Staged and Unstaged views, including
-untracked files. The selected diff refreshes with the repository. The row and its
-selection disappear when clean; mirrors and backups omit it.
+A persistent Staging row sits immediately above the source checkout's HEAD (or
+first when HEAD has no visible commit), with staged, unstaged, untracked, and
+conflicted file counts whenever present. Diff remains available with separate
+Staged and Unstaged views, including untracked files, and refreshes with the
+repository. The row and its selection remain when clean; mirrors and backups omit it.
 
 The detail column keeps project placement visible above a scrolling README.
 The overview pairs the project title with backup status and groups each host's

@@ -4,7 +4,7 @@ import Testing
 @testable import GitSyncCore
 import GitSyncGraph
 
-@Test("Selecting working changes loads both index sides, refreshes, and clears when clean")
+@Test("Staging opens the editor, loads both index sides, and stays selected when clean")
 @MainActor
 func workingChangesSelection() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -16,6 +16,7 @@ func workingChangesSelection() async throws {
     let model = AppModel(connectToHelper: false)
     model.configuration = AppConfiguration(root: root.path, machine: "test",
         folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)])
+    model.localProjects = ["project": PeerProject(name: "project", placement: .checkedOut)]
     model.selectedProjectName = "project"
     model.refreshProject()
     func finishLoading() async throws {
@@ -27,8 +28,11 @@ func workingChangesSelection() async throws {
         try #require(model.projectError == nil && model.commitDiffError == nil)
     }
     try await finishLoading()
+    #expect(model.availableTabs == [.info, .diff])
     model.selectCommit(CommitGraphGenerator.workingChangesID)
     try await finishLoading()
+    #expect(model.selectedTab == .editor)
+    #expect(model.availableTabs == ProjectTab.allCases)
     #expect(model.workingDiffStaged)
     #expect(model.selectedCommitDiff?.contains("+staged") == true)
     try Data("unstaged\n".utf8).write(to: project.appendingPathComponent("file.txt"))
@@ -36,16 +40,26 @@ func workingChangesSelection() async throws {
     model.selectCommit(CommitGraphGenerator.workingChangesID)
     try await finishLoading()
     #expect(model.selectedCommitDiff?.contains("-staged\n+unstaged") == true)
+    model.selectedTab = .diff
     try Data("refreshed\n".utf8).write(to: project.appendingPathComponent("file.txt"))
     model.refreshProject()
     try await finishLoading()
     #expect(model.selectedCommitID == CommitGraphGenerator.workingChangesID)
+    #expect(model.selectedTab == .diff)
     #expect(model.selectedCommitDiff?.contains("+refreshed") == true)
     _ = try Git.run(["-C", project.path, "add", "."])
     _ = try Git.run(["-C", project.path, "-c", "user.name=Test", "-c", "user.email=test@example.com",
                      "commit", "-qm", "Initial commit"])
     model.refreshProject()
     try await finishLoading()
-    #expect(model.selectedCommitID == nil)
-    #expect(model.selectedCommitDiff == nil)
+    #expect(model.projectSnapshot?.workingChanges?.isEmpty == true)
+    #expect(model.selectedCommitID == CommitGraphGenerator.workingChangesID)
+    #expect(model.selectedCommitDiff == "")
+    model.selectCommit(try #require(model.projectSnapshot?.headOID))
+    try await finishLoading()
+    #expect(model.selectedTab == .diff)
+    #expect(model.availableTabs == [.info, .diff])
+    model.selectCommit(CommitGraphGenerator.workingChangesID)
+    try await finishLoading()
+    #expect(model.selectedTab == .editor)
 }

@@ -32,15 +32,22 @@ public nonisolated enum CommitGraphGenerator {
     private static let firstLaneX = 10.0
     private static let colorCount = 10
 
+    public static func stagingRowIndex(commits: [RepositoryCommit], headOID: String?) -> Int {
+        commits.firstIndex { $0.oid == headOID } ?? 0
+    }
+
     public static func generate(
         commits: [RepositoryCommit],
         headOID: String?,
-        hasWorkingChanges: Bool = false
+        includeStaging: Bool = false
     ) -> CommitGraphModel {
-        let rows = hasWorkingChanges ? [RepositoryCommit(
-            oid: workingChangesID, parents: headOID.map { [$0] } ?? [],
-            author: "", date: .distantPast, message: "Uncommitted changes"
-        )] + commits : commits
+        var rows = commits
+        if includeStaging {
+            rows.insert(RepositoryCommit(
+                oid: workingChangesID, parents: headOID.map { [$0] } ?? [],
+                author: "", date: .distantPast, message: "Staging"
+            ), at: stagingRowIndex(commits: commits, headOID: headOID))
+        }
         return generate(commits: rows, highlighting: .all, headHash: headOID, highlightRootHash: nil)
     }
 

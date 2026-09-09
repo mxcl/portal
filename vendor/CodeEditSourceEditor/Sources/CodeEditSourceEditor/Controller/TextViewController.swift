@@ -40,8 +40,6 @@ public class TextViewController: NSViewController {
     ///  /// user's theme and indent option to help correctly draw invisible character placeholders.
     var invisibleCharactersCoordinator: InvisibleCharactersCoordinator
 
-    var minimapXConstraint: NSLayoutConstraint?
-
     var _undoManager: CEUndoManager!
     var systemAppearance: NSAppearance.Name?
 

@@ -11,3 +11,6 @@ Markdown captures receive theme colors and font traits. Injection language looku
 grammar names and file extensions, and inline Markdown preserves block heading highlights.
 
 CodeEditTextView uses the sibling vendored package to fix horizontal scrolling.
+
+The minimap is anchored outside the scrolling clip view to prevent horizontal
+drift and snap-back between layout passes.

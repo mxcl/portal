@@ -105,6 +105,47 @@ func editorHorizontalScrolling() throws {
     #expect(lastCharacter.maxX <= scroll.contentView.bounds.maxX - controller.textView.textInsets.right + 1)
 }
 
+@Test("Minimap stays fixed throughout a horizontal scroll")
+@MainActor
+func editorMinimapStaysFixed() throws {
+    let controller = TextViewController(
+        string: String(repeating: String(repeating: "long line ", count: 50) + "\n", count: 30), language: .markdown,
+        configuration: .init(appearance: .init(theme: ProjectEditorView(editor: ProjectEditor()).theme,
+            font: .monospacedSystemFont(ofSize: 12, weight: .regular), wrapLines: false)),
+        cursorPositions: [], highlightProviders: [])
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+        styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+    window.contentViewController = controller
+    for _ in 0..<3 {
+        controller.view.layoutSubtreeIfNeeded()
+        controller.textView.layoutManager.layoutLines()
+        controller.textView.updateFrameIfNeeded()
+    }
+    let minimap = try #require(controller.minimapView)
+    let scroll = try #require(controller.scrollView)
+    func x() -> CGFloat { minimap.convert(minimap.bounds, to: scroll).minX }
+    let initial = x()
+    #expect(minimap.frame.width > 0)
+    #expect(initial > 0)
+    scroll.contentView.scroll(to: NSPoint(x: 100, y: 0))
+    scroll.reflectScrolledClipView(scroll.contentView)
+    let during = x()
+    controller.view.layoutSubtreeIfNeeded()
+    let after = x()
+    #expect(during == initial)
+    #expect(after == initial)
+    let initialFrame = minimap.convert(minimap.bounds, to: scroll)
+    scroll.contentView.scroll(to: NSPoint(x: 200, y: 100))
+    #expect(minimap.convert(minimap.bounds, to: scroll) == initialFrame)
+    controller.view.layoutSubtreeIfNeeded()
+    #expect(minimap.convert(minimap.bounds, to: scroll) == initialFrame)
+    window.setContentSize(NSSize(width: 700, height: 400))
+    controller.view.layoutSubtreeIfNeeded()
+    let resizedFrame = minimap.convert(minimap.bounds, to: scroll)
+    #expect(resizedFrame.minX > initialFrame.minX)
+    #expect(resizedFrame.maxX <= scroll.bounds.maxX)
+}
+
 @Test("CodeEdit receives a component color for its minimap brightness calculation")
 @MainActor
 func editorBackgroundColor() {

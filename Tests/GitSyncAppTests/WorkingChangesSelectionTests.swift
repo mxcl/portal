@@ -63,3 +63,61 @@ func workingChangesSelection() async throws {
     try await finishLoading()
     #expect(model.selectedTab == .editor)
 }
+
+@Test("Peer staging keeps its own HEAD and files and cannot open the local editor or diff")
+@MainActor
+func peerWorkingChangesSelection() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let project = root.appendingPathComponent("project")
+    defer { try? FileManager.default.removeItem(at: root) }
+    _ = try Git.run(["init", "-q", project.path])
+    try Data("local\n".utf8).write(to: project.appendingPathComponent("local.txt"))
+    _ = try Git.run(["-C", project.path, "add", "."])
+    let host = SyncHost(machine: "Pangolin", peer: "", root: root.path, executable: "/unused")
+    let model = AppModel(connectToHelper: false)
+    model.configuration = AppConfiguration(root: root.path, machine: "Maliwan", hosts: [host],
+        folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)])
+    model.localProjects = ["project": PeerProject(name: "project", placement: .checkedOut)]
+    model.selectedProjectName = "project"
+    model.refreshProject()
+    func finishLoading() async throws {
+        let deadline = Date().addingTimeInterval(10)
+        while (model.isLoadingProject || model.isLoadingCommitDiff || model.isLoadingPeerStaging) && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(!model.isLoadingProject && !model.isLoadingCommitDiff && !model.isLoadingPeerStaging)
+    }
+    try await finishLoading()
+    model.peerSnapshots[host.id] = RepositorySnapshot(commits: [], references: [], head: "main", branches: ["main"],
+        headOID: "older-head", workingChanges: RepositoryWorkingChanges(porcelain: Data("A  bar\0".utf8)))
+    let local = try #require(model.stagingRows.first)
+    let peer = try #require(model.stagingRows.last)
+    #expect(model.stagingRows.count == 2)
+    #expect(local.id != peer.id)
+    #expect(peer.host == "Pangolin")
+    #expect(peer.graphCommit.parents == ["older-head"])
+    #expect(peer.snapshot.workingChanges?.files?.map(\.path) == ["bar"])
+    model.selectCommit(peer.id)
+    try await finishLoading()
+    #expect(model.selectedStaging?.source == .host(host.id))
+    #expect(model.selectedTab == .diff)
+    #expect(model.availableTabs == [.info, .diff])
+    #expect(model.workingDiffStaged)
+    // Invalid peer configuration must fail the remote read instead of showing local changes.
+    #expect(model.commitDiffError != nil)
+    #expect(model.selectedCommitDiff == nil)
+    model.peerSnapshots[host.id] = RepositorySnapshot(commits: [], references: [], head: "main", branches: ["main"],
+        headOID: "older-head", workingChanges: RepositoryWorkingChanges(porcelain: Data()))
+    #expect(model.selectedStaging?.id == peer.id)
+    #expect(model.selectedStaging?.snapshot.workingChanges?.isEmpty == true)
+    model.selectCommit(local.id)
+    try await finishLoading()
+    #expect(model.selectedTab == .editor)
+    #expect(model.selectedCommitDiff?.contains("+local") == true)
+    model.configuration.folders[0].availableHosts.insert(host.id)
+    await model.refreshPeerStaging()
+    #expect(model.peerSnapshots[host.id] == nil)
+    #expect(model.peerStagingErrors[host.id] != nil)
+    #expect(model.stagingRows.map(\.id) == [local.id])
+    #expect(model.selectedCommitID == local.id)
+}

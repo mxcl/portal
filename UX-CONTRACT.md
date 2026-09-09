@@ -52,17 +52,21 @@
 - Peer ref labels in the graph and commit detail use lowercase configured host names;
   stored ref names and protocol identities remain unchanged.
 - Normal branch divergence is information, never a warning.
-- Staging always appears as one selectable graph row immediately above HEAD,
-  or first when HEAD has no visible commit, linked to HEAD by a dashed line and labeled with any
-  staged, unstaged, untracked, and conflicted file counts, or “Clean” when empty.
+- Each available host checkout has its own selectable Staging graph row, labeled
+  with the host name and placed immediately above that host's HEAD (or first when
+  HEAD has no visible commit). Each row links to its own HEAD by a dashed line and
+  shows staged, unstaged, untracked, and conflicted file counts, or “Clean” when empty.
   Changed relative paths fill the secondary line as space allows, with green `+X`
   and red `−Y` line counts per file. Counts sum staged and unstaged edits; binary
   files or unavailable counts show paths alone. The tooltip includes the full list.
   A partially staged file counts in both staged and unstaged totals. Local filesystem
   refresh updates the row and selected diff; clean repositories keep the row and selection.
-  Selecting the row opens the local editor and file browser together in the right
+  Selecting the local row opens the editor and file browser together in the right
   detail pane while the lanes remain visible. Editor and Terminal toolbar choices
-  appear only while Staging is selected. Remote staging opens Diff. Diff retains
+  appear only while local Staging is selected. Remote staging opens that host's Diff.
+  Peer staging refreshes on project load, Refresh, and every 30 seconds while history
+  is visible. Failed reads remove stale peer staging and show a retry message with
+  the connection error in its tooltip. Diff retains
   Staged and Unstaged choices, including untracked files. Mirrors and backups omit
   Staging. Reading diffs never changes the index or checkout.
 - Commit detail contains message, author, date, object ID, parents, pointing refs,

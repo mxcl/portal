@@ -80,7 +80,7 @@ struct CheckoutRequest: Identifiable {
     let branches: [String]
 }
 
-fileprivate enum ProjectSource: Hashable, Identifiable, Sendable {
+enum ProjectSource: Hashable, Identifiable, Sendable {
     case local
     case host(UUID)
     case backup(String)
@@ -91,6 +91,24 @@ fileprivate enum ProjectSource: Hashable, Identifiable, Sendable {
         case .host(let id): "host-\(id)"
         case .backup(let id): "backup-\(id)"
         }
+    }
+}
+
+struct ProjectStaging: Identifiable {
+    let id: String
+    let source: ProjectSource
+    let host: String
+    let snapshot: RepositorySnapshot
+
+    var headOID: String? {
+        snapshot.headOID ?? snapshot.head.flatMap { head in
+            snapshot.references.first { $0.fullName == "refs/heads/\(head)" }?.oid
+        }
+    }
+
+    var graphCommit: RepositoryCommit {
+        RepositoryCommit(oid: id, parents: headOID.map { [$0] } ?? [],
+                         author: "", date: .distantPast, message: "Staging")
     }
 }
 
@@ -121,6 +139,10 @@ final class AppModel: ObservableObject {
     @Published var commitDiffError: String?
     @Published var isLoadingCommitDiff = false
     @Published var projectSnapshot: RepositorySnapshot?
+    @Published var peerSnapshots: [UUID: RepositorySnapshot] = [:]
+    @Published var peerStagingErrors: [UUID: String] = [:]
+    @Published private(set) var isLoadingPeerStaging = false
+    private var peerStagingRequest: UUID?
     @Published var projectReadme: RepositoryReadme?
     @Published var projectGitHubURL: URL?
     @Published var projectError: String?
@@ -217,7 +239,71 @@ final class AppModel: ObservableObject {
     }
 
     var availableTabs: [ProjectTab] {
-        selectedCommitID == CommitGraphGenerator.workingChangesID ? ProjectTab.allCases : [.info, .diff]
+        selectedStaging?.source == .local ? ProjectTab.allCases : [.info, .diff]
+    }
+
+    var stagingRows: [ProjectStaging] {
+        guard let snapshot = projectSnapshot, let source = projectSource else { return [] }
+        var rows: [ProjectStaging] = []
+        if snapshot.workingChanges != nil {
+            rows.append(ProjectStaging(id: CommitGraphGenerator.workingChangesID, source: source,
+                                       host: source == .local ? configuration.machine : projectSourceLabel(source),
+                                       snapshot: snapshot))
+        }
+        if case .backup = source { return rows }
+        for host in configuration.hosts where source != .host(host.id) {
+            guard let peer = peerSnapshots[host.id], peer.workingChanges != nil else { continue }
+            rows.append(ProjectStaging(id: CommitGraphGenerator.workingChangesID + ":" + host.id.uuidString,
+                                       source: .host(host.id), host: host.name, snapshot: peer))
+        }
+        return rows
+    }
+
+    var selectedStaging: ProjectStaging? { stagingRows.first { $0.id == selectedCommitID } }
+
+    func refreshPeerStaging() async {
+        guard let name = selectedProjectName, let source = projectSource,
+              peerStagingRequest == nil else { return }
+        if case .backup = source { return }
+        let request = UUID()
+        peerStagingRequest = request
+        isLoadingPeerStaging = true
+        defer {
+            if peerStagingRequest == request {
+                peerStagingRequest = nil
+                isLoadingPeerStaging = false
+            }
+        }
+        let configuration = configuration
+        let hosts = configuration.hosts.filter {
+            source != .host($0.id) && configuration.folders.first { $0.name == name }?.availableHosts.contains($0.id) == true
+        }
+        let ids = Set(hosts.map(\.id))
+        peerSnapshots = peerSnapshots.filter { ids.contains($0.key) }
+        peerStagingErrors = peerStagingErrors.filter { ids.contains($0.key) }
+        await withTaskGroup(of: (UUID, Result<RepositorySnapshot, Error>).self) { group in
+            for host in hosts {
+                group.addTask {
+                    (host.id, Result { try Self.content(for: name, source: .host(host.id),
+                                                        configuration: configuration).snapshot })
+                }
+            }
+            for await (id, result) in group {
+                guard !Task.isCancelled, peerStagingRequest == request,
+                      selectedProjectName == name, projectSource == source else { continue }
+                switch result {
+                case .success(let snapshot):
+                    peerSnapshots[id] = snapshot
+                    peerStagingErrors[id] = nil
+                case .failure(let error):
+                    peerSnapshots[id] = nil
+                    peerStagingErrors[id] = String(describing: error)
+                }
+                if selectedCommitID == CommitGraphGenerator.workingChangesID + ":" + id.uuidString {
+                    selectCommit(selectedStaging != nil ? selectedCommitID : nil)
+                }
+            }
+        }
     }
 
     fileprivate var projectSources: [ProjectSource] {
@@ -413,6 +499,10 @@ final class AppModel: ObservableObject {
         else { UserDefaults.standard.removeObject(forKey: selectedProjectKey) }
         selectCommit(nil)
         projectSnapshot = nil
+        peerStagingRequest = nil
+        isLoadingPeerStaging = false
+        peerSnapshots = [:]
+        peerStagingErrors = [:]
         projectReadme = nil
         projectGitHubURL = nil
         projectError = nil
@@ -432,6 +522,10 @@ final class AppModel: ObservableObject {
         guard source != projectSource, let name = selectedProjectName else { return }
         selectCommit(nil)
         projectSnapshot = nil
+        peerStagingRequest = nil
+        isLoadingPeerStaging = false
+        peerSnapshots = [:]
+        peerStagingErrors = [:]
         projectReadme = nil
         projectGitHubURL = nil
         projectError = nil
@@ -472,12 +566,13 @@ final class AppModel: ObservableObject {
                     projectGitHubURL = content.githubURL
                     isLoadingProject = false
                     if let oid = selectedCommitID {
-                        if oid == CommitGraphGenerator.workingChangesID {
-                            selectCommit(content.snapshot.workingChanges != nil ? oid : nil)
+                        if CommitGraphGenerator.isStaging(oid) {
+                            selectCommit(stagingRows.contains { $0.id == oid } ? oid : nil)
                         } else if selectedCommitDiff == nil {
                             selectCommit(oid)
                         }
                     }
+                    await refreshPeerStaging()
                     return
                 } catch {
                     lastError = error
@@ -490,13 +585,14 @@ final class AppModel: ObservableObject {
     }
 
     func selectCommit(_ oid: String?) {
+        let staging = stagingRows.first { $0.id == oid }
         if selectedCommitID != oid {
-            selectedTab = oid == CommitGraphGenerator.workingChangesID
-                ? (selectedEditorRepositoryURL != nil ? .editor : .diff)
+            selectedTab = staging != nil
+                ? (staging?.source == .local && selectedEditorRepositoryURL != nil ? .editor : .diff)
                 : (oid == nil ? .info : .diff)
         }
-        if oid == CommitGraphGenerator.workingChangesID, selectedCommitID != oid {
-            let changes = projectSnapshot?.workingChanges
+        if let staging, selectedCommitID != oid {
+            let changes = staging.snapshot.workingChanges
             workingDiffStaged = changes?.unstaged == 0 && changes?.untracked == 0 && changes?.conflicted == 0
         }
         diffLoadGeneration += 1
@@ -505,7 +601,8 @@ final class AppModel: ObservableObject {
         selectedCommitDiff = nil
         commitDiffError = nil
         isLoadingCommitDiff = false
-        guard let oid, let name = selectedProjectName, let source = projectSource else { return }
+        guard let oid, let name = selectedProjectName, let source = staging?.source ?? projectSource else { return }
+        let historySource = projectSource
         isLoadingCommitDiff = true
         let configuration = configuration
         let staged = workingDiffStaged
@@ -515,12 +612,12 @@ final class AppModel: ObservableObject {
                     try Self.diff(for: name, oid: oid, staged: staged, source: source, configuration: configuration)
                 }.value
                 guard generation == diffLoadGeneration, selectedProjectName == name,
-                      selectedCommitID == oid, projectSource == source else { return }
+                      selectedCommitID == oid, projectSource == historySource else { return }
                 selectedCommitDiff = diff
                 isLoadingCommitDiff = false
             } catch {
                 guard generation == diffLoadGeneration, selectedProjectName == name,
-                      selectedCommitID == oid, projectSource == source else { return }
+                      selectedCommitID == oid, projectSource == historySource else { return }
                 commitDiffError = String(describing: error)
                 isLoadingCommitDiff = false
             }
@@ -794,13 +891,13 @@ final class AppModel: ObservableObject {
         case .local:
             let root = URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath)
             let repository = Repository(name: name, url: root.appendingPathComponent(name))
-            return try oid == CommitGraphGenerator.workingChangesID
+            return try CommitGraphGenerator.isStaging(oid)
                 ? repository.workingDiff(staged: staged) : repository.diff(at: oid)
         case .host(let id):
             guard let host = configuration.hosts.first(where: { $0.id == id }) else {
                 throw SyncError.invalidConfiguration("The selected host is no longer configured.")
             }
-            return try Runner.projectDiff(name, oid: oid == CommitGraphGenerator.workingChangesID ? nil : oid, staged: staged,
+            return try Runner.projectDiff(name, oid: CommitGraphGenerator.isStaging(oid) ? nil : oid, staged: staged,
                                           configuration: remoteConfiguration(host, in: configuration))
         case .backup(let snapshotID):
             if let root = try configuration.validatedBackupDestination() {
@@ -1128,7 +1225,11 @@ private struct ProjectHistoryView: View {
                     Button("Try Again", action: model.refreshProject)
                 }
             } else if let snapshot = model.projectSnapshot {
-                CommitList(snapshot: snapshot, hosts: model.configuration.hosts, selection: Binding(
+                CommitList(snapshot: snapshot, staging: model.stagingRows,
+                           isLoadingPeers: model.isLoadingPeerStaging,
+                           stagingErrors: model.configuration.hosts.compactMap { host in
+                               model.peerStagingErrors[host.id].map { (id: host.id, host: host.name, message: $0) }
+                           }, hosts: model.configuration.hosts, selection: Binding(
                     get: { model.selectedCommitID }, set: model.selectCommit
                 ))
             } else {
@@ -1137,6 +1238,12 @@ private struct ProjectHistoryView: View {
             }
         }
         .navigationTitle(model.selectedProjectName ?? "Git Tree")
+        .task(id: model.selectedProjectName) {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                await model.refreshPeerStaging()
+            }
+        }
 
     }
 }
@@ -1147,53 +1254,68 @@ private struct CommitList: View {
     @Binding var selection: String?
     private let graph: CommitGraphModel
     private let headOID: String?
-    private let stagingIndex: Int?
+    private let rows: [RepositoryCommit]
+    let staging: [ProjectStaging]
+    let stagingErrors: [(id: UUID, host: String, message: String)]
+    let isLoadingPeers: Bool
 
-    init(snapshot: RepositorySnapshot, hosts: [SyncHost], selection: Binding<String?>) {
+    init(snapshot: RepositorySnapshot, staging: [ProjectStaging], isLoadingPeers: Bool, stagingErrors: [(id: UUID, host: String, message: String)],
+         hosts: [SyncHost], selection: Binding<String?>) {
         self.snapshot = snapshot
+        self.staging = staging
+        self.stagingErrors = stagingErrors
+        self.isLoadingPeers = isLoadingPeers
         self.hosts = hosts
         _selection = selection
         headOID = snapshot.headOID ?? snapshot.head.flatMap { head in
             snapshot.references.first { $0.fullName == "refs/heads/\(head)" }?.oid
         }
-        stagingIndex = snapshot.workingChanges != nil
-            ? CommitGraphGenerator.stagingRowIndex(commits: snapshot.commits, headOID: headOID) : nil
-        graph = CommitGraphGenerator.generate(commits: snapshot.commits, headOID: headOID,
-                                              includeStaging: stagingIndex != nil)
+        rows = CommitGraphGenerator.insertingStaging(staging.map(\.graphCommit), into: snapshot.commits)
+        graph = CommitGraphGenerator.generate(commits: rows, headOID: headOID)
     }
 
     var body: some View {
         List(selection: $selection) {
-            ForEach(snapshot.commits.indices, id: \.self) { index in
-                if stagingIndex == index { stagingRow }
-                let commit = snapshot.commits[index]
-                CommitRow(commit: commit,
-                          isCurrent: commit.oid == headOID,
-                          references: snapshot.references.filter { $0.oid == commit.oid },
-                          hosts: hosts,
-                          graph: graph,
-                          rowIndex: index + (stagingIndex.map { index >= $0 } == true ? 1 : 0))
-                    .listRowSeparator(.hidden)
-                    .tag(commit.oid)
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, commit in
+                if let checkout = staging.first(where: { $0.id == commit.oid }) {
+                    stagingRow(checkout, at: index)
+                } else {
+                    CommitRow(commit: commit,
+                              isCurrent: commit.oid == headOID,
+                              references: snapshot.references.filter { $0.oid == commit.oid },
+                              hosts: hosts, graph: graph, rowIndex: index)
+                        .listRowSeparator(.hidden)
+                        .tag(commit.oid)
+                }
             }
-            if snapshot.commits.isEmpty { stagingRow }
+            if isLoadingPeers {
+                Label("Refreshing host staging…", systemImage: "arrow.clockwise")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .listRowSeparator(.hidden)
+            }
+            ForEach(stagingErrors, id: \.id) { error in
+                Label("\(error.host) staging unavailable. Try Refresh.", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .help(error.message)
+                    .listRowSeparator(.hidden)
+            }
         }
         .overlay {
-            if snapshot.commits.isEmpty && stagingIndex == nil {
+            if rows.isEmpty && stagingErrors.isEmpty && !isLoadingPeers {
                 ContentUnavailableView("No Commits", systemImage: "point.3.connected.trianglepath.dotted")
             }
         }
     }
 
-    @ViewBuilder private var stagingRow: some View {
-        if let stagingIndex, let changes = snapshot.workingChanges {
+    @ViewBuilder private func stagingRow(_ checkout: ProjectStaging, at index: Int) -> some View {
+        if let changes = checkout.snapshot.workingChanges {
             let status = changes.isEmpty ? "Clean" : changes.summary
             HStack(alignment: .top, spacing: 8) {
-                BranchGraphRowCanvas(model: graph, rowIndex: stagingIndex,
-                                     commitOID: CommitGraphGenerator.workingChangesID)
+                BranchGraphRowCanvas(model: graph, rowIndex: index, commitOID: checkout.id)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .firstTextBaseline) {
                         Text("Staging").fixedSize()
+                        Text(checkout.host).font(.caption).foregroundStyle(.secondary)
                         if !changes.isEmpty {
                             Text(changes.summary).font(.caption2).foregroundStyle(.secondary)
                         }
@@ -1204,13 +1326,13 @@ private struct CommitList: View {
                         .lineLimit(1)
                 }
             }
-            .help(([status] + (changes.files ?? []).map { file in
+            .help(([checkout.host, status] + (changes.files ?? []).map { file in
                 file.path + (file.additions.map { " +\($0)" } ?? "")
                     + (file.deletions.map { " −\($0)" } ?? "")
             }).joined(separator: "\n"))
             .accessibilityElement(children: .combine)
             .listRowSeparator(.hidden)
-            .tag(CommitGraphGenerator.workingChangesID)
+            .tag(checkout.id)
         }
     }
 
@@ -1323,19 +1445,17 @@ private struct ProjectDetailView: View {
 
     var body: some View {
         if model.selectedProjectName != nil {
-            if model.selectedCommitID == CommitGraphGenerator.workingChangesID {
+            if let staging = model.selectedStaging {
                 DiffDetail(title: "Staging", diff: model.selectedCommitDiff,
                            isLoadingDiff: model.isLoadingCommitDiff, error: model.commitDiffError) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Staging").font(.headline)
-                        Text(model.projectSnapshot?.workingChanges?.summary ?? "")
+                        Text(staging.snapshot.workingChanges?.summary ?? "")
                             .font(.callout).foregroundStyle(.secondary)
-                        if let source = model.projectSource {
-                            Text("From \(model.projectSourceLabel(source))").font(.callout).foregroundStyle(.secondary)
-                        }
+                        Text("From \(staging.host)").font(.callout).foregroundStyle(.secondary)
                         Picker("Changes", selection: Binding(get: { model.workingDiffStaged }, set: {
                             model.workingDiffStaged = $0
-                            model.selectCommit(CommitGraphGenerator.workingChangesID)
+                            model.selectCommit(staging.id)
                         })) {
                             Text("Unstaged").tag(false)
                             Text("Staged").tag(true)

@@ -25,6 +25,21 @@ import GitSyncCore
 
 public nonisolated enum CommitGraphGenerator {
     public static let workingChangesID = "working-changes"
+    public static func isStaging(_ id: String) -> Bool {
+        id == workingChangesID || id.hasPrefix(workingChangesID + ":")
+    }
+
+    public static func insertingStaging(_ staging: [RepositoryCommit], into commits: [RepositoryCommit]) -> [RepositoryCommit] {
+        var rows = commits
+        for row in staging.reversed() {
+            let index = rows.firstIndex {
+                $0.oid == row.parents.first || (isStaging($0.oid) && $0.parents == row.parents)
+            } ?? 0
+            rows.insert(row, at: index)
+        }
+        return rows
+    }
+
     private static let unitWidth = 12.0
     private static let halfWidth = 6.0
     private static let unitHeight = 1.0
@@ -148,7 +163,7 @@ public nonisolated enum CommitGraphGenerator {
                         isHighlighted: isHighlighted,
                         colorIndex: colorPicker.next(),
                         start: CGPoint(x: offsetX, y: offsetY),
-                        isDashed: commit.oid == workingChangesID
+                        isDashed: isStaging(commit.oid)
                     )
                     unsolved.append(path)
                     mutablePaths.append(path.path)

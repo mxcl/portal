@@ -84,3 +84,27 @@ func stagingConnectorIsDashed(hasDescendant: Bool) throws {
     #expect(connector.points.last == graph.dots[index + 1].center)
     #expect(graph.paths.contains { !$0.isDashed && $0.points.last == graph.dots.last?.center })
 }
+
+@Test("Each host staging row connects to its own HEAD, including hosts sharing HEAD")
+func multipleHostStaging() throws {
+    func commit(_ id: String, _ parents: [String] = []) -> RepositoryCommit {
+        RepositoryCommit(oid: id, parents: parents, author: "", date: .distantPast, message: id)
+    }
+    let staging = [commit("working-changes", ["tip"]),
+                   commit("working-changes:pangolin", ["old"]),
+                   commit("working-changes:other", ["old"])]
+    let rows = CommitGraphGenerator.insertingStaging(staging,
+        into: [commit("tip", ["old"]), commit("old", ["root"]), commit("root")])
+    #expect(rows.map(\.oid) == ["working-changes", "tip", "working-changes:pangolin",
+                               "working-changes:other", "old", "root"])
+    let graph = CommitGraphGenerator.generate(commits: rows, headOID: "tip")
+    let dashed = graph.paths.filter(\.isDashed)
+    #expect(dashed.count == 3)
+    for row in staging {
+        let index = try #require(rows.firstIndex { $0.oid == row.oid })
+        let head = try #require(rows.firstIndex { $0.oid == row.parents.first })
+        #expect(dashed.contains { $0.points.first == graph.dots[index].center && $0.points.last == graph.dots[head].center })
+    }
+    let missing = CommitGraphGenerator.insertingStaging([commit("working-changes:missing", ["absent"])], into: rows)
+    #expect(missing.first?.oid == "working-changes:missing")
+}

@@ -51,17 +51,20 @@ of repositories observed across configured hosts and backup inventory. Rows
 show host presence and operational state without treating normal Git divergence
 as an error. The graph renders this Mac's local branches, received peer branches,
 and tags. When refs coincide, their host labels share a commit marker.
-A persistent Staging row sits immediately above the source checkout's HEAD (or
-first when HEAD has no visible commit), connected to HEAD by a dashed line,
-with staged, unstaged, untracked, and
-conflicted file counts whenever present, or “Clean” when there are no changes.
+Each available host checkout has a persistent, host-labeled Staging row immediately
+above its own HEAD (or first when HEAD has no visible commit), connected to that HEAD
+by a dashed line, with staged, unstaged, untracked, and conflicted file counts whenever present, or “Clean” when there are no changes.
 Changed relative paths fill one secondary line, truncated at the trailing edge;
 each path has green additions and red deletions where Git provides line counts.
 Counts sum the staged and unstaged diffs, including untracked files. The tooltip
 lists all paths and counts. Older hosts without file details retain the count summary.
 Diff remains available with separate
-Staged and Unstaged views, including untracked files, and refreshes with the
-repository. The row and its selection remain when clean; mirrors and backups omit it.
+Staged and Unstaged views, including untracked files, and reads from the selected
+row's host. Local staging refreshes with the repository; peer staging uses existing
+read-only project-content requests on project load, Refresh, and every 30 seconds
+while history is visible. Unavailable hosts show a retry message instead of stale
+staging. Peer rows open Diff and never expose the local Editor or Terminal. The row
+and its selection remain when clean; mirrors and backups omit it.
 
 The detail column keeps project placement visible above a scrolling README.
 The overview pairs the project title with backup status and groups each host's

@@ -77,6 +77,34 @@ func editorMarkdownHighlighting() throws {
     #expect(theme.colorFor(.textLiteral) == theme.strings.color)
 }
 
+@Test("Unwrapped editor can scroll horizontally to the end of a long line")
+@MainActor
+func editorHorizontalScrolling() throws {
+    let configuration = SourceEditorConfiguration(appearance: .init(
+        theme: ProjectEditorView(editor: ProjectEditor()).theme,
+        font: .monospacedSystemFont(ofSize: 12, weight: .regular), wrapLines: false))
+    let controller = TextViewController(string: String(repeating: "long line ", count: 50),
+                                        language: .markdown, configuration: configuration,
+                                        cursorPositions: [], highlightProviders: [])
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 240),
+                          styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+    window.contentViewController = controller
+    for _ in 0..<3 {
+        controller.view.layoutSubtreeIfNeeded()
+        controller.textView.layoutManager.layoutLines()
+        controller.textView.updateFrameIfNeeded()
+    }
+    let scroll = try #require(controller.scrollView)
+    #expect(controller.textView.frame.width > scroll.contentSize.width)
+    var destination = scroll.contentView.bounds
+    destination.origin.x = controller.textView.frame.maxX
+    scroll.contentView.scroll(to: scroll.contentView.constrainBoundsRect(destination).origin)
+    scroll.reflectScrolledClipView(scroll.contentView)
+    #expect(scroll.contentView.bounds.minX > 0)
+    let lastCharacter = try #require(controller.textView.layoutManager.rectForOffset(controller.textView.textStorage.length - 2))
+    #expect(lastCharacter.maxX <= scroll.contentView.bounds.maxX - controller.textView.textInsets.right + 1)
+}
+
 @Test("CodeEdit receives a component color for its minimap brightness calculation")
 @MainActor
 func editorBackgroundColor() {

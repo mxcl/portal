@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [.library(name: "CodeEditSourceEditor", targets: ["CodeEditSourceEditor"])],
     dependencies: [
-        .package(url: "https://github.com/CodeEditApp/CodeEditTextView.git", exact: "0.12.1"),
+        .package(path: "../CodeEditTextView"),
         .package(path: "../CodeEditLanguages"),
         .package(url: "https://github.com/ChimeHQ/TextFormation", exact: "0.9.0"),
     ],

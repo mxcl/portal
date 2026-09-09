@@ -9,3 +9,5 @@ The manifest includes runtime dependencies only; upstream lint plugins and test
 infrastructure are omitted. CodeEditLanguages uses the sibling vendored package for resource lookup fixes.
 Markdown captures receive theme colors and font traits. Injection language lookup accepts
 grammar names and file extensions, and inline Markdown preserves block heading highlights.
+
+CodeEditTextView uses the sibling vendored package to fix horizontal scrolling.

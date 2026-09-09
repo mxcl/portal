@@ -104,6 +104,9 @@ public nonisolated enum CommitGraphGenerator {
                         if let firstParent = commit.parents.first {
                             path.next = firstParent
                             path.go(toX: offsetX, y: offsetY, halfHeight: halfHeight)
+                            if path.isDashed {
+                                mutablePaths.append(path.restart(isHighlighted: path.isHighlighted))
+                            }
                         } else {
                             path.end(atX: offsetX, y: offsetY, halfHeight: halfHeight)
                             ended.append(path)
@@ -144,7 +147,8 @@ public nonisolated enum CommitGraphGenerator {
                         next: firstParent,
                         isHighlighted: isHighlighted,
                         colorIndex: colorPicker.next(),
-                        start: CGPoint(x: offsetX, y: offsetY)
+                        start: CGPoint(x: offsetX, y: offsetY),
+                        isDashed: commit.oid == workingChangesID
                     )
                     unsolved.append(path)
                     mutablePaths.append(path.path)
@@ -154,7 +158,7 @@ public nonisolated enum CommitGraphGenerator {
                       isHighlighted,
                       !major.isHighlighted,
                       !commit.parents.isEmpty {
-                let highlightedPath = major.highlight()
+                let highlightedPath = major.restart(isHighlighted: true)
                 mutablePaths.append(highlightedPath)
             }
 
@@ -195,7 +199,7 @@ public nonisolated enum CommitGraphGenerator {
                             y: offsetY + halfHeight,
                             halfHeight: halfHeight
                         )
-                        let highlightedPath = parent.highlight()
+                        let highlightedPath = parent.restart(isHighlighted: true, isDashed: parent.isDashed)
                         mutablePaths.append(highlightedPath)
                     }
 
@@ -258,7 +262,8 @@ public nonisolated enum CommitGraphGenerator {
             GraphPath(
                 points: $0.points,
                 colorIndex: $0.colorIndex,
-                isHighlighted: $0.isHighlighted
+                isHighlighted: $0.isHighlighted,
+                isDashed: $0.isDashed
             )
         }
 
@@ -301,11 +306,13 @@ nonisolated private final class MutableGraphPath {
     var points: [CGPoint]
     let colorIndex: Int
     let isHighlighted: Bool
+    let isDashed: Bool
 
-    init(points: [CGPoint], colorIndex: Int, isHighlighted: Bool) {
+    init(points: [CGPoint], colorIndex: Int, isHighlighted: Bool, isDashed: Bool = false) {
         self.points = points
         self.colorIndex = colorIndex
         self.isHighlighted = isHighlighted
+        self.isDashed = isDashed
     }
 }
 
@@ -318,6 +325,7 @@ nonisolated private final class PathHelper {
 
     var colorIndex: Int { path.colorIndex }
     var isHighlighted: Bool { path.isHighlighted }
+    var isDashed: Bool { path.isDashed }
     var pointCount: Int { path.points.count }
     var firstPoint: CGPoint? { path.points.first }
 
@@ -325,7 +333,8 @@ nonisolated private final class PathHelper {
         next: String,
         isHighlighted: Bool,
         colorIndex: Int,
-        start: CGPoint
+        start: CGPoint,
+        isDashed: Bool = false
     ) {
         self.next = next
         self.lastX = start.x
@@ -333,7 +342,8 @@ nonisolated private final class PathHelper {
         self.path = MutableGraphPath(
             points: [start],
             colorIndex: colorIndex,
-            isHighlighted: isHighlighted
+            isHighlighted: isHighlighted,
+            isDashed: isDashed
         )
     }
 
@@ -379,13 +389,14 @@ nonisolated private final class PathHelper {
     }
 
     @discardableResult
-    func highlight() -> MutableGraphPath {
+    func restart(isHighlighted: Bool, isDashed: Bool = false) -> MutableGraphPath {
         let colorIndex = path.colorIndex
         add(x: lastX, y: lastY)
         path = MutableGraphPath(
             points: [CGPoint(x: lastX, y: lastY)],
             colorIndex: colorIndex,
-            isHighlighted: true
+            isHighlighted: isHighlighted,
+            isDashed: isDashed
         )
         endY = 0
         return path

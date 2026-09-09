@@ -37,6 +37,7 @@ nonisolated struct GraphPath: Sendable {
     let points: [CGPoint]
     let colorIndex: Int
     let isHighlighted: Bool
+    let isDashed: Bool
 }
 
 nonisolated struct GraphLink: Sendable {

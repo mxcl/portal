@@ -66,6 +66,8 @@ public struct BranchGraphRowCanvas: View {
 
         for pathIndex in row.pathIndices where model.paths.indices.contains(pathIndex) {
             let graphPath = model.paths[pathIndex]
+            var pathStyle = strokeStyle
+            pathStyle.dash = graphPath.isDashed ? [4, 4] : []
             context.stroke(
                 BranchGraphCanvas.path(
                     for: graphPath,
@@ -77,7 +79,7 @@ public struct BranchGraphRowCanvas: View {
                     colorIndex: graphPath.colorIndex,
                     isHighlighted: graphPath.isHighlighted
                 )),
-                style: strokeStyle
+                style: pathStyle
             )
         }
 

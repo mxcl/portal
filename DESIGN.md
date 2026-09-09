@@ -52,7 +52,8 @@ show host presence and operational state without treating normal Git divergence
 as an error. The graph renders this Mac's local branches, received peer branches,
 and tags. When refs coincide, their host labels share a commit marker.
 A persistent Staging row sits immediately above the source checkout's HEAD (or
-first when HEAD has no visible commit), with staged, unstaged, untracked, and
+first when HEAD has no visible commit), connected to HEAD by a dashed line,
+with staged, unstaged, untracked, and
 conflicted file counts whenever present, or “Clean” when there are no changes.
 Changed relative paths fill one secondary line, truncated at the trailing edge;
 each path has green additions and red deletions where Git provides line counts.

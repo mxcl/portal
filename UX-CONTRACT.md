@@ -53,7 +53,7 @@
   stored ref names and protocol identities remain unchanged.
 - Normal branch divergence is information, never a warning.
 - Staging always appears as one selectable graph row immediately above HEAD,
-  or first when HEAD has no visible commit, linked to HEAD and labeled with any
+  or first when HEAD has no visible commit, linked to HEAD by a dashed line and labeled with any
   staged, unstaged, untracked, and conflicted file counts, or “Clean” when empty.
   Changed relative paths fill the secondary line as space allows, with green `+X`
   and red `−Y` line counts per file. Counts sum staged and unstaged edits; binary

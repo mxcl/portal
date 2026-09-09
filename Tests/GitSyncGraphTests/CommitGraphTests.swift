@@ -63,7 +63,24 @@ func workingChangesGraph() throws {
     #expect(graph.rowSlices[1].pathIndices.contains { graph.paths[$0].points.first == changes.center })
     let mirror = CommitGraphGenerator.generate(commits: commits, headOID: "head")
     #expect(mirror.rowSlices.count == 3)
+    #expect(mirror.paths.allSatisfy { !$0.isDashed })
     let unborn = CommitGraphGenerator.generate(commits: [], headOID: nil, includeStaging: true)
     #expect(unborn.dots.count == 1)
     #expect(unborn.paths.isEmpty)
+}
+
+@Test("Only the staging connector is dashed, including when HEAD has a visible descendant", arguments: [false, true])
+func stagingConnectorIsDashed(hasDescendant: Bool) throws {
+    let commits = (hasDescendant ? [RepositoryCommit(oid: "tip", parents: ["head"], author: "", date: .distantPast, message: "tip")] : []) + [
+        RepositoryCommit(oid: "head", parents: ["root"], author: "", date: .distantPast, message: "head"),
+        RepositoryCommit(oid: "root", parents: [], author: "", date: .distantPast, message: "root"),
+    ]
+    let graph = CommitGraphGenerator.generate(commits: commits, headOID: "head", includeStaging: true)
+    let index = CommitGraphGenerator.stagingRowIndex(commits: commits, headOID: "head")
+    let dashed = graph.paths.filter(\.isDashed)
+    #expect(dashed.count == 1)
+    let connector = try #require(dashed.first)
+    #expect(connector.points.first == graph.dots[index].center)
+    #expect(connector.points.last == graph.dots[index + 1].center)
+    #expect(graph.paths.contains { !$0.isDashed && $0.points.last == graph.dots.last?.center })
 }

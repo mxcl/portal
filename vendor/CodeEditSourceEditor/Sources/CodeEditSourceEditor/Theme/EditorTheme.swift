@@ -94,6 +94,13 @@ public struct EditorTheme: Equatable {
         case .type: return types
         case .parameter: return variables
         case .typeAlternate: return attributes
+        case .textTitle: return Attribute(color: keywords.color, bold: true)
+        case .textEmphasis: return Attribute(color: text.color, italic: true)
+        case .textStrong: return Attribute(color: text.color, bold: true)
+        case .textLiteral: return strings
+        case .textURI, .textReference: return commands
+        case .punctuationSpecial: return keywords
+        case .stringEscape: return characters
         default: return text
         }
     }

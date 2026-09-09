@@ -226,7 +226,12 @@ public final class TreeSitterState {
         var updatedRanges = IndexSet()
 
         for (languageName, ranges) in languageRanges {
-            guard let treeSitterLanguage = TreeSitterLanguage(rawValue: languageName) else {
+            // Injection queries use grammar names (markdown_inline), while fences can use extensions (js).
+            guard let treeSitterLanguage = TreeSitterLanguage(rawValue: languageName) ??
+                CodeLanguage.allLanguages.first(where: {
+                    $0.tsName == languageName.replacingOccurrences(of: "_", with: "-") ||
+                    $0.extensions.contains(languageName)
+                })?.id else {
                 continue
             }
 

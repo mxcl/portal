@@ -26,7 +26,14 @@ extension TreeSitterClient {
                     )
 
                     highlights.append(contentsOf: queryResult)
-                    injectedSet.remove(integersIn: rangeIntersection)
+                    if layer.id == .markdownInline {
+                        // Inline markup overlays block styles; plain heading text still needs the block capture.
+                        for highlight in queryResult {
+                            injectedSet.remove(integersIn: highlight.range)
+                        }
+                    } else {
+                        injectedSet.remove(integersIn: rangeIntersection)
+                    }
                 }
             }
         }

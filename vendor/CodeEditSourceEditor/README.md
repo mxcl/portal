@@ -7,4 +7,5 @@ Local changes: remove the unused CodeEditSymbols import and dependency. Its
 asset catalog requires Xcode and breaks this project's command-line SwiftPM build.
 The manifest includes runtime dependencies only; upstream lint plugins and test
 infrastructure are omitted. CodeEditLanguages uses the sibling vendored package for resource lookup fixes.
-Editor source is otherwise unchanged.
+Markdown captures receive theme colors and font traits. Injection language lookup accepts
+grammar names and file extensions, and inline Markdown preserves block heading highlights.

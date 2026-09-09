@@ -2,6 +2,8 @@
 import Foundation
 import AppKit
 import CodeEditLanguages
+import CodeEditTextView
+@testable import CodeEditSourceEditor
 import Testing
 @testable import GitSyncApp
 @testable import GitSyncCore
@@ -12,6 +14,67 @@ func editorSyntaxResources() throws {
     let url = try #require(CodeLanguage.swift.queryURL)
     #expect(FileManager.default.fileExists(atPath: url.path))
     #expect(TreeSitterModel.shared.query(for: .swift) != nil)
+}
+
+@Test("Markdown highlights block and inline syntax, including fenced code")
+@MainActor
+func editorMarkdownHighlighting() throws {
+    let source = """
+    # Heading 🦄 with `code`
+
+    Setext heading
+    ==============
+
+    Plain **bold** and *italic*, [link](https://example.com).
+
+    - List item
+    > Quote
+
+    ```swift
+    let value = "hello"
+    ```
+
+    ```js
+    const value = 42;
+    ```
+    """
+    let textView = TextView(string: source)
+    let client = TreeSitterClient()
+    client.readCallback = textView.createReadCallback()
+    client.state = TreeSitterState(codeLanguage: .markdown,
+                                   readCallback: textView.createReadCallback(),
+                                   readBlock: textView.createReadBlock())
+    let range = NSRange(location: 0, length: (source as NSString).length)
+    let highlights = client.queryHighlightsForRange(range: range).sorted { $0.range.location < $1.range.location }
+    // Exercise the same overlap resolution as the visible editor.
+    let container = StyledRangeContainer(documentLength: range.length, providers: [0])
+    container.applyHighlightResult(provider: 0, highlights: highlights, rangeToHighlight: range)
+    func capture(at text: String) -> CaptureName? {
+        let location = (source as NSString).range(of: text).location
+        return container.runsIn(range: NSRange(location: location, length: 1)).first?.value?.capture
+    }
+    #expect(capture(at: "Heading") == .textTitle)
+    #expect(capture(at: "Setext heading") == .textTitle)
+    #expect(capture(at: "bold") == .textStrong)
+    #expect(capture(at: "italic") == .textEmphasis)
+    #expect(capture(at: "code") == .textLiteral)
+    #expect(capture(at: "link") == .textReference)
+    #expect(capture(at: "https") == .textURI)
+    #expect(capture(at: "- List") == .punctuationSpecial)
+    #expect(capture(at: "> Quote") == .punctuationSpecial)
+    #expect(capture(at: "let value") == .keyword)
+    #expect(capture(at: "hello") == .string)
+    #expect(capture(at: "const value") == .keyword)
+    #expect(capture(at: "42") == .number)
+    #expect(capture(at: "Plain") == nil)
+
+    let theme = ProjectEditorView(editor: ProjectEditor()).theme
+    let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    #expect(NSFontManager.shared.traits(of: theme.fontFor(for: .textTitle, from: font)).contains(.boldFontMask))
+    #expect(NSFontManager.shared.traits(of: theme.fontFor(for: .textStrong, from: font)).contains(.boldFontMask))
+    #expect(NSFontManager.shared.traits(of: theme.fontFor(for: .textEmphasis, from: font)).contains(.italicFontMask))
+    #expect(theme.colorFor(.textURI) == theme.commands.color)
+    #expect(theme.colorFor(.textLiteral) == theme.strings.color)
 }
 
 @Test("CodeEdit receives a component color for its minimap brightness calculation")

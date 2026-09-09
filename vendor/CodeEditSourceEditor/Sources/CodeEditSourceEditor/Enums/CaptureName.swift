@@ -34,6 +34,15 @@ public enum CaptureName: Int8, CaseIterable, Sendable {
     case keywordReturn
     case keywordFunction
 
+    case textTitle
+    case textEmphasis
+    case textStrong
+    case textLiteral
+    case textURI
+    case textReference
+    case punctuationSpecial
+    case stringEscape
+
     var alternate: CaptureName {
         switch self {
         case .type:
@@ -92,6 +101,22 @@ public enum CaptureName: Int8, CaseIterable, Sendable {
             return .keywordReturn
         case "keyword.function":
             return .keywordFunction
+        case "text.title":
+            return .textTitle
+        case "text.emphasis":
+            return .textEmphasis
+        case "text.strong":
+            return .textStrong
+        case "text.literal":
+            return .textLiteral
+        case "text.uri":
+            return .textURI
+        case "text.reference":
+            return .textReference
+        case "punctuation.special":
+            return .punctuationSpecial
+        case "string.escape":
+            return .stringEscape
         default:
             return nil
         }
@@ -100,6 +125,22 @@ public enum CaptureName: Int8, CaseIterable, Sendable {
     /// See ``CaptureName`` docs for why this enum isn't a raw representable.
     var stringValue: String {
         switch self {
+        case .textTitle:
+            return "text.title"
+        case .textEmphasis:
+            return "text.emphasis"
+        case .textStrong:
+            return "text.strong"
+        case .textLiteral:
+            return "text.literal"
+        case .textURI:
+            return "text.uri"
+        case .textReference:
+            return "text.reference"
+        case .punctuationSpecial:
+            return "punctuation.special"
+        case .stringEscape:
+            return "string.escape"
         case .include:
             return "include"
         case .constructor:

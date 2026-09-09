@@ -1187,20 +1187,19 @@ private struct CommitList: View {
 
     @ViewBuilder private var stagingRow: some View {
         if let stagingIndex, let changes = snapshot.workingChanges {
+            let status = changes.isEmpty ? "Clean" : changes.summary
             HStack(alignment: .top, spacing: 8) {
                 BranchGraphRowCanvas(model: graph, rowIndex: stagingIndex,
                                      commitOID: CommitGraphGenerator.workingChangesID)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Staging").lineLimit(1)
-                    if !changes.isEmpty {
-                        Text(changes.summary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
-            .help(changes.summary)
+            .help(status)
             .accessibilityElement(children: .combine)
             .listRowSeparator(.hidden)
             .tag(CommitGraphGenerator.workingChangesID)

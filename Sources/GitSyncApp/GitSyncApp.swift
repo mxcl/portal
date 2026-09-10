@@ -1359,6 +1359,18 @@ private struct CommitList: View {
     }
 }
 
+func compactCommitAge(from date: Date, to now: Date, calendar: Calendar = .current) -> String {
+    let units: [(Calendar.Component, String)] = [
+        (.year, "y"), (.month, "mn"), (.day, "d"), (.hour, "h"), (.minute, "m")
+    ]
+    let components = calendar.dateComponents(Set(units.map(\.0)), from: min(date, now), to: max(date, now))
+    let parts = units.compactMap { unit, suffix -> String? in
+        guard let value = components.value(for: unit), value > 0 else { return nil }
+        return "\(value)\(suffix)"
+    }
+    return parts.isEmpty ? "0m" : parts.prefix(2).joined(separator: " ")
+}
+
 private struct CommitRow: View {
     let commit: RepositoryCommit
     let isCurrent: Bool
@@ -1385,8 +1397,11 @@ private struct CommitRow: View {
                     Text(commit.author)
                     CopyableCommitSHA(sha: commit.oid)
                     Spacer()
-                    Text(commit.date, style: .relative)
-                        .monospacedDigit()
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        Text(compactCommitAge(from: commit.date, to: context.date))
+                            .monospacedDigit()
+                            .help(commit.date.formatted())
+                    }
                 }
                 .lineLimit(1)
                 .font(.caption)

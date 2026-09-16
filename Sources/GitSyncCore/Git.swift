@@ -8,6 +8,14 @@ import Musl
 #endif
 
 enum Git {
+    // Ref syntax does not change during a process's lifetime. NSCache is thread-safe
+    // and evicts entries under memory pressure; misses still go through Git.
+    private static let validRefs: NSCache<NSString, NSNumber> = {
+        let cache = NSCache<NSString, NSNumber>()
+        cache.countLimit = 16_384
+        return cache
+    }()
+
     static func run(_ arguments: [String], input: Data = Data(), allowFailure: Bool = false,
                     successStatuses: Set<Int32> = [0]) throws -> Data {
         let process = Process()
@@ -58,6 +66,10 @@ enum Git {
     }
 
     static func checkRef(_ ref: String) -> Bool {
-        succeeds(["check-ref-format", ref])
+        let key = ref as NSString
+        if validRefs.object(forKey: key) != nil { return true }
+        guard succeeds(["check-ref-format", ref]) else { return false }
+        validRefs.setObject(true, forKey: key)
+        return true
     }
 }

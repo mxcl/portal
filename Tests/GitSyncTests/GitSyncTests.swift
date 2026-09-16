@@ -490,6 +490,39 @@ func stateHasOneWriter() throws {
     withExtendedLifetime(first) {}
 }
 
+@Test("repeated ref scans reuse Git's successful name validation")
+func repeatedRefValidation() throws {
+    let fixture = try Fixture()
+    let trace = fixture.root.appendingPathComponent("git-trace.json")
+    let previousTrace = ProcessInfo.processInfo.environment["GIT_TRACE2_EVENT"]
+    setenv("GIT_TRACE2_EVENT", trace.path, 1)
+    defer {
+        if let previousTrace { setenv("GIT_TRACE2_EVENT", previousTrace, 1) }
+        else { unsetenv("GIT_TRACE2_EVENT") }
+    }
+    let ref = "refs/heads/validation-\(UUID())"
+    let invalidRef = ref + "..invalid"
+    let store = try StateStore(url: fixture.state)
+    let oid = String(repeating: "a", count: 40)
+    #expect(try store.updates(machine: "A", repository: "project", refs: [ref: oid], full: false).count == 1)
+    #expect(try store.updates(machine: "A", repository: "project", refs: [ref: oid], full: false).isEmpty)
+    #expect(try store.updates(machine: "A", repository: "project", refs: [ref: oid], full: true).count == 1)
+    // The receiver and peer-ref writer validate the same names through this entry point.
+    try Validator.sourceRef(ref)
+    for _ in 0..<2 {
+        #expect(throws: (any Error).self) { try Validator.sourceRef(invalidRef) }
+    }
+    #expect(throws: (any Error).self) {
+        try store.updates(machine: "A", repository: "project", refs: [ref: "invalid"], full: false)
+    }
+    let commands = try Data(contentsOf: trace).split(separator: 10).compactMap { line -> [String]? in
+        let event = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any]
+        return event?["event"] as? String == "start" ? event?["argv"] as? [String] : nil
+    }
+    #expect(commands.filter { $0.suffix(2) == ["check-ref-format", ref] }.count == 1)
+    #expect(commands.filter { $0.suffix(2) == ["check-ref-format", invalidRef] }.count == 2)
+}
+
 @Test("preflight returns only sorted repository name matches")
 func preflightOverlap() {
     #expect(Runner.overlap(local: ["z", "shared", "a", "shādoe"],

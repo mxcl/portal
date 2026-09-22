@@ -985,6 +985,7 @@ struct ProjectBrowserView: View {
     @State private var search = ""
     @State private var visibility: NavigationSplitViewVisibility = .all
     @State private var projectSelection: String?
+    @AppStorage("git-tree-column-width") private var gitTreeColumnWidth = 440.0
 
     private var projects: [String] {
         model.projectNames.filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }
@@ -1016,7 +1017,14 @@ struct ProjectBrowserView: View {
             }
         } content: {
             ProjectHistoryView(model: model)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onGeometryChange(for: Double.self) { geometry in
+                    geometry.size.width
+                } action: { width in
+                    if width >= 280 { gitTreeColumnWidth = width }
+                }
                 .toolbar { projectToolbar }
+                .navigationSplitViewColumnWidth(min: 280, ideal: gitTreeColumnWidth, max: .infinity)
         } detail: {
             switch model.selectedTab {
             case .info:

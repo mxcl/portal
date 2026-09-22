@@ -1192,11 +1192,27 @@ private struct ProjectRow: View {
                 .foregroundStyle(.secondary)
             Text(name).lineLimit(1)
             Spacer(minLength: 4)
-            if let counts = model.githubCounts(for: name) {
-                HStack(spacing: 5) {
-                    Label(counts.stars.formatted(.number.notation(.compactName)), systemImage: "star")
-                    Label(counts.pullRequests.formatted(.number.notation(.compactName)), systemImage: "arrow.triangle.pull")
-                    Label(counts.issues.formatted(.number.notation(.compactName)), systemImage: "exclamationmark.circle")
+            if let counts = model.githubCounts(for: name),
+               counts.stars > 0 || counts.pullRequests > 0 || counts.issues > 0 {
+                HStack(spacing: 6) {
+                    if counts.stars > 0 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "star")
+                            Text(counts.stars.formatted(.number.notation(.compactName)))
+                        }
+                    }
+                    if counts.pullRequests > 0 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.triangle.pull")
+                            Text(counts.pullRequests.formatted(.number.notation(.compactName)))
+                        }
+                    }
+                    if counts.issues > 0 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "exclamationmark.circle")
+                            Text(counts.issues.formatted(.number.notation(.compactName)))
+                        }
+                    }
                 }
                 .font(.caption).foregroundStyle(.secondary).fixedSize()
                 .help(counts.summary)

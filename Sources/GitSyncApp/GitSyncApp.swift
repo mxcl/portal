@@ -1032,6 +1032,7 @@ struct ProjectBrowserView: View {
                 } action: { width in
                     if width >= 280 { gitTreeColumnWidth = width }
                 }
+                .background(GitTreeWidthRestorer(width: initialGitTreeColumnWidth))
                 .toolbar { projectToolbar }
                 .navigationSplitViewColumnWidth(min: 280, ideal: initialGitTreeColumnWidth, max: .infinity)
         } detail: {
@@ -1145,6 +1146,47 @@ struct ProjectBrowserView: View {
         ToolbarItem {
             Button("Refresh", systemImage: "arrow.clockwise") { model.refreshProject(); model.editor.refresh() }
                 .help("Refresh project")
+        }
+    }
+}
+
+private struct GitTreeWidthRestorer: NSViewRepresentable {
+    let width: Double
+
+    func makeNSView(context: Context) -> RestoringView { RestoringView(width: width) }
+    func updateNSView(_ view: RestoringView, context: Context) {}
+
+    final class RestoringView: NSView {
+        let width: Double
+        var restored = false
+
+        init(width: Double) {
+            self.width = width
+            super.init(frame: .zero)
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            // SwiftUI's Window scene applies its own split layout after initial geometry.
+            DispatchQueue.main.async { [weak self] in self?.restoreWidth() }
+        }
+
+        private func restoreWidth() {
+            guard !restored, let window else { return }
+            window.contentView?.layoutSubtreeIfNeeded()
+            guard bounds.width > 0 else { return }
+            var pane: NSView = self
+            while let parent = pane.superview {
+                if let split = parent as? NSSplitView,
+                   let index = split.arrangedSubviews.firstIndex(of: pane),
+                   index < split.arrangedSubviews.count - 1 {
+                    restored = true
+                    split.setPosition(pane.frame.maxX + width - bounds.width, ofDividerAt: index)
+                    return
+                }
+                pane = parent
+            }
         }
     }
 }

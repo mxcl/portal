@@ -59,3 +59,15 @@ func syncErrorLocalizedDiagnostic() {
     let error: any Error = SyncError.command(["fetch", "origin"], "Permission denied (publickey).")
     #expect(error.localizedDescription == "git fetch origin: Permission denied (publickey).")
 }
+
+@Test("GUI Git processes can find installed remote and credential helpers")
+func gitHelperSearchPath() {
+    let environment = Git.environment(["PATH": "/usr/bin:/bin", "GIT_TERMINAL_PROMPT": "0"])
+    let paths = environment["PATH"]!.components(separatedBy: ":")
+    #expect(Array(paths.prefix(2)) == ["/usr/bin", "/bin"])
+    #expect(paths.contains("/usr/local/bin"))
+    #expect(paths.contains("/opt/homebrew/bin"))
+    #expect(paths.contains(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path))
+    #expect(environment["GIT_TERMINAL_PROMPT"] == "0")
+    #expect(Git.environment(["PATH": "/usr/local/bin:/usr/bin"])["PATH"]!.components(separatedBy: ":").filter { $0 == "/usr/local/bin" }.count == 1)
+}

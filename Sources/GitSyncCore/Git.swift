@@ -16,12 +16,23 @@ enum Git {
         return cache
     }()
 
+    // GUI launch services omit common locations for credential and remote helpers.
+    static func environment(_ overrides: [String: String]) -> [String: String] {
+        var values = ProcessInfo.processInfo.environment.merging(overrides) { _, new in new }
+        var paths = (values["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").components(separatedBy: ":")
+        for path in ["/usr/local/bin", "/opt/homebrew/bin", FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path] {
+            if !paths.contains(path) { paths.append(path) }
+        }
+        values["PATH"] = paths.joined(separator: ":")
+        return values
+    }
+
     static func run(_ arguments: [String], input: Data = Data(), allowFailure: Bool = false,
                     successStatuses: Set<Int32> = [0], environment: [String: String] = [:]) throws -> Data {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git"] + arguments
-        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
+        process.environment = Self.environment(environment)
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         process.standardInput = stdin
         process.standardOutput = stdout

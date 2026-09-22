@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import Testing
 @testable import GitSyncApp
+import GitSyncCore
 
 @Test("Git tree width defaults wide and survives closing and reopening the window")
 @MainActor
@@ -12,13 +13,19 @@ func gitTreeColumnWidthIsRemembered() throws {
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     let model = AppModel(connectToHelper: false)
+    model.configuration = AppConfiguration(root: "/tmp", machine: "test")
+    model.selectedProjectName = "project"
+    model.projectSnapshot = RepositorySnapshot(commits: [], references: [], head: nil, branches: [])
+    model.helperAvailable = true
     func openWindow() -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 720),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentViewController = NSHostingController(rootView: ProjectBrowserView(model: model).defaultAppStorage(defaults))
-        window.setContentSize(NSSize(width: 1180, height: 720))
+        window.contentViewController = NSHostingController(rootView: ProjectBrowserView(model: model, defaults: defaults))
         window.makeKeyAndOrderFront(nil)
+        // A scene first lays out at its minimum size before restoring its window frame.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        window.setContentSize(NSSize(width: 1530, height: 960))
         return window
     }
     func splitView(in view: NSView) -> NSSplitView? {
@@ -30,7 +37,7 @@ func gitTreeColumnWidthIsRemembered() throws {
         while !condition() && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
-        #expect(condition())
+        try #require(condition())
     }
 
     let first = openWindow()

@@ -986,6 +986,15 @@ struct ProjectBrowserView: View {
     @State private var visibility: NavigationSplitViewVisibility = .all
     @State private var projectSelection: String?
     @AppStorage("git-tree-column-width") private var gitTreeColumnWidth = 440.0
+    @State private var initialGitTreeColumnWidth: Double
+
+    init(model: AppModel, defaults: UserDefaults = .standard) {
+        self.model = model
+        _gitTreeColumnWidth = AppStorage(wrappedValue: 440, "git-tree-column-width", store: defaults)
+        // Startup can lay out at the minimum width before the window frame is restored.
+        // Those geometry updates must not change the width we are trying to restore.
+        _initialGitTreeColumnWidth = State(initialValue: defaults.object(forKey: "git-tree-column-width") as? Double ?? 440)
+    }
 
     private var projects: [String] {
         model.projectNames.filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }
@@ -1024,7 +1033,7 @@ struct ProjectBrowserView: View {
                     if width >= 280 { gitTreeColumnWidth = width }
                 }
                 .toolbar { projectToolbar }
-                .navigationSplitViewColumnWidth(min: 280, ideal: gitTreeColumnWidth, max: .infinity)
+                .navigationSplitViewColumnWidth(min: 280, ideal: initialGitTreeColumnWidth, max: .infinity)
         } detail: {
             switch model.selectedTab {
             case .info:

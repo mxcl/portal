@@ -17,10 +17,11 @@ enum Git {
     }()
 
     static func run(_ arguments: [String], input: Data = Data(), allowFailure: Bool = false,
-                    successStatuses: Set<Int32> = [0]) throws -> Data {
+                    successStatuses: Set<Int32> = [0], environment: [String: String] = [:]) throws -> Data {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git"] + arguments
+        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         process.standardInput = stdin
         process.standardOutput = stdout

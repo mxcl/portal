@@ -329,3 +329,27 @@ branch, switch branches, merge divergent history, or overwrite local changes.
 Stable repository pairing identities, repository-wide atomic snapshots,
 systemd packaging, promotion actions, and transfer optimizations stay out until
 the proof of concept needs them. None may weaken the ownership invariant above.
+
+## GitHub integration
+
+The optional GitHub connection uses a separate Gitinuum relay and the macOS menu
+helper. APNs is a wake-up hint, not an event log: the relay retains per-device,
+per-repository work until acknowledged. Each replacement work item has a fresh
+UUID, so acknowledging older work cannot erase a newer event, including after a
+relay state reset. GitHub requests are event-driven; launch, reconnect, initial
+setup and explicit Refresh are the only catch-up triggers. Local discovery timers
+must not become GitHub polling timers.
+
+With GitHub connected, branch events may fetch into `refs/remotes/<remote>/*`
+for a matching, configured github.com remote in a local checkout. This is a
+narrow exception to peer-only background ref writes. The fetch uses an explicit
+branch-only refspec, never the configured remote refspecs, and does not write
+`FETCH_HEAD`, tags, local branches, stash, HEAD, index or working files. Peer
+namespace collisions, mirror remotes and symbolic refs escaping the destination
+namespace are rejected. Git retains responsibility for ref locking and updates;
+per-ref atomicity and eventual consistency remain unchanged. Pausing sync defers
+these fetches. No incoming commit is promoted into local work.
+
+Peer inventory optionally includes GitHub repository identities; older peers
+without this field remain readable. Counts are stars, open pull requests and open
+issues (excluding PRs). Only active tracked projects receive notifications.

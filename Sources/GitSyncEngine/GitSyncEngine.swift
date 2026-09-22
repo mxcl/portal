@@ -310,7 +310,8 @@ public final class EngineModel: ObservableObject {
                     let repository = try Repository.setPlacement(name: project, in: root, to: placement,
                                                                   branch: branch)
                     return PeerProject(name: project, placement: placement == .notPresent ? .notPresent : repository.placement,
-                                       defaultBranch: placement == .notPresent ? nil : repository.defaultBranch)
+                                       defaultBranch: placement == .notPresent ? nil : repository.defaultBranch,
+                                 githubRepositories: placement == .notPresent ? nil : repository.githubRepositories)
                 }.value
                 updatePlacement(result, hostID: hostID)
                 try save()
@@ -752,7 +753,7 @@ public final class EngineModel: ObservableObject {
         let (projects, statuses) = try await Task.detached(priority: priority) {
             let repositories = try Repository.discover(in: root)
             let projects = repositories.map {
-                PeerProject(name: $0.name, placement: $0.placement, defaultBranch: $0.defaultBranch)
+                PeerProject(name: $0.name, placement: $0.placement, defaultBranch: $0.defaultBranch, githubRepositories: $0.githubRepositories)
             }
             let statuses = Dictionary(uniqueKeysWithValues: repositories.map {
                 ($0.name, (try? $0.shortStatus()) ?? "Status unavailable")

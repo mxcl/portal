@@ -9,6 +9,12 @@ fi
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 destination=${1:-"/Applications/Gitinuum.app"}
 build_dir="$repo_dir/.build/release"
+# Keep APNs enabled on ordinary local reinstalls without an environment override.
+installed_profile="/Applications/Gitinuum.app/Contents/Library/LoginItems/Gitinuum Menu Helper.app/Contents/embedded.provisionprofile"
+push_profile=${GITINUUM_PUSH_PROFILE-}
+if [ "${GITINUUM_PUSH_PROFILE+x}" != x ] && [ -f "$installed_profile" ]; then
+  push_profile=$installed_profile
+fi
 signing_identity=${GIT_SYNC_SIGNING_IDENTITY:-"Developer ID Application: Max Howell (ZU76A67LGU)"}
 stage=$(mktemp -d "${TMPDIR:-/tmp}/git-sync-install.XXXXXX")
 trap 'rm -rf "$stage"' EXIT HUP INT TERM
@@ -62,11 +68,11 @@ fi
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/Resources/gitinuumd"
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/Resources/gitinuum"
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$menu/Contents/MacOS/GitSyncMenuBar"
-if [ -n "${GITINUUM_PUSH_PROFILE:-}" ]; then
-  security cms -D -i "$GITINUUM_PUSH_PROFILE" > "$stage/push-profile.plist"
+if [ -n "$push_profile" ]; then
+  security cms -D -i "$push_profile" > "$stage/push-profile.plist"
   python3 "$repo_dir/scripts/prepare-push-signing.py" "$stage/push-profile.plist" \
     "$stage/push-entitlements.plist" "$menu/Contents/Info.plist"
-  cp "$GITINUUM_PUSH_PROFILE" "$menu/Contents/embedded.provisionprofile"
+  cp "$push_profile" "$menu/Contents/embedded.provisionprofile"
   codesign --force --sign "$signing_identity" --options runtime --timestamp \
     --entitlements "$stage/push-entitlements.plist" "$menu"
 else
@@ -82,10 +88,7 @@ if [ -e "$destination" ]; then
   /usr/bin/pkill -x GitinuumApp 2>/dev/null || true
   /usr/bin/pkill -TERM -f "^$destination/Contents/Resources/(git-sync|gitinuumd) run " 2>/dev/null || true
 fi
-# Remove obsolete bundle members before overlaying the renamed release.
-rm -rf "$destination/Contents/Library/LoginItems/Gitinuum Menu.app"
-rm -f "$destination/Contents/Resources/git-sync"
-/usr/bin/ditto "$app" "$destination"
+"$repo_dir/scripts/replace-app.sh" "$app" "$destination"
 # Keep the icon files shared even when the copy tool expands hardlinks.
 for icon in AppIcon.icns Assets.car; do
   ln -f "$destination/Contents/Resources/$icon" "$destination/Contents/Library/LoginItems/Gitinuum Menu Helper.app/Contents/Resources/$icon"

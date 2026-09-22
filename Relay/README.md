@@ -93,8 +93,10 @@ GITINUUM_PUSH_PROFILE=/absolute/path/helper.provisionprofile scripts/install.sh 
 ```
 
 Packaging validates the profile's identity, push entitlement and expiry, embeds
-it, and signs the helper with its entitlements. Ordinary builds still work without
-a profile; automatic pushes require a correctly signed helper. The profile's
+it, and signs the helper with its entitlements. Without an override, the installer
+reuses the profile from `/Applications/Gitinuum.app` when present. Set
+`GITINUUM_PUSH_PROFILE=` to explicitly build without push support. Builds still
+work without a profile; automatic pushes require a correctly signed helper. The profile's
 APNs environment is recorded in the helper's Info.plist, never inferred from a
 debug/release compiler flag.
 

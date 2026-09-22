@@ -1,0 +1,19 @@
+# Include in nginx's http context. Add your TLS certificate configuration.
+limit_req_zone $binary_remote_addr zone=gitinuum_connect:10m rate=5r/m;
+server {
+    listen 443 ssl;
+    server_name YOUR_RELAY_HOST;
+    client_max_body_size 1m;
+    location = /connect {
+        limit_req zone=gitinuum_connect burst=5 nodelay;
+        proxy_pass http://127.0.0.1:3022;
+    }
+    location = /oauth/hello {
+        access_log off;
+        proxy_pass http://127.0.0.1:3022;
+    }
+    location / {
+        proxy_read_timeout 120s;
+        proxy_pass http://127.0.0.1:3022;
+    }
+}

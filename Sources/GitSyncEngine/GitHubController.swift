@@ -51,8 +51,7 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                 seen = cache.seen
             }
         } catch { model.github.error = error.localizedDescription }
-        if let credential {
-            model.github.relayURL = credential.relay.absoluteString
+        if credential != nil {
             model.github.connected = true
         }
         model.githubAction = { [weak self] action in await self?.handle(action) }
@@ -109,13 +108,9 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
         defer { accountActionInProgress = false }
         do {
             switch action {
-            case .connect(let address):
+            case .connect:
                 guard credential == nil else { throw RequestError(message: "Disconnect before connecting another account.", retryAfter: nil) }
-                guard let url = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
-                      url.scheme == "https", url.host != nil, url.user == nil, url.password == nil,
-                      url.query == nil, url.fragment == nil else {
-                    throw RequestError(message: "Enter an HTTPS relay URL.", retryAfter: nil)
-                }
+                let url = URL(string: "https://canopy.mxcl.dev/gitinuum")!
                 let data = try await request("connect", body: Data("{}".utf8), relay: url, credential: nil)
                 let reply = try JSONDecoder().decode(ConnectResponse.self, from: data)
                 guard reply.url.scheme == "https", reply.url.host == "github.com", reply.url.path == "/login/oauth/authorize" else {
@@ -124,7 +119,6 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                 let value = Credential(relay: url, session: reply.session)
                 try Self.saveCredential(JSONEncoder().encode(value))
                 credential = value
-                model.github.relayURL = url.absoluteString
                 model.github.status = "Finish connecting in your browser, then Refresh."
                 model.github.connected = true // A session exists; status distinguishes authorization from readiness.
                 model.github.error = nil

@@ -23,7 +23,6 @@ public struct GitHubNotification: Codable, Identifiable, Equatable, Sendable {
 }
 
 public struct GitHubState: Codable, Sendable {
-    public var relayURL = ""
     public var connected = false
     public var status = "Not connected"
     public var pushStatus = "Not registered"
@@ -36,7 +35,7 @@ public struct GitHubState: Codable, Sendable {
 }
 
 public enum GitHubAction: Codable, Sendable {
-    case connect(String), refresh, disconnect, requestNotificationPermission, installations
+    case connect, refresh, disconnect, requestNotificationPermission, installations
 }
 
 struct GitHubWork: Codable, Sendable {

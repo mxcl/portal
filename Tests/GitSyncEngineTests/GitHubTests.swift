@@ -32,6 +32,16 @@ func githubResponseDecoding() throws {
     #expect(response.notifications[0].safeURL != nil)
     #expect(response.notifications[1].safeURL == nil)
     #expect(response.retryAfter == 60)
-    #expect(EngineControlProtocol.version == 3)
+    #expect(EngineControlProtocol.version == 4)
+}
+@Test("GitHub sign-in control requests require no relay configuration")
+func githubConnectAction() throws {
+    let data = try JSONEncoder().encode(GitHubAction.connect)
+    let decoded = try JSONDecoder().decode(GitHubAction.self, from: data)
+    guard case .connect = decoded else {
+        Issue.record("Expected a GitHub connect action")
+        return
+    }
+    #expect(String(decoding: data, as: UTF8.self) == #"{"connect":{}}"#)
 }
 #endif

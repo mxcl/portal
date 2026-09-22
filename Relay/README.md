@@ -80,7 +80,7 @@ Canopy's sandbox and production APNs keys include both `dev.mxcl.canopy` and
 `dev.mxcl.git-sync.menu-helper` for this internal trial. Revoking either shared key
 would affect both apps. The helper has its own App ID and **Gitinuum Menu Helper
 Developer ID** provisioning profile. Install the GitHub App on the repositories
-to track, then connect the signed helper to the test relay URL above.
+to track, then connect GitHub in the signed helper. The relay endpoint is built into the app.
 
 ## Connect a Mac
 
@@ -98,7 +98,7 @@ a profile; automatic pushes require a correctly signed helper. The profile's
 APNs environment is recorded in the helper's Info.plist, never inferred from a
 debug/release compiler flag.
 
-In Gitinuum Settings → GitHub, enter the relay's HTTPS URL and connect. Return
+In Gitinuum Settings → GitHub, click **Connect GitHub…**. Return
 from the browser, grant Repository Access, and Refresh. Allow Notifications for
 banners; the menu remains usable when banners are disabled. Disconnect revokes
 this device's relay session before removing its Keychain credential.

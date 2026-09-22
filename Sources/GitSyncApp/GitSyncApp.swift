@@ -1867,7 +1867,6 @@ private struct MarkdownDocument: View {
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
-    @State private var githubRelay = ""
 
     var body: some View {
         TabView {
@@ -1915,8 +1914,6 @@ struct SettingsView: View {
 
             Form {
                 Section("GitHub") {
-                    TextField("Relay URL", text: $githubRelay, prompt: Text("https://…"))
-                        .disabled(model.github.connected)
                     LabeledContent("Connection", value: model.github.status)
                     HStack {
                         if model.github.connected {
@@ -1925,8 +1922,7 @@ struct SettingsView: View {
                                 .disabled(model.github.installationURL == nil)
                             Button("Disconnect") { model.githubAction(.disconnect) }
                         } else {
-                            Button("Connect GitHub…") { model.githubAction(.connect(githubRelay)) }
-                                .disabled(githubRelay.isEmpty)
+                            Button("Connect GitHub…") { model.githubAction(.connect) }
                         }
                     }
                     if let error = model.github.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
@@ -1942,7 +1938,6 @@ struct SettingsView: View {
                 }
             }
             .formStyle(.grouped)
-            .onAppear { githubRelay = model.github.relayURL }
             .tabItem { Label("GitHub", systemImage: "network") }
 
             VStack(alignment: .leading, spacing: 12) {

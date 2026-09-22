@@ -5,7 +5,7 @@ import Foundation
 import GitSyncCore
 
 public enum EngineControlProtocol {
-    public static let version = 2
+    public static let version = 3
     public static let changedNotification = Notification.Name("dev.mxcl.git-sync.engine-changed")
     public static var socketURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -15,6 +15,7 @@ public enum EngineControlProtocol {
 
 public enum EngineCommand: Codable, Sendable {
     case snapshot
+    case github(GitHubAction)
     case setRoot(root: String, machine: String)
     case pause
     case resume
@@ -43,6 +44,7 @@ public struct EngineRequest: Codable, Sendable {
 
 public struct EngineSnapshot: Codable, Sendable {
     public let configuration: AppConfiguration
+    public var github = GitHubState()
     public let globalShortcutEnabled: Bool
     public let status: String
     public let error: String?
@@ -87,6 +89,8 @@ public enum EngineControlError: Error, LocalizedError {
 public final class EngineModel: ObservableObject {
     @Published public private(set) var configuration: AppConfiguration
     @Published public private(set) var globalShortcutEnabled: Bool
+    @Published public var github = GitHubState()
+    public var githubAction: ((GitHubAction) async -> Void)?
     @Published public var globalShortcutError: String?
     @Published public private(set) var status = "Not configured"
     @Published public private(set) var error: String?
@@ -184,7 +188,7 @@ public final class EngineModel: ObservableObject {
     }
 
     public func snapshot() -> EngineSnapshot {
-        EngineSnapshot(configuration: configuration, globalShortcutEnabled: globalShortcutEnabled,
+        EngineSnapshot(configuration: configuration, github: github, globalShortcutEnabled: globalShortcutEnabled,
                        status: status, error: error ?? globalShortcutError,
                        isChecking: isChecking, isRunning: isRunning, isPaused: isPaused,
                        logs: logs, backupItems: backupItems, backupError: backupError,
@@ -198,6 +202,8 @@ public final class EngineModel: ObservableObject {
             switch command {
             case .snapshot:
                 break
+            case .github(let action):
+                await githubAction?(action)
             case let .setRoot(root, machine):
                 guard configuration.root.isEmpty else {
                     throw EngineControlError.message("The projects folder cannot be changed.")
@@ -213,6 +219,7 @@ public final class EngineModel: ObservableObject {
                 resume()
             case .refresh:
                 refreshLocal()
+                await githubAction?(.refresh)
             case let .addHost(peer, root, executable, allowNameCollisions):
                 collisions = try await addHost(peer: peer, root: root, executable: executable,
                                                allowNameCollisions: allowNameCollisions)
@@ -311,7 +318,7 @@ public final class EngineModel: ObservableObject {
                                                                   branch: branch)
                     return PeerProject(name: project, placement: placement == .notPresent ? .notPresent : repository.placement,
                                        defaultBranch: placement == .notPresent ? nil : repository.defaultBranch,
-                                 githubRepositories: placement == .notPresent ? nil : repository.githubRepositories)
+                                       githubRepositories: placement == .notPresent ? nil : repository.githubRepositories)
                 }.value
                 updatePlacement(result, hostID: hostID)
                 try save()

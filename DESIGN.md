@@ -44,7 +44,7 @@ Project rows open that project in the app; their status text stays dimmed.
 The helper also owns the global Command–Option–backtick shortcut, enabled by
 default, which opens or activates the main app. General settings can disable it
 immediately; the helper persists this local preference in UserDefaults. Control
-protocol v2 includes the preference in snapshots and accepts its toggle command.
+protocol v3 includes the preference in snapshots and accepts its toggle command.
 
 The sidebar groups active and archived projects. A project is the shared name
 of repositories observed across configured hosts and backup inventory. Rows

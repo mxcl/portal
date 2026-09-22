@@ -117,6 +117,7 @@ final class AppModel: ObservableObject {
     let editor = ProjectEditor()
     @Published var selectedTab: ProjectTab = .info
     @Published var configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
+    @Published var github = GitHubState()
     @Published var globalShortcutEnabled = true
     @Published var status = "Starting Sync Helper"
     @Published var error: String?
@@ -411,6 +412,7 @@ final class AppModel: ObservableObject {
         }
         let oldSource = projectSource
         configuration = snapshot.configuration
+        github = snapshot.github
         globalShortcutEnabled = snapshot.globalShortcutEnabled
         status = snapshot.status
         error = snapshot.error
@@ -719,6 +721,13 @@ final class AppModel: ObservableObject {
     }
 
     func refreshLocal() { perform(.refresh) }
+    func githubAction(_ action: GitHubAction) { perform(.github(action)) }
+
+    func githubCounts(for project: String) -> GitHubCounts? {
+        let identities = localProjects[project]?.githubRepositories
+            ?? configuration.hosts.compactMap { remoteProjects[$0.id]?[project]?.githubRepositories }.first ?? []
+        return identities.compactMap { github.counts[$0] }.first
+    }
 
     func beginAddingHost() {
         hostDraft = HostDraft(root: configuration.root)
@@ -1065,7 +1074,11 @@ struct ProjectBrowserView: View {
             BranchPicker(request: request, model: model)
         }
         .onOpenURL { url in
-            if url.scheme == "gitsync", url.host == "settings" {
+            if url.scheme == "gitsync", url.host == "github-connected" {
+                model.githubAction(.refresh)
+                openSettings()
+                NSApplication.shared.activate()
+            } else if url.scheme == "gitsync", url.host == "settings" {
                 openSettings()
                 NSApplication.shared.activate()
             } else if model.openProjectURL(url) {
@@ -1179,6 +1192,15 @@ private struct ProjectRow: View {
                 .foregroundStyle(.secondary)
             Text(name).lineLimit(1)
             Spacer(minLength: 4)
+            if let counts = model.githubCounts(for: name) {
+                HStack(spacing: 5) {
+                    Label(counts.stars.formatted(.number.notation(.compactName)), systemImage: "star")
+                    Label(counts.pullRequests.formatted(.number.notation(.compactName)), systemImage: "arrow.triangle.pull")
+                    Label(counts.issues.formatted(.number.notation(.compactName)), systemImage: "exclamationmark.circle")
+                }
+                .font(.caption).foregroundStyle(.secondary).fixedSize()
+                .help(counts.summary)
+            }
             if let folder = model.configuration.folders.first(where: { $0.name == name }) {
                 if folder.availableLocally { Circle().fill(.primary).frame(width: 6, height: 6) }
                 ForEach(model.configuration.hosts.filter { folder.availableHosts.contains($0.id) }) { _ in
@@ -1194,7 +1216,8 @@ private struct ProjectRow: View {
     private var projectSummary: String {
         guard let folder = model.configuration.folders.first(where: { $0.name == name }) else { return name }
         let count = (folder.availableLocally ? 1 : 0) + folder.availableHosts.count
-        return "\(name) — on \(count) host\(count == 1 ? "" : "s")"
+        let github = model.githubCounts(for: name).map { " — " + $0.summary } ?? ""
+        return "\(name) — on \(count) host\(count == 1 ? "" : "s")\(github)"
     }
 }
 
@@ -1844,6 +1867,7 @@ private struct MarkdownDocument: View {
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
+    @State private var githubRelay = ""
 
     var body: some View {
         TabView {
@@ -1888,6 +1912,38 @@ struct SettingsView: View {
             }
             .formStyle(.grouped)
             .tabItem { Label("General", systemImage: "gear") }
+
+            Form {
+                Section("GitHub") {
+                    TextField("Relay URL", text: $githubRelay, prompt: Text("https://…"))
+                        .disabled(model.github.connected)
+                    LabeledContent("Connection", value: model.github.status)
+                    HStack {
+                        if model.github.connected {
+                            Button("Refresh") { model.githubAction(.refresh) }
+                            Button("Repository Access…") { model.githubAction(.installations) }
+                                .disabled(model.github.installationURL == nil)
+                            Button("Disconnect") { model.githubAction(.disconnect) }
+                        } else {
+                            Button("Connect GitHub…") { model.githubAction(.connect(githubRelay)) }
+                                .disabled(githubRelay.isEmpty)
+                        }
+                    }
+                    if let error = model.github.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+                }
+                Section("Notifications") {
+                    LabeledContent("Push updates", value: model.github.pushStatus)
+                    LabeledContent("Banners", value: model.github.notificationPermission)
+                    Button("Allow Notifications…") { model.githubAction(.requestNotificationPermission) }
+                    Text("Notifications cover tracked GitHub projects. Stars and open PR/issue counts appear in the sidebar.")
+                        .foregroundStyle(.secondary)
+                    Text("Updates arrive through push notifications, with catch-up on launch, reconnect, and Refresh.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .formStyle(.grouped)
+            .onAppear { githubRelay = model.github.relayURL }
+            .tabItem { Label("GitHub", systemImage: "network") }
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack {

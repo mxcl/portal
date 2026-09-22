@@ -722,6 +722,7 @@ async fn sync(
         .collect::<Vec<_>>();
     let mut retry_after = None;
     let mut errors = Vec::new();
+    // ponytail: sequential count requests; batch GraphQL if large project sets hit HTTP timeouts.
     for item in work.iter().filter(|w| w.kind == "counts") {
         let Some(access) = accessible.get(&item.repository) else {
             continue;

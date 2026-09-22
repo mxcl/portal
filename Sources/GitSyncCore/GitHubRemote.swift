@@ -8,7 +8,8 @@ public struct GitHubRemote: Equatable, Sendable {
 
 extension Repository {
     public func githubRemotes() throws -> [GitHubRemote] {
-        try Git.text(["-C", url.path, "remote"]).split(separator: "\n").compactMap { name in
+        try Git.text(["-C", url.path, "remote"]).split(separator: "\n")
+            .sorted { $0 == "origin" && $1 != "origin" }.compactMap { name in
             let name = String(name)
             let origin = try Git.text(["-C", url.path, "config", "--get", "remote.\(name).url"])
             guard let github = Self.githubURL(forOrigin: origin) else { return nil }

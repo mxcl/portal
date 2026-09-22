@@ -14,5 +14,12 @@ test -f "$app/Contents/Resources/CodeEditLanguages_CodeEditLanguages.bundle/Reso
 test "$(readlink "$app/Contents/Resources/git-sync")" = gitinuumd
 "$app/Contents/Resources/gitinuumd" --help | grep -q 'gitinuumd daemon'
 "$app/Contents/Resources/git-sync" --help | grep -q 'gitinuumd daemon'
+if [ -f "$helper/Contents/embedded.provisionprofile" ]; then
+  entitlements=$(mktemp)
+  trap 'rm -f "$entitlements"' EXIT HUP INT TERM
+  codesign -d --entitlements - "$helper" > "$entitlements" 2>/dev/null
+  environment=$(python3 -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1], "rb"))["com.apple.developer.aps-environment"])' "$entitlements")
+  case "$environment" in development|production) ;; *) exit 1 ;; esac
+fi
 codesign --verify --deep --strict "$app"
 echo 'App bundle checks passed'

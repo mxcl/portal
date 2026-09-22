@@ -7,6 +7,7 @@ import GitSyncEngine
 
 @main
 struct GitSyncMenuBarApp: App {
+    @NSApplicationDelegateAdaptor(MenuAppDelegate.self) private var appDelegate
     @StateObject private var runtime = MenuBarRuntime()
 
     var body: some Scene {
@@ -23,6 +24,7 @@ struct GitSyncMenuBarApp: App {
 @MainActor
 final class MenuBarRuntime: ObservableObject {
     let model: EngineModel
+    private let github: GitHubController
     private let server: EngineControlServer?
     private var observation: AnyCancellable?
     private var terminationObservation: AnyCancellable?
@@ -31,6 +33,8 @@ final class MenuBarRuntime: ObservableObject {
 
     init() {
         model = EngineModel(executableURL: Self.gitSyncExecutableURL)
+        github = GitHubController(model: model)
+        MenuAppDelegate.github = github
         server = try? EngineControlServer()
         server?.start(model: model)
         shortcutObservation = model.$globalShortcutEnabled.removeDuplicates().sink { [weak self] enabled in
@@ -54,10 +58,11 @@ final class MenuBarRuntime: ObservableObject {
         }
         terminationObservation = NotificationCenter.default
             .publisher(for: NSApplication.willTerminateNotification)
-            .sink { [weak self] _ in self?.model.shutdown() }
+            .sink { [weak self] _ in self?.github.shutdown(); self?.model.shutdown() }
     }
 
     func quitEverything() {
+        github.shutdown()
         model.shutdown()
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: "dev.mxcl.git-sync") {
             app.terminate()
@@ -86,6 +91,23 @@ final class MenuBarRuntime: ObservableObject {
     }
 }
 
+@MainActor
+final class MenuAppDelegate: NSObject, NSApplicationDelegate {
+    static weak var github: GitHubController?
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApplication.shared.registerForRemoteNotifications()
+    }
+    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        Self.github?.registered(token: deviceToken)
+    }
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        Self.github?.registrationFailed(error)
+    }
+    func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
+        if userInfo["gitinuumWork"] as? Bool == true { Self.github?.receivedPush() }
+    }
+}
+
 private struct StatusMenu: View {
     @ObservedObject var runtime: MenuBarRuntime
 
@@ -110,6 +132,18 @@ private struct StatusMenu: View {
                     Text("\(name): \(status)")
                 }
             }
+        }
+        Menu("GitHub Notifications") {
+            if runtime.model.github.notifications.isEmpty { Text("No recent notifications") }
+            ForEach(runtime.model.github.notifications.prefix(20)) { note in
+                Button("\(note.repository): \(note.title)") {
+                    if let url = note.safeURL { NSWorkspace.shared.open(url) }
+                }.help(note.body)
+            }
+            if let error = runtime.model.github.error { Text(error) }
+            Divider()
+            Button("Refresh GitHub") { Task { await runtime.model.githubAction?(.refresh) } }
+                .disabled(!runtime.model.github.connected)
         }
         Menu("Events") {
             if runtime.model.menuLogs.isEmpty {

@@ -62,7 +62,16 @@ fi
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/Resources/gitinuumd"
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/Resources/gitinuum"
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$menu/Contents/MacOS/GitSyncMenuBar"
-codesign --force --sign "$signing_identity" --options runtime --timestamp "$menu"
+if [ -n "${GITINUUM_PUSH_PROFILE:-}" ]; then
+  security cms -D -i "$GITINUUM_PUSH_PROFILE" > "$stage/push-profile.plist"
+  python3 "$repo_dir/scripts/prepare-push-signing.py" "$stage/push-profile.plist" \
+    "$stage/push-entitlements.plist" "$menu/Contents/Info.plist"
+  cp "$GITINUUM_PUSH_PROFILE" "$menu/Contents/embedded.provisionprofile"
+  codesign --force --sign "$signing_identity" --options runtime --timestamp \
+    --entitlements "$stage/push-entitlements.plist" "$menu"
+else
+  codesign --force --sign "$signing_identity" --options runtime --timestamp "$menu"
+fi
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/MacOS/GitinuumApp"
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app"
 if [ -e "$destination" ]; then

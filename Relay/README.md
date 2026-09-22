@@ -3,8 +3,9 @@
 GitHub events wake Gitinuum. The Mac refreshes notifications and project counts,
 then fetches changed GitHub branches. There is no recurring GitHub poll.
 
-This is an independent, trimmed port of `~/src/canopy`: no Canopy database,
-credentials, billing, hooks, iOS app, or deployment is reused.
+This is an independent, trimmed port of `~/src/canopy`: no Canopy
+database contents, billing, hooks, or iOS app is reused. Credentials and hosting
+are configured separately; the internal atlas trial shares APNs keys as noted below.
 
 ## Configure
 
@@ -60,6 +61,26 @@ do not copy only the main database file while it is running. Preserve the
 encryption key alongside backups. Existing PostgreSQL data is not imported.
 
 No production service is changed by this repository's build or tests.
+
+## Internal atlas deployment
+
+The test relay runs at **https://canopy.mxcl.dev/gitinuum**, behind Caddy, with
+its own `gitinuum-relay.service`, service account and SQLite database. Caddy strips
+`/gitinuum` before forwarding to loopback port 3022; other Canopy routes are unchanged.
+OAuth callback requests are excluded from access logging.
+
+- GitHub App: **Gitinuum Internal** (`gitinuum-internal`), owned by `mxcl`.
+- OAuth App: **Gitinuum Notifications Internal**.
+- Both callbacks: `https://canopy.mxcl.dev/gitinuum/oauth/hello`.
+- Webhook: `https://canopy.mxcl.dev/gitinuum/webhook`.
+- Configuration: `/etc/gitinuum-relay.env` (root-only).
+- Database: `/var/lib/gitinuum-relay/gitinuum.sqlite3`.
+
+Canopy's sandbox and production APNs keys include both `dev.mxcl.canopy` and
+`dev.mxcl.git-sync.menu-helper` for this internal trial. Revoking either shared key
+would affect both apps. The helper has its own App ID and **Gitinuum Menu Helper
+Developer ID** provisioning profile. Install the GitHub App on the repositories
+to track, then connect the signed helper to the test relay URL above.
 
 ## Connect a Mac
 

@@ -344,11 +344,13 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     }
 }
 
-public enum SyncError: Error, CustomStringConvertible {
+public enum SyncError: Error, LocalizedError, CustomStringConvertible {
     case command([String], String)
     case invalidConfiguration(String)
     case invalidProtocol(String)
     case disconnected
+
+    public var errorDescription: String? { description }
 
     public var description: String {
         switch self {

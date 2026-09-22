@@ -208,7 +208,7 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                         if finished { completed.append(work.id) }
                     } catch {
                         try Task.checkCancellation()
-                        model.github.error = "GitHub fetch: \(error.localizedDescription)"
+                        model.github.error = "GitHub fetch (\(work.repository)): \(error.localizedDescription)"
                         delay = max(delay ?? 0, 30)
                     }
                 }

@@ -53,3 +53,9 @@ func githubInventoryCompatibility() throws {
     let project = try JSONDecoder().decode(PeerProject.self, from: Data(#"{"name":"old","placement":"checkedOut"}"#.utf8))
     #expect(project.githubRepositories == nil)
 }
+
+@Test("Git failures retain their diagnostic in localized error messages")
+func syncErrorLocalizedDiagnostic() {
+    let error: any Error = SyncError.command(["fetch", "origin"], "Permission denied (publickey).")
+    #expect(error.localizedDescription == "git fetch origin: Permission denied (publickey).")
+}

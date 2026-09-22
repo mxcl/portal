@@ -87,29 +87,33 @@ fn signatures_and_encrypted_credentials() {
 }
 
 #[tokio::test]
-#[ignore = "Requires TEST_DATABASE_URL pointing to disposable PostgreSQL; creates an isolated schema"]
 async fn durable_pending_work_and_deduplication() -> Result<()> {
-    let admin = PgPool::connect(&required("TEST_DATABASE_URL")?).await?;
-    let schema = format!("test_{}", Uuid::new_v4().simple());
-    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
-        .execute(&admin)
-        .await?;
-    let search = schema.clone();
-    let db = PgPoolOptions::new()
-        .after_connect(move |connection, _| {
-            let sql = format!("SET search_path TO {search}");
-            Box::pin(async move {
-                sqlx::query(sqlx::AssertSqlSafe(sql))
-                    .execute(connection)
-                    .await?;
-                Ok(())
-            })
-        })
-        .connect(&required("TEST_DATABASE_URL")?)
-        .await?;
-    sqlx::raw_sql(include_str!("../schema.sql"))
-        .execute(&db)
-        .await?;
+    let directory = env::temp_dir().join(format!("gitinuum-{}", Uuid::new_v4()));
+    std::fs::create_dir(&directory)?;
+    let path = directory.join("relay.sqlite3");
+    let (db, lock) = open_database(&path).await?;
+    assert!(open_database(&path).await.is_err());
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("PRAGMA journal_mode")
+            .fetch_one(&db)
+            .await?,
+        "wal"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("PRAGMA foreign_keys")
+            .fetch_one(&db)
+            .await?,
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("PRAGMA synchronous")
+            .fetch_one(&db)
+            .await?,
+        2
+    );
+    let alias = directory.join("alias.sqlite3");
+    std::os::unix::fs::symlink(&path, &alias)?;
+    assert!(open_database(&alias).await.is_err());
     let device = Uuid::new_v4();
     sqlx::query("INSERT INTO devices(id) VALUES($1)")
         .bind(device)
@@ -128,7 +132,7 @@ async fn durable_pending_work_and_deduplication() -> Result<()> {
     queue(&db, device, "owner/repo", "counts")
         .await
         .map_err(|e| anyhow::anyhow!(e.1))?;
-    sqlx::query("DELETE FROM pending WHERE device=$1 AND id=$2")
+    sqlx::query("DELETE FROM pending WHERE device=$1 AND kind='fetch' AND id=$2")
         .bind(device)
         .bind(old)
         .execute(&db)
@@ -143,11 +147,9 @@ async fn durable_pending_work_and_deduplication() -> Result<()> {
     queue(&db, device, "owner/repo", "notifications")
         .await
         .map_err(|e| anyhow::anyhow!(e.1))?;
-    sqlx::query(
-        "INSERT INTO inbox_limits(user_id,next_poll_at) VALUES(42,now()+interval '1 hour')",
-    )
-    .execute(&db)
-    .await?;
+    sqlx::query("INSERT INTO inbox_limits(user_id,next_poll_at) VALUES(42,unixepoch()+3600)")
+        .execute(&db)
+        .await?;
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pending")
             .fetch_one(&db)
@@ -155,13 +157,19 @@ async fn durable_pending_work_and_deduplication() -> Result<()> {
         3
     );
     for _ in 0..2 {
-        sqlx::query("INSERT INTO notifications(device,id,repository,updated_at,note) VALUES($1,'thread:updated','owner/repo',now(),'{}') ON CONFLICT DO NOTHING").bind(device).execute(&db).await?;
+        sqlx::query("INSERT INTO notifications(device,id,repository,updated_at,note) VALUES($1,'thread:updated','owner/repo',unixepoch(),'{}') ON CONFLICT DO NOTHING").bind(device).execute(&db).await?;
     }
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM notifications")
             .fetch_one(&db)
             .await?,
         1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, Value>("SELECT note FROM notifications")
+            .fetch_one(&db)
+            .await?,
+        json!({})
     );
     sqlx::query("DELETE FROM tracked WHERE device=$1")
         .bind(device)
@@ -174,8 +182,142 @@ async fn durable_pending_work_and_deduplication() -> Result<()> {
         0
     );
     db.close().await;
-    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
-        .execute(&admin)
+    drop(lock);
+    let (db, lock) = open_database(&path).await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("PRAGMA user_version")
+            .fetch_one(&db)
+            .await?,
+        1
+    );
+    assert!(
+        sqlx::query_scalar::<_, i64>("SELECT next_poll_at FROM inbox_limits WHERE user_id=42")
+            .fetch_one(&db)
+            .await?
+            > Utc::now().timestamp()
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM devices")
+            .fetch_one(&db)
+            .await?,
+        device
+    );
+    db.close().await;
+    drop(lock);
+    std::fs::remove_dir_all(directory)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn sqlite_roundtrips_and_bounded_notification_work() -> Result<()> {
+    let directory = env::temp_dir().join(format!("gitinuum-{}", Uuid::new_v4()));
+    std::fs::create_dir(&directory)?;
+    let path = directory.join("relay.sqlite3");
+    let (db, lock) = open_database(&path).await?;
+    let device = Uuid::new_v4();
+    sqlx::query("INSERT INTO devices(id) VALUES($1)")
+        .bind(device)
+        .execute(&db)
         .await?;
+    sqlx::query("UPDATE devices SET app_credentials=$2,app_nonce=$3 WHERE id=$1")
+        .bind(device)
+        .bind(vec![1u8, 2, 3])
+        .bind(vec![4u8; 12])
+        .execute(&db)
+        .await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, Vec<u8>>("SELECT app_credentials FROM devices")
+            .fetch_one(&db)
+            .await?,
+        vec![1, 2, 3]
+    );
+    sqlx::query("INSERT INTO tracked(device,repository,repository_id,installation_id) VALUES($1,'owner/repo',1,2)")
+        .bind(device).execute(&db).await?;
+    let counts = json!({"stars":10,"issues":3,"pullRequests":7});
+    sqlx::query("UPDATE tracked SET counts=$3 WHERE device=$1 AND repository=$2")
+        .bind(device)
+        .bind("owner/repo")
+        .bind(&counts)
+        .execute(&db)
+        .await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, Value>("SELECT counts FROM tracked")
+            .fetch_one(&db)
+            .await?,
+        counts
+    );
+    let work = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO pending(device,repository,kind,id) VALUES($1,'owner/repo','notifications',$2)",
+    )
+    .bind(device)
+    .bind(work)
+    .execute(&db)
+    .await?;
+    let mut tx = db.begin().await?;
+    assert!(
+        finish_notification_work(&mut tx, device, &[work], false)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.1))?
+    );
+    tx.commit().await?;
+    // The single retry survives restart.
+    db.close().await;
+    drop(lock);
+    let (db, lock) = open_database(&path).await?;
+    let mut tx = db.begin().await?;
+    assert!(
+        !finish_notification_work(&mut tx, device, &[work], false)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.1))?
+    );
+    tx.commit().await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pending")
+            .fetch_one(&db)
+            .await?,
+        0
+    );
+    let names = vec!["owner/repo"];
+    sqlx::query("DELETE FROM tracked WHERE device=$1 AND repository NOT IN (SELECT value FROM json_each($2))")
+        .bind(device).bind(sqlx::types::Json(&names)).execute(&db).await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM tracked")
+            .fetch_one(&db)
+            .await?,
+        1
+    );
+    let mut tx = db.begin().await?;
+    sqlx::query("INSERT INTO deliveries(id) VALUES('rolled-back')")
+        .execute(&mut *tx)
+        .await?;
+    tx.rollback().await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM deliveries")
+            .fetch_one(&db)
+            .await?,
+        0
+    );
+    sqlx::query("UPDATE devices SET initialized=true WHERE id=$1")
+        .bind(device)
+        .execute(&db)
+        .await?;
+    assert!(
+        sqlx::query_scalar::<_, bool>("SELECT initialized FROM devices")
+            .fetch_one(&db)
+            .await?
+    );
+    sqlx::query("DELETE FROM devices WHERE id=$1")
+        .bind(device)
+        .execute(&db)
+        .await?;
+    assert!(sqlx::query("INSERT INTO tracked(device,repository,repository_id,installation_id) VALUES($1,'owner/repo',1,2)")
+        .bind(device).execute(&db).await.is_err());
+    // Unknown schema versions must be preserved, never rebuilt.
+    sqlx::query("PRAGMA user_version=2").execute(&db).await?;
+    db.close().await;
+    drop(lock);
+    assert!(open_database(&path).await.is_err());
+    std::fs::remove_dir_all(directory)?;
     Ok(())
 }

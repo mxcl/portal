@@ -16,8 +16,8 @@ reqwest = { version = "0.13.4", default-features = false, features = ["http2", "
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
-sqlx = { version = "0.9.0", default-features = false, features = ["chrono", "json", "postgres", "runtime-tokio", "tls-rustls", "uuid"] }
-tokio = { version = "1.47", features = ["macros", "net", "rt-multi-thread", "signal"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["json", "sqlite", "runtime-tokio", "uuid"] }
+tokio = { version = "1.47", features = ["macros", "net", "rt-multi-thread", "signal", "sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2.5", features = ["serde"] }

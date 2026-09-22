@@ -8,7 +8,8 @@ credentials, billing, hooks, iOS app, or deployment is reused.
 
 ## Configure
 
-Create a separate PostgreSQL database and copy `.env.example` to `.env`. Set the
+Copy `.env.example` to `.env`. SQLite creates the database at `DATABASE_PATH`
+(default: `gitinuum.sqlite3` in the working directory). Set the
 GitHub, OAuth, encryption and APNs credentials. Keep the database and environment
 file private; the encryption key must survive deployments. PEM values accept
 literal `\n` separators. Both APNs environments use the fixed topic
@@ -44,8 +45,19 @@ cargo run --locked
 `GET /heartbeat` returns 200. Schema creation runs on startup. Use Rust 1.94 or
 newer. For production, build with `cargo build --release --locked`, install the
 binary and service under a dedicated user, and configure an HTTPS reverse proxy.
+The systemd service creates a private `/var/lib/gitinuum-relay` state directory.
+Set `DATABASE_PATH=/var/lib/gitinuum-relay/gitinuum.sqlite3` in
+`/etc/gitinuum-relay.env`; no database server is required on atlas.
 The included nginx example needs your hostname and TLS certificate settings.
 Do not log OAuth callback query strings or authorization headers.
+
+SQLite uses WAL, full durability, foreign keys, and transactional schema versioning.
+Run one relay process per database file; a file lock rejects a second process.
+Refreshes are serialized, but network requests never hold a database transaction,
+so webhooks can still record pending work. Back up a running database with
+`sqlite3 /var/lib/gitinuum-relay/gitinuum.sqlite3 ".backup '/path/to/backup.sqlite3'"`;
+do not copy only the main database file while it is running. Preserve the
+encryption key alongside backups. Existing PostgreSQL data is not imported.
 
 No production service is changed by this repository's build or tests.
 
@@ -98,15 +110,15 @@ this device's relay session before removing its Keychain credential.
 
 ```sh
 cargo test --locked
-TEST_DATABASE_URL=postgres://localhost/disposable cargo test --locked -- --ignored
 cd ..
 swift test
 python3 scripts/test-push-signing.py
 ```
 
-The PostgreSQL test creates and removes its own randomly named schema. It checks
-pending-work coalescing, stale acknowledgments, deduplication and cascading
-repository removal. A live smoke test additionally needs a configured relay,
+SQLite tests use temporary files with no external services. They check restart
+durability, process locking, pending-work coalescing, stale acknowledgments,
+bounded retries, deduplication, JSON/credential storage, foreign keys and schema
+version rejection. A live smoke test additionally needs a configured relay,
 signed helper, and a GitHub repository: push a branch, star it, create an issue
 and PR, then cause an inbox notification. Verify only the relevant paths run,
 local work stays unchanged, and quiet time produces no GitHub requests.

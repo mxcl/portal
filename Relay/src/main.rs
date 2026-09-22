@@ -19,10 +19,16 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::Sha256;
-use sqlx::{PgPool, Row, postgres::PgPoolOptions};
+use sqlx::{
+    Row, SqlitePool,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+};
 use std::{
     collections::{HashMap, HashSet},
     env,
+    fs::{File, OpenOptions},
+    os::unix::fs::OpenOptionsExt,
+    path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
@@ -33,10 +39,10 @@ type WebResult<T> = Result<T, WebError>;
 type HmacSha256 = Hmac<Sha256>;
 #[derive(Clone)]
 struct AppState {
-    db: PgPool,
+    db: SqlitePool,
     http: Client,
     config: Arc<Config>,
-    sync_slots: Arc<tokio::sync::Semaphore>,
+    sync_lock: Arc<tokio::sync::Mutex<()>>,
 }
 struct Config {
     webhook_secret: String,
@@ -95,36 +101,96 @@ impl Config {
         })
     }
 }
+async fn open_database(path: &Path) -> Result<(SqlitePool, File)> {
+    // Canonicalize aliases so two processes cannot accidentally lock different sidecar files.
+    let path = if path.exists() {
+        path.canonicalize()?
+    } else {
+        path.parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."))
+            .canonicalize()?
+            .join(path.file_name().context("Database filename is required")?)
+    };
+    let mut lock_path = path.as_os_str().to_os_string();
+    lock_path.push(".lock");
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(lock_path)?;
+    lock.try_lock()
+        .context("Another relay is using this SQLite database")?;
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(&path)?;
+    let db = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            SqliteConnectOptions::new()
+                .filename(path)
+                .foreign_keys(true)
+                .journal_mode(SqliteJournalMode::Wal)
+                .synchronous(SqliteSynchronous::Full)
+                .busy_timeout(Duration::from_secs(5)),
+        )
+        .await?;
+    let mut tx = db.begin().await?;
+    let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *tx)
+        .await?;
+    match version {
+        0 => {
+            let tables: i64 = sqlx::query_scalar("SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+                .fetch_one(&mut *tx).await?;
+            anyhow::ensure!(
+                tables == 0,
+                "Refusing to initialize an unrecognized SQLite database"
+            );
+            sqlx::raw_sql(include_str!("../schema.sql"))
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("PRAGMA user_version=1")
+                .execute(&mut *tx)
+                .await?;
+        }
+        1 => {}
+        _ => anyhow::bail!("Unsupported SQLite schema version: {version}"),
+    }
+    tx.commit().await?;
+    Ok((db, lock))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
-    let db = PgPoolOptions::new()
-        .max_connections(10)
-        .connect(&required("DATABASE_URL")?)
-        .await?;
-    sqlx::raw_sql(include_str!("../schema.sql"))
+    let path =
+        PathBuf::from(env::var("DATABASE_PATH").unwrap_or_else(|_| "gitinuum.sqlite3".into()));
+    let (db, _database_lock) = open_database(&path).await?;
+    sqlx::query("DELETE FROM oauth_states WHERE expires_at < unixepoch()")
         .execute(&db)
         .await?;
-    sqlx::query("DELETE FROM oauth_states WHERE expires_at < now()")
+    sqlx::query("DELETE FROM devices WHERE user_id IS NULL AND created_at < unixepoch() - 86400")
         .execute(&db)
         .await?;
-    sqlx::query(
-        "DELETE FROM devices WHERE user_id IS NULL AND created_at < now() - interval '1 day'",
-    )
-    .execute(&db)
-    .await?;
-    sqlx::query("DELETE FROM deliveries WHERE created_at < now() - interval '30 days'")
+    sqlx::query("DELETE FROM deliveries WHERE created_at < unixepoch() - 2592000")
         .execute(&db)
         .await?;
-    sqlx::query("DELETE FROM notifications WHERE updated_at < now() - interval '30 days'")
+    sqlx::query("DELETE FROM notifications WHERE updated_at < unixepoch() - 2592000")
         .execute(&db)
         .await?;
     let state = AppState {
         db,
         config: Arc::new(Config::from_env()?),
-        sync_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+        sync_lock: Arc::new(tokio::sync::Mutex::new(())),
         http: Client::builder()
             .timeout(Duration::from_secs(20))
             .redirect(reqwest::redirect::Policy::none())
@@ -399,7 +465,7 @@ struct Hello {
 }
 async fn hello(State(state): State<AppState>, Query(input): Query<Hello>) -> WebResult<Response> {
     let row = sqlx::query(
-        "DELETE FROM oauth_states WHERE id=$1 AND expires_at>now() RETURNING device,kind",
+        "DELETE FROM oauth_states WHERE id=$1 AND expires_at>unixepoch() RETURNING device,kind",
     )
     .bind(input.state)
     .fetch_optional(&state.db)
@@ -468,11 +534,15 @@ async fn ack(
     Json(ids): Json<Vec<Uuid>>,
 ) -> WebResult<StatusCode> {
     let device = authenticated(&state, &headers).await?;
-    sqlx::query("DELETE FROM pending WHERE device=$1 AND kind='fetch' AND id=ANY($2)")
-        .bind(device)
-        .bind(ids)
-        .execute(&state.db)
-        .await?;
+    let mut tx = state.db.begin().await?;
+    for id in ids {
+        sqlx::query("DELETE FROM pending WHERE device=$1 AND kind='fetch' AND id=$2")
+            .bind(device)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 fn valid_repository(name: &str) -> bool {
@@ -640,11 +710,6 @@ async fn sync(
     Json(input): Json<SyncInput>,
 ) -> WebResult<Json<Value>> {
     let device = authenticated(&state, &headers).await?;
-    let _slot = state
-        .sync_slots
-        .acquire()
-        .await
-        .map_err(WebError::internal)?;
     if input.repositories.len() > 1000
         || !input.repositories.iter().all(|s| valid_repository(s))
         || !["production", "sandbox"].contains(&input.environment.as_str())
@@ -654,20 +719,15 @@ async fn sync(
     {
         return Err(WebError::bad_request("Invalid device registration"));
     }
-    // Session-scoped advisory lock also serializes refresh-token rotation. Independent devices proceed concurrently.
-    let mut lock = state.db.begin().await?;
-    let key = i64::from_be_bytes(device.as_bytes()[..8].try_into().unwrap());
-    if !sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_xact_lock($1)")
-        .bind(key)
-        .fetch_one(&mut *lock)
-        .await?
-    {
-        return Err(WebError(
+    // ponytail: one refresh at a time; use keyed locks if multi-user throughput needs it.
+    // Webhooks still enqueue work while network requests are in flight; no SQL transaction is held.
+    let _refresh = state.sync_lock.try_lock().map_err(|_| {
+        WebError(
             StatusCode::TOO_MANY_REQUESTS,
             "Refresh in progress".into(),
             Some(2),
-        ));
-    }
+        )
+    })?;
     sqlx::query("UPDATE devices SET token=$2,environment=$3 WHERE id=$1")
         .bind(device)
         .bind(&input.token)
@@ -682,14 +742,14 @@ async fn sync(
         .collect();
     let accessible = accessible_repositories(&state, &app_token, &requested).await?;
     let names = accessible.keys().cloned().collect::<Vec<_>>();
-    sqlx::query("DELETE FROM tracked WHERE device=$1 AND NOT(repository=ANY($2))")
+    sqlx::query("DELETE FROM tracked WHERE device=$1 AND repository NOT IN (SELECT value FROM json_each($2))")
         .bind(device)
-        .bind(&names)
+        .bind(sqlx::types::Json(&names))
         .execute(&state.db)
         .await?;
-    sqlx::query("DELETE FROM notifications WHERE device=$1 AND NOT(repository=ANY($2))")
+    sqlx::query("DELETE FROM notifications WHERE device=$1 AND repository NOT IN (SELECT value FROM json_each($2))")
         .bind(device)
-        .bind(&names)
+        .bind(sqlx::types::Json(&names))
         .execute(&state.db)
         .await?;
     for (name, repo) in &accessible {
@@ -794,7 +854,7 @@ async fn sync(
         "errors":errors,"installationURL":format!("https://github.com/apps/{}/installations/new",state.config.github_app_slug)}),
     ))
 }
-async fn queue(db: &PgPool, device: Uuid, repo: &str, kind: &str) -> WebResult<()> {
+async fn queue(db: &SqlitePool, device: Uuid, repo: &str, kind: &str) -> WebResult<()> {
     sqlx::query("INSERT INTO pending(device,repository,kind,id,attempts) VALUES($1,$2,$3,$4,1) ON CONFLICT(device,repository,kind) DO UPDATE SET id=EXCLUDED.id,attempts=EXCLUDED.attempts")
         .bind(device).bind(repo).bind(kind).bind(Uuid::new_v4()).execute(db).await?;
     Ok(())
@@ -836,35 +896,25 @@ async fn refresh_notifications(
         .fetch_one(&state.db)
         .await?;
     let user: i64 = row.get("user_id");
-    let mut inbox_lock = state.db.begin().await?;
-    if !sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_xact_lock($1)")
-        .bind(user)
-        .fetch_one(&mut *inbox_lock)
-        .await?
-    {
-        return Ok(Some(60));
-    }
     sqlx::query("INSERT INTO inbox_limits(user_id) VALUES($1) ON CONFLICT DO NOTHING")
         .bind(user)
         .execute(&state.db)
         .await?;
-    let next: Option<DateTime<Utc>> =
+    let next: Option<i64> =
         sqlx::query_scalar("SELECT next_poll_at FROM inbox_limits WHERE user_id=$1")
             .bind(user)
             .fetch_one(&state.db)
             .await?;
     if let Some(next) = next {
-        let seconds = (next - Utc::now()).num_seconds();
+        let seconds = next - Utc::now().timestamp();
         if seconds >= 0 {
             return Ok(Some(seconds as u64 + 1));
         }
     }
-    sqlx::query(
-        "UPDATE inbox_limits SET next_poll_at=now()+interval '60 seconds' WHERE user_id=$1",
-    )
-    .bind(user)
-    .execute(&state.db)
-    .await?;
+    sqlx::query("UPDATE inbox_limits SET next_poll_at=unixepoch()+60 WHERE user_id=$1")
+        .bind(user)
+        .execute(&state.db)
+        .await?;
     let credential = token(state, device, "inbox").await?;
     let baseline = !row.get::<bool, _>("initialized");
     let modified: Option<String> = row.get("last_modified");
@@ -884,8 +934,11 @@ async fn refresh_notifications(
         let response = match checked(request.send().await?).await {
             Ok(response) => response,
             Err(error) => {
-                sqlx::query("UPDATE inbox_limits SET next_poll_at=now()+$2*interval '1 second' WHERE user_id=$1")
-                    .bind(user).bind(error.2.unwrap_or(60) as f64).execute(&state.db).await?;
+                sqlx::query("UPDATE inbox_limits SET next_poll_at=unixepoch()+$2 WHERE user_id=$1")
+                    .bind(user)
+                    .bind(error.2.unwrap_or(60).min(i64::MAX as u64) as i64)
+                    .execute(&state.db)
+                    .await?;
                 return Err(error);
             }
         };
@@ -897,13 +950,11 @@ async fn refresh_notifications(
             .unwrap_or(60)
             .max(1);
         // Persist the throttle even when a later page or decode fails.
-        sqlx::query(
-            "UPDATE inbox_limits SET next_poll_at=now()+$2*interval '1 second' WHERE user_id=$1",
-        )
-        .bind(user)
-        .bind(interval as f64)
-        .execute(&state.db)
-        .await?;
+        sqlx::query("UPDATE inbox_limits SET next_poll_at=unixepoch()+$2 WHERE user_id=$1")
+            .bind(user)
+            .bind(interval)
+            .execute(&state.db)
+            .await?;
         if page == 1 {
             last_modified = response
                 .headers()
@@ -930,7 +981,7 @@ async fn refresh_notifications(
                 .and_then(|s| s.parse::<DateTime<Utc>>().ok())
                 .ok_or_else(|| WebError::internal("Invalid notification timestamp"))?;
             let result = sqlx::query("INSERT INTO notifications(device,id,repository,updated_at,note) VALUES($1,$2,$3,$4,$5) ON CONFLICT(device,id) DO NOTHING")
-                .bind(device).bind(note["id"].as_str()).bind(note["repository"].as_str()).bind(updated).bind(&note).execute(&mut *tx).await?;
+                .bind(device).bind(note["id"].as_str()).bind(note["repository"].as_str()).bind(updated.timestamp()).bind(&note).execute(&mut *tx).await?;
             inserted = inserted || result.rows_affected() > 0;
         }
     }
@@ -941,36 +992,47 @@ async fn refresh_notifications(
     .bind(last_modified)
     .execute(&mut *tx)
     .await?;
-    sqlx::query("DELETE FROM pending WHERE device=$1 AND id=ANY($2) AND (attempts>=1 OR $3)")
-        .bind(device)
-        .bind(work)
-        .bind(baseline || inserted)
-        .execute(&mut *tx)
-        .await?;
-    // A webhook may arrive before GitHub indexes its inbox notification. Allow one
-    // conditional follow-up, at GitHub's interval, without creating an idle poll loop.
-    let retry =
-        sqlx::query("UPDATE pending SET attempts=attempts+1 WHERE device=$1 AND id=ANY($2)")
-            .bind(device)
-            .bind(work)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected()
-            > 0;
+    let retry = finish_notification_work(&mut tx, device, work, baseline || inserted).await?;
     tx.commit().await?;
     if retry {
-        let next: Option<DateTime<Utc>> =
+        let next: Option<i64> =
             sqlx::query_scalar("SELECT next_poll_at FROM inbox_limits WHERE user_id=$1")
                 .bind(user)
                 .fetch_one(&state.db)
                 .await?;
         return Ok(Some(
-            next.map(|t| (t - Utc::now()).num_seconds().max(1) as u64 + 1)
+            next.map(|t| (t - Utc::now().timestamp()).max(1) as u64 + 1)
                 .unwrap_or(60),
         ));
     }
     Ok(None)
 }
+// A webhook may precede inbox indexing. Retry an empty result once, without an idle poll loop.
+async fn finish_notification_work(
+    tx: &mut sqlx::SqliteConnection,
+    device: Uuid,
+    work: &[Uuid],
+    complete: bool,
+) -> WebResult<bool> {
+    let mut retry = false;
+    for id in work {
+        sqlx::query("DELETE FROM pending WHERE device=$1 AND id=$2 AND (attempts>=1 OR $3)")
+            .bind(device)
+            .bind(id)
+            .bind(complete)
+            .execute(&mut *tx)
+            .await?;
+        retry |= sqlx::query("UPDATE pending SET attempts=attempts+1 WHERE device=$1 AND id=$2")
+            .bind(device)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+            > 0;
+    }
+    Ok(retry)
+}
+
 fn event_work(event: &str, payload: &Value) -> Vec<&'static str> {
     let mut work = Vec::new();
     if (event == "push"

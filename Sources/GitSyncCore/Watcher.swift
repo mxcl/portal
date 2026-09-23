@@ -16,14 +16,24 @@ public struct Watcher {
         for repository in repositories {
             guard let common = repository.commonDirectory else { continue }
             urls.append(common)
+            #if !os(macOS)
+            // inotify is nonrecursive; FSEvents already covers these descendants.
             let refs = common.appendingPathComponent("refs", isDirectory: true)
             if let enumerator = FileManager.default.enumerator(at: refs, includingPropertiesForKeys: [.isDirectoryKey]) {
                 for case let url as URL in enumerator where (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
                     urls.append(url)
                 }
             }
+            #endif
         }
-        paths = Array(Set(urls.map(\.path)))
+        // The first path is the discovery root; the remainder are Git metadata.
+        // Foundation standardizes /private/var back to /var; FSEvents uses real paths.
+        let resolved = urls.map { url -> String in
+            guard let path = realpath(url.path, nil) else { return url.path }
+            defer { free(path) }
+            return String(cString: path)
+        }
+        paths = [resolved[0]] + Set(resolved.dropFirst()).sorted()
     }
 
     // ponytail: the native watch is recreated to observe session state; paths stay cached between events.

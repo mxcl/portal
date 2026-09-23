@@ -160,6 +160,14 @@ that single full-duplex stream. The embedded menu helper starts one such process
 per host that has at least one enabled project. macOS uses FSEvents and Linux uses
 inotify only to wake the engine; every wake re-reads durable state through Git.
 
+On macOS, sync watches wake for Git metadata, immediate project-folder changes,
+and repository initialization, rather than ordinary worktree/build-file writes.
+Dropped or coalesced events still request a scan. The existing five-minute full
+reconciliation repairs watcher gaps and retries opt-in checkout fast-forwards
+after a dirty checkout becomes clean. Selected sessions exclude disabled projects
+before invoking Git. Checkout-cleanliness reads never refresh the index, and are
+only needed when publishing updates; unchanged refs require no working-tree scan.
+
 Only immediate child directories are projects. The child directory name is
 the pairing key for this first version. A session may carry an explicit project
 allow-list; names outside it are neither advertised nor accepted. A catalog

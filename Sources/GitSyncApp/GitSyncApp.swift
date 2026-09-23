@@ -1249,7 +1249,16 @@ private struct ProjectRow: View {
         HStack(spacing: 8) {
             Image(systemName: "folder")
                 .foregroundStyle(.secondary)
-            Text(name).lineLimit(1)
+            HStack(spacing: 3) {
+                Text(name).lineLimit(1)
+                if let folder = model.configuration.folders.first(where: { $0.name == name }),
+                   !folder.availableLocally {
+                    Image(systemName: "globe")
+                        .font(.caption2.weight(.light))
+                        .foregroundStyle(Color.secondary.opacity(0.5))
+                        .accessibilityHidden(true)
+                }
+            }
             Spacer(minLength: 4)
             if let counts = model.githubCounts(for: name),
                counts.stars > 0 || counts.pullRequests > 0 || counts.issues > 0 {
@@ -1275,12 +1284,6 @@ private struct ProjectRow: View {
                 }
                 .font(.caption).foregroundStyle(.secondary).fixedSize()
                 .help(counts.summary)
-            }
-            if let folder = model.configuration.folders.first(where: { $0.name == name }) {
-                if folder.availableLocally { Circle().fill(.primary).frame(width: 6, height: 6) }
-                ForEach(model.configuration.hosts.filter { folder.availableHosts.contains($0.id) }) { _ in
-                    Circle().stroke(.secondary, lineWidth: 1).frame(width: 6, height: 6)
-                }
             }
         }
         .help(projectSummary)

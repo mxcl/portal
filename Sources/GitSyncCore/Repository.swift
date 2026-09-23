@@ -157,14 +157,15 @@ public struct Repository: Equatable {
         self.url = url
     }
 
-    public static func discover(in root: URL) throws -> [Repository] {
+    public static func discover(in root: URL, including names: Set<String>? = nil) throws -> [Repository] {
         let children = try FileManager.default.contentsOfDirectory(
             at: root, includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         )
         return children.compactMap { child in
             let name = child.lastPathComponent.precomposedStringWithCanonicalMapping
-            guard (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+            guard names?.contains(name) ?? true,
+                  (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
                   Git.succeeds(["-C", child.path, "rev-parse", "--git-dir"]),
                   (try? Validator.project(name)) != nil else { return nil }
             return Repository(name: name, url: child)
@@ -455,7 +456,7 @@ public struct Repository: Equatable {
     func cleanCheckoutRef() -> String? {
         guard let ref = try? Git.text(["-C", url.path, "symbolic-ref", "--quiet", "HEAD"]),
               ref.hasPrefix("refs/heads/"),
-              (try? Git.text(["-C", url.path, "status", "--porcelain", "--untracked-files=normal"]))?.isEmpty == true else {
+              (try? Git.text(["--no-optional-locks", "-C", url.path, "status", "--porcelain", "--untracked-files=normal"]))?.isEmpty == true else {
             return nil
         }
         return ref

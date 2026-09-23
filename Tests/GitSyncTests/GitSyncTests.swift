@@ -529,6 +529,46 @@ func preflightOverlap() {
                           remote: ["shared", "other", "a", "shādoe"]) == ["a", "shared", "shādoe"])
 }
 
+@Test("selected discovery skips disabled directories before invoking Git")
+func selectedDiscovery() throws {
+    let fixture = try Fixture()
+    let excluded = fixture.a.appendingPathComponent("excluded")
+    try FileManager.default.createDirectory(at: excluded, withIntermediateDirectories: true)
+    let trace = fixture.root.appendingPathComponent("discovery.trace")
+    let previous = ProcessInfo.processInfo.environment["GIT_TRACE2_EVENT"]
+    setenv("GIT_TRACE2_EVENT", trace.path, 1)
+    defer {
+        if let previous { setenv("GIT_TRACE2_EVENT", previous, 1) }
+        else { unsetenv("GIT_TRACE2_EVENT") }
+    }
+    #expect(try Repository.discover(in: fixture.a, including: ["project"]).map(\.name) == ["project"])
+    #expect(try Repository.discover(in: fixture.a, including: []).isEmpty)
+    #expect(try Repository.discover(in: fixture.a, including: ["missing"]).isEmpty)
+    let commands = try Data(contentsOf: trace).split(separator: 10).compactMap { line -> [String]? in
+        let event = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any]
+        return event?["event"] as? String == "start" ? event?["argv"] as? [String] : nil
+    }
+    #expect(commands.count == 1)
+    #expect(commands.first?.contains(where: { $0.hasSuffix("/project") }) == true)
+}
+
+@Test("checkout cleanliness reads do not refresh the index and wake watchers")
+func cleanCheckoutDoesNotWriteIndex() throws {
+    let fixture = try Fixture()
+    let url = fixture.a.appendingPathComponent("project")
+    let repository = Repository(name: "project", url: url)
+    let index = url.appendingPathComponent(".git/index")
+    let before = try Data(contentsOf: index)
+    // Same contents, changed stat data: ordinary status would refresh the index.
+    try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 100)],
+                                          ofItemAtPath: url.appendingPathComponent("file.txt").path)
+    #expect(repository.cleanCheckoutRef() == "refs/heads/main")
+    #expect(try Data(contentsOf: index) == before)
+    try Data("dirty".utf8).write(to: url.appendingPathComponent("file.txt"))
+    #expect(repository.cleanCheckoutRef() == nil)
+    #expect(try Data(contentsOf: index) == before)
+}
+
 @Test("backup preflight requires a writable existing destination")
 func backupPreflight() throws {
     let root = FileManager.default.temporaryDirectory

@@ -219,11 +219,12 @@ public final class SyncSession {
                              excluding excluded: Set<String> = []) throws -> Set<String> {
         lock.lock(); let initialKnown = peerKnown[repository.name]; lock.unlock()
         guard var known = initialKnown else { return [] }
-        let cleanCheckout = syncCheckouts ? repository.cleanCheckoutRef() : nil
-        let updates = try state.updates(machine: machine, repository: repository.name,
+        let stored = try state.updates(machine: machine, repository: repository.name,
                                         refs: repository.sourceRefs(), full: full)
             .filter { !excluded.contains($0.sourceRef) }
-            .map {
+        guard !stored.isEmpty else { return [] }
+        let cleanCheckout = syncCheckouts ? repository.cleanCheckoutRef() : nil
+        let updates = stored.map {
                 RefUpdate(repository: $0.repository, sourceRef: $0.sourceRef,
                           generation: $0.generation, oid: $0.oid,
                           cleanCheckout: $0.sourceRef == cleanCheckout ? true : nil)
@@ -237,7 +238,7 @@ public final class SyncSession {
     }
 
     private func refreshCatalog() throws {
-        let found = try Repository.discover(in: root).filter { includedRepositories?.contains($0.name) ?? true }
+        let found = try Repository.discover(in: root, including: includedRepositories)
         for repository in found { try configureRemote(for: repository) }
         lock.lock(); repositories = Dictionary(uniqueKeysWithValues: found.map { ($0.name, $0) }); lock.unlock()
     }

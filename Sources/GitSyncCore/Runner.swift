@@ -389,9 +389,10 @@ public enum OneShot {
             let destination = try Repository.ensure(name: source.name, in: destinationRoot,
                                                     bare: bareDestination)
             var known = Set(try destination.knownOIDs())
-            let cleanCheckout = syncCheckouts ? source.cleanCheckoutRef() : nil
-            for stored in try state.updates(machine: machine, repository: source.name,
-                                            refs: source.sourceRefs(), full: full) {
+            let updates = try state.updates(machine: machine, repository: source.name,
+                                            refs: source.sourceRefs(), full: full)
+            let cleanCheckout = syncCheckouts && !updates.isEmpty ? source.cleanCheckoutRef() : nil
+            for stored in updates {
                 let update = RefUpdate(repository: stored.repository, sourceRef: stored.sourceRef,
                                        generation: stored.generation, oid: stored.oid,
                                        cleanCheckout: stored.sourceRef == cleanCheckout ? true : nil)

@@ -30,6 +30,7 @@ extension TextViewController {
         super.loadView()
 
         scrollView = NSScrollView()
+        scrollView.usesPredominantAxisScrolling = true
         scrollView.documentView = textView
 
         gutterView = GutterView(

@@ -95,6 +95,7 @@ func editorHorizontalScrolling() throws {
         controller.textView.updateFrameIfNeeded()
     }
     let scroll = try #require(controller.scrollView)
+    #expect(scroll.usesPredominantAxisScrolling)
     #expect(controller.textView.frame.width > scroll.contentSize.width)
     var destination = scroll.contentView.bounds
     destination.origin.x = controller.textView.frame.maxX

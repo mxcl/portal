@@ -123,11 +123,12 @@ struct GraphBranchLabel: Sendable {
         guard length > 8 else { return Path() }
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .kern: 1.1]
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
-        let ellipsis = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: attributes))
-        let fitted = CTLineCreateTruncatedLine(line, Double(length), .end, ellipsis) ?? ellipsis
-        let textLength = CGFloat(CTLineGetTypographicBounds(fitted, nil, nil, nil))
+        let textLength = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        // Leave a little space at the lower tip. Longer names continue along the
+        // upper tangent rather than losing their suffix to an ellipsis.
+        let textStart = min(textLength, length - 4)
         var result = Path()
-        for run in CTLineGetGlyphRuns(fitted) as! [CTRun] {
+        for run in CTLineGetGlyphRuns(line) as! [CTRun] {
             let count = CTRunGetGlyphCount(run)
             var glyphs = [CGGlyph](repeating: 0, count: count)
             var positions = [CGPoint](repeating: .zero, count: count)
@@ -140,7 +141,7 @@ struct GraphBranchLabel: Sendable {
                 let position = positions[index]
                 let halfAdvance = advances[index].width / 2
                 guard let shape = CTFontCreatePathForGlyph(runFont, glyph, nil) else { continue }
-                let distance = textLength - position.x - halfAdvance
+                let distance = textStart - position.x - halfAdvance
                 let index = min(points.count - 1, max(1, distances.firstIndex { $0 >= distance } ?? points.count - 1))
                 let a = points[index - 1], b = points[index]
                 let span = max(0.0001, distances[index] - distances[index - 1])

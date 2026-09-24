@@ -56,8 +56,9 @@ as an error. The graph renders this Mac's local branches, received peer branches
 and tags. In the graph list, branch names label the lanes, while local and peer
 tags appear as badges beside commit titles. HEAD badges are omitted. Branch names read upwards beside their colored lanes, bending with
 the path, in small, tracked, uppercase system-monospaced text. Names on the same continuous
-lane share a compact label with dot separators; labels truncate only at the end
-of the visible path. Branches in a repository on this Mac are labeled with this Mac’s configured
+lane share a compact label with dot separators. Long names continue along the
+upper tangent instead of truncating; a 4-point gap separates the start of the text
+from the lower tip. Overlaps with other labels are intentional. Branches in a repository on this Mac are labeled with this Mac’s configured
 name (for example, `maliwan/main`), independently of received refs. Only identical
 labels at the same commit are deduplicated; origin and other hosts remain visible. Text starts 5 points below its tip (or the incoming merge dot), with
 8 points of clearance perpendicular to the lane. Glyph spacing is measured along

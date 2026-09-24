@@ -204,3 +204,22 @@ func curvedLabelClearance() {
     #expect(label.boundingRect.maxY < 94)
     #expect(label.boundingRect.minY > 84)
 }
+
+@Test("Long curved labels retain every glyph and leave a gap at the lower tip")
+func longLabelDoesNotEllipsize() {
+    var short = Path()
+    short.move(to: CGPoint(x: 0, y: 0))
+    short.addLine(to: CGPoint(x: 0, y: 50))
+    var long = Path()
+    long.move(to: CGPoint(x: 0, y: 0))
+    long.addLine(to: CGPoint(x: 0, y: 300))
+    let name = "MALIWAN/CODEX/GIT-FOR-EVERYONE"
+    let compact = GraphBranchLabel.outline(name, along: short)
+    let roomy = GraphBranchLabel.outline(name, along: long)
+    var compactElements = 0, roomyElements = 0
+    compact.forEach { _ in compactElements += 1 }
+    roomy.forEach { _ in roomyElements += 1 }
+    #expect(compactElements == roomyElements)
+    #expect(compact.boundingRect.maxY <= 46)
+    #expect(compact.boundingRect.minY < 0)
+}

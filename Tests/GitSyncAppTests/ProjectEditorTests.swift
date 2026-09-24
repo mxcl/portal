@@ -77,6 +77,30 @@ func editorMarkdownHighlighting() throws {
     #expect(theme.colorFor(.textLiteral) == theme.strings.color)
 }
 
+@Test("Editor applies syntax colors with either scroll preview setting", arguments: [false, true])
+@MainActor
+func editorVisibleHighlighting(showMinimap: Bool) async throws {
+    let theme = ProjectEditorView(editor: ProjectEditor()).theme
+    let controller = TextViewController(string: "let value = 42", language: .swift,
+        configuration: .init(appearance: .init(theme: theme,
+            font: .monospacedSystemFont(ofSize: 12, weight: .regular), wrapLines: false), peripherals: .init(showMinimap: showMinimap)),
+        cursorPositions: [])
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+        styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+    window.contentViewController = controller
+    controller.view.layoutSubtreeIfNeeded()
+    controller.textView.layoutManager.layoutLines()
+    controller.textView.updateFrameIfNeeded()
+    let deadline = Date().addingTimeInterval(2)
+    func keywordColor() -> NSColor? {
+        controller.textView.textStorage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+    }
+    while keywordColor() != theme.keywords.color && Date() < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(keywordColor() == theme.keywords.color)
+}
+
 @Test("Unwrapped editor can scroll horizontally to the end of a long line")
 @MainActor
 func editorHorizontalScrolling() throws {

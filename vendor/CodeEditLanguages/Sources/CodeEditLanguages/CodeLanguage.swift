@@ -74,9 +74,8 @@ public struct CodeLanguage {
         let installed = Bundle.main.resourceURL?
             .appendingPathComponent("CodeEditLanguages_CodeEditLanguages.bundle")
         let bundle = installed.flatMap { Bundle(url: $0) } ?? Bundle.module
-        // The package explicitly copies a directory named Resources. Using
-        // resourceURL would append Resources twice for a flat SwiftPM bundle.
-        return bundle.bundleURL
+        // Resolve the copied directory in both flat SwiftPM and macOS Contents bundles.
+        return bundle.url(forResource: "Resources", withExtension: nil)
     }()
 
     /// A set of aditional identifiers to use for things like shebang matching.
@@ -90,7 +89,7 @@ public struct CodeLanguage {
 
     internal func queryURL(for highlights: String = "highlights") -> URL? {
         return resourceURL?
-            .appendingPathComponent("Resources/tree-sitter-\(tsName)/\(highlights).scm")
+            .appendingPathComponent("tree-sitter-\(tsName)/\(highlights).scm")
     }
 
     /// Gets the TSLanguage from `tree-sitter`

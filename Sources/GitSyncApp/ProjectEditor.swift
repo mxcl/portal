@@ -287,7 +287,8 @@ struct ProjectEditorView: View {
                                  language: CodeLanguage.detectLanguageFrom(url: URL(fileURLWithPath: path)),
                                  configuration: .init(appearance: .init(theme: theme,
                                      font: .monospacedSystemFont(ofSize: 12, weight: .regular), wrapLines: false),
-                                     peripherals: .init(showMinimap: showScrollPreview)),
+                                     behavior: .init(reformatAtColumn: 80),
+                                     peripherals: .init(showMinimap: showScrollPreview, showReformattingGuide: true)),
                                  state: $state)
                         .id(path)
                         .accessibilityLabel("Source editor")

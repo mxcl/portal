@@ -95,6 +95,7 @@ func editorHorizontalScrolling() throws {
         controller.textView.updateFrameIfNeeded()
     }
     let scroll = try #require(controller.scrollView)
+    #expect(scroll is EditorScrollView)
     #expect(scroll.usesPredominantAxisScrolling)
     #expect(controller.textView.frame.width > scroll.contentSize.width)
     var destination = scroll.contentView.bounds
@@ -104,6 +105,45 @@ func editorHorizontalScrolling() throws {
     #expect(scroll.contentView.bounds.minX > 0)
     let lastCharacter = try #require(controller.textView.layoutManager.rectForOffset(controller.textView.textStorage.length - 2))
     #expect(lastCharacter.maxX <= scroll.contentView.bounds.maxX - controller.textView.textInsets.right + 1)
+}
+
+@Test("Trackpad scrolling stays on its initial axis through drift and momentum")
+@MainActor
+func editorScrollAxisLock() throws {
+    let scroll = EditorScrollView()
+    func send(x: Int32, y: Int32, phase: Int64 = 0, momentum: Int64 = 0) throws -> NSEvent {
+        let cgEvent = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+                                          wheelCount: 2, wheel1: y, wheel2: x, wheel3: 0))
+        cgEvent.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+        cgEvent.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum)
+        let event = try #require(NSEvent(cgEvent: cgEvent))
+        let result = scroll.axisLockedEvent(event)
+        // Filtering must not mutate the event delivered to other responders.
+        #expect(event.scrollingDeltaX == CGFloat(x))
+        #expect(event.scrollingDeltaY == CGFloat(y))
+        return result
+    }
+    // A horizontal start remains horizontal even when the finger drifts vertically.
+    var event = try send(x: 20, y: 5, phase: 1)
+    #expect(event.scrollingDeltaX == 20 && event.scrollingDeltaY == 0)
+    event = try send(x: 5, y: 20, phase: 2)
+    #expect(event.scrollingDeltaX == 5 && event.scrollingDeltaY == 0)
+    _ = try send(x: 0, y: 0, phase: 4)
+    event = try send(x: 5, y: 20, momentum: 1)
+    #expect(event.scrollingDeltaX == 5 && event.scrollingDeltaY == 0)
+    _ = try send(x: 0, y: 0, momentum: 3)
+    // A new gesture can choose the other axis; zero-delta starts don't choose it.
+    _ = try send(x: 0, y: 0, phase: 1)
+    event = try send(x: 5, y: 20, phase: 2)
+    #expect(event.scrollingDeltaX == 0 && event.scrollingDeltaY == 20)
+    event = try send(x: 20, y: 5, phase: 2)
+    #expect(event.scrollingDeltaX == 0 && event.scrollingDeltaY == 5)
+    _ = try send(x: 0, y: 0, phase: 8)
+    event = try send(x: 20, y: 5, phase: 1)
+    #expect(event.scrollingDeltaX == 20 && event.scrollingDeltaY == 0)
+    // Ordinary wheel events keep their native behavior.
+    event = try send(x: 10, y: 20)
+    #expect(event.scrollingDeltaX == 10 && event.scrollingDeltaY == 20)
 }
 
 @Test("Minimap stays fixed throughout a horizontal scroll")

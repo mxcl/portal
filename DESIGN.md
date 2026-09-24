@@ -59,7 +59,9 @@ the path, in small, tracked, uppercase system-monospaced text. Names on the same
 lane share a compact label with dot separators. Long names continue along the
 upper tangent instead of truncating; a 4-point gap separates the start of the text
 from the lower tip. Overlaps with other labels are intentional. Branches in a repository on this Mac are labeled with this Mac’s configured
-name (for example, `maliwan/main`), independently of received refs. Only identical
+name (for example, `maliwan/main`), independently of received refs. Remote
+repositories use the selected host’s name, and backup histories use the snapshot’s
+source machine. Only identical
 labels at the same commit are deduplicated; origin and other hosts remain visible. Text starts 5 points below its tip (or the incoming merge dot), with
 8 points of clearance perpendicular to the lane. Glyph spacing is measured along
 that parallel curve, with each glyph centered on its tangent. The current machine’s labels appear at the

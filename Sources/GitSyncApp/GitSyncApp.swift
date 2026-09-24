@@ -316,6 +316,20 @@ final class AppModel: ObservableObject {
         return sources(for: name)
     }
 
+    fileprivate var projectSourceMachine: String? {
+        switch projectSource {
+        case .local:
+            return configuration.machine
+        case .host(let id):
+            return configuration.hosts.first { $0.id == id }?.name
+        case .backup(let id):
+            return backupItems.first { $0.name == selectedProjectName }?
+                .snapshots.first { $0.id == id }?.machine
+        case nil:
+            return nil
+        }
+    }
+
     fileprivate func projectSourceLabel(_ source: ProjectSource) -> String {
         switch source {
         case .local:
@@ -1420,7 +1434,7 @@ private struct ProjectHistoryView: View {
                            stagingErrors: model.configuration.hosts.compactMap { host in
                                model.peerStagingErrors[host.id].map { (id: host.id, host: host.name, message: $0) }
                            }, hosts: model.configuration.hosts, localMachine: model.configuration.machine,
-                           sourceMachine: model.projectSource == .local ? model.configuration.machine : nil, selection: Binding(
+                           sourceMachine: model.projectSourceMachine, selection: Binding(
                     get: { model.selectedCommitID }, set: model.selectCommit
                 ))
             } else {

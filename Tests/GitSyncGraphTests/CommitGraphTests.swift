@@ -154,6 +154,7 @@ func hostQualifiedBranchNames() {
     #expect(RepositoryReference.graphNames([local, peer], hosts: [], sourceMachine: "Maliwan") == ["maliwan/main"])
     #expect(RepositoryReference.graphNames([local, diverged], hosts: [], sourceMachine: "Maliwan").count == 2)
     #expect(RepositoryReference.graphNames([local, origin], hosts: []) == ["main", "origin/main"])
+    #expect(RepositoryReference.graphNames([local, origin], hosts: [], sourceMachine: "Pangolin") == ["pangolin/main", "origin/main"])
 }
 
 @Test("Long lanes keep upward labels beside their tip")

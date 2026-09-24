@@ -17,6 +17,12 @@ extension RepositoryReference {
         }
     }
 
+    public var isGraphTag: Bool {
+        if fullName.hasPrefix("refs/tags/") { return true }
+        let parts = fullName.split(separator: "/", maxSplits: 4)
+        return parts.count == 5 && parts[0] == "refs" && parts[1] == "sync" && parts[3] == "tags"
+    }
+
     public var isGraphBranch: Bool {
         fullName.hasPrefix("refs/heads/") ||
             (fullName.hasPrefix("refs/remotes/") && !fullName.hasSuffix("/HEAD"))

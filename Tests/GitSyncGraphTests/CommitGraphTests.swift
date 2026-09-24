@@ -185,3 +185,11 @@ func mergedLaneLabel() {
     long.branchLabels[0].outline.forEach { _ in fullElements += 1 }
     #expect(shortElements == fullElements)
 }
+
+@Test("Tag badges include local and peer tags but exclude branches, stash and expired refs")
+func graphTagReferences() {
+    let names = ["refs/tags/v1", "refs/tags/releases/v2", "refs/sync/pangolin/tags/v1",
+                 "refs/heads/tags/topic", "refs/remotes/origin/main", "refs/sync/pangolin/stash",
+                 "refs/sync/pangolin/expired/123/1/tags/v1", "HEAD"]
+    #expect(names.filter { RepositoryReference(fullName: $0, oid: "a").isGraphTag } == Array(names.prefix(3)))
+}

@@ -1568,7 +1568,17 @@ private struct CommitRow: View {
         HStack(alignment: .top, spacing: 8) {
             BranchGraphRowCanvas(model: graph, rowIndex: rowIndex, commitOID: commit.oid)
             VStack(alignment: .leading, spacing: 4) {
-                Text(commit.subject).lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(commit.subject).lineLimit(1)
+                    ForEach(references.filter(\.isGraphTag)) { tag in
+                        Label(tag.displayName(hosts: hosts), systemImage: "tag")
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
+                            .help(tag.displayName(hosts: hosts))
+                    }
+                }
                 HStack {
                     Text(commit.author)
                     CopyableCommitSHA(sha: commit.oid)

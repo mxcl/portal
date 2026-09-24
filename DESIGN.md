@@ -51,8 +51,8 @@ The sidebar groups active and archived projects. A project is the shared name
 of repositories observed across configured hosts and backup inventory. Rows
 show host presence and operational state without treating normal Git divergence
 as an error. The graph renders this Mac's local branches, received peer branches,
-and tags. In the graph list, only branch names are labeled; HEAD and tag badges
-are omitted. Branch names read upwards beside their colored lanes, bending with
+and tags. In the graph list, branch names label the lanes, while local and peer
+tags appear as badges beside commit titles. HEAD badges are omitted. Branch names read upwards beside their colored lanes, bending with
 the path, in small, tracked, uppercase system-monospaced text. Names on the same continuous
 lane share a compact label with dot separators; labels truncate only at the end
 of the visible path. Branches in a repository on this Mac are labeled with this Mac’s configured

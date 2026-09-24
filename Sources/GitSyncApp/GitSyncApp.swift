@@ -1447,7 +1447,11 @@ private struct CommitList: View {
             snapshot.references.first { $0.fullName == "refs/heads/\(head)" }?.oid
         }
         rows = CommitGraphGenerator.insertingStaging(staging.map(\.graphCommit), into: snapshot.commits)
-        graph = CommitGraphGenerator.generate(commits: rows, headOID: headOID)
+        graph = CommitGraphGenerator.generate(
+            commits: rows, headOID: headOID,
+            branchNames: Dictionary(grouping: snapshot.references.filter(\.isGraphBranch), by: \.oid)
+                .mapValues { $0.map { $0.displayName(hosts: hosts) } }
+        )
     }
 
     var body: some View {
@@ -1559,16 +1563,7 @@ private struct CommitRow: View {
         HStack(alignment: .top, spacing: 8) {
             BranchGraphRowCanvas(model: graph, rowIndex: rowIndex, commitOID: commit.oid)
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 5) {
-                    Text(commit.subject).lineLimit(1)
-                    ForEach(references.prefix(4)) { reference in
-                        Text(reference.displayName(hosts: hosts))
-                            .font(.caption2)
-                            .lineLimit(1)
-                            .padding(.horizontal, 5).padding(.vertical, 2)
-                            .background(.quaternary, in: Capsule())
-                    }
-                }
+                Text(commit.subject).lineLimit(1)
                 HStack {
                     Text(commit.author)
                     CopyableCommitSHA(sha: commit.oid)
@@ -1596,7 +1591,9 @@ private struct CommitRow: View {
                 .allowsHitTesting(false)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityValue(isCurrent ? "Checked out commit" : "")
+        .help(references.filter(\.isGraphBranch).map { $0.displayName(hosts: hosts) }.joined(separator: "\n"))
+        .accessibilityValue(([isCurrent ? "Checked out commit" : ""] +
+            references.filter(\.isGraphBranch).map { $0.displayName(hosts: hosts) }).filter { !$0.isEmpty }.joined(separator: ", "))
     }
 }
 

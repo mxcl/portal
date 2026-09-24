@@ -51,7 +51,14 @@ The sidebar groups active and archived projects. A project is the shared name
 of repositories observed across configured hosts and backup inventory. Rows
 show host presence and operational state without treating normal Git divergence
 as an error. The graph renders this Mac's local branches, received peer branches,
-and tags. When refs coincide, their host labels share a commit marker.
+and tags. In the graph list, only branch names are labeled; HEAD and tag badges
+are omitted. Branch names run vertically beside their colored lanes, bending with
+the path, in small, tracked, uppercase system-monospaced outlines. Coincident refs
+share a label; labels truncate before another named tip or the end of the visible
+path. Full original-case branch names remain in row tooltips and accessibility
+values. `GraphBranchLabel` owns the 9-point type, 1.4-point tracking, and glyph
+outlines; `BranchGraphRowCanvas` owns 24-point lanes, 1.2-point lines, and 0.4-point
+letter strokes. This graph-only typographic treatment leaves other app text native.
 Each available host checkout has a persistent, host-labeled Staging row immediately
 above its own HEAD (or first when HEAD has no visible commit), connected to that HEAD
 by a dashed line, with staged, unstaged, untracked, and conflicted file counts whenever present, or “Clean” when there are no changes.

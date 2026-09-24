@@ -54,7 +54,8 @@ public nonisolated enum CommitGraphGenerator {
     public static func generate(
         commits: [RepositoryCommit],
         headOID: String?,
-        includeStaging: Bool = false
+        includeStaging: Bool = false,
+        branchNames: [String: [String]] = [:]
     ) -> CommitGraphModel {
         var rows = commits
         if includeStaging {
@@ -63,7 +64,9 @@ public nonisolated enum CommitGraphGenerator {
                 author: "", date: .distantPast, message: "Staging"
             ), at: stagingRowIndex(commits: commits, headOID: headOID))
         }
-        return generate(commits: rows, highlighting: .all, headHash: headOID, highlightRootHash: nil)
+        var model = generate(commits: rows, highlighting: .all, headHash: headOID, highlightRootHash: nil)
+        model.branchLabels = GraphBranchLabel.make(names: branchNames, commits: rows, model: model)
+        return model
     }
 
     static func generate(

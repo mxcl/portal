@@ -38,8 +38,8 @@ func wideHistoryLaneSpacing() {
 
     let firstWidth = BranchGraphRowCanvas.graphWidth(model: model, commitOID: tips[0].oid)
     let lastWidth = BranchGraphRowCanvas.graphWidth(model: model, commitOID: tips.last!.oid)
-    #expect(firstWidth == 18)
-    #expect(abs(lastWidth - firstWidth - 17 * 14) < 0.001)
+    #expect(firstWidth == 28)
+    #expect(abs(lastWidth - firstWidth - 17 * 24) < 0.001)
 }
 
 @Test("staging sits immediately above HEAD after other branches, including clean and unborn checkouts")
@@ -107,4 +107,23 @@ func multipleHostStaging() throws {
     }
     let missing = CommitGraphGenerator.insertingStaging([commit("working-changes:missing", ["absent"])], into: rows)
     #expect(missing.first?.oid == "working-changes:missing")
+}
+
+@Test("Branch labels omit HEADs and tags and follow lanes across row boundaries")
+func branchLabels() {
+    let refs = ["refs/heads/main", "refs/remotes/peer/feature", "refs/remotes/peer/HEAD", "HEAD", "refs/tags/v1"]
+        .map { RepositoryReference(fullName: $0, oid: "0") }
+    #expect(refs.filter(\.isGraphBranch).map(\.name) == ["main", "peer/feature"])
+    let commits = (0..<10).map {
+        RepositoryCommit(oid: "\($0)", parents: $0 < 9 ? ["\($0 + 1)"] : [],
+                         author: "", date: .distantPast, message: "")
+    }
+    let model = CommitGraphGenerator.generate(commits: commits, headOID: "0",
+        branchNames: ["0": ["main", "peer/feature"], "5": ["older"]])
+    #expect(model.branchLabels.count == 2)
+    let bounds = model.branchLabels[0].outline.boundingRect
+    #expect(!bounds.isEmpty)
+    #expect(bounds.maxY > BranchGraphRowCanvas.rowHeight)
+    #expect(bounds.maxY < 5.5 * BranchGraphRowCanvas.rowHeight)
+    #expect(bounds.maxX < BranchGraphRowCanvas.laneWidth + BranchGraphRowCanvas.trailingPadding)
 }

@@ -63,6 +63,7 @@ nonisolated struct GraphDot: Sendable {
 }
 
 public nonisolated struct CommitGraphModel: Sendable {
+    var branchLabels: [GraphBranchLabel] = []
     let paths: [GraphPath]
     let links: [GraphLink]
     let dots: [GraphDot]

@@ -60,7 +60,8 @@ lane share a compact label with dot separators; labels truncate only at the end
 of the visible path. Branches in a repository on this Mac are labeled with this Mac’s configured
 name (for example, `maliwan/main`), independently of received refs. Only identical
 labels at the same commit are deduplicated; origin and other hosts remain visible. Text starts 5 points below its tip (or the incoming merge dot), with
-8 points of clearance from the lane. The current machine’s labels appear at the
+8 points of clearance perpendicular to the lane. Glyph spacing is measured along
+that parallel curve, with each glyph centered on its tangent. The current machine’s labels appear at the
 top of each group, followed by other refs; each name reads upwards. Full original-case branch names remain in row tooltips and accessibility
 values. `GraphBranchLabel` owns the 8-point type, 1.1-point tracking, and glyph
 shapes; `BranchGraphRowCanvas` owns 24-point lanes, 1.2-point lines, and filled

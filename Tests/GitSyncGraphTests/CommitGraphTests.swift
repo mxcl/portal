@@ -5,6 +5,7 @@
 import Foundation
 import GitSyncCore
 import Testing
+import SwiftUI
 @testable import GitSyncGraph
 
 @Test("commit graph renders a merge across rows")
@@ -192,4 +193,14 @@ func graphTagReferences() {
                  "refs/heads/tags/topic", "refs/remotes/origin/main", "refs/sync/pangolin/stash",
                  "refs/sync/pangolin/expired/123/1/tags/v1", "HEAD"]
     #expect(names.filter { RepositoryReference(fullName: $0, oid: "a").isGraphTag } == Array(names.prefix(3)))
+}
+
+@Test("Label clearance follows the path normal on horizontal bends")
+func curvedLabelClearance() {
+    var path = Path()
+    path.move(to: CGPoint(x: 0, y: 100))
+    path.addLine(to: CGPoint(x: 100, y: 100))
+    let label = GraphBranchLabel.outline("MALIWAN/MAIN", along: path)
+    #expect(label.boundingRect.maxY < 94)
+    #expect(label.boundingRect.minY > 84)
 }

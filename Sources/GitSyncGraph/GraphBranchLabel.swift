@@ -92,7 +92,7 @@ struct GraphBranchLabel: Sendable {
         }
     }
 
-    private static func outline(_ text: String, along path: Path) -> Path {
+    static func outline(_ text: String, along path: Path) -> Path {
         // Sample the existing curve once; glyphs use its tangent and distance, including lane bends.
         var start: CGPoint?
         path.forEach { element in
@@ -101,17 +101,26 @@ struct GraphBranchLabel: Sendable {
         guard let start else { return Path() }
         // Very short trims can be empty. Keep the actual start rather than skipping
         // to the first sample (which can be several rows down a long history).
-        let points = [start] + (1...128).compactMap {
+        let centerline = [start] + (1...128).compactMap {
             path.trimmedPath(from: 0, to: CGFloat($0) / 128).currentPoint
         }
-        guard points.count > 1 else { return Path() }
+        guard centerline.count > 1 else { return Path() }
+        let font = NSFont.monospacedSystemFont(ofSize: 8, weight: .regular)
+        let offset = 8 + font.capHeight
+        let points = centerline.indices.map { index in
+            let before = centerline[max(0, index - 1)]
+            let after = centerline[min(centerline.count - 1, index + 1)]
+            let dx = after.x - before.x, dy = after.y - before.y
+            let length = max(0.0001, hypot(dx, dy))
+            return CGPoint(x: centerline[index].x + dy / length * offset,
+                           y: centerline[index].y - dx / length * offset)
+        }
         var distances: [CGFloat] = [0]
         for (a, b) in zip(points, points.dropFirst()) {
             distances.append(distances.last! + hypot(b.x - a.x, b.y - a.y))
         }
         let length = distances.last!
         guard length > 8 else { return Path() }
-        let font = NSFont.monospacedSystemFont(ofSize: 8, weight: .regular)
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .kern: 1.1]
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
         let ellipsis = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: attributes))
@@ -122,20 +131,25 @@ struct GraphBranchLabel: Sendable {
             let count = CTRunGetGlyphCount(run)
             var glyphs = [CGGlyph](repeating: 0, count: count)
             var positions = [CGPoint](repeating: .zero, count: count)
+            var advances = [CGSize](repeating: .zero, count: count)
             CTRunGetGlyphs(run, CFRange(), &glyphs)
             CTRunGetPositions(run, CFRange(), &positions)
+            CTRunGetAdvances(run, CFRange(), &advances)
             let runFont = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] as! CTFont
-            for (glyph, position) in zip(glyphs, positions) {
+            for (index, glyph) in glyphs.enumerated() {
+                let position = positions[index]
+                let halfAdvance = advances[index].width / 2
                 guard let shape = CTFontCreatePathForGlyph(runFont, glyph, nil) else { continue }
-                let distance = textLength - position.x
+                let distance = textLength - position.x - halfAdvance
                 let index = min(points.count - 1, max(1, distances.firstIndex { $0 >= distance } ?? points.count - 1))
                 let a = points[index - 1], b = points[index]
                 let span = max(0.0001, distances[index] - distances[index - 1])
                 let t = (distance - distances[index - 1]) / span
                 let angle = atan2(b.y - a.y, b.x - a.x)
-                let transform = CGAffineTransform(translationX: a.x + (b.x - a.x) * t + 8 + font.capHeight,
+                let transform = CGAffineTransform(translationX: a.x + (b.x - a.x) * t,
                                                   y: a.y + (b.y - a.y) * t)
                     .rotated(by: angle - .pi).scaledBy(x: 1, y: -1)
+                    .translatedBy(x: -halfAdvance, y: 0)
                 result.addPath(Path(shape), transform: transform)
             }
         }

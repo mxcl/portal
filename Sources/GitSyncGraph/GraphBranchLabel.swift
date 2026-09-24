@@ -25,7 +25,7 @@ struct GraphBranchLabel: Sendable {
     let outline: Path
     let colorIndex: Int
 
-    static func make(names: [String: [String]], commits: [RepositoryCommit], model: CommitGraphModel) -> [Self] {
+    static func make(names: [String: [String]], commits: [RepositoryCommit], model: CommitGraphModel, preferredHost: String? = nil) -> [Self] {
         let anchors = commits.enumerated().compactMap { row, commit -> (dot: GraphDot, name: String, route: Int)? in
             guard let names = names[commit.oid], !names.isEmpty else { return nil }
             let dot = model.dots[row]
@@ -40,7 +40,12 @@ struct GraphBranchLabel: Sendable {
         return groups.keys.sorted().map { key in
             let group = groups[key]!
             let dot = group[0].dot
-            let name = group.map(\.name).joined(separator: " · ")
+            let names = group.flatMap { $0.name.components(separatedBy: " · ") }
+            let prefix = preferredHost.map { $0.uppercased() + "/" }
+            let ordered = names.filter { prefix.map($0.hasPrefix) ?? false } +
+                names.filter { !(prefix.map($0.hasPrefix) ?? false) }
+            // The last name in an upward-reading line is physically at the top.
+            let name = ordered.reversed().joined(separator: " · ")
             let route = model.paths.indices.contains(key) ? model.paths[key] : nil
             var path = route.map {
                 BranchGraphCanvas.path(for: $0, rowHeight: BranchGraphRowCanvas.rowHeight,
@@ -72,8 +77,15 @@ struct GraphBranchLabel: Sendable {
 
     private static func outline(_ text: String, along path: Path) -> Path {
         // Sample the existing curve once; glyphs use its tangent and distance, including lane bends.
-        let points = (0...128).compactMap {
-            path.trimmedPath(from: 0, to: max(0.000001, CGFloat($0) / 128)).currentPoint
+        var start: CGPoint?
+        path.forEach { element in
+            if case .move(to: let point) = element, start == nil { start = point }
+        }
+        guard let start else { return Path() }
+        // Very short trims can be empty. Keep the actual start rather than skipping
+        // to the first sample (which can be several rows down a long history).
+        let points = [start] + (1...128).compactMap {
+            path.trimmedPath(from: 0, to: CGFloat($0) / 128).currentPoint
         }
         guard points.count > 1 else { return Path() }
         var distances: [CGFloat] = [0]

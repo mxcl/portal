@@ -151,3 +151,17 @@ func hostQualifiedBranchNames() {
     #expect(RepositoryReference.graphNames([local, diverged], hosts: []) == ["feature/topic", "maliwan/feature/topic"])
     #expect(RepositoryReference.graphNames([local], hosts: []) == ["feature/topic"])
 }
+
+@Test("Long lanes keep upward labels beside their tip")
+func longLaneLabelStartsAtTip() {
+    let commits = (0..<500).map {
+        RepositoryCommit(oid: "\($0)", parents: $0 < 499 ? ["\($0 + 1)"] : [],
+                         author: "", date: .distantPast, message: "")
+    }
+    let graph = CommitGraphGenerator.generate(commits: commits, headOID: "0",
+        branchNames: ["0": ["maliwan/master", "origin/master"]])
+    #expect(graph.branchLabels[0].outline.boundingRect.minY < 32)
+    let preferred = CommitGraphGenerator.generate(commits: commits, headOID: "0",
+        branchNames: ["0": ["origin/master", "maliwan/master"]], preferredHost: "maliwan")
+    #expect(preferred.branchLabels[0].outline == graph.branchLabels[0].outline)
+}

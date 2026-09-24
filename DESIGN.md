@@ -57,7 +57,8 @@ the path, in small, tracked, uppercase system-monospaced text. Names on the same
 lane share a compact label with dot separators; labels truncate only at the end
 of the visible path. A host-qualified ref replaces the matching bare branch name
 only when both point to the same commit. Text starts 2 points below its tip, with
-7 points of clearance from the lane. Full original-case branch names remain in row tooltips and accessibility
+7 points of clearance from the lane. The current machine’s labels appear at the
+top of each group, followed by other refs; each name reads upwards. Full original-case branch names remain in row tooltips and accessibility
 values. `GraphBranchLabel` owns the 9-point type, 1.4-point tracking, and glyph
 shapes; `BranchGraphRowCanvas` owns 24-point lanes, 1.2-point lines, and filled
 lettering. This graph-only typographic treatment leaves other app text native.

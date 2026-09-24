@@ -55,7 +55,8 @@ public nonisolated enum CommitGraphGenerator {
         commits: [RepositoryCommit],
         headOID: String?,
         includeStaging: Bool = false,
-        branchNames: [String: [String]] = [:]
+        branchNames: [String: [String]] = [:],
+        preferredHost: String? = nil
     ) -> CommitGraphModel {
         var rows = commits
         if includeStaging {
@@ -65,7 +66,7 @@ public nonisolated enum CommitGraphGenerator {
             ), at: stagingRowIndex(commits: commits, headOID: headOID))
         }
         var model = generate(commits: rows, highlighting: .all, headHash: headOID, highlightRootHash: nil)
-        model.branchLabels = GraphBranchLabel.make(names: branchNames, commits: rows, model: model)
+        model.branchLabels = GraphBranchLabel.make(names: branchNames, commits: rows, model: model, preferredHost: preferredHost)
         return model
     }
 

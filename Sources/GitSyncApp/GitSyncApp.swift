@@ -1405,7 +1405,7 @@ private struct ProjectHistoryView: View {
                            isLoadingPeers: model.isLoadingPeerStaging,
                            stagingErrors: model.configuration.hosts.compactMap { host in
                                model.peerStagingErrors[host.id].map { (id: host.id, host: host.name, message: $0) }
-                           }, hosts: model.configuration.hosts, selection: Binding(
+                           }, hosts: model.configuration.hosts, localMachine: model.configuration.machine, selection: Binding(
                     get: { model.selectedCommitID }, set: model.selectCommit
                 ))
             } else {
@@ -1436,7 +1436,7 @@ private struct CommitList: View {
     let isLoadingPeers: Bool
 
     init(snapshot: RepositorySnapshot, staging: [ProjectStaging], isLoadingPeers: Bool, stagingErrors: [(id: UUID, host: String, message: String)],
-         hosts: [SyncHost], selection: Binding<String?>) {
+         hosts: [SyncHost], localMachine: String, selection: Binding<String?>) {
         self.snapshot = snapshot
         self.staging = staging
         self.stagingErrors = stagingErrors
@@ -1450,7 +1450,8 @@ private struct CommitList: View {
         graph = CommitGraphGenerator.generate(
             commits: rows, headOID: headOID,
             branchNames: Dictionary(grouping: snapshot.references.filter(\.isGraphBranch), by: \.oid)
-                .mapValues { RepositoryReference.graphNames($0, hosts: hosts) }
+                .mapValues { RepositoryReference.graphNames($0, hosts: hosts) },
+            preferredHost: localMachine
         )
     }
 

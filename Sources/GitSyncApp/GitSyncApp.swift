@@ -2060,6 +2060,7 @@ private struct MarkdownDocument: View {
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
+    @AppStorage("editor-show-scroll-preview") private var showScrollPreview = false
 
     var body: some View {
         TabView {
@@ -2100,6 +2101,9 @@ struct SettingsView: View {
                     ))
                     Text("Off by default. When enabled, only matching branches with clean working trees are advanced.")
                         .foregroundStyle(.secondary)
+                }
+                Section("Editor") {
+                    Toggle("Show scroll preview", isOn: $showScrollPreview)
                 }
             }
             .formStyle(.grouped)

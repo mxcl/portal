@@ -250,6 +250,7 @@ struct ProjectFileBrowser: View {
 
 struct ProjectEditorView: View {
     @ObservedObject var editor: ProjectEditor
+    @AppStorage("editor-show-scroll-preview") private var showScrollPreview = false
     @State private var state = SourceEditorState()
     @State private var presentation = "Edit"
     @Environment(\.colorScheme) private var colorScheme
@@ -285,7 +286,8 @@ struct ProjectEditorView: View {
                     SourceEditor($editor.text,
                                  language: CodeLanguage.detectLanguageFrom(url: URL(fileURLWithPath: path)),
                                  configuration: .init(appearance: .init(theme: theme,
-                                     font: .monospacedSystemFont(ofSize: 12, weight: .regular), wrapLines: false)),
+                                     font: .monospacedSystemFont(ofSize: 12, weight: .regular), wrapLines: false),
+                                     peripherals: .init(showMinimap: showScrollPreview)),
                                  state: $state)
                         .id(path)
                         .accessibilityLabel("Source editor")

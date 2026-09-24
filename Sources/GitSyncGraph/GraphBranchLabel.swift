@@ -4,15 +4,17 @@ import GitSyncCore
 import SwiftUI
 
 extension RepositoryReference {
-    public static func graphNames(_ references: [Self], hosts: [SyncHost]) -> [String] {
-        let branches = references.filter(\.isGraphBranch)
-        return branches.filter { branch in
-            guard branch.fullName.hasPrefix("refs/heads/") else { return true }
-            return !branches.contains { peer in
-                peer.oid == branch.oid && peer.fullName.hasPrefix("refs/remotes/") &&
-                    peer.name.split(separator: "/", maxSplits: 1).dropFirst().first.map(String.init) == branch.name
+    public static func graphNames(_ references: [Self], hosts: [SyncHost], sourceMachine: String? = nil) -> [String] {
+        var seen: [String: Set<String>] = [:]
+        return references.filter(\.isGraphBranch).compactMap { branch in
+            let name: String
+            if branch.fullName.hasPrefix("refs/heads/"), let sourceMachine {
+                name = "\(sourceMachine.lowercased())/\(branch.name)"
+            } else {
+                name = branch.displayName(hosts: hosts)
             }
-        }.map { $0.displayName(hosts: hosts) }
+            return seen[branch.oid, default: []].insert(name).inserted ? name : nil
+        }
     }
 
     public var isGraphBranch: Bool {

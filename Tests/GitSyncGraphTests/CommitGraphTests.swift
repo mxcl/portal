@@ -142,14 +142,17 @@ func nearbyBranchLabels() {
     #expect(model.branchLabels.first?.outline == combined.branchLabels.first?.outline)
 }
 
-@Test("Graph names prefer matching host-qualified refs without hiding divergence")
+@Test("Local branches are qualified independently of peer refs")
 func hostQualifiedBranchNames() {
-    let local = RepositoryReference(fullName: "refs/heads/feature/topic", oid: "a")
-    let peer = RepositoryReference(fullName: "refs/remotes/maliwan/feature/topic", oid: "a")
+    let local = RepositoryReference(fullName: "refs/heads/main", oid: "a")
+    let origin = RepositoryReference(fullName: "refs/remotes/origin/main", oid: "a")
+    let peer = RepositoryReference(fullName: "refs/remotes/maliwan/main", oid: "a")
     let diverged = RepositoryReference(fullName: peer.fullName, oid: "b")
-    #expect(RepositoryReference.graphNames([local, peer], hosts: []) == ["maliwan/feature/topic"])
-    #expect(RepositoryReference.graphNames([local, diverged], hosts: []) == ["feature/topic", "maliwan/feature/topic"])
-    #expect(RepositoryReference.graphNames([local], hosts: []) == ["feature/topic"])
+    #expect(RepositoryReference.graphNames([local], hosts: [], sourceMachine: "Maliwan") == ["maliwan/main"])
+    #expect(RepositoryReference.graphNames([local, origin], hosts: [], sourceMachine: "Maliwan") == ["maliwan/main", "origin/main"])
+    #expect(RepositoryReference.graphNames([local, peer], hosts: [], sourceMachine: "Maliwan") == ["maliwan/main"])
+    #expect(RepositoryReference.graphNames([local, diverged], hosts: [], sourceMachine: "Maliwan").count == 2)
+    #expect(RepositoryReference.graphNames([local, origin], hosts: []) == ["main", "origin/main"])
 }
 
 @Test("Long lanes keep upward labels beside their tip")

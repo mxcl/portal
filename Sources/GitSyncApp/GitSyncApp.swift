@@ -1405,7 +1405,8 @@ private struct ProjectHistoryView: View {
                            isLoadingPeers: model.isLoadingPeerStaging,
                            stagingErrors: model.configuration.hosts.compactMap { host in
                                model.peerStagingErrors[host.id].map { (id: host.id, host: host.name, message: $0) }
-                           }, hosts: model.configuration.hosts, localMachine: model.configuration.machine, selection: Binding(
+                           }, hosts: model.configuration.hosts, localMachine: model.configuration.machine,
+                           sourceMachine: model.projectSource == .local ? model.configuration.machine : nil, selection: Binding(
                     get: { model.selectedCommitID }, set: model.selectCommit
                 ))
             } else {
@@ -1429,6 +1430,7 @@ private struct CommitList: View {
     let hosts: [SyncHost]
     @Binding var selection: String?
     private let graph: CommitGraphModel
+    private let sourceMachine: String?
     private let headOID: String?
     private let rows: [RepositoryCommit]
     let staging: [ProjectStaging]
@@ -1436,12 +1438,13 @@ private struct CommitList: View {
     let isLoadingPeers: Bool
 
     init(snapshot: RepositorySnapshot, staging: [ProjectStaging], isLoadingPeers: Bool, stagingErrors: [(id: UUID, host: String, message: String)],
-         hosts: [SyncHost], localMachine: String, selection: Binding<String?>) {
+         hosts: [SyncHost], localMachine: String, sourceMachine: String?, selection: Binding<String?>) {
         self.snapshot = snapshot
         self.staging = staging
         self.stagingErrors = stagingErrors
         self.isLoadingPeers = isLoadingPeers
         self.hosts = hosts
+        self.sourceMachine = sourceMachine
         _selection = selection
         headOID = snapshot.headOID ?? snapshot.head.flatMap { head in
             snapshot.references.first { $0.fullName == "refs/heads/\(head)" }?.oid
@@ -1450,7 +1453,7 @@ private struct CommitList: View {
         graph = CommitGraphGenerator.generate(
             commits: rows, headOID: headOID,
             branchNames: Dictionary(grouping: snapshot.references.filter(\.isGraphBranch), by: \.oid)
-                .mapValues { RepositoryReference.graphNames($0, hosts: hosts) },
+                .mapValues { RepositoryReference.graphNames($0, hosts: hosts, sourceMachine: sourceMachine) },
             preferredHost: localMachine
         )
     }
@@ -1464,7 +1467,7 @@ private struct CommitList: View {
                     CommitRow(commit: commit,
                               isCurrent: commit.oid == headOID,
                               references: snapshot.references.filter { $0.oid == commit.oid },
-                              hosts: hosts, graph: graph, rowIndex: index)
+                              hosts: hosts, sourceMachine: sourceMachine, graph: graph, rowIndex: index)
                         .listRowSeparator(.hidden)
                         .tag(commit.oid)
                 }
@@ -1557,6 +1560,7 @@ private struct CommitRow: View {
     let isCurrent: Bool
     let references: [RepositoryReference]
     let hosts: [SyncHost]
+    let sourceMachine: String?
     let graph: CommitGraphModel
     let rowIndex: Int
 
@@ -1592,9 +1596,9 @@ private struct CommitRow: View {
                 .allowsHitTesting(false)
         }
         .accessibilityElement(children: .combine)
-        .help(RepositoryReference.graphNames(references, hosts: hosts).joined(separator: "\n"))
+        .help(RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine).joined(separator: "\n"))
         .accessibilityValue(([isCurrent ? "Checked out commit" : ""] +
-            RepositoryReference.graphNames(references, hosts: hosts)).filter { !$0.isEmpty }.joined(separator: ", "))
+            RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine)).filter { !$0.isEmpty }.joined(separator: ", "))
     }
 }
 

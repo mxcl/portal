@@ -55,8 +55,9 @@ and tags. In the graph list, only branch names are labeled; HEAD and tag badges
 are omitted. Branch names read upwards beside their colored lanes, bending with
 the path, in small, tracked, uppercase system-monospaced text. Names on the same continuous
 lane share a compact label with dot separators; labels truncate only at the end
-of the visible path. A host-qualified ref replaces the matching bare branch name
-only when both point to the same commit. Text starts 2 points below its tip, with
+of the visible path. Branches in a repository on this Mac are labeled with this Mac’s configured
+name (for example, `maliwan/main`), independently of received refs. Only identical
+labels at the same commit are deduplicated; origin and other hosts remain visible. Text starts 2 points below its tip, with
 7 points of clearance from the lane. The current machine’s labels appear at the
 top of each group, followed by other refs; each name reads upwards. Full original-case branch names remain in row tooltips and accessibility
 values. `GraphBranchLabel` owns the 9-point type, 1.4-point tracking, and glyph

@@ -15,15 +15,22 @@ struct GraphBranchLabel: Sendable {
     let colorIndex: Int
 
     static func make(names: [String: [String]], commits: [RepositoryCommit], model: CommitGraphModel) -> [Self] {
-        let anchors = commits.enumerated().compactMap { row, commit -> (GraphDot, String)? in
+        let anchors = commits.enumerated().compactMap { row, commit -> (dot: GraphDot, name: String, route: Int)? in
             guard let names = names[commit.oid], !names.isEmpty else { return nil }
-            return (model.dots[row], names.joined(separator: " · ").uppercased())
-        }
-        return anchors.map { dot, name in
-            let route = model.paths.first { path in
+            let dot = model.dots[row]
+            let route = model.paths.firstIndex { path in
                 !path.isDashed && path.colorIndex == dot.colorIndex &&
                     path.points.first!.y <= dot.center.y && path.points.last!.y > dot.center.y
             }
+            // Isolated tips get their own label rather than sharing an unrelated lane.
+            return (dot, names.joined(separator: " · ").uppercased(), route ?? model.paths.count + row)
+        }
+        let groups = Dictionary(grouping: anchors, by: \.route)
+        return groups.keys.sorted().map { key in
+            let group = groups[key]!
+            let dot = group[0].dot
+            let name = group.map(\.name).joined(separator: " · ")
+            let route = model.paths.indices.contains(key) ? model.paths[key] : nil
             var path = route.map {
                 BranchGraphCanvas.path(for: $0, rowHeight: BranchGraphRowCanvas.rowHeight,
                                        laneWidth: BranchGraphRowCanvas.laneWidth)
@@ -34,10 +41,6 @@ struct GraphBranchLabel: Sendable {
                 path.move(to: start)
                 path.addLine(to: CGPoint(x: start.x, y: start.y + BranchGraphRowCanvas.rowHeight / 2 - 2))
             }
-            // Trim at the next named tip on this route so labels never overwrite one another.
-            let endY = anchors.map(\.0).filter {
-                $0.center.y > dot.center.y && $0.colorIndex == dot.colorIndex
-            }.map { $0.center.y * BranchGraphRowCanvas.rowHeight - 8 }.min() ?? .greatestFiniteMagnitude
             func fraction(atY y: CGFloat) -> CGFloat {
                 var low: CGFloat = 0
                 var high: CGFloat = 1
@@ -51,7 +54,7 @@ struct GraphBranchLabel: Sendable {
                 }
                 return (low + high) / 2
             }
-            let trimmed = path.trimmedPath(from: fraction(atY: start.y + 7), to: fraction(atY: endY))
+            let trimmed = path.trimmedPath(from: fraction(atY: start.y + 7), to: 1)
             return Self(outline: outline(name, along: trimmed), colorIndex: dot.colorIndex)
         }
     }

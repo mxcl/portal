@@ -105,7 +105,7 @@ public struct BranchGraphRowCanvas: View {
             guard bounds.maxY >= CGFloat(rowIndex) * Self.rowHeight - Self.verticalBleed,
                   bounds.minY <= CGFloat(rowIndex + 1) * Self.rowHeight + Self.verticalBleed else { continue }
             let outline = label.outline.offsetBy(dx: 0, dy: -CGFloat(rowIndex) * Self.rowHeight)
-            context.stroke(outline, with: .color(GraphPalette.color(for: label.colorIndex)), lineWidth: 0.4)
+            context.fill(outline, with: .color(GraphPalette.color(for: label.colorIndex)))
         }
 
         for dotIndex in row.dotIndices where model.dots.indices.contains(dotIndex) {

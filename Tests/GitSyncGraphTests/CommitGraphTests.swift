@@ -120,10 +120,24 @@ func branchLabels() {
     }
     let model = CommitGraphGenerator.generate(commits: commits, headOID: "0",
         branchNames: ["0": ["main", "peer/feature"], "5": ["older"]])
-    #expect(model.branchLabels.count == 2)
+    #expect(model.branchLabels.count == 1)
     let bounds = model.branchLabels[0].outline.boundingRect
     #expect(!bounds.isEmpty)
     #expect(bounds.maxY > BranchGraphRowCanvas.rowHeight)
-    #expect(bounds.maxY < 5.5 * BranchGraphRowCanvas.rowHeight)
+    #expect(bounds.maxY < 10 * BranchGraphRowCanvas.rowHeight)
     #expect(bounds.maxX < BranchGraphRowCanvas.laneWidth + BranchGraphRowCanvas.trailingPadding)
+}
+
+@Test("Nearby branch names share a continuous label without truncating master")
+func nearbyBranchLabels() {
+    let commits = (0..<10).map {
+        RepositoryCommit(oid: "\($0)", parents: $0 < 9 ? ["\($0 + 1)"] : [],
+                         author: "", date: .distantPast, message: "")
+    }
+    let names = ["0": ["master"], "1": ["origin/master"]]
+    let model = CommitGraphGenerator.generate(commits: commits, headOID: "0", branchNames: names)
+    let combined = CommitGraphGenerator.generate(commits: commits, headOID: "0",
+        branchNames: ["0": ["master", "origin/master"]])
+    #expect(model.branchLabels.count == 1)
+    #expect(model.branchLabels.first?.outline == combined.branchLabels.first?.outline)
 }

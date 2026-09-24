@@ -31,7 +31,8 @@ let package = Package(
             name: "GitSyncApp",
             dependencies: ["GitSyncCore", "GitSyncEngine", "GitSyncGraph", .product(name: "gitdiff", package: "gitdiff"),
                            .product(name: "CodeEditSourceEditor", package: "CodeEditSourceEditor", condition: .when(platforms: [.macOS])),
-                           .product(name: "Textual", package: "textual", condition: .when(platforms: [.macOS]))]
+                           .product(name: "Textual", package: "textual", condition: .when(platforms: [.macOS]))],
+            resources: [.process("Resources")]
         ),
         .executableTarget(name: "GitSyncMenuBar", dependencies: ["GitSyncEngine"]),
         .testTarget(name: "GitinuumCLITests", dependencies: ["gitinuum"]),

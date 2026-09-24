@@ -1218,10 +1218,20 @@ struct ProjectBrowserView: View {
             Button("Open in External Editor", systemImage: "square.and.pencil", action: model.openSelectedProjectInEditor)
                 .disabled(model.selectedLocalRepositoryURL == nil)
                 .help("Open in External Editor")
-            Button("Open on GitHub", systemImage: "globe", action: model.openSelectedProjectOnGitHub)
-                .disabled(model.projectGitHubURL == nil)
-                .help("Open on GitHub")
+            Button(action: model.openSelectedProjectOnGitHub) {
+                Label {
+                    Text("Open on GitHub")
+                } icon: {
+                    Image("GitHub", bundle: .module)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 16, height: 16)
+                }
+            }
+            .disabled(model.projectGitHubURL == nil)
+            .help("Open on GitHub")
         }
+        ToolbarSpacer(.fixed)
         ToolbarItem {
             Button("Refresh", systemImage: "arrow.clockwise") { model.refreshProject(); model.editor.refresh() }
                 .help("Refresh project")

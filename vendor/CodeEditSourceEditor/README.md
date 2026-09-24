@@ -14,5 +14,3 @@ CodeEditTextView uses the sibling vendored package to fix horizontal scrolling.
 
 The minimap is anchored outside the scrolling clip view to prevent horizontal
 drift and snap-back between layout passes.
-
-The editor locks trackpad scrolling to the gesture's initial axis through momentum.

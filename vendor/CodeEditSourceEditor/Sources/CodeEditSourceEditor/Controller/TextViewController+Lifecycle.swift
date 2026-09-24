@@ -29,7 +29,7 @@ extension TextViewController {
     override public func loadView() {
         super.loadView()
 
-        scrollView = EditorScrollView()
+        scrollView = NSScrollView()
         scrollView.usesPredominantAxisScrolling = true
         scrollView.documentView = textView
 

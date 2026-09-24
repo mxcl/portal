@@ -4,6 +4,17 @@ import GitSyncCore
 import SwiftUI
 
 extension RepositoryReference {
+    public static func graphNames(_ references: [Self], hosts: [SyncHost]) -> [String] {
+        let branches = references.filter(\.isGraphBranch)
+        return branches.filter { branch in
+            guard branch.fullName.hasPrefix("refs/heads/") else { return true }
+            return !branches.contains { peer in
+                peer.oid == branch.oid && peer.fullName.hasPrefix("refs/remotes/") &&
+                    peer.name.split(separator: "/", maxSplits: 1).dropFirst().first.map(String.init) == branch.name
+            }
+        }.map { $0.displayName(hosts: hosts) }
+    }
+
     public var isGraphBranch: Bool {
         fullName.hasPrefix("refs/heads/") ||
             (fullName.hasPrefix("refs/remotes/") && !fullName.hasSuffix("/HEAD"))
@@ -54,7 +65,7 @@ struct GraphBranchLabel: Sendable {
                 }
                 return (low + high) / 2
             }
-            let trimmed = path.trimmedPath(from: fraction(atY: start.y + 7), to: 1)
+            let trimmed = path.trimmedPath(from: fraction(atY: start.y + 2), to: 1)
             return Self(outline: outline(name, along: trimmed), colorIndex: dot.colorIndex)
         }
     }
@@ -76,6 +87,7 @@ struct GraphBranchLabel: Sendable {
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
         let ellipsis = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: attributes))
         let fitted = CTLineCreateTruncatedLine(line, Double(length), .end, ellipsis) ?? ellipsis
+        let textLength = CGFloat(CTLineGetTypographicBounds(fitted, nil, nil, nil))
         var result = Path()
         for run in CTLineGetGlyphRuns(fitted) as! [CTRun] {
             let count = CTRunGetGlyphCount(run)
@@ -86,14 +98,15 @@ struct GraphBranchLabel: Sendable {
             let runFont = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] as! CTFont
             for (glyph, position) in zip(glyphs, positions) {
                 guard let shape = CTFontCreatePathForGlyph(runFont, glyph, nil) else { continue }
-                let index = min(points.count - 1, max(1, distances.firstIndex { $0 >= position.x } ?? points.count - 1))
+                let distance = textLength - position.x
+                let index = min(points.count - 1, max(1, distances.firstIndex { $0 >= distance } ?? points.count - 1))
                 let a = points[index - 1], b = points[index]
                 let span = max(0.0001, distances[index] - distances[index - 1])
-                let t = (position.x - distances[index - 1]) / span
+                let t = (distance - distances[index - 1]) / span
                 let angle = atan2(b.y - a.y, b.x - a.x)
-                let transform = CGAffineTransform(translationX: a.x + (b.x - a.x) * t + 6,
+                let transform = CGAffineTransform(translationX: a.x + (b.x - a.x) * t + 7 + font.capHeight,
                                                   y: a.y + (b.y - a.y) * t)
-                    .rotated(by: angle).scaledBy(x: 1, y: -1)
+                    .rotated(by: angle - .pi).scaledBy(x: 1, y: -1)
                 result.addPath(Path(shape), transform: transform)
             }
         }

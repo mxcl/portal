@@ -141,3 +141,13 @@ func nearbyBranchLabels() {
     #expect(model.branchLabels.count == 1)
     #expect(model.branchLabels.first?.outline == combined.branchLabels.first?.outline)
 }
+
+@Test("Graph names prefer matching host-qualified refs without hiding divergence")
+func hostQualifiedBranchNames() {
+    let local = RepositoryReference(fullName: "refs/heads/feature/topic", oid: "a")
+    let peer = RepositoryReference(fullName: "refs/remotes/maliwan/feature/topic", oid: "a")
+    let diverged = RepositoryReference(fullName: peer.fullName, oid: "b")
+    #expect(RepositoryReference.graphNames([local, peer], hosts: []) == ["maliwan/feature/topic"])
+    #expect(RepositoryReference.graphNames([local, diverged], hosts: []) == ["feature/topic", "maliwan/feature/topic"])
+    #expect(RepositoryReference.graphNames([local], hosts: []) == ["feature/topic"])
+}

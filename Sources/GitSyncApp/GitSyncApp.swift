@@ -1450,7 +1450,7 @@ private struct CommitList: View {
         graph = CommitGraphGenerator.generate(
             commits: rows, headOID: headOID,
             branchNames: Dictionary(grouping: snapshot.references.filter(\.isGraphBranch), by: \.oid)
-                .mapValues { $0.map { $0.displayName(hosts: hosts) } }
+                .mapValues { RepositoryReference.graphNames($0, hosts: hosts) }
         )
     }
 
@@ -1591,9 +1591,9 @@ private struct CommitRow: View {
                 .allowsHitTesting(false)
         }
         .accessibilityElement(children: .combine)
-        .help(references.filter(\.isGraphBranch).map { $0.displayName(hosts: hosts) }.joined(separator: "\n"))
+        .help(RepositoryReference.graphNames(references, hosts: hosts).joined(separator: "\n"))
         .accessibilityValue(([isCurrent ? "Checked out commit" : ""] +
-            references.filter(\.isGraphBranch).map { $0.displayName(hosts: hosts) }).filter { !$0.isEmpty }.joined(separator: ", "))
+            RepositoryReference.graphNames(references, hosts: hosts)).filter { !$0.isEmpty }.joined(separator: ", "))
     }
 }
 

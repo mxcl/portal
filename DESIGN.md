@@ -52,10 +52,12 @@ of repositories observed across configured hosts and backup inventory. Rows
 show host presence and operational state without treating normal Git divergence
 as an error. The graph renders this Mac's local branches, received peer branches,
 and tags. In the graph list, only branch names are labeled; HEAD and tag badges
-are omitted. Branch names run vertically beside their colored lanes, bending with
+are omitted. Branch names read upwards beside their colored lanes, bending with
 the path, in small, tracked, uppercase system-monospaced text. Names on the same continuous
 lane share a compact label with dot separators; labels truncate only at the end
-of the visible path. Full original-case branch names remain in row tooltips and accessibility
+of the visible path. A host-qualified ref replaces the matching bare branch name
+only when both point to the same commit. Text starts 2 points below its tip, with
+7 points of clearance from the lane. Full original-case branch names remain in row tooltips and accessibility
 values. `GraphBranchLabel` owns the 9-point type, 1.4-point tracking, and glyph
 shapes; `BranchGraphRowCanvas` owns 24-point lanes, 1.2-point lines, and filled
 lettering. This graph-only typographic treatment leaves other app text native.

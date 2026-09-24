@@ -175,8 +175,12 @@ final class AppModel: ObservableObject {
     private var watchedRepositoryURL: URL?
     private var watcherSetup: Task<Void, Never>?
     private var projectRefreshPending = false
+    private var pendingPlacement: String?
+    private let sendCommand: (EngineCommand) async throws -> EngineReply
 
-    init(connectToHelper: Bool = true) {
+    init(connectToHelper: Bool = true,
+         sendCommand: @escaping (EngineCommand) async throws -> EngineReply = EngineClient.send) {
+        self.sendCommand = sendCommand
         guard connectToHelper else { return }
         if embeddedHelperURL != nil { migrateLegacyLoginItem() }
         notificationObserver = DistributedNotificationCenter.default().addObserver(
@@ -343,7 +347,7 @@ final class AppModel: ObservableObject {
             defer { connecting = false }
             for attempt in 0..<20 {
                 do {
-                    let reply = try await EngineClient.send(.snapshot)
+                    let reply = try await sendCommand(.snapshot)
                     apply(reply)
                     helperAvailable = true
                     helperError = nil
@@ -367,7 +371,7 @@ final class AppModel: ObservableObject {
         fetchingSnapshot = true
         Task {
             do {
-                let reply = try await EngineClient.send(.snapshot)
+                let reply = try await sendCommand(.snapshot)
                 apply(reply)
                 helperAvailable = true
                 helperError = nil
@@ -387,7 +391,7 @@ final class AppModel: ObservableObject {
                          completion: ((EngineReply) -> Void)? = nil) {
         Task {
             do {
-                let reply = try await EngineClient.send(command)
+                let reply = try await sendCommand(command)
                 apply(reply)
                 helperAvailable = true
                 if let message = reply.error {
@@ -422,7 +426,7 @@ final class AppModel: ObservableObject {
         backupItems = snapshot.backupItems
         backupError = snapshot.backupError
         restoringBackup = snapshot.restoringBackup
-        placementInProgress = snapshot.placementInProgress
+        placementInProgress = pendingPlacement ?? snapshot.placementInProgress
         localProjects = snapshot.localProjects
         remoteProjects = snapshot.remoteProjects
 
@@ -673,6 +677,11 @@ final class AppModel: ObservableObject {
     }
 
     func checkOut(_ project: String, hostID: UUID?) {
+        guard placementInProgress == nil else { return }
+        if hostID == nil, placement(of: project, on: nil) == .notPresent {
+            setPlacement(.mirrored, project: project, hostID: nil, checkoutAfterMirror: true)
+            return
+        }
         let preferred: String?
         if let hostID { preferred = remoteProjects[hostID]?[project]?.defaultBranch }
         else { preferred = localProjects[project]?.defaultBranch }
@@ -680,12 +689,11 @@ final class AppModel: ObservableObject {
             setPlacement(.checkedOut, project: project, hostID: hostID, branch: preferred)
             return
         }
-        let branches = Set((projectSnapshot?.references ?? []).compactMap { reference -> String? in
-            if reference.fullName.hasPrefix("refs/heads/") { return reference.name }
-            guard reference.fullName.hasPrefix("refs/remotes/") else { return nil }
-            let pieces = reference.name.split(separator: "/", maxSplits: 1)
-            return pieces.count == 2 && pieces[1] != "HEAD" ? String(pieces[1]) : nil
-        }).sorted()
+        requestCheckout(project, hostID: hostID, references: projectSnapshot?.references ?? [])
+    }
+
+    private func requestCheckout(_ project: String, hostID: UUID?, references: [RepositoryReference]) {
+        let branches = checkoutBranches(in: references)
         guard !branches.isEmpty else {
             error = "No branch is available to check out yet."
             return
@@ -693,14 +701,81 @@ final class AppModel: ObservableObject {
         checkoutRequest = CheckoutRequest(project: project, hostID: hostID, branches: branches)
     }
 
+    private func checkoutBranches(in references: [RepositoryReference]) -> [String] {
+        Set(references.compactMap { reference -> String? in
+            if reference.fullName.hasPrefix("refs/heads/") { return reference.name }
+            guard reference.fullName.hasPrefix("refs/remotes/") else { return nil }
+            let pieces = reference.name.split(separator: "/", maxSplits: 1)
+            return pieces.count == 2 && pieces[1] != "HEAD" ? String(pieces[1]) : nil
+        }).sorted()
+    }
 
-
-    func setPlacement(_ placement: ProjectPlacement, project: String, hostID: UUID?, branch: String? = nil) {
-        guard placementInProgress == nil else { return }
-        if hostID == nil, project == selectedProjectName, !editor.confirmDiscard() { return }
-        placementInProgress = hostID?.uuidString ?? "local"
+    @discardableResult
+    func setPlacement(_ placement: ProjectPlacement, project: String, hostID: UUID?, branch: String? = nil,
+                      checkoutAfterMirror: Bool = false) -> Task<Void, Never>? {
+        guard placementInProgress == nil else { return nil }
+        if hostID == nil, project == selectedProjectName, !editor.confirmDiscard() { return nil }
+        let awaitMirror = hostID == nil && placement == .mirrored && self.placement(of: project, on: nil) == .notPresent
+        let root = URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath)
+        let expectedBranches = selectedProjectName == project
+            ? projectSnapshot.map { $0.references.filter { $0.fullName.hasPrefix("refs/heads/") }.map(\.name) } : nil
+        pendingPlacement = hostID?.uuidString ?? "local"
+        placementInProgress = pendingPlacement
+        error = nil
         updateRepositoryWatcher()
-        perform(.setPlacement(placement, project: project, hostID: hostID, branch: branch))
+        return Task {
+            defer {
+                pendingPlacement = nil
+                placementInProgress = nil
+                updateRepositoryWatcher()
+            }
+            do {
+                var reply = try await sendCommand(.setPlacement(placement, project: project, hostID: hostID, branch: branch))
+                let deadline = Date().addingTimeInterval(120)
+                while true {
+                    apply(reply)
+                    if let message = reply.error ?? reply.snapshot?.error {
+                        throw SyncError.invalidConfiguration(message)
+                    }
+                    if reply.snapshot?.placementInProgress == nil { break }
+                    guard Date() < deadline else {
+                        throw SyncError.invalidConfiguration("The host is still updating. Check its status before trying again.")
+                    }
+                    try await Task.sleep(for: .milliseconds(250))
+                    reply = try await sendCommand(.snapshot)
+                }
+                if awaitMirror {
+                    // Creating the mirror only enables sync; wait for incoming refs before offering checkout.
+                    let repository = Repository(name: project, url: root.appendingPathComponent(project))
+                    while true {
+                        let snapshot = try await Task.detached(priority: .userInitiated) {
+                            try repository.snapshot(limit: 0)
+                        }.value
+                        let branches = checkoutBranches(in: snapshot.references)
+                        let ready = !branches.isEmpty
+                            && Set(expectedBranches ?? []).isSubset(of: Set(branches))
+                        if ready {
+                            if checkoutAfterMirror {
+                                requestCheckout(project, hostID: nil, references: snapshot.references)
+                            }
+                            break
+                        }
+                        guard Date() < deadline, !isPaused else {
+                            throw SyncError.invalidConfiguration("The mirror is waiting for branch data. Resume sync or check the source host, then try Check Out again.")
+                        }
+                        try await Task.sleep(for: .milliseconds(250))
+                        reply = try await sendCommand(.snapshot)
+                        apply(reply)
+                        if let message = reply.error ?? reply.snapshot?.error {
+                            throw SyncError.invalidConfiguration(message)
+                        }
+                    }
+                }
+                if selectedProjectName == project { loadProject(project, from: sources(for: project)) }
+            } catch {
+                self.error = String(describing: error)
+            }
+        }
     }
 
     func chooseBackupDestination() {
@@ -761,7 +836,7 @@ final class AppModel: ObservableObject {
         isChecking = true
         Task {
             do {
-                let reply = try await EngineClient.send(.addHost(
+                let reply = try await sendCommand(.addHost(
                     peer: draft.peer,
                     root: draft.root,
                     executable: draft.executable,
@@ -1680,17 +1755,17 @@ private struct HostControls: View {
         let canArchive = model.configuration.backup != nil || model.configuration.backupDestination != nil
         return Group {
             PlacementRow(project: project, name: model.configuration.machine,
-                         placement: model.placement(of: project, on: nil), canArchive: canArchive,
+                         placement: model.placement(of: project, on: nil), canArchive: canArchive, isLocal: true,
                          progress: model.placementInProgress == "local") {
-                $0 == .checkedOut ? model.checkOut(project, hostID: nil)
-                    : model.setPlacement($0, project: project, hostID: nil)
+                if $0 == .checkedOut { model.checkOut(project, hostID: nil) }
+                else { model.setPlacement($0, project: project, hostID: nil) }
             }
             ForEach(model.configuration.hosts) { host in
                 PlacementRow(project: project, name: host.name,
                              placement: model.placement(of: project, on: host.id), canArchive: canArchive,
                              progress: model.placementInProgress == host.id.uuidString) {
-                    $0 == .checkedOut ? model.checkOut(project, hostID: host.id)
-                        : model.setPlacement($0, project: project, hostID: host.id)
+                    if $0 == .checkedOut { model.checkOut(project, hostID: host.id) }
+                    else { model.setPlacement($0, project: project, hostID: host.id) }
                 }
             }
         }
@@ -1702,6 +1777,7 @@ private struct PlacementRow: View {
     let name: String
     let placement: ProjectPlacement
     let canArchive: Bool
+    var isLocal = false
     let progress: Bool
     let change: (ProjectPlacement) -> Void
     @State private var showingArchiveConfirmation = false
@@ -1719,7 +1795,8 @@ private struct PlacementRow: View {
                         Button("Check Out") { change(.checkedOut) }
                         Button("Move Repository to Trash", role: .destructive) { change(.notPresent) }
                     case .notPresent:
-                        Button("Mirror on This Host") { change(.mirrored) }
+                        Button("Mirror on this Host (Bare Checkout)") { change(.mirrored) }
+                        if isLocal { Button("Check Out") { change(.checkedOut) } }
                     case .unknown:
                         Text("Host unavailable")
                     }

@@ -1208,15 +1208,19 @@ struct ProjectBrowserView: View {
             .labelStyle(.iconOnly)
             .help("Choose the main view")
         }
-        ToolbarItem {
-            Menu("Open Project", systemImage: "ellipsis") {
-                Button("Reveal in Finder", action: model.revealSelectedProjectInFinder)
-                    .disabled(model.selectedLocalRepositoryURL == nil)
-                Button("Open in External Editor", action: model.openSelectedProjectInEditor)
-                    .disabled(model.selectedLocalRepositoryURL == nil)
-                Button("Open on GitHub", action: model.openSelectedProjectOnGitHub)
-                    .disabled(model.projectGitHubURL == nil)
-            }
+        ToolbarItemGroup {
+            Button("Reveal in Finder", systemImage: "folder", action: model.revealSelectedProjectInFinder)
+                .disabled(model.selectedLocalRepositoryURL == nil)
+                .help("Reveal in Finder")
+            Button("Open in Terminal", systemImage: "terminal", action: model.openSelectedProjectInTerminal)
+                .disabled(model.selectedLocalRepositoryURL == nil)
+                .help("Open in Terminal")
+            Button("Open in External Editor", systemImage: "square.and.pencil", action: model.openSelectedProjectInEditor)
+                .disabled(model.selectedLocalRepositoryURL == nil)
+                .help("Open in External Editor")
+            Button("Open on GitHub", systemImage: "globe", action: model.openSelectedProjectOnGitHub)
+                .disabled(model.projectGitHubURL == nil)
+                .help("Open on GitHub")
         }
         ToolbarItem {
             Button("Refresh", systemImage: "arrow.clockwise") { model.refreshProject(); model.editor.refresh() }

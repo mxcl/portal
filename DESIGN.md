@@ -19,7 +19,7 @@ selecting a commit opens Diff. Selecting Staging opens the local editor: a nativ
 file outline and CodeEditSourceEditor share a resizable split in the detail column,
 keeping the commit lanes visible. Remote staging opens Diff. Terminal currently
 offers the external terminal action while its embedded view is deferred. External
-editor, Finder, and GitHub actions remain in the project menu.
+editor, Finder, Terminal, and GitHub actions are direct project toolbar buttons.
 
 The editor lists tracked and non-ignored untracked files, including deleted paths
 for diff inspection. Green checkmarks identify staged files; orange marks identify

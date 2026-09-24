@@ -168,3 +168,20 @@ func longLaneLabelStartsAtTip() {
         branchNames: ["0": ["origin/master", "maliwan/master"]], preferredHost: "maliwan")
     #expect(preferred.branchLabels[0].outline == graph.branchLabels[0].outline)
 }
+
+@Test("A short merged lane uses its incoming curve for the complete branch name")
+func mergedLaneLabel() {
+    func commit(_ id: String, _ parents: [String]) -> RepositoryCommit {
+        RepositoryCommit(oid: id, parents: parents, author: "", date: .distantPast, message: "")
+    }
+    let commits = [commit("merge", ["root", "feature"]), commit("feature", ["root"]), commit("root", [])]
+    let graph = CommitGraphGenerator.generate(commits: commits,
+        headOID: "merge", branchNames: ["feature": ["maliwan/main"]])
+    #expect(graph.branchLabels[0].outline.boundingRect.minY < 44)
+    let long = CommitGraphGenerator.generate(commits: commits + [commit("older", [])],
+        headOID: "merge", branchNames: ["merge": ["maliwan/main"]])
+    var shortElements = 0, fullElements = 0
+    graph.branchLabels[0].outline.forEach { _ in shortElements += 1 }
+    long.branchLabels[0].outline.forEach { _ in fullElements += 1 }
+    #expect(shortElements == fullElements)
+}

@@ -53,7 +53,16 @@ struct GraphBranchLabel: Sendable {
                 BranchGraphCanvas.path(for: $0, rowHeight: BranchGraphRowCanvas.rowHeight,
                                        laneWidth: BranchGraphRowCanvas.laneWidth)
             } ?? Path()
-            let start = BranchGraphCanvas.position(for: dot.center, rowHeight: BranchGraphRowCanvas.rowHeight,
+            let incoming = route.flatMap { route in
+                model.links.first { $0.end == route.points.first && $0.colorIndex == route.colorIndex }
+            }
+            if let incoming {
+                var complete = BranchGraphCanvas.linkPath(for: incoming,
+                    rowHeight: BranchGraphRowCanvas.rowHeight, laneWidth: BranchGraphRowCanvas.laneWidth)
+                complete.addPath(path)
+                path = complete
+            }
+            let start = BranchGraphCanvas.position(for: incoming?.start ?? dot.center, rowHeight: BranchGraphRowCanvas.rowHeight,
                                                     laneWidth: BranchGraphRowCanvas.laneWidth)
             if path.isEmpty {
                 path.move(to: start)
@@ -72,7 +81,7 @@ struct GraphBranchLabel: Sendable {
                 }
                 return (low + high) / 2
             }
-            let trimmed = path.trimmedPath(from: fraction(atY: start.y + 2), to: 1)
+            let trimmed = path.trimmedPath(from: fraction(atY: start.y + 5), to: 1)
             return Self(outline: outline(name, along: trimmed), colorIndex: dot.colorIndex)
         }
     }
@@ -96,8 +105,8 @@ struct GraphBranchLabel: Sendable {
         }
         let length = distances.last!
         guard length > 8 else { return Path() }
-        let font = NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
-        let attributes: [NSAttributedString.Key: Any] = [.font: font, .kern: 1.4]
+        let font = NSFont.monospacedSystemFont(ofSize: 8, weight: .regular)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .kern: 1.1]
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
         let ellipsis = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: attributes))
         let fitted = CTLineCreateTruncatedLine(line, Double(length), .end, ellipsis) ?? ellipsis
@@ -118,7 +127,7 @@ struct GraphBranchLabel: Sendable {
                 let span = max(0.0001, distances[index] - distances[index - 1])
                 let t = (distance - distances[index - 1]) / span
                 let angle = atan2(b.y - a.y, b.x - a.x)
-                let transform = CGAffineTransform(translationX: a.x + (b.x - a.x) * t + 7 + font.capHeight,
+                let transform = CGAffineTransform(translationX: a.x + (b.x - a.x) * t + 8 + font.capHeight,
                                                   y: a.y + (b.y - a.y) * t)
                     .rotated(by: angle - .pi).scaledBy(x: 1, y: -1)
                 result.addPath(Path(shape), transform: transform)

@@ -1596,8 +1596,10 @@ private struct CommitRow: View {
         HStack(alignment: .top, spacing: 8) {
             BranchGraphRowCanvas(model: graph, rowIndex: rowIndex, commitOID: commit.oid)
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 5) {
-                    Text(commit.subject).lineLimit(1)
+                Text(commit.subject).lineLimit(1)
+                HStack {
+                    Text(commit.author)
+                    CopyableCommitSHA(sha: commit.oid)
                     ForEach(references.filter(\.isGraphTag)) { tag in
                         Label(tag.displayName(hosts: hosts), systemImage: "tag")
                             .font(.caption2)
@@ -1606,10 +1608,6 @@ private struct CommitRow: View {
                             .background(.quaternary, in: Capsule())
                             .help(tag.displayName(hosts: hosts))
                     }
-                }
-                HStack {
-                    Text(commit.author)
-                    CopyableCommitSHA(sha: commit.oid)
                     Spacer()
                     TimelineView(.periodic(from: .now, by: 60)) { context in
                         Text(compactCommitAge(from: commit.date, to: context.date))

@@ -54,7 +54,7 @@ of repositories observed across configured hosts and backup inventory. Rows
 show host presence and operational state without treating normal Git divergence
 as an error. The graph renders this Mac's local branches, received peer branches,
 and tags. In the graph list, branch names label the lanes, while local and peer
-tags appear as badges beside commit titles. HEAD badges are omitted. Branch names read upwards beside their colored lanes, bending with
+tags appear as badges on the second row beside the author and commit SHA. HEAD badges are omitted. Branch names read upwards beside their colored lanes, bending with
 the path, in small, tracked, uppercase system-monospaced text. Names on the same continuous
 lane share a compact label with dot separators. Long names continue along the
 upper tangent instead of truncating; a 4-point gap separates the start of the text

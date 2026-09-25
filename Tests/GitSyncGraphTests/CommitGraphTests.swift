@@ -121,7 +121,7 @@ func branchLabels() {
     }
     let model = CommitGraphGenerator.generate(commits: commits, headOID: "0",
         branchNames: ["0": ["main", "peer/feature"], "5": ["older"]])
-    #expect(model.branchLabels.count == 1)
+    #expect(model.branchLabels.count == 2)
     let bounds = model.branchLabels[0].outline.boundingRect
     #expect(!bounds.isEmpty)
     #expect(bounds.maxY > BranchGraphRowCanvas.rowHeight)
@@ -234,4 +234,18 @@ func longLabelDoesNotEllipsize() {
     #expect(compactElements == roomyElements)
     #expect(compact.boundingRect.maxY <= 46)
     #expect(compact.boundingRect.minY < 0)
+}
+
+@Test("Distant branch tips on one lane keep labels beside their own commits")
+func distantBranchLabelsStayAtTheirCommits() {
+    let commits = (0..<100).map {
+        RepositoryCommit(oid: "\($0)", parents: $0 < 99 ? ["\($0 + 1)"] : [],
+                         author: "", date: .distantPast, message: "")
+    }
+    let graph = CommitGraphGenerator.generate(commits: commits, headOID: "0",
+        branchNames: ["0": ["main"], "70": ["origin/codex/issue-242-dismiss-approval-notifications"]])
+    #expect(graph.branchLabels.count == 2)
+    let distant = graph.branchLabels.filter { $0.outline.boundingRect.minY > 69 * BranchGraphRowCanvas.rowHeight }
+    #expect(distant.count == 1)
+    #expect(distant.first.map { $0.outline.boundingRect.minY < 71 * BranchGraphRowCanvas.rowHeight } == true)
 }

@@ -13,7 +13,9 @@ selection behavior remain canonical.
 Branch and tag copies with the same name collapse to that name when all known
 copies point to the same commit. If any copy differs, every copy keeps its host
 or remote qualifier, including copies that still agree with each other. Graph
-labels, tag badges, and commit details share this rule.
+labels, tag badges, and commit details share this rule. Distant branch labels
+anchor at their own commits even on a shared lane; nearby labels combine only
+when their text would overlap.
 
 The checked-out commit row has a thin, subdued system-accent outline, independent
 of the native selection fill. Its accessibility value identifies it as checked out.

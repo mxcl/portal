@@ -62,8 +62,26 @@ struct GraphBranchLabel: Sendable {
             return (dot, names.joined(separator: " · ").uppercased(), route ?? model.paths.count + row)
         }
         let groups = Dictionary(grouping: anchors, by: \.route)
-        return groups.keys.sorted().map { key in
-            let group = groups[key]!
+        let spacedGroups = groups.keys.sorted().flatMap { key in
+            var result: [[(dot: GraphDot, name: String, route: Int)]] = []
+            for anchor in groups[key]! {
+                if let previous = result.last {
+                    let text = previous.map(\.name).joined(separator: " · ")
+                    let length = NSAttributedString(string: text, attributes: [
+                        .font: NSFont.monospacedSystemFont(ofSize: 8, weight: .regular), .kern: 1.1
+                    ]).size().width
+                    let gap = (anchor.dot.center.y - previous[0].dot.center.y) * BranchGraphRowCanvas.rowHeight
+                    if gap < length + 8 {
+                        result[result.count - 1].append(anchor)
+                        continue
+                    }
+                }
+                result.append([anchor])
+            }
+            return result
+        }
+        return spacedGroups.map { group in
+            let key = group[0].route
             let dot = group[0].dot
             let names = group.flatMap { $0.name.components(separatedBy: " · ") }
             let prefix = preferredHost.map { $0.uppercased() + "/" }
@@ -77,7 +95,11 @@ struct GraphBranchLabel: Sendable {
                                        laneWidth: BranchGraphRowCanvas.laneWidth)
             } ?? Path()
             let incoming = route.flatMap { route in
-                model.links.first { $0.end == route.points.first && $0.colorIndex == route.colorIndex }
+                model.links.first {
+                    $0.end == route.points.first && $0.colorIndex == route.colorIndex &&
+                        // Incoming curves end half a row before the first commit.
+                        dot.center.y <= $0.end.y + 0.5
+                }
             }
             if let incoming {
                 var complete = BranchGraphCanvas.linkPath(for: incoming,

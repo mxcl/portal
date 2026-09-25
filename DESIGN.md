@@ -10,6 +10,11 @@ quiet, like Finder or Xcode; the colored commit lanes are its only expressive
 visual element. System colors, materials, typography, spacing, controls, and
 selection behavior remain canonical.
 
+Branch and tag copies with the same name collapse to that name when all known
+copies point to the same commit. If any copy differs, every copy keeps its host
+or remote qualifier, including copies that still agree with each other. Graph
+labels, tag badges, and commit details share this rule.
+
 The checked-out commit row has a thin, subdued system-accent outline, independent
 of the native selection fill. Its accessibility value identifies it as checked out.
 

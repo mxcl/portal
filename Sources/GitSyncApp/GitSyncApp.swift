@@ -1481,7 +1481,8 @@ private struct CommitList: View {
         graph = CommitGraphGenerator.generate(
             commits: rows, headOID: headOID,
             branchNames: Dictionary(grouping: snapshot.references.filter(\.isGraphBranch), by: \.oid)
-                .mapValues { RepositoryReference.graphNames($0, hosts: hosts, sourceMachine: sourceMachine) },
+                .mapValues { RepositoryReference.graphNames($0, hosts: hosts, sourceMachine: sourceMachine,
+                                                           allReferences: snapshot.references) },
             preferredHost: localMachine
         )
     }
@@ -1495,6 +1496,7 @@ private struct CommitList: View {
                     CommitRow(commit: commit,
                               isCurrent: commit.oid == headOID,
                               references: snapshot.references.filter { $0.oid == commit.oid },
+                              allReferences: snapshot.references,
                               hosts: hosts, sourceMachine: sourceMachine, graph: graph, rowIndex: index)
                         .listRowSeparator(.hidden)
                         .tag(commit.oid)
@@ -1587,6 +1589,7 @@ private struct CommitRow: View {
     let commit: RepositoryCommit
     let isCurrent: Bool
     let references: [RepositoryReference]
+    let allReferences: [RepositoryReference]
     let hosts: [SyncHost]
     let sourceMachine: String?
     let graph: CommitGraphModel
@@ -1600,13 +1603,14 @@ private struct CommitRow: View {
                 HStack {
                     Text(commit.author)
                     CopyableCommitSHA(sha: commit.oid)
-                    ForEach(references.filter(\.isGraphTag)) { tag in
-                        Label(tag.displayName(hosts: hosts), systemImage: "tag")
+                    ForEach(RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine,
+                                                          allReferences: allReferences, tags: true), id: \.self) { tag in
+                        Label(tag, systemImage: "tag")
                             .font(.caption2)
                             .lineLimit(1)
                             .padding(.horizontal, 5).padding(.vertical, 2)
                             .background(.quaternary, in: Capsule())
-                            .help(tag.displayName(hosts: hosts))
+                            .help(tag)
                     }
                     Spacer()
                     TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -1632,9 +1636,9 @@ private struct CommitRow: View {
                 .allowsHitTesting(false)
         }
         .accessibilityElement(children: .combine)
-        .help(RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine).joined(separator: "\n"))
+        .help(RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine, allReferences: allReferences).joined(separator: "\n"))
         .accessibilityValue(([isCurrent ? "Checked out commit" : ""] +
-            RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine)).filter { !$0.isEmpty }.joined(separator: ", "))
+            RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine, allReferences: allReferences)).filter { !$0.isEmpty }.joined(separator: ", "))
     }
 }
 
@@ -1695,7 +1699,8 @@ private struct ProjectDetailView: View {
             } else if let commitID = model.selectedCommitID,
                let commit = model.projectSnapshot?.commits.first(where: { $0.oid == commitID }) {
                 CommitDetail(commit: commit,
-                             references: model.projectSnapshot?.references.filter { $0.oid == commitID } ?? [],
+                             references: model.projectSnapshot?.references ?? [],
+                             sourceMachine: model.projectSourceMachine,
                              hosts: model.configuration.hosts,
                              source: model.projectSource.map(model.projectSourceLabel),
                              diff: model.selectedCommitDiff,
@@ -1885,6 +1890,7 @@ private extension ProjectPlacement {
 private struct CommitDetail: View {
     let commit: RepositoryCommit
     let references: [RepositoryReference]
+    let sourceMachine: String?
     let hosts: [SyncHost]
     let source: String?
     let diff: String?
@@ -1922,6 +1928,15 @@ private struct CommitDetail: View {
         }
     }
 
+    private var referenceNames: [String] {
+        let refs = references.filter { $0.oid == commit.oid }
+        return RepositoryReference.graphNames(refs, hosts: hosts, sourceMachine: sourceMachine,
+                                              allReferences: references)
+            + RepositoryReference.graphNames(refs, hosts: hosts, sourceMachine: sourceMachine,
+                                             allReferences: references, tags: true)
+            + refs.filter { !$0.isGraphBranch && !$0.isGraphTag }.map { $0.displayName(hosts: hosts) }
+    }
+
     private var identifiers: some View {
         Group {
             HStack {
@@ -1936,12 +1951,12 @@ private struct CommitDetail: View {
                     }
                 }
             }
-            if !references.isEmpty {
-                Label(references.map { $0.displayName(hosts: hosts) }.joined(separator: ", "),
+            if !referenceNames.isEmpty {
+                Label(referenceNames.joined(separator: ", "),
                       systemImage: "point.3.connected.trianglepath.dotted")
                     .textSelection(.enabled)
                     .accessibilityLabel("References")
-                    .accessibilityValue(references.map { $0.displayName(hosts: hosts) }.joined(separator: ", "))
+                    .accessibilityValue(referenceNames.joined(separator: ", "))
             }
         }
     }

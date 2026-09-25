@@ -4,17 +4,34 @@ import GitSyncCore
 import SwiftUI
 
 extension RepositoryReference {
-    public static func graphNames(_ references: [Self], hosts: [SyncHost], sourceMachine: String? = nil) -> [String] {
+    public static func graphNames(_ references: [Self], hosts: [SyncHost], sourceMachine: String? = nil,
+                                  allReferences: [Self]? = nil, tags: Bool = false) -> [String] {
+        let candidates = (allReferences ?? references).filter { tags ? $0.isGraphTag : $0.isGraphBranch }
+        let groups = Dictionary(grouping: candidates, by: \.graphShortName)
         var seen: [String: Set<String>] = [:]
-        return references.filter(\.isGraphBranch).compactMap { branch in
+        return references.filter { tags ? $0.isGraphTag : $0.isGraphBranch }.compactMap { ref in
+            let group = groups[ref.graphShortName] ?? []
             let name: String
-            if branch.fullName.hasPrefix("refs/heads/"), let sourceMachine {
-                name = "\(sourceMachine.lowercased())/\(branch.name)"
+            if group.count > 1 && group.allSatisfy({ $0.oid == ref.oid }) {
+                name = ref.graphShortName
+            } else if (ref.fullName.hasPrefix("refs/heads/") || ref.fullName.hasPrefix("refs/tags/")),
+                      let sourceMachine {
+                name = "\(sourceMachine.lowercased())/\(ref.graphShortName)"
             } else {
-                name = branch.displayName(hosts: hosts)
+                name = ref.displayName(hosts: hosts)
             }
-            return seen[branch.oid, default: []].insert(name).inserted ? name : nil
+            return seen[ref.oid, default: []].insert(name).inserted ? name : nil
         }
+    }
+
+    private var graphShortName: String {
+        if fullName.hasPrefix("refs/remotes/") {
+            return String(fullName.split(separator: "/", maxSplits: 3).last ?? "")
+        }
+        if fullName.hasPrefix("refs/sync/") {
+            return String(fullName.split(separator: "/", maxSplits: 4).last ?? "")
+        }
+        return name
     }
 
     public var isGraphTag: Bool {

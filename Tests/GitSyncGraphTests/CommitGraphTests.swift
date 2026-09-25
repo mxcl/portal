@@ -143,18 +143,29 @@ func nearbyBranchLabels() {
     #expect(model.branchLabels.first?.outline == combined.branchLabels.first?.outline)
 }
 
-@Test("Local branches are qualified independently of peer refs")
-func hostQualifiedBranchNames() {
-    let local = RepositoryReference(fullName: "refs/heads/main", oid: "a")
-    let origin = RepositoryReference(fullName: "refs/remotes/origin/main", oid: "a")
-    let peer = RepositoryReference(fullName: "refs/remotes/maliwan/main", oid: "a")
-    let diverged = RepositoryReference(fullName: peer.fullName, oid: "b")
-    #expect(RepositoryReference.graphNames([local], hosts: [], sourceMachine: "Maliwan") == ["maliwan/main"])
-    #expect(RepositoryReference.graphNames([local, origin], hosts: [], sourceMachine: "Maliwan") == ["maliwan/main", "origin/main"])
-    #expect(RepositoryReference.graphNames([local, peer], hosts: [], sourceMachine: "Maliwan") == ["maliwan/main"])
-    #expect(RepositoryReference.graphNames([local, diverged], hosts: [], sourceMachine: "Maliwan").count == 2)
-    #expect(RepositoryReference.graphNames([local, origin], hosts: []) == ["main", "origin/main"])
-    #expect(RepositoryReference.graphNames([local, origin], hosts: [], sourceMachine: "Pangolin") == ["pangolin/main", "origin/main"])
+@Test("Matching branch and tag copies collapse only when every copy agrees")
+func matchingReferenceNames() {
+    for tags in [false, true] {
+        let names = tags
+            ? ["refs/tags/releases/v1", "refs/sync/origin/tags/releases/v1", "refs/sync/pangolin/tags/releases/v1"]
+            : ["refs/heads/feature/main", "refs/remotes/origin/feature/main", "refs/remotes/pangolin/feature/main"]
+        let short = tags ? "releases/v1" : "feature/main"
+        let matching = names.map { RepositoryReference(fullName: $0, oid: "a") }
+        #expect(RepositoryReference.graphNames(matching, hosts: [], sourceMachine: "Maliwan", tags: tags) == [short])
+        #expect(RepositoryReference.graphNames([matching[0]], hosts: [], sourceMachine: "Maliwan", tags: tags)
+                == ["maliwan/\(short)"])
+        let divergent = Array(matching.prefix(2)) + [RepositoryReference(fullName: names[2], oid: "b")]
+        let prefix = tags ? "tags/" : ""
+        #expect(RepositoryReference.graphNames(Array(divergent.prefix(2)), hosts: [], sourceMachine: "Maliwan",
+                                              allReferences: divergent, tags: tags)
+                == ["maliwan/\(short)", "origin/\(prefix)\(short)"])
+        #expect(RepositoryReference.graphNames([divergent[2]], hosts: [], sourceMachine: "Maliwan",
+                                              allReferences: divergent, tags: tags)
+                == ["pangolin/\(prefix)\(short)"])
+        let other = RepositoryReference(fullName: tags ? "refs/tags/other" : "refs/heads/other", oid: "a")
+        #expect(RepositoryReference.graphNames(matching + [other], hosts: [], sourceMachine: "Maliwan", tags: tags)
+                == [short, "maliwan/other"])
+    }
 }
 
 @Test("Long lanes keep upward labels beside their tip")

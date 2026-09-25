@@ -31,6 +31,7 @@ public struct GitHubState: Codable, Sendable {
     public var installationURL: URL?
     public var counts: [String: GitHubCounts] = [:]
     public var notifications: [GitHubNotification] = []
+    public var hasUnreadNotifications: Bool?
     public init() {}
 }
 
@@ -47,6 +48,7 @@ struct GitHubWork: Codable, Sendable {
 struct GitHubResponse: Decodable, Sendable {
     let counts: [String: GitHubCounts]
     let notifications: [GitHubNotification]
+    let hasUnreadNotifications: Bool?
     let authorizedRepositories: [String]
     let fetches: [GitHubWork]
     let retryAfter: Double?

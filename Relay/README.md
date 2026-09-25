@@ -122,6 +122,11 @@ this device's relay session before removing its Keychain credential.
 - Notification history is filtered to tracked repositories and deduplicated by
   thread/update. Initial history appears in the menu without backlog banners.
   Only the Mac posts banners; the relay never sends duplicate alert pushes.
+- The menu bar's blue dot reflects unread GitHub notifications for tracked
+  repositories, independently of the history limit. Read status is reconciled
+  after a complete inbox refresh; failures and 304 responses preserve it.
+  Explicit catch-up bypasses the conditional cache while respecting GitHub's
+  poll interval. Opening the menu does not mark notifications read.
 - Stars, open issues and open PRs are separate GraphQL totals. Failed refreshes
   retain cached counts. Revoked repository access removes its results.
 - Sync pause defers Git fetches. Remote-only projects can show counts, but no

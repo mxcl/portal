@@ -321,3 +321,74 @@ async fn sqlite_roundtrips_and_bounded_notification_work() -> Result<()> {
     std::fs::remove_dir_all(directory)?;
     Ok(())
 }
+
+#[tokio::test]
+async fn unread_snapshot_preserves_history_and_device_isolation() -> Result<()> {
+    let directory = env::temp_dir().join(format!("gitinuum-unread-{}", Uuid::new_v4()));
+    std::fs::create_dir(&directory)?;
+    let (db, lock) = open_database(&directory.join("relay.sqlite3")).await?;
+    let device = Uuid::new_v4();
+    let other = Uuid::new_v4();
+    for id in [device, other] {
+        sqlx::query("INSERT INTO devices(id) VALUES($1)")
+            .bind(id)
+            .execute(&db)
+            .await?;
+        for note in ["old", "new"] {
+            sqlx::query("INSERT INTO notifications(device,id,repository,updated_at,note) VALUES($1,$2,'owner/repo',unixepoch(),$3)")
+                .bind(id).bind(note).bind(json!({"id":note,"alert":false})).execute(&db).await?;
+        }
+    }
+    let mut tx = db.begin().await?;
+    update_unread_notifications(&mut tx, device, &["new".into()]).await?;
+    tx.commit().await?;
+    let notes: Vec<Value> =
+        sqlx::query_scalar("SELECT note FROM notifications WHERE device=$1 ORDER BY id")
+            .bind(device)
+            .fetch_all(&db)
+            .await?;
+    assert_eq!(notes[0]["unread"], true);
+    assert_eq!(notes[1]["unread"], false);
+    assert_eq!(notes[0]["alert"], false); // Initial history still never banners.
+    let untouched: Value =
+        sqlx::query_scalar("SELECT note FROM notifications WHERE device=$1 LIMIT 1")
+            .bind(other)
+            .fetch_one(&db)
+            .await?;
+    assert!(untouched.get("unread").is_none());
+    let mut tx = db.begin().await?;
+    update_unread_notifications(&mut tx, device, &[]).await?;
+    tx.rollback().await?; // Failed batches keep the last successful unread snapshot.
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM notifications WHERE device=$1 AND json_extract(note,'$.unread')=1"
+        )
+        .bind(device)
+        .fetch_one(&db)
+        .await?,
+        1
+    );
+    let mut tx = db.begin().await?;
+    update_unread_notifications(&mut tx, device, &[]).await?;
+    tx.commit().await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM notifications WHERE device=$1 AND json_extract(note,'$.unread')=1"
+        )
+        .bind(device)
+        .fetch_one(&db)
+        .await?,
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM notifications WHERE device=$1")
+            .bind(device)
+            .fetch_one(&db)
+            .await?,
+        2
+    );
+    db.close().await;
+    drop(lock);
+    std::fs::remove_dir_all(directory)?;
+    Ok(())
+}

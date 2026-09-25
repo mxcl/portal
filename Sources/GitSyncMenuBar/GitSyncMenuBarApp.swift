@@ -15,9 +15,35 @@ struct GitSyncMenuBarApp: App {
             StatusMenu(runtime: runtime)
                 .task { await runtime.model.refreshProjectStatuses() }
         } label: {
-            Label("Gitinuum", systemImage: runtime.model.isPaused
-                  ? "pause.circle" : "arrow.triangle.2.circlepath")
+            MenuBarIcon(isPaused: runtime.model.isPaused,
+                        hasUnreadNotifications: runtime.model.github.hasUnreadNotifications == true)
         }
+    }
+}
+
+private struct MenuBarIcon: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let isPaused: Bool
+    let hasUnreadNotifications: Bool
+
+    var body: some View {
+        // MenuBarExtra extracts an image from its label, so bake the colored badge into it.
+        let renderer = ImageRenderer(content:
+            Image(systemName: isPaused ? "pause.circle" : "arrow.triangle.2.circlepath")
+                .font(.system(size: 16))
+                .foregroundStyle(colorScheme == .dark ? .white : .black)
+                .frame(width: 22, height: 18)
+                .overlay(alignment: .topTrailing) {
+                    if hasUnreadNotifications {
+                        Circle().fill(.blue).frame(width: 6, height: 6)
+                    }
+                }
+        )
+        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+        return Image(nsImage: renderer.nsImage ?? NSImage())
+            .renderingMode(.original)
+            .accessibilityLabel(hasUnreadNotifications
+                ? "Gitinuum, unread GitHub notifications" : "Gitinuum")
     }
 }
 

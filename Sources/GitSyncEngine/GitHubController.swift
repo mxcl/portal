@@ -171,6 +171,7 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                 model.github.counts = model.github.counts.filter { authorized.contains($0.key) }
                     .merging(response.counts.filter { authorized.contains($0.key) }) { _, new in new }
                 model.github.notifications = response.notifications.filter { authorized.contains($0.repository) }
+                model.github.hasUnreadNotifications = response.hasUnreadNotifications
                 let missing = repositories.subtracting(authorized)
                 model.github.error = (response.errors + (missing.isEmpty ? [] : ["Unavailable repositories: \(missing.sorted().joined(separator: ", ")). Check remote URLs and Repository Access."]))
                     .first

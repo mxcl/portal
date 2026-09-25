@@ -379,3 +379,14 @@ these fetches. No incoming commit is promoted into local work.
 Peer inventory optionally includes GitHub repository identities; older peers
 without this field remain readable. Counts are stars, open pull requests and open
 issues (excluding PRs). Only active tracked projects receive notifications.
+
+The menu bar icon shows a 6-point blue dot at its upper-right corner when the
+last successful GitHub inbox snapshot contains unread notifications for tracked
+repositories. Its 22-by-18-point image keeps the same size with and without the
+dot, preserves the paused symbol, and includes unread status in its accessible
+label. Opening the menu does not mark notifications read. Reading on GitHub
+clears the dot after the next successful inbox refresh; no idle polling is added.
+The relay preserves history separately from unread state, retains unread state
+on conditional 304 responses or failed refreshes, and reports it independently
+of the 200-item history limit. The optional `hasUnreadNotifications` field keeps
+older relay responses and local caches readable (unknown state shows no dot).

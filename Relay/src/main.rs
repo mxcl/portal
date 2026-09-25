@@ -184,7 +184,7 @@ async fn main() -> Result<()> {
     sqlx::query("DELETE FROM deliveries WHERE created_at < unixepoch() - 2592000")
         .execute(&db)
         .await?;
-    sqlx::query("DELETE FROM notifications WHERE updated_at < unixepoch() - 2592000")
+    sqlx::query("DELETE FROM notifications WHERE updated_at < unixepoch() - 2592000 AND COALESCE(json_extract(note, '$.unread'),0)=0")
         .execute(&db)
         .await?;
     let state = AppState {
@@ -757,13 +757,12 @@ async fn sync(
             .bind(device).bind(name).bind(repo.id).bind(repo.installation).execute(&state.db).await?.rows_affected()>0;
         sqlx::query("UPDATE tracked SET repository_id=$3,installation_id=$4 WHERE device=$1 AND repository=$2")
             .bind(device).bind(name).bind(repo.id).bind(repo.installation).execute(&state.db).await?;
-        if new {
+        if new || input.catch_up {
+            // Explicit catch-up also reconciles read status, even without a new thread update.
             sqlx::query("UPDATE devices SET last_modified=NULL WHERE id=$1")
                 .bind(device)
                 .execute(&state.db)
                 .await?;
-        }
-        if new || input.catch_up {
             for kind in ["fetch", "counts", "notifications"] {
                 queue(&state.db, device, name, kind).await?;
             }
@@ -848,8 +847,11 @@ async fn sync(
     .bind(device)
     .fetch_all(&state.db)
     .await?;
+    let has_unread = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM notifications WHERE device=$1 AND json_extract(note, '$.unread')=1)",
+    ).bind(device).fetch_one(&state.db).await?;
     Ok(Json(
-        json!({"counts":counts,"notifications":notes,"authorizedRepositories":names,
+        json!({"counts":counts,"notifications":notes,"hasUnreadNotifications":has_unread,"authorizedRepositories":names,
         "fetches":work.into_iter().filter(|w|w.kind=="fetch").collect::<Vec<_>>(),"retryAfter":retry_after,
         "errors":errors,"installationURL":format!("https://github.com/apps/{}/installations/new",state.config.github_app_slug)}),
     ))
@@ -891,7 +893,7 @@ async fn refresh_notifications(
     names: &[String],
     work: &[Uuid],
 ) -> WebResult<Option<u64>> {
-    let row = sqlx::query("SELECT user_id,initialized,last_modified FROM devices WHERE id=$1")
+    let row = sqlx::query("SELECT user_id,initialized,CASE WHEN EXISTS(SELECT 1 FROM notifications WHERE device=$1 AND json_extract(note, '$.unread') IS NULL) THEN NULL ELSE last_modified END AS last_modified FROM devices WHERE id=$1")
         .bind(device)
         .fetch_one(&state.db)
         .await?;
@@ -920,6 +922,7 @@ async fn refresh_notifications(
     let modified: Option<String> = row.get("last_modified");
     let mut threads = Vec::new();
     let mut last_modified = None;
+    let mut unchanged = false;
     for page in 1.. {
         let mut request = state
             .http
@@ -963,6 +966,7 @@ async fn refresh_notifications(
                 .map(str::to_owned);
         }
         if response.status() == StatusCode::NOT_MODIFIED {
+            unchanged = true;
             break;
         }
         let items: Vec<Value> = response.json().await?;
@@ -985,6 +989,15 @@ async fn refresh_notifications(
             inserted = inserted || result.rows_affected() > 0;
         }
     }
+    if !unchanged {
+        let unread_ids = threads
+            .iter()
+            .filter(|thread| thread["unread"].as_bool() == Some(true))
+            .filter_map(|thread| notification_note(thread, baseline, names))
+            .filter_map(|note| note["id"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>();
+        update_unread_notifications(&mut tx, device, &unread_ids).await?;
+    }
     sqlx::query(
         "UPDATE devices SET initialized=true,last_modified=COALESCE($2,last_modified) WHERE id=$1",
     )
@@ -1006,6 +1019,16 @@ async fn refresh_notifications(
         ));
     }
     Ok(None)
+}
+// Update only after every inbox page succeeds; history and banner deduplication remain intact.
+async fn update_unread_notifications(
+    tx: &mut sqlx::SqliteConnection,
+    device: Uuid,
+    unread_ids: &[String],
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE notifications SET note=json_set(note, '$.unread', json(CASE WHEN id IN (SELECT value FROM json_each($2)) THEN 'true' ELSE 'false' END)) WHERE device=$1")
+        .bind(device).bind(json!(unread_ids)).execute(tx).await?;
+    Ok(())
 }
 // A webhook may precede inbox indexing. Retry an empty result once, without an idle poll loop.
 async fn finish_notification_work(

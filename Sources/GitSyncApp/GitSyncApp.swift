@@ -2145,7 +2145,7 @@ struct SettingsView: View {
                     Button("Allow Notifications…") { model.githubAction(.requestNotificationPermission) }
                     Text("Notifications cover tracked GitHub projects. Stars and open PR/issue counts appear in the sidebar.")
                         .foregroundStyle(.secondary)
-                    Text("Updates arrive through push notifications, with catch-up on launch, reconnect, and Refresh.")
+                    Text("Updates arrive through push notifications, with catch-up on launch, reconnect, and Refresh. Unread notifications are checked every minute and after opening a notification.")
                         .foregroundStyle(.secondary)
                 }
             }

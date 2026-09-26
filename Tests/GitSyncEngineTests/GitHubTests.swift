@@ -44,7 +44,7 @@ func githubResponseDecoding() throws {
         #expect(restored.hasUnreadNotifications == unread)
     }
     #expect(try JSONDecoder().decode(GitHubState.self, from: JSONEncoder().encode(GitHubState())).hasUnreadNotifications == nil)
-    #expect(EngineControlProtocol.version == 4)
+    #expect(EngineControlProtocol.version == 5)
 }
 @Test("GitHub sign-in control requests require no relay configuration")
 func githubConnectAction() throws {
@@ -55,5 +55,11 @@ func githubConnectAction() throws {
         return
     }
     #expect(String(decoding: data, as: UTF8.self) == #"{"connect":{}}"#)
+    let opened = try JSONDecoder().decode(GitHubAction.self,
+        from: JSONEncoder().encode(GitHubAction.notificationOpened))
+    guard case .notificationOpened = opened else {
+        Issue.record("Expected a notification-opened action across the engine connection")
+        return
+    }
 }
 #endif

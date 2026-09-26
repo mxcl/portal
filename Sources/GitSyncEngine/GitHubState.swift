@@ -36,7 +36,7 @@ public struct GitHubState: Codable, Sendable {
 }
 
 public enum GitHubAction: Codable, Sendable {
-    case connect, refresh, disconnect, requestNotificationPermission, installations
+    case connect, refresh, disconnect, requestNotificationPermission, installations, notificationOpened
 }
 
 struct GitHubWork: Codable, Sendable {

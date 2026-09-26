@@ -701,6 +701,8 @@ struct SyncInput {
     repositories: HashSet<String>,
     #[serde(default)]
     catch_up: bool,
+    #[serde(default)]
+    refresh_inbox: bool,
     token: Option<String>,
     environment: String,
 }
@@ -767,6 +769,9 @@ async fn sync(
                 queue(&state.db, device, name, kind).await?;
             }
         }
+    }
+    if input.refresh_inbox {
+        queue_inbox_refresh(&state.db, device, &names).await?;
     }
     let work = sqlx::query("SELECT id,repository,kind FROM pending WHERE device=$1")
         .bind(device)
@@ -855,6 +860,19 @@ async fn sync(
         "fetches":work.into_iter().filter(|w|w.kind=="fetch").collect::<Vec<_>>(),"retryAfter":retry_after,
         "errors":errors,"installationURL":format!("https://github.com/apps/{}/installations/new",state.config.github_app_slug)}),
     ))
+}
+// Read-state reconciliation must not enqueue repository fetches or counts.
+async fn queue_inbox_refresh(db: &SqlitePool, device: Uuid, names: &[String]) -> WebResult<()> {
+    sqlx::query("UPDATE devices SET last_modified=NULL WHERE id=$1")
+        .bind(device)
+        .execute(db)
+        .await?;
+    for name in names {
+        // Keep a webhook's UUID and indexing retry if work is already pending.
+        sqlx::query("INSERT INTO pending(device,repository,kind,id,attempts) VALUES($1,$2,'notifications',$3,1) ON CONFLICT DO NOTHING")
+            .bind(device).bind(name).bind(Uuid::new_v4()).execute(db).await?;
+    }
+    Ok(())
 }
 async fn queue(db: &SqlitePool, device: Uuid, repo: &str, kind: &str) -> WebResult<()> {
     sqlx::query("INSERT INTO pending(device,repository,kind,id,attempts) VALUES($1,$2,$3,$4,1) ON CONFLICT(device,repository,kind) DO UPDATE SET id=EXCLUDED.id,attempts=EXCLUDED.attempts")

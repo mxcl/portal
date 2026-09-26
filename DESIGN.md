@@ -54,6 +54,7 @@ The helper also owns the global Command–Option–backtick shortcut, enabled by
 default, which opens or activates the main app. General settings can disable it
 immediately; the helper persists this local preference in UserDefaults. Control
 protocol v4 includes the preference in snapshots and accepts its toggle command.
+Protocol v5 adds the notification-opened action for delayed inbox reconciliation.
 GitHub sign-in uses the built-in relay endpoint; its control command takes no URL.
 
 The sidebar groups active and archived projects. A project is the shared name
@@ -369,9 +370,10 @@ The optional GitHub connection uses a separate Gitinuum relay and the macOS menu
 helper. APNs is a wake-up hint, not an event log: the relay retains per-device,
 per-repository work until acknowledged. Each replacement work item has a fresh
 UUID, so acknowledging older work cannot erase a newer event, including after a
-relay state reset. GitHub requests are event-driven; launch, reconnect, initial
-setup and explicit Refresh are the only catch-up triggers. Local discovery timers
-must not become GitHub polling timers.
+relay state reset. GitHub repository work is event-driven; launch, wake, reconnect, initial
+setup and explicit Refresh trigger catch-up. Inbox-only checks also run after
+notification clicks and every minute while unread notifications remain. Local
+discovery timers must not become GitHub polling timers.
 
 With GitHub connected, branch events may fetch into `refs/remotes/<remote>/*`
 for a matching, configured github.com remote in a local checkout. This is a
@@ -392,7 +394,14 @@ last successful GitHub inbox snapshot contains unread notifications for tracked
 repositories. Its 22-by-18-point image keeps the same size with and without the
 dot, preserves the paused symbol, and includes unread status in its accessible
 label. Opening the menu does not mark notifications read. Reading on GitHub
-clears the dot after the next successful inbox refresh; no idle polling is added.
+clears the dot after the next successful inbox refresh. While the dot is present,
+the helper requests an inbox refresh every 60 seconds; it stops when unread state
+clears. Opening a banner or menu notification schedules a check after three
+seconds, coalescing repeated clicks. Each sync requests inbox reconciliation via
+the optional `refreshInbox` flag, without enqueuing counts or repository fetches.
+The relay enforces the shared per-user `X-Poll-Interval` / retry deadline, including
+for clicks and pushes; triggers never bypass this limit. Inbox reconciliation
+invalidates the conditional timestamp so read-only changes are observed.
 The relay preserves history separately from unread state, retains unread state
 on conditional 304 responses or failed refreshes, and reports it independently
 of the 200-item history limit. The optional `hasUnreadNotifications` field keeps

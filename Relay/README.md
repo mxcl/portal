@@ -114,11 +114,14 @@ this device's relay session before removing its Keychain credential.
 - `/sync` registers the current repository set, revalidates user access, processes
   pending counts/inbox requests, and returns cached results plus fetch work.
   `/ack` removes only matching fetch IDs for that device after successful work.
-- GitHub pagination, conditional requests and `X-Poll-Interval` are respected.
+- GitHub pagination and `X-Poll-Interval` are respected. The optional sync
+  `refreshInbox` flag queues only inbox reconciliation and invalidates its
+  conditional timestamp to detect read-state changes. Clients check every minute
+  while unread, and after notification clicks; all checks share the per-user throttle.
   The inbox interval is enforced across all Macs belonging to the same GitHub user.
   Rate limits leave work pending. A notification-prone webhook that arrives before
   inbox indexing gets one conditional follow-up at GitHub's interval. The helper makes at most three retries per
-  trigger, then waits for a new push, launch, reconnect or explicit Refresh.
+  trigger, then waits for a new trigger (including the unread timer or a notification click).
 - Notification history is filtered to tracked repositories and deduplicated by
   thread/update. Initial history appears in the menu without backlog banners.
   Only the Mac posts banners; the relay never sends duplicate alert pushes.

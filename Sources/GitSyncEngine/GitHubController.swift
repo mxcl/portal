@@ -14,6 +14,8 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
     private var credential: Credential?
     private var deviceToken: String?
     private var task: Task<Void, Never>?
+    private var inboxPollTask: Task<Void, Never>?
+    private var clickRefreshTask: Task<Void, Never>?
     private var schedule = GitHubRefreshSchedule()
     private var observations = Set<AnyCancellable>()
     private let network = NWPathMonitor()
@@ -29,6 +31,7 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
     private struct SyncRequest: Encodable {
         let repositories: [String]
         let catchUp: Bool
+        let refreshInbox = true
         let token: String?
         let environment: String
     }
@@ -79,11 +82,17 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
             await model.refreshProjectStatuses()
             await self?.updatePermission()
             self?.ready = true
+            self?.updateInboxPolling()
             self?.refresh(catchUp: true)
         }
     }
 
-    public func shutdown() { task?.cancel(); network.cancel() }
+    public func shutdown() {
+        task?.cancel()
+        inboxPollTask?.cancel()
+        clickRefreshTask?.cancel()
+        network.cancel()
+    }
     public func registered(token: Data) {
         model?.github.pushStatus = "Registered"
         deviceToken = token.map { String(format: "%02x", $0) }.joined()
@@ -127,12 +136,21 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                 await updatePermission()
                 await model.refreshProjectStatuses()
                 refresh(catchUp: true)
+            case .notificationOpened:
+                clickRefreshTask?.cancel()
+                clickRefreshTask = Task { [weak self] in
+                    do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                    self?.refresh(catchUp: false)
+                }
             case .disconnect:
                 task?.cancel()
                 if let credential {
                     _ = try await request("disconnect", body: Data("{}".utf8), relay: credential.relay, credential: credential.session)
                 }
                 try Self.deleteCredential()
+                inboxPollTask?.cancel()
+                inboxPollTask = nil
+                clickRefreshTask?.cancel()
                 credential = nil
                 seen = []
                 model.github = GitHubState()
@@ -172,6 +190,7 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                     .merging(response.counts.filter { authorized.contains($0.key) }) { _, new in new }
                 model.github.notifications = response.notifications.filter { authorized.contains($0.repository) }
                 model.github.hasUnreadNotifications = response.hasUnreadNotifications
+                updateInboxPolling()
                 let missing = repositories.subtracting(authorized)
                 model.github.error = (response.errors + (missing.isEmpty ? [] : ["Unavailable repositories: \(missing.sorted().joined(separator: ", ")). Check remote URLs and Repository Access."]))
                     .first
@@ -227,6 +246,22 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
             guard !Task.isCancelled else { return }
             if let delay, schedule.retry() {
                 do { try await Task.sleep(for: .seconds(max(1, delay))) } catch { return }
+            }
+        }
+    }
+
+    private func updateInboxPolling() {
+        guard model?.github.hasUnreadNotifications == true else {
+            inboxPollTask?.cancel()
+            inboxPollTask = nil
+            return
+        }
+        guard inboxPollTask == nil else { return }
+        inboxPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                guard let self else { return }
+                self.refresh(catchUp: false)
             }
         }
     }
@@ -314,7 +349,9 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
         didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
         if let text = response.notification.request.content.userInfo["url"] as? String,
            let url = URL(string: text), url.scheme == "https", url.host == "github.com", url.user == nil, url.password == nil {
-            Task { @MainActor in NSWorkspace.shared.open(url) }
+            Task { @MainActor [weak self] in
+                if NSWorkspace.shared.open(url) { await self?.handle(.notificationOpened) }
+            }
         }
         completionHandler()
     }

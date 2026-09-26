@@ -392,3 +392,76 @@ async fn unread_snapshot_preserves_history_and_device_isolation() -> Result<()> 
     std::fs::remove_dir_all(directory)?;
     Ok(())
 }
+
+#[tokio::test]
+async fn inbox_refresh_only_queues_notifications_and_preserves_throttle() -> Result<()> {
+    let directory = env::temp_dir().join(format!("gitinuum-{}", Uuid::new_v4()));
+    std::fs::create_dir(&directory)?;
+    let (db, lock) = open_database(&directory.join("relay.sqlite3")).await?;
+    let device = Uuid::new_v4();
+    sqlx::query("INSERT INTO devices(id,user_id,last_modified) VALUES($1,42,'cached')")
+        .bind(device)
+        .execute(&db)
+        .await?;
+    sqlx::query("INSERT INTO tracked(device,repository,repository_id,installation_id) VALUES($1,'owner/repo',1,2)")
+        .bind(device).execute(&db).await?;
+    sqlx::query("INSERT INTO inbox_limits(user_id,next_poll_at) VALUES(42,9999999999)")
+        .execute(&db)
+        .await?;
+    for _ in 0..2 {
+        queue_inbox_refresh(&db, device, &["owner/repo".into()])
+            .await
+            .map_err(|e| anyhow::anyhow!(e.1))?;
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT kind FROM pending")
+            .fetch_all(&db)
+            .await?,
+        vec!["notifications"]
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, Option<String>>("SELECT last_modified FROM devices")
+            .fetch_one(&db)
+            .await?,
+        None
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT next_poll_at FROM inbox_limits")
+            .fetch_one(&db)
+            .await?,
+        9999999999
+    );
+    let pending_id: Uuid = sqlx::query_scalar("SELECT id FROM pending")
+        .fetch_one(&db)
+        .await?;
+    sqlx::query("UPDATE pending SET attempts=0")
+        .execute(&db)
+        .await?;
+    queue_inbox_refresh(&db, device, &["owner/repo".into()])
+        .await
+        .map_err(|e| anyhow::anyhow!(e.1))?;
+    assert_eq!(
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM pending")
+            .fetch_one(&db)
+            .await?,
+        pending_id
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT attempts FROM pending")
+            .fetch_one(&db)
+            .await?,
+        0
+    );
+    let legacy: SyncInput =
+        serde_json::from_value(json!({"repositories":[],"environment":"production"}))?;
+    assert!(!legacy.refresh_inbox);
+    let inbox: SyncInput = serde_json::from_value(
+        json!({"repositories":[],"environment":"production","refreshInbox":true}),
+    )?;
+    assert!(inbox.refresh_inbox);
+    assert!(!inbox.catch_up);
+    db.close().await;
+    drop(lock);
+    std::fs::remove_dir_all(directory)?;
+    Ok(())
+}

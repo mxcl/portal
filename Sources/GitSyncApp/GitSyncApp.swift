@@ -1629,12 +1629,6 @@ private struct CommitRow: View {
                 .padding(.leading, BranchGraphRowCanvas.graphWidth(model: graph, commitOID: commit.oid) + 8)
                 .offset(y: 4)
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: 5)
-                .strokeBorder(isCurrent ? Color.accentColor.opacity(0.5) : .clear, lineWidth: 1)
-                .padding(-4)
-                .allowsHitTesting(false)
-        }
         .accessibilityElement(children: .combine)
         .help(RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine, allReferences: allReferences).joined(separator: "\n"))
         .accessibilityValue(([isCurrent ? "Checked out commit" : ""] +

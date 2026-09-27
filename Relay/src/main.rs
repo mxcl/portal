@@ -160,8 +160,16 @@ async fn open_database(path: &Path) -> Result<(SqlitePool, File)> {
                 .execute(&mut *tx)
                 .await?;
         }
-        1 => {}
+        1 | 2 => {}
         _ => anyhow::bail!("Unsupported SQLite schema version: {version}"),
+    }
+    if version < 2 {
+        sqlx::raw_sql(include_str!("../migration-2.sql"))
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("PRAGMA user_version=2")
+            .execute(&mut *tx)
+            .await?;
     }
     tx.commit().await?;
     Ok((db, lock))
@@ -528,6 +536,63 @@ struct Work {
     repository: String,
     kind: String,
 }
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct MergeWork {
+    id: Uuid,
+    repository: String,
+    source_repository: String,
+    branch: String,
+    oid: String,
+    base_branch: String,
+    default_branch: String,
+    pull_request: u64,
+    merged_at: String,
+}
+
+fn merged_work(event: &str, payload: &Value) -> Option<MergeWork> {
+    if event != "pull_request"
+        || payload["action"] != "closed"
+        || payload["pull_request"]["merged"] != true
+    {
+        return None;
+    }
+    let pr = &payload["pull_request"];
+    let work = MergeWork {
+        id: Uuid::new_v4(),
+        repository: payload["repository"]["full_name"].as_str()?.to_lowercase(),
+        source_repository: pr["head"]["repo"]["full_name"].as_str()?.to_lowercase(),
+        branch: pr["head"]["ref"].as_str()?.into(),
+        oid: pr["head"]["sha"].as_str()?.into(),
+        base_branch: pr["base"]["ref"].as_str()?.into(),
+        default_branch: pr["head"]["repo"]["default_branch"].as_str()?.into(),
+        pull_request: payload["number"].as_u64()?,
+        merged_at: pr["merged_at"].as_str()?.into(),
+    };
+    if !valid_repository(&work.repository)
+        || !valid_repository(&work.source_repository)
+        || ![40, 64].contains(&work.oid.len())
+        || !work.oid.bytes().all(|b| b.is_ascii_hexdigit())
+        || work.branch.is_empty()
+        || work.pull_request == 0
+        || chrono::DateTime::parse_from_rfc3339(&work.merged_at).is_err()
+    {
+        return None;
+    }
+    Some(work)
+}
+
+async fn queue_merge(
+    tx: &mut sqlx::SqliteConnection,
+    device: Uuid,
+    work: &MergeWork,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO merged_work(device,repository,id,pr,oid,record) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
+        .bind(device).bind(&work.repository).bind(work.id).bind(work.pull_request as i64)
+        .bind(&work.oid).bind(sqlx::types::Json(work)).execute(tx).await?;
+    Ok(())
+}
+
 async fn ack(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -536,6 +601,11 @@ async fn ack(
     let device = authenticated(&state, &headers).await?;
     let mut tx = state.db.begin().await?;
     for id in ids {
+        sqlx::query("UPDATE merged_work SET completed=1 WHERE device=$1 AND id=$2")
+            .bind(device)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM pending WHERE device=$1 AND kind='fetch' AND id=$2")
             .bind(device)
             .bind(id)
@@ -855,8 +925,14 @@ async fn sync(
     let has_unread = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM notifications WHERE device=$1 AND json_extract(note, '$.unread')=1)",
     ).bind(device).fetch_one(&state.db).await?;
+    let merges = sqlx::query_scalar::<_, Value>(
+        "SELECT record FROM merged_work WHERE device=$1 AND completed=0",
+    )
+    .bind(device)
+    .fetch_all(&state.db)
+    .await?;
     Ok(Json(
-        json!({"counts":counts,"notifications":notes,"hasUnreadNotifications":has_unread,"authorizedRepositories":names,
+        json!({"merges":merges,"counts":counts,"notifications":notes,"hasUnreadNotifications":has_unread,"authorizedRepositories":names,
         "fetches":work.into_iter().filter(|w|w.kind=="fetch").collect::<Vec<_>>(),"retryAfter":retry_after,
         "errors":errors,"installationURL":format!("https://github.com/apps/{}/installations/new",state.config.github_app_slug)}),
     ))
@@ -1112,6 +1188,7 @@ async fn webhook(
     if !inserted {
         return Ok(StatusCode::OK);
     }
+    let merge = merged_work(&event, &payload);
     let installation = payload.pointer("/installation/id").and_then(Value::as_i64);
     let mut devices = Vec::new();
     if event == "installation" || event == "installation_repositories" {
@@ -1149,7 +1226,12 @@ async fn webhook(
             let device: Uuid = row.get("device");
             let repo: String = row.get("repository");
             let work = event_work(&event, &payload);
-            if !work.is_empty() {
+            if let Some(merge) = &merge {
+                if merge.repository == repo {
+                    queue_merge(&mut tx, device, merge).await?;
+                }
+            }
+            if !work.is_empty() || merge.is_some() {
                 devices.push(device);
             }
             for kind in work {

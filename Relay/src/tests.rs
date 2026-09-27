@@ -188,7 +188,7 @@ async fn durable_pending_work_and_deduplication() -> Result<()> {
         sqlx::query_scalar::<_, i64>("PRAGMA user_version")
             .fetch_one(&db)
             .await?,
-        1
+        2
     );
     assert!(
         sqlx::query_scalar::<_, i64>("SELECT next_poll_at FROM inbox_limits WHERE user_id=42")
@@ -314,7 +314,7 @@ async fn sqlite_roundtrips_and_bounded_notification_work() -> Result<()> {
     assert!(sqlx::query("INSERT INTO tracked(device,repository,repository_id,installation_id) VALUES($1,'owner/repo',1,2)")
         .bind(device).execute(&db).await.is_err());
     // Unknown schema versions must be preserved, never rebuilt.
-    sqlx::query("PRAGMA user_version=2").execute(&db).await?;
+    sqlx::query("PRAGMA user_version=99").execute(&db).await?;
     db.close().await;
     drop(lock);
     assert!(open_database(&path).await.is_err());
@@ -460,6 +460,127 @@ async fn inbox_refresh_only_queues_notifications_and_preserves_throttle() -> Res
     )?;
     assert!(inbox.refresh_inbox);
     assert!(!inbox.catch_up);
+    db.close().await;
+    drop(lock);
+    std::fs::remove_dir_all(directory)?;
+    Ok(())
+}
+
+fn merged_payload() -> Value {
+    json!({"action":"closed","number":7,"repository":{"full_name":"owner/repo"},
+        "pull_request":{"merged":true,"merged_at":"2026-09-27T12:00:00Z",
+        "head":{"ref":"topic","sha":"1234567890123456789012345678901234567890",
+        "repo":{"full_name":"fork/repo","default_branch":"main"}},"base":{"ref":"main"}}})
+}
+
+#[test]
+fn only_verified_merge_shapes_produce_cleanup() {
+    let payload = merged_payload();
+    let work = merged_work("pull_request", &payload).unwrap();
+    assert_eq!(work.source_repository, "fork/repo");
+    assert_eq!(work.branch, "topic");
+    assert_eq!(work.oid, payload["pull_request"]["head"]["sha"]);
+    assert!(merged_work("push", &payload).is_none());
+    for (field, value) in [
+        ("merged", json!(false)),
+        ("merged_at", Value::Null),
+        ("head", Value::Null),
+    ] {
+        let mut invalid = payload.clone();
+        invalid["pull_request"][field] = value;
+        assert!(merged_work("pull_request", &invalid).is_none());
+    }
+    let mut reopened = payload;
+    reopened["action"] = json!("reopened");
+    assert!(merged_work("pull_request", &reopened).is_none());
+}
+
+#[tokio::test]
+async fn merge_queue_migrates_and_retains_independent_idempotent_work() -> Result<()> {
+    let directory = env::temp_dir().join(format!("gitinuum-merges-{}", Uuid::new_v4()));
+    std::fs::create_dir(&directory)?;
+    let path = directory.join("relay.sqlite3");
+    let legacy = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            SqliteConnectOptions::new()
+                .filename(&path)
+                .create_if_missing(true),
+        )
+        .await?;
+    sqlx::raw_sql(include_str!("../schema.sql"))
+        .execute(&legacy)
+        .await?;
+    sqlx::query("PRAGMA user_version=1")
+        .execute(&legacy)
+        .await?;
+    let device = Uuid::new_v4();
+    sqlx::query("INSERT INTO devices(id) VALUES($1)")
+        .bind(device)
+        .execute(&legacy)
+        .await?;
+    sqlx::query("INSERT INTO tracked(device,repository,repository_id,installation_id) VALUES($1,'owner/repo',1,2)")
+        .bind(device).execute(&legacy).await?;
+    legacy.close().await;
+    let (db, lock) = open_database(&path).await?;
+    let first = merged_work("pull_request", &merged_payload()).unwrap();
+    let mut second = first.clone();
+    second.id = Uuid::new_v4();
+    second.pull_request += 1;
+    let mut tx = db.begin().await?;
+    queue_merge(&mut tx, device, &first).await?;
+    queue_merge(&mut tx, device, &second).await?;
+    let mut duplicate = first.clone();
+    duplicate.id = Uuid::new_v4();
+    queue_merge(&mut tx, device, &duplicate).await?;
+    tx.commit().await?;
+    db.close().await;
+    drop(lock);
+    let (db, lock) = open_database(&path).await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM merged_work WHERE completed=0")
+            .fetch_one(&db)
+            .await?,
+        2
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, Value>("SELECT record FROM merged_work WHERE id=$1")
+            .bind(first.id)
+            .fetch_one(&db)
+            .await?["sourceRepository"],
+        "fork/repo"
+    );
+    // Wrong-device and stale acknowledgements do not consume work.
+    sqlx::query("UPDATE merged_work SET completed=1 WHERE device=$1 AND id=$2")
+        .bind(Uuid::new_v4())
+        .bind(first.id)
+        .execute(&db)
+        .await?;
+    sqlx::query("UPDATE merged_work SET completed=1 WHERE device=$1 AND id=$2")
+        .bind(device)
+        .bind(duplicate.id)
+        .execute(&db)
+        .await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM merged_work WHERE completed=0")
+            .fetch_one(&db)
+            .await?,
+        2
+    );
+    sqlx::query("UPDATE merged_work SET completed=1 WHERE device=$1 AND id=$2")
+        .bind(device)
+        .bind(first.id)
+        .execute(&db)
+        .await?;
+    let mut tx = db.begin().await?;
+    queue_merge(&mut tx, device, &duplicate).await?;
+    tx.commit().await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM merged_work WHERE completed=0")
+            .fetch_one(&db)
+            .await?,
+        1
+    );
     db.close().await;
     drop(lock);
     std::fs::remove_dir_all(directory)?;

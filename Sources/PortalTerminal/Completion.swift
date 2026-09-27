@@ -317,6 +317,11 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
     }
 
     private func present(relativeTo rect: NSRect, of view: NSView, preferredEdge: NSRectEdge) {
+        // Completion results can arrive after the terminal leaves its window.
+        guard view.window != nil else {
+            dismiss()
+            return
+        }
         presentationView = view
         presentationEdge = preferredEdge
         popover.show(

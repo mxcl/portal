@@ -1,0 +1,33 @@
+[package]
+name = "gitinuum-terminal"
+version = "1.0.0"
+edition = "2024"
+
+[dependencies]
+base64 = "0.22"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+vt100 = "0.16.2"
+
+[features]
+test-peer-validation-bypass = []
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+security-framework = "3.7"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[[bin]]
+name = "gitinuum-sessiond"
+path = "src/sessiond/main.rs"
+
+[[bin]]
+name = "gitinuum-session-bridge"
+path = "src/session_bridge/main.rs"
+

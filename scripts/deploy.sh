@@ -94,7 +94,7 @@ linux_binary="$repo/.build/aarch64-swift-linux-musl/release/gitinuumd"
 [[ -x "$linux_binary" ]] || { echo "Linux build missing: $linux_binary" >&2; exit 1; }
 
 ssh -o BatchMode=yes "$peer" "rm -rf '$remote_stage' '$remote_backup'"
-rsync -a --delete "$built_app/" "$peer:$remote_stage/"
+rsync -aH --delete "$built_app/" "$peer:$remote_stage/"
 ssh -o BatchMode=yes "$atlas" "mkdir -p '$atlas_home/.local/bin' && rm -f '$atlas_stage' '$atlas_backup'"
 scp -C "$linux_binary" "$atlas:$atlas_stage"
 rm -rf "$local_stage" "$local_backup"

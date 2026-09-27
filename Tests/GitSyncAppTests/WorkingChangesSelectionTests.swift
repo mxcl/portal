@@ -73,7 +73,7 @@ func peerWorkingChangesSelection() async throws {
     _ = try Git.run(["init", "-q", project.path])
     try Data("local\n".utf8).write(to: project.appendingPathComponent("local.txt"))
     _ = try Git.run(["-C", project.path, "add", "."])
-    let host = SyncHost(machine: "Pangolin", peer: "", root: root.path, executable: "/unused")
+    let host = SyncHost(machine: "Pangolin", peer: "", root: "/remote/projects", executable: "/unused")
     let model = AppModel(connectToHelper: false)
     model.configuration = AppConfiguration(root: root.path, machine: "Maliwan", hosts: [host],
         folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)])
@@ -101,7 +101,9 @@ func peerWorkingChangesSelection() async throws {
     try await finishLoading()
     #expect(model.selectedStaging?.source == .host(host.id))
     #expect(model.selectedTab == .diff)
-    #expect(model.availableTabs == [.info, .diff])
+    #expect(model.availableTabs == [.info, .diff, .terminal])
+    #expect(model.selectedTerminalHost?.id == host.id.uuidString)
+    #expect(model.selectedTerminalDirectory?.path == "/remote/projects/project")
     #expect(model.workingDiffStaged)
     // Invalid peer configuration must fail the remote read instead of showing local changes.
     #expect(model.commitDiffError != nil)
@@ -113,6 +115,8 @@ func peerWorkingChangesSelection() async throws {
     model.selectCommit(local.id)
     try await finishLoading()
     #expect(model.selectedTab == .editor)
+    #expect(model.selectedTerminalHost == nil)
+    #expect(model.selectedTerminalDirectory?.path == project.path)
     #expect(model.selectedCommitDiff?.contains("+local") == true)
     model.configuration.folders[0].availableHosts.insert(host.id)
     await model.refreshPeerStaging()

@@ -5,6 +5,14 @@ import Testing
 
 @Suite("Embedded terminal", .serialized)
 struct TerminalIntegrationTests {
+    @Test @MainActor func tabBarStartsHidden() {
+        let controller = TerminalViewController()
+        #expect(!controller.isTabSession)
+        controller.enterTabSession()
+        #expect(controller.isTabSession)
+        #expect(!controller.isViewLoaded)
+    }
+
     @Test @MainActor func rendererAndCompletions() {
         Ansi.runSelfTests()
         #expect(Ansi.terminalScreenScrollRegionSelfTest())

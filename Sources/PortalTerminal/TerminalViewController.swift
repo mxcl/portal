@@ -3995,7 +3995,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         selfTestCommand: String? = nil,
         windowID: String = UUID().uuidString,
         restoresPersistedWindow: Bool = true,
-        showsTabStrip: Bool = true,
+        showsTabStrip: Bool = false,
         initialDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         initialHostID: String? = nil
     ) {
@@ -4017,7 +4017,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         self.selfTestCommand = nil
         self.sessionCatalog = SessionCatalog(url: Self.sessionStateURL(), windowID: UUID().uuidString)
         self.restoresPersistedWindow = true
-        self.showsTabStrip = true
+        self.showsTabStrip = false
         super.init(coder: coder)
     }
 
@@ -5139,6 +5139,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         setCommandBarStatusText("Starting shell...", in: tab)
         tab.rootView.isHidden = !activates
         tabs.append(tab)
+        if tabs.count > 1 { enterTabSession() }
         if let initialCommand {
             initialCommands[tab.id] = initialCommand
         }

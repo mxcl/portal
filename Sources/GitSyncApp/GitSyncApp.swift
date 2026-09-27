@@ -258,7 +258,7 @@ final class AppModel: ObservableObject {
     }
 
     var selectedTerminalHost: TerminalHost? {
-        guard case .host(let id) = projectSource else { return nil }
+        guard case .host(let id) = selectedStaging?.source ?? projectSource else { return nil }
         return terminalHosts.first { $0.id == id.uuidString }
     }
 

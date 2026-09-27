@@ -20,6 +20,9 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
     private var observations = Set<AnyCancellable>()
     private let network = NWPathMonitor()
     private var online = false
+    private var mergeWatcher: RepositoryWatcher?
+    private var mergeWatchPaths: [String] = []
+    private var pendingMerges = false
     private var ready = false
     private var accountActionInProgress = false
     private var seen = Set<String>()
@@ -66,6 +69,14 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
             .store(in: &observations)
         model.$isPaused.removeDuplicates().dropFirst().filter { !$0 }
             .sink { [weak self] _ in self?.refresh(catchUp: false) }.store(in: &observations)
+        // Backup completion and checkout changes wake deferred work without an idle polling loop.
+        Publishers.Merge3(model.$logs.map { _ in () }, model.$projectStatuses.removeDuplicates().map { _ in () },
+                          model.$configuration.removeDuplicates().map { _ in () })
+            .dropFirst().debounce(for: .seconds(2), scheduler: DispatchQueue.main)
+            .sink { [weak self] in
+                guard let self, self.pendingMerges else { return }
+                self.refresh(catchUp: false)
+            }.store(in: &observations)
         network.pathUpdateHandler = { [weak self] path in
             let satisfied = path.status == .satisfied
             Task { @MainActor in
@@ -92,6 +103,7 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
         inboxPollTask?.cancel()
         clickRefreshTask?.cancel()
         network.cancel()
+        mergeWatcher = nil
     }
     public func registered(token: Data) {
         model?.github.pushStatus = "Registered"
@@ -153,6 +165,9 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                 clickRefreshTask?.cancel()
                 credential = nil
                 seen = []
+                pendingMerges = false
+                mergeWatcher = nil
+                mergeWatchPaths = []
                 model.github = GitHubState()
                 try? FileManager.default.removeItem(at: cacheURL)
             case .requestNotificationPermission:
@@ -232,10 +247,27 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                         delay = max(delay ?? 0, 30)
                     }
                 }
+                let merges = (response.merges ?? []).filter { authorized.contains($0.repository) }
+                pendingMerges = !merges.isEmpty
+                try await updateMergeWatcher()
+                var pending = false
+                for merge in merges {
+                    do {
+                        if try await model.cleanMergedBranch(merge) { completed.append(merge.id) }
+                        else { pending = true }
+                    } catch {
+                        try Task.checkCancellation()
+                        pending = true
+                        model.github.error = "Merged branch cleanup (\(merge.repository)): \(error.localizedDescription)"
+                        delay = max(delay ?? 0, 30)
+                    }
+                }
                 try Task.checkCancellation()
                 if !completed.isEmpty {
                     _ = try await request("ack", body: JSONEncoder().encode(completed), relay: credential.relay, credential: credential.session)
                 }
+                pendingMerges = pending
+                if !pending { mergeWatcher = nil; mergeWatchPaths = [] }
             } catch {
                 if Task.isCancelled { return }
                 model.github.error = error.localizedDescription
@@ -248,6 +280,22 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                 do { try await Task.sleep(for: .seconds(max(1, delay))) } catch { return }
             }
         }
+    }
+
+    private func updateMergeWatcher() async throws {
+        guard pendingMerges, let model, model.isConfigured else { mergeWatcher = nil; mergeWatchPaths = []; return }
+        let root = URL(fileURLWithPath: NSString(string: model.configuration.root).expandingTildeInPath)
+        let paths = try await Task.detached(priority: .utility) {
+            let repositories = try Repository.discover(in: root)
+            let metadata = try repositories.flatMap { try RepositoryWatcher.paths(for: $0.url) }
+            return Array(Set([root.path] + metadata)).sorted()
+        }.value
+        guard paths != mergeWatchPaths else { return }
+        mergeWatcher = try RepositoryWatcher(paths: paths) { [weak self] in
+            guard let self, self.pendingMerges else { return }
+            self.refresh(catchUp: false)
+        }
+        mergeWatchPaths = paths
     }
 
     private func updateInboxPolling() {

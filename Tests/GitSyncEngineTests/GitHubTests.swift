@@ -1,6 +1,7 @@
 #if os(macOS)
 import Foundation
 import Testing
+@testable import GitSyncCore
 @testable import GitSyncEngine
 
 @Test("GitHub refresh remains idle without a trigger and coalesces bursts with bounded retries")
@@ -32,6 +33,7 @@ func githubResponseDecoding() throws {
     #expect(response.notifications[0].safeURL != nil)
     #expect(response.notifications[1].safeURL == nil)
     #expect(response.retryAfter == 60)
+    #expect(response.merges == nil)
     #expect(response.hasUnreadNotifications == nil) // Older relays do not report unread state.
     var payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     for unread in [true, false] {
@@ -61,5 +63,33 @@ func githubConnectAction() throws {
         Issue.record("Expected a notification-opened action across the engine connection")
         return
     }
+}
+
+@Test("Merged cleanup defers without backup and while paused; changed tips are terminal")
+@MainActor
+func mergedCleanupWithoutBackup() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let project = root.appendingPathComponent("project")
+    _ = try Git.run(["init", "-b", "main", project.path])
+    _ = try Git.run(["-C", project.path, "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                     "commit", "--allow-empty", "-m", "initial"])
+    _ = try Git.run(["-C", project.path, "branch", "topic"])
+    _ = try Git.run(["-C", project.path, "remote", "add", "origin", "https://github.com/owner/repo.git"])
+    let oid = try Git.text(["-C", project.path, "rev-parse", "topic"])
+    let data = Data("""
+        {"id":"\(UUID())","repository":"owner/repo","sourceRepository":"owner/repo","branch":"topic",
+        "oid":"\(oid)","baseBranch":"main","defaultBranch":"main","pullRequest":7,"mergedAt":"2026-09-27T12:00:00Z"}
+        """.utf8)
+    let merge = try JSONDecoder().decode(MergedBranch.self, from: data)
+    let model = EngineModel(executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+                            configuration: AppConfiguration(root: root.path, machine: "Mac"),
+                            support: root.appendingPathComponent("support"))
+    #expect(try await model.cleanMergedBranch(merge) == false)
+    #expect(try Git.text(["-C", project.path, "rev-parse", "topic"]) == oid)
+    _ = try Git.run(["-C", project.path, "branch", "-D", "topic"])
+    #expect(try await model.cleanMergedBranch(merge) == true)
+    model.pause()
+    #expect(try await model.cleanMergedBranch(merge) == false)
 }
 #endif

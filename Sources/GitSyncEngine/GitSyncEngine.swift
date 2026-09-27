@@ -896,6 +896,44 @@ public final class EngineModel: ObservableObject {
         return backupRefreshTask
     }
 
+    /// Called only for authenticated relay merge work. False leaves the relay work pending.
+    func cleanMergedBranch(_ merge: MergedBranch) async throws -> Bool {
+        guard isConfigured, !isPaused else { return false }
+        let root = expandedRoot, machine = configuration.machine
+        let local = configuration.backupDestination != nil
+        let remote = local ? nil : try backupControlConfiguration()
+        let repositories = try await Task.detached(priority: .utility) {
+            try Repository.discover(in: root)
+        }.value
+        var finished = true
+        for repository in repositories {
+            try Task.checkCancellation()
+            guard !isPaused else { return false }
+            let eligibility = try await Task.detached(priority: .utility) {
+                try repository.mergedBranchEligibility(merge)
+            }.value
+            if eligibility == .skipped { continue }
+            if eligibility == .deferred { finished = false; continue }
+            guard local || remote != nil else { finished = false; continue }
+            let backup = try await Task.detached(priority: .utility) {
+                try repository.mergedBranchBackup(merge, machine: machine)
+            }.value
+            let receipt = try await Task.detached(priority: .utility) {
+                if let remote { return try Runner.retainMergedBranch(backup, configuration: remote) }
+                return try Runner.retainMergedBranchLocally(backup)
+            }.value
+            try Task.checkCancellation()
+            guard !isPaused else { return false }
+            guard expandedRoot == root, configuration.machine == machine else { return false }
+            let result = try await Task.detached(priority: .utility) {
+                try repository.deleteMergedBranch(backup, receipt: receipt)
+            }.value
+            if result == .deferred { finished = false }
+            if result == .eligible { appendLog("Backed up and deleted merged branch \(repository.name)/\(merge.branch)") }
+        }
+        return finished
+    }
+
     private func backupControlConfiguration() throws -> Configuration? {
         guard let host = try configuration.backupHost() else { return nil }
         return Configuration(root: configuration.root, machine: configuration.machine,

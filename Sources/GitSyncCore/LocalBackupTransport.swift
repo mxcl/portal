@@ -15,6 +15,10 @@ public enum LocalBackupTransport {
     }
 }
 
+public enum BackupControlProtocol {
+    public static let version = 6
+}
+
 public enum BackupControlAction: String, Codable, Sendable {
     case list
     case archive
@@ -22,6 +26,7 @@ public enum BackupControlAction: String, Codable, Sendable {
     case catalog
     case content
     case diff
+    case retainMergedBranch
 }
 
 public struct BackupControlRequest: Codable, Sendable {
@@ -32,10 +37,12 @@ public struct BackupControlRequest: Codable, Sendable {
     public let oid: String?
     public let machine: String?
     public let repositories: [String]?
+    public let mergedBranch: MergedBranchBackup?
 
-    public init(version: Int = SyncProtocol.version, action: BackupControlAction,
+    public init(version: Int = BackupControlProtocol.version, action: BackupControlAction,
                 repository: String? = nil, snapshotID: String? = nil,
-                oid: String? = nil, machine: String? = nil, repositories: [String]? = nil) {
+                oid: String? = nil, machine: String? = nil, repositories: [String]? = nil,
+                mergedBranch: MergedBranchBackup? = nil) {
         self.version = version
         self.action = action
         self.repository = repository
@@ -43,6 +50,7 @@ public struct BackupControlRequest: Codable, Sendable {
         self.oid = oid
         self.machine = machine
         self.repositories = repositories
+        self.mergedBranch = mergedBranch
     }
 }
 
@@ -50,11 +58,14 @@ public struct BackupControlResponse: Codable, Sendable {
     public let items: [BackupItem]?
     public let byteCount: Int?
     public let error: String?
+    public let mergedBranch: MergedBranchBackup?
 
-    public init(items: [BackupItem]? = nil, byteCount: Int? = nil, error: String? = nil) {
+    public init(items: [BackupItem]? = nil, byteCount: Int? = nil, error: String? = nil,
+                mergedBranch: MergedBranchBackup? = nil) {
         self.items = items
         self.byteCount = byteCount
         self.error = error
+        self.mergedBranch = mergedBranch
     }
 
     public func checked() throws -> BackupControlResponse {
@@ -119,10 +130,17 @@ public enum BackupControlService {
     public static func serve(_ connection: FileHandle, root: URL, index: BackupIndex) throws {
         do {
             let request = try BackupControlConnection.receive(BackupControlRequest.self, from: connection)
-            guard request.version == SyncProtocol.version else {
+            guard request.version == BackupControlProtocol.version else {
                 throw SyncError.invalidProtocol("Unsupported backup control protocol version: \(request.version)")
             }
             switch request.action {
+            case .retainMergedBranch:
+                guard let backup = request.mergedBranch else {
+                    throw SyncError.invalidProtocol("Merged branch backup request is incomplete")
+                }
+                let receipt = try BackupIndex.retainMergedBranch(backup, in: root)
+                try BackupControlConnection.send(BackupControlResponse(mergedBranch: receipt), to: connection)
+
             case .list:
                 try BackupControlConnection.send(BackupControlResponse(items: try index.items(in: root)),
                                                  to: connection)
@@ -209,12 +227,16 @@ extension LocalBackupTransport {
     }
 
     public static func relayStandardIO(to url: URL = socketURL) throws {
+        try relay(to: url, input: .standardInput, output: .standardOutput)
+    }
+
+    static func relay(to url: URL, input inputHandle: FileHandle, output outputHandle: FileHandle) throws {
         let socket = try connect(mode: session, to: url)
         defer { try? socket.close() }
         _ = signal(SIGPIPE, SIG_IGN)
 
-        let input = FileHandle.standardInput.fileDescriptor
-        let output = FileHandle.standardOutput.fileDescriptor
+        let input = inputHandle.fileDescriptor
+        let output = outputHandle.fileDescriptor
         let peer = socket.fileDescriptor
         var inputOpen = true
         var descriptors = [

@@ -167,6 +167,26 @@ public enum Runner {
         }
     }
 
+    public static func retainMergedBranchLocally(_ backup: MergedBranchBackup,
+                                                 socket: URL = LocalBackupTransport.controlSocketURL) throws -> MergedBranchBackup {
+        let connection = try LocalBackupTransport.connect(mode: LocalBackupTransport.session, to: socket)
+        defer { try? connection.close() }
+        try BackupControlConnection.send(BackupControlRequest(action: .retainMergedBranch, mergedBranch: backup), to: connection)
+        let response = try BackupControlConnection.receive(BackupControlResponse.self, from: connection).checked()
+        guard response.mergedBranch == backup else {
+            throw SyncError.invalidProtocol("Backup destination did not confirm the merged branch")
+        }
+        return backup
+    }
+
+    public static func retainMergedBranch(_ backup: MergedBranchBackup, configuration: Configuration) throws -> MergedBranchBackup {
+        let response = try backupControl(BackupControlRequest(action: .retainMergedBranch, mergedBranch: backup), configuration: configuration)
+        guard response.mergedBranch == backup else {
+            throw SyncError.invalidProtocol("Backup destination did not confirm the merged branch")
+        }
+        return backup
+    }
+
     public static func backupItems(_ configuration: Configuration) throws -> [BackupItem] {
         try backupControl(BackupControlRequest(action: .list), configuration: configuration).items ?? []
     }

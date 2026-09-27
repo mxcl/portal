@@ -144,8 +144,9 @@ next full reconciliation, bounded to five minutes. Enabling this option is the
 required user action and applies to both ends of that connection; it defaults
 off.
 
-Ref ownership supplies safety. Outside the explicit checkout-sync fast-forward,
-background code never writes a ref owned by a user or another host. Each
+Ref ownership supplies safety. Outside the explicit checkout-sync fast-forward
+and the backup-gated merged-branch cleanup described below, background code never
+writes a ref owned by a user or another host. Each
 destination ref update is atomic. A scan containing several ref changes is
 outside one repository-wide transaction, so a peer may observe part of that
 scan. The next reconciliation repairs interruption or partial progress.
@@ -240,6 +241,49 @@ individual backup snapshot. Snapshot branches and tags are projected as local re
 for presentation while peer refs remain labeled as peers; the stored bare repository
 is not changed. Large payloads follow a bounded control header as raw bytes rather
 than enlarging the control-message envelope.
+
+### Merged-branch cleanup
+
+On connected Macs, new verified GitHub `pull_request` events with `action=closed`
+and `merged=true` authorize cleanup of the source branch, including squash and
+rebase merges. The original PR head SHA is the identity; ancestry of the resulting
+merge commit is irrelevant. The relay stores each PR/head independently per device
+in SQLite schema v2. Completed records remain as deduplication tombstones. It does
+not sweep historical PRs, delete GitHub branches, or initiate cleanup on Linux.
+
+Each Mac matches the source repository, branch name, and exact tip. Default/base
+branches, symbolic refs, changed tips, and branches tracking a different upstream
+are skipped. Branches in any checkout,
+rebase, or bisect are deferred, as is cleanup while paused or without a usable
+backup. Pending events survive relay/client restarts. Backup progress, local
+status changes, configuration changes, and existing GitHub refresh triggers retry
+pending work; failures use the existing bounded retry schedule.
+
+The backup-control endpoint (protocol v6, independent of replication protocol v5)
+accepts `retainMergedBranch`. Update backup receivers before clients; mismatched
+control versions fail closed and prevent cleanup. Normal replication must first
+supply the objects. The receiver rejects shallow/alternate-backed history, checks
+reachable objects with Git, and creates an annotated tag under
+`refs/sync/<machine>/merged/<event UUID>/heads/<branch>`. Its JSON message preserves
+the project, source Mac, GitHub repository identities, original branch and tip,
+local branch configuration, PR number, and merge timestamp. These refs never
+expire and are excluded from the existing expired-ref pruning namespace.
+
+Only a verified matching retention receipt permits the source to recheck eligibility
+and delete using Git's expected-old-OID ref transaction with no symbolic dereference.
+A concurrent tip change fails the transaction; checkout protection is checked again
+immediately before deletion, like Git's own branch deletion, without locking out
+ordinary Git commands. HEAD, index, worktree, and branch configuration are untouched.
+This is a narrow exception to local-ref ownership, not permission to promote peer
+refs or reconcile divergent branches. Replication still provides per-ref atomicity
+and eventual snapshot consistency; a later ordinary update publishes the deletion.
+
+Retention and deletion are deliberately separate: a crash may leave an extra backup
+or an undeleted branch, never require deletion before retention. Requests replay
+idempotently; an absent branch is already complete. Restore manually by inspecting
+`git cat-file tag <retained-ref>` in the backup and creating a branch from
+`<retained-ref>^{commit}` (or fetching that ref into another repository). Git GC
+keeps the retained commit, trees, blobs, and original history reachable indefinitely.
 
 The foreground app registers the embedded menu helper as its per-user login item.
 The menu helper is the sole writer of configuration, starts the bundled headless

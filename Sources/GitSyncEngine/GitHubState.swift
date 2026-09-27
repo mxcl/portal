@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import GitSyncCore
 
 public struct GitHubCounts: Codable, Equatable, Sendable {
     public let stars: Int
@@ -51,6 +52,7 @@ struct GitHubResponse: Decodable, Sendable {
     let hasUnreadNotifications: Bool?
     let authorizedRepositories: [String]
     let fetches: [GitHubWork]
+    let merges: [MergedBranch]?
     let retryAfter: Double?
     let errors: [String]
     let installationURL: URL

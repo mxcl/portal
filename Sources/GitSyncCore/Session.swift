@@ -156,6 +156,7 @@ public final class SyncSession {
                 if let name = message.repository, let oid = message.oid {
                     try Validator.project(name); try Validator.oid(oid)
                     lock.lock(); peerKnown[name, default: []].insert(oid); lock.unlock()
+                    logger("replication progress: acknowledged \(name)")
                 }
             case "error": logger("peer error: \(message.message ?? "unknown")")
             default: throw SyncError.invalidProtocol("Unknown message type: \(message.type)")

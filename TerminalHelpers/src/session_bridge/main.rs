@@ -1177,6 +1177,9 @@ fn sessiond_path() -> io::Result<PathBuf> {
     {
         let bundled = dir.join("Gitinuum Session Helper.app/Contents/MacOS/gitinuum-sessiond");
         if is_executable(&bundled) {
+            #[cfg(target_os = "macos")]
+            return stage_sessiond_app(&dir.join("Gitinuum Session Helper.app"));
+            #[cfg(not(target_os = "macos"))]
             return Ok(bundled);
         }
         let sibling = dir.join("gitinuum-sessiond");
@@ -1193,6 +1196,80 @@ fn sessiond_path() -> io::Result<PathBuf> {
         io::ErrorKind::NotFound,
         "gitinuum-sessiond was not found next to the bridge or on PATH",
     ))
+}
+
+// Keep the signed bundle alive independently of /Applications replacements.
+#[cfg(target_os = "macos")]
+fn stage_sessiond_app(source: &Path) -> io::Result<PathBuf> {
+    fn identity(app: &Path) -> io::Result<String> {
+        let verification = Command::new("/usr/bin/codesign")
+            .args(["--verify", "--strict", "-R"])
+            .arg(format!("={}", macos_peer::SERVER_REQUIREMENT))
+            .arg(app)
+            .output()?;
+        if !verification.status.success() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                String::from_utf8_lossy(&verification.stderr).into_owned(),
+            ));
+        }
+        let details = Command::new("/usr/bin/codesign")
+            .args(["-d", "--verbose=4"])
+            .arg(app)
+            .output()?;
+        String::from_utf8_lossy(&details.stderr)
+            .lines()
+            .find_map(|line| line.strip_prefix("CDHash="))
+            .filter(|hash| hash.len() == 40 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+            .map(str::to_owned)
+            .ok_or_else(|| io::Error::other("missing session helper code identity"))
+    }
+    let hash = identity(source)?;
+    let base = socket_path()?
+        .parent()
+        .ok_or_else(|| io::Error::other("invalid socket path"))?
+        .join("helpers");
+    fs::create_dir_all(&base)?;
+    fs::set_permissions(&base, fs::Permissions::from_mode(0o700))?;
+    let destination = base.join(&hash);
+    let name = "Gitinuum Session Helper.app";
+    let app = destination.join(name);
+    if !app.exists() {
+        let temporary = base.join(format!(
+            ".{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir(&temporary)?;
+        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o700))?;
+        let result = (|| {
+            let copied = Command::new("/usr/bin/ditto")
+                .arg(source)
+                .arg(temporary.join(name))
+                .status()?;
+            if !copied.success() || identity(&temporary.join(name))? != hash {
+                return Err(io::Error::other("session helper copy failed validation"));
+            }
+            if let Err(error) = fs::rename(&temporary, &destination) {
+                if !app.exists() {
+                    return Err(error);
+                }
+            }
+            Ok(())
+        })();
+        let _ = fs::remove_dir_all(&temporary);
+        result?;
+    }
+    if identity(&app)? != hash {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "cached session helper identity changed",
+        ));
+    }
+    Ok(app.join("Contents/MacOS/gitinuum-sessiond"))
 }
 
 fn find_on_path(name: &str) -> Option<PathBuf> {

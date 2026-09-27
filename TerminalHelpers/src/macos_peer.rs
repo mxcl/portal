@@ -23,7 +23,7 @@ const CLIENT_REQUIREMENT: &str = concat!(
 );
 
 #[cfg(target_os = "macos")]
-const SERVER_REQUIREMENT: &str = concat!(
+pub(crate) const SERVER_REQUIREMENT: &str = concat!(
     "anchor apple generic and ",
     "certificate 1[field.1.2.840.113635.100.6.2.6] exists and ",
     "certificate leaf[field.1.2.840.113635.100.6.1.13] exists and ",

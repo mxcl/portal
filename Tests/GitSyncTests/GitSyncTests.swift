@@ -808,7 +808,9 @@ func backupControl() throws {
             guard let server = try? listener.accept() else { return }
             defer { try? server.close() }
             guard (try? LocalBackupTransport.mode(from: server)) == LocalBackupTransport.session else { return }
-            try? BackupControlService.serve(server, root: fixture.b, index: index)
+            try? BackupControlService.serve(server, root: fixture.b, index: index, onChange: {
+                #expect(request.action == .archive || request.action == .catalog)
+            })
         }
         try BackupControlConnection.send(request, to: client)
         let response = try BackupControlConnection.receive(BackupControlResponse.self, from: client).checked()
@@ -828,7 +830,9 @@ func backupControl() throws {
             guard let server = try? listener.accept() else { return }
             defer { try? server.close() }
             guard (try? LocalBackupTransport.mode(from: server)) == LocalBackupTransport.session else { return }
-            try? BackupControlService.serve(server, root: fixture.b, index: index)
+            try? BackupControlService.serve(server, root: fixture.b, index: index, onChange: {
+                #expect(request.action == .archive || request.action == .catalog)
+            })
         }
         try BackupControlConnection.send(request, to: client)
         let response = try BackupControlConnection.receive(BackupControlResponse.self, from: client).checked()
@@ -865,6 +869,10 @@ func backupControl() throws {
             == git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"]))
     _ = try request(BackupControlRequest(action: .catalog, machine: "A", repositories: ["project"]))
     #expect(try request(BackupControlRequest(action: .list)).items?.first?.status == .mirrored)
+    let added = fixture.b.appendingPathComponent("z-added.git")
+    _ = try git(["init", "-q", "--bare", added.path])
+    #expect(try request(BackupControlRequest(action: .list)).items?.count == 1)
+    #expect(try request(BackupControlRequest(action: .list, refresh: true)).items?.count == 2)
 }
 
 @Test("app-owned backups do not require a remote filesystem path")
@@ -1220,6 +1228,8 @@ func framedSessionReceiveOnly() throws {
     _ = try git(["-C", backupRepository.path, "update-ref", "refs/heads/backup-only",
                  git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"])])
 
+    let index = try BackupIndex(url: fixture.root.appendingPathComponent("inventory.json"))
+    _ = try index.items(in: fixture.b)
     let aToB = Pipe(), bToA = Pipe()
     let source = try SyncSession(root: fixture.a, machine: "A",
                                  input: bToA.fileHandleForReading, output: aToB.fileHandleForWriting,
@@ -1233,7 +1243,7 @@ func framedSessionReceiveOnly() throws {
                                  catalogObserver: { machine, repositories in
                                      #expect(machine == "A")
                                      catalogLock.lock(); receivedCatalog = repositories; catalogLock.unlock()
-                                 })
+                                 }, repositoryObserver: { index.invalidate($0, in: fixture.b) })
     let sessions = DispatchGroup()
     for session in [source, backup] {
         sessions.enter()
@@ -1248,6 +1258,12 @@ func framedSessionReceiveOnly() throws {
         if received != expected { Thread.sleep(forTimeInterval: 0.05) }
     }
     #expect(received == expected)
+    // Wait for the observer following publication, without forcing a disk scan.
+    while Date() < deadline,
+          try index.items(in: fixture.b).first?.snapshots.contains(where: { $0.id == "a" }) != true {
+        Thread.sleep(forTimeInterval: 0.01)
+    }
+    #expect(try index.items(in: fixture.b).first?.snapshots.contains(where: { $0.id == "a" }) == true)
     catalogLock.lock(); let catalog = receivedCatalog; catalogLock.unlock()
     #expect(catalog == ["project"])
     #expect((try? git(["-C", fixture.a.appendingPathComponent("project").path,
@@ -1420,3 +1436,54 @@ func selectedRepositoryWatcher() async throws {
 }
 }
 #endif
+
+
+extension GitSyncTests {
+@Test("backup inventory caches reads, refreshes only invalidated repositories, and recovers hourly")
+func backupInventoryCache() throws {
+    let fixture = try Fixture()
+    let index = try BackupIndex(url: fixture.root.appendingPathComponent("index.json"))
+    let now = Date()
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
+                     stateURL: fixture.state, bareDestination: true)
+    let project = fixture.b.appendingPathComponent("project.git")
+    let other = fixture.b.appendingPathComponent("other.git")
+    _ = try git(["clone", "-q", "--bare", project.path, other.path])
+    let initial = try index.items(in: fixture.b, now: now)
+    #expect(initial.count == 2)
+    // If any reader rescans, the removed repository disappears from its result.
+    try FileManager.default.removeItem(at: other)
+    DispatchQueue.concurrentPerform(iterations: 12) { _ in
+        #expect((try? index.items(in: fixture.b, now: now)) == initial)
+    }
+    _ = try git(["-C", project.path, "update-ref", "refs/remotes/a/new", "refs/remotes/a/main"])
+    index.invalidate("project", in: fixture.b)
+    let updated = try index.items(in: fixture.b, now: now)
+    #expect(updated.map(\.name) == ["other", "project"])
+    #expect(updated.last?.snapshots.first?.branches == ["main", "new"])
+    try index.replaceCatalog(machine: "A", repositories: ["project"])
+    #expect(try index.items(in: fixture.b, now: now).last?.status == .mirrored)
+    #expect(try index.items(in: fixture.b, now: now.addingTimeInterval(3599)).count == 2)
+    #expect(try index.items(in: fixture.b, now: now.addingTimeInterval(3600)).count == 1)
+    _ = try git(["init", "-q", "--bare", other.path])
+    #expect(try index.items(in: fixture.b, refresh: true).count == 2)
+    // A failed forced scan must throw, keep the old cache, and allow recovery.
+    let moved = fixture.root.appendingPathComponent("moved")
+    try FileManager.default.moveItem(at: fixture.b, to: moved)
+    #expect(throws: (any Error).self) { try index.items(in: fixture.b) }
+    #expect(throws: (any Error).self) { try index.items(in: fixture.b, refresh: true) }
+    try FileManager.default.moveItem(at: moved, to: fixture.b)
+    #expect(try index.items(in: fixture.b, refresh: true).count == 2)
+}
+
+@Test("local backup writes invalidate the shared inventory")
+func localBackupInventoryUpdates() throws {
+    let fixture = try Fixture()
+    let index = try BackupIndex(url: fixture.root.appendingPathComponent("index.json"))
+    #expect(try index.items(in: fixture.b).isEmpty)
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
+                     stateURL: fixture.state, bareDestination: true,
+                     repositoryObserver: { index.invalidate($0, in: fixture.b) })
+    #expect(try index.items(in: fixture.b).first?.snapshots.first?.branches == ["main"])
+}
+}

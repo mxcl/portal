@@ -23,9 +23,15 @@ func overlappingBackupRefreshes() async throws {
     await scan.value
     #expect(model.backupError == nil)
     #expect(model.backupItems.map(\.name) == ["project"])
+    _ = try Git.run(["init", "-q", "--bare", backup.appendingPathComponent("added.git").path])
     let next = try #require(model.refreshBackupItems())
     #expect(next != scan)
     await next.value
+    #expect(model.backupItems.map(\.name) == ["project"])
+    let refresh = try #require(model.refreshBackupItems())
+    #expect(model.refreshBackupItems(refresh: true) == refresh)
+    await refresh.value
+    #expect(model.backupItems.map(\.name) == ["added", "project"])
 }
 
 @Test("archive completion publishes absence and refreshes the backup inventory while paused")

@@ -497,3 +497,23 @@ Validation: `swift test`, `cargo test --manifest-path TerminalHelpers/Cargo.toml
 `python3 scripts/test-terminal-sessions.py /path/to/Gitinuum.app` (or the Linux
 helper directory). The session check exercises detach, continued execution,
 history replay, reattach and exit against both wire versions.
+
+
+## Backup inventory refresh
+
+The destination helper shares one in-memory `BackupIndex` inventory between its
+UI and remote backup control requests. Ordinary discovery reads this cache;
+read-only control requests do not schedule another local refresh. Catalog changes
+update placement metadata without rescanning repositories. Incoming ref writes
+and local backup passes invalidate the affected repositories, which are reread on
+the next inventory request. Inventory scans are serialized so concurrent clients
+share the result and invalidations arriving during a scan are not lost.
+
+The first read after startup, explicit Refresh, and the first read at least one
+hour after the last full scan rebuild the inventory. The hourly pass catches
+external additions, removals, and edits. A missing destination reports an error
+even when an inventory is cached; failed scans are retried on subsequent requests.
+Single-project history, diff, export, and restore reads inspect only that backup.
+The optional `refresh` field on a version-6 backup list request requests a full
+scan; older version-6 servers ignore it and retain their uncached behavior.
+Git replication, per-ref atomicity, and eventual consistency are unchanged.

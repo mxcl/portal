@@ -127,6 +127,7 @@ public enum Runner {
                              receiveOnly: Bool = false,
                              syncCheckouts: Bool = false,
                              catalogObserver: ((String, [String]) throws -> Void)? = nil,
+                             repositoryObserver: ((String) -> Void)? = nil,
                              input: FileHandle = .standardInput,
                              output: FileHandle = .standardOutput,
                              logger: @escaping (String) -> Void = { _ in }) throws {
@@ -134,7 +135,7 @@ public enum Runner {
                                       output: output, stateURL: stateURL,
                                       repositories: repositories, receiveOnly: receiveOnly,
                                       syncCheckouts: syncCheckouts,
-                                      catalogObserver: catalogObserver, logger: logger)
+                                      catalogObserver: catalogObserver, repositoryObserver: repositoryObserver, logger: logger)
         try session.run()
     }
 
@@ -187,8 +188,8 @@ public enum Runner {
         return backup
     }
 
-    public static func backupItems(_ configuration: Configuration) throws -> [BackupItem] {
-        try backupControl(BackupControlRequest(action: .list), configuration: configuration).items ?? []
+    public static func backupItems(_ configuration: Configuration, refresh: Bool = false) throws -> [BackupItem] {
+        try backupControl(BackupControlRequest(action: .list, refresh: refresh), configuration: configuration).items ?? []
     }
 
     public static func archiveBackup(_ name: String, configuration: Configuration) throws {
@@ -401,13 +402,15 @@ public enum OneShot {
     @discardableResult
     public static func sync(sourceRoot: URL, destinationRoot: URL, machine: String, stateURL: URL,
                             full: Bool = false, bareDestination: Bool = false,
-                            syncCheckouts: Bool = false) throws -> [String] {
+                            syncCheckouts: Bool = false,
+                            repositoryObserver: ((String) -> Void)? = nil) throws -> [String] {
         try Validator.machine(machine)
         let state = try StateStore(url: stateURL)
         let sources = try Repository.discover(in: sourceRoot)
         for source in sources {
             let destination = try Repository.ensure(name: source.name, in: destinationRoot,
                                                     bare: bareDestination)
+            defer { repositoryObserver?(source.name) }
             var known = Set(try destination.knownOIDs())
             let updates = try state.updates(machine: machine, repository: source.name,
                                             refs: source.sourceRefs(), full: full)

@@ -123,6 +123,7 @@ public final class EngineModel: ObservableObject {
     private var backupIndexID: UUID?
     private var backupRefreshTask: Task<Void, Never>?
     private var backupRefreshPending = false
+    private var backupFullRefreshPending = false
     private var discoveryTask: Task<Void, Never>?
 
     init(executableURL: URL, configuration: AppConfiguration, support: URL, defaults: UserDefaults = .standard) {
@@ -411,6 +412,7 @@ public final class EngineModel: ObservableObject {
 
 
     public func refreshLocal() {
+        refreshBackupItems(refresh: true)
         guard !configuration.root.isEmpty else { return }
         isChecking = true
         error = nil
@@ -867,7 +869,8 @@ public final class EngineModel: ObservableObject {
     }
 
     @discardableResult
-    func refreshBackupItems() -> Task<Void, Never>? {
+    func refreshBackupItems(refresh: Bool = false) -> Task<Void, Never>? {
+        backupFullRefreshPending = backupFullRefreshPending || refresh
         if let backupRefreshTask {
             backupRefreshPending = true
             return backupRefreshTask
@@ -876,13 +879,15 @@ public final class EngineModel: ObservableObject {
             defer { backupRefreshTask = nil }
             repeat {
                 backupRefreshPending = false
+                let refresh = backupFullRefreshPending
+                backupFullRefreshPending = false
                 let index = backupIndex
                 let root = try? configuration.validatedBackupDestination()
                 let remote = root == nil ? try? backupControlConfiguration() : nil
                 do {
                     let items = try await Task.detached(priority: .utility) {
-                        if let index, let root { return try index.items(in: root) }
-                        if let remote { return try Runner.backupItems(remote) }
+                        if let index, let root { return try index.items(in: root, refresh: refresh) }
+                        if let remote { return try Runner.backupItems(remote, refresh: refresh) }
                         return []
                     }.value
                     // Publish slow scans even when another refresh arrived while reading.
@@ -993,7 +998,8 @@ private final class LocalBackup: @unchecked Sendable {
             do {
                 let repositories = try OneShot.sync(
                     sourceRoot: source, destinationRoot: destination,
-                    machine: machine, stateURL: stateURL, full: true, bareDestination: true
+                    machine: machine, stateURL: stateURL, full: true, bareDestination: true,
+                    repositoryObserver: { [index, destination] name in index.invalidate(name, in: destination) }
                 )
                 try index.replaceCatalog(machine: machine, repositories: repositories)
                 onCatalog()
@@ -1084,6 +1090,10 @@ private final class BackupReceiver: @unchecked Sendable {
                                          try index.replaceCatalog(machine: machine, repositories: repositories)
                                          onCatalog()
                                      },
+                                     repositoryObserver: { [index, root, onCatalog] name in
+                                         index.invalidate(name, in: root)
+                                         onCatalog()
+                                     },
                                      input: connection, output: connection,
                                      logger: logger)
                 } catch {
@@ -1113,8 +1123,7 @@ private final class BackupReceiver: @unchecked Sendable {
                 guard mode == LocalBackupTransport.session else {
                     throw SyncError.invalidProtocol("Unknown local backup control request")
                 }
-                try BackupControlService.serve(connection, root: root, index: index)
-                onCatalog()
+                try BackupControlService.serve(connection, root: root, index: index, onChange: onCatalog)
             } catch {
                 if !isStopped { logger("control request ended: \(error)") }
             }

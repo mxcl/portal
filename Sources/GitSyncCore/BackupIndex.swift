@@ -45,6 +45,17 @@ public final class BackupIndex: @unchecked Sendable {
     private let url: URL
     private let lock = NSLock()
     private var document: Document
+    // ponytail: serialize inventory I/O; split per repository if scan contention matters.
+    private let inventoryLock = NSLock()
+    private var inventoryRoot: URL?
+    private var inventory: [String: RepositoryInfo] = [:]
+    private var dirtyRepositories: Set<String> = []
+    private var scannedAt: Date?
+
+    public func invalidate(_ name: String, in root: URL) {
+        inventoryLock.lock(); defer { inventoryLock.unlock() }
+        if inventoryRoot == root { dirtyRepositories.insert(name) }
+    }
 
     public init(url: URL) throws {
         self.url = url
@@ -68,8 +79,26 @@ public final class BackupIndex: @unchecked Sendable {
         try save()
     }
 
-    public func items(in root: URL) throws -> [BackupItem] {
-        let repositories = try Self.repositories(in: root)
+    public func items(in root: URL, refresh: Bool = false, now: Date = Date()) throws -> [BackupItem] {
+        inventoryLock.lock(); defer { inventoryLock.unlock() }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw SyncError.invalidConfiguration("Backup destination is unavailable: \(root.path)")
+        }
+        if refresh || inventoryRoot != root || now.timeIntervalSince(scannedAt ?? .distantPast) >= 3600 {
+            let repositories = try Self.repositories(in: root)
+            inventory = Dictionary(uniqueKeysWithValues: repositories.map { ($0.name, $0) })
+            inventoryRoot = root
+            scannedAt = now
+            dirtyRepositories.removeAll()
+        } else {
+            for name in dirtyRepositories.sorted() {
+                try Validator.project(name)
+                inventory[name] = try Self.repository(at: root.appendingPathComponent(name + ".git"))
+                dirtyRepositories.remove(name)
+            }
+        }
+        let repositories = inventory.values.sorted { $0.name < $1.name }
         lock.lock(); let document = document; lock.unlock()
         return repositories.map { repository in
             let snapshots = repository.snapshots.map { snapshot in
@@ -111,7 +140,7 @@ public final class BackupIndex: @unchecked Sendable {
     public static func restore(_ name: String, snapshotID: String,
                                from backupRoot: URL, to projectsRoot: URL) throws {
         try Validator.project(name)
-        guard let repository = try repositories(in: backupRoot).first(where: { $0.name == name }),
+        guard let repository = try repository(at: backupRoot.appendingPathComponent(name + ".git")),
               let snapshot = repository.snapshots.first(where: { $0.id == snapshotID }) else {
             throw SyncError.invalidConfiguration("The selected backup snapshot is no longer available.")
         }
@@ -127,7 +156,7 @@ public final class BackupIndex: @unchecked Sendable {
     public static func exportBundle(_ name: String, snapshotID: String,
                                     from backupRoot: URL, to bundle: URL) throws {
         try Validator.project(name)
-        guard let repository = try repositories(in: backupRoot).first(where: { $0.name == name }),
+        guard let repository = try repository(at: backupRoot.appendingPathComponent(name + ".git")),
               repository.snapshots.contains(where: { $0.id == snapshotID }) else {
             throw SyncError.invalidConfiguration("The selected backup snapshot is no longer available.")
         }
@@ -205,7 +234,7 @@ public final class BackupIndex: @unchecked Sendable {
     private static func snapshotRepository(_ name: String, snapshotID: String, in root: URL) throws
         -> (Repository, BackupSnapshot) {
         try Validator.project(name)
-        guard let info = try repositories(in: root).first(where: { $0.name == name }),
+        guard let info = try repository(at: root.appendingPathComponent(name + ".git")),
               let snapshot = info.snapshots.first(where: { $0.id == snapshotID }) else {
             throw SyncError.invalidConfiguration("The selected backup snapshot is no longer available.")
         }
@@ -260,15 +289,17 @@ public final class BackupIndex: @unchecked Sendable {
     private static func repositories(in root: URL) throws -> [RepositoryInfo] {
         try FileManager.default.contentsOfDirectory(
             at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
-        ).compactMap { url in
-            let filename = url.lastPathComponent.precomposedStringWithCanonicalMapping
-            guard filename.hasSuffix(".git"), filename.count > 4,
-                  (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
-                  Git.succeeds(["-C", url.path, "rev-parse", "--is-bare-repository"]) else { return nil }
-            let name = String(filename.dropLast(4))
-            guard (try? Validator.project(name)) != nil else { return nil }
-            return RepositoryInfo(name: name, url: url, snapshots: try snapshots(in: url))
-        }.sorted { $0.name < $1.name }
+        ).compactMap { try repository(at: $0) }.sorted { $0.name < $1.name }
+    }
+
+    private static func repository(at url: URL) throws -> RepositoryInfo? {
+        let filename = url.lastPathComponent.precomposedStringWithCanonicalMapping
+        guard filename.hasSuffix(".git"), filename.count > 4,
+              (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+              Git.succeeds(["-C", url.path, "rev-parse", "--is-bare-repository"]) else { return nil }
+        let name = String(filename.dropLast(4))
+        guard (try? Validator.project(name)) != nil else { return nil }
+        return RepositoryInfo(name: name, url: url, snapshots: try snapshots(in: url))
     }
 
     private static func snapshots(in repository: URL) throws -> [BackupSnapshot] {

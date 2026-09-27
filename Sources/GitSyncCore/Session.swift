@@ -9,6 +9,7 @@ public final class SyncSession {
     private let state: StateStore
     private let logger: (String) -> Void
     private let catalogObserver: ((String, [String]) throws -> Void)?
+    private let repositoryObserver: ((String) -> Void)?
     private let isInitiator: Bool
     private let receiveOnly: Bool
     private let syncCheckouts: Bool
@@ -29,6 +30,7 @@ public final class SyncSession {
                 receiveOnly: Bool = false,
                 syncCheckouts: Bool = false,
                 catalogObserver: ((String, [String]) throws -> Void)? = nil,
+                repositoryObserver: ((String) -> Void)? = nil,
                 logger: @escaping (String) -> Void = { _ in }) throws {
         try Validator.machine(machine)
         for repository in repositories ?? [] { try Validator.project(repository) }
@@ -43,6 +45,7 @@ public final class SyncSession {
         self.receiveOnly = receiveOnly
         self.syncCheckouts = syncCheckouts
         self.catalogObserver = catalogObserver
+        self.repositoryObserver = repositoryObserver
         self.logger = logger
     }
 
@@ -133,6 +136,7 @@ public final class SyncSession {
                 for name in names {
                     lock.lock(); let isNew = repositories[name] == nil; lock.unlock()
                     let repository = try Repository.ensure(name: name, in: root, bare: receiveOnly)
+                    repositoryObserver?(name)
                     try configureRemote(for: repository)
                     lock.lock(); repositories[name] = repository; lock.unlock()
                     sendControl(.inventory(name, known: try repository.knownOIDs()))
@@ -199,6 +203,7 @@ public final class SyncSession {
             sourceRef: update.sourceRef, oid: update.oid,
             syncCheckout: syncCheckouts && update.cleanCheckout == true
         )
+        repositoryObserver?(update.repository)
         try writer.pruneExpired()
         try state.accept(generation: update.generation, peer: peer, epoch: epoch,
                          repository: update.repository, ref: update.sourceRef)

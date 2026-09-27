@@ -38,11 +38,12 @@ public struct BackupControlRequest: Codable, Sendable {
     public let machine: String?
     public let repositories: [String]?
     public let mergedBranch: MergedBranchBackup?
+    public let refresh: Bool?
 
     public init(version: Int = BackupControlProtocol.version, action: BackupControlAction,
                 repository: String? = nil, snapshotID: String? = nil,
                 oid: String? = nil, machine: String? = nil, repositories: [String]? = nil,
-                mergedBranch: MergedBranchBackup? = nil) {
+                mergedBranch: MergedBranchBackup? = nil, refresh: Bool? = nil) {
         self.version = version
         self.action = action
         self.repository = repository
@@ -51,6 +52,7 @@ public struct BackupControlRequest: Codable, Sendable {
         self.machine = machine
         self.repositories = repositories
         self.mergedBranch = mergedBranch
+        self.refresh = refresh
     }
 }
 
@@ -127,7 +129,8 @@ public enum BackupControlConnection {
 }
 
 public enum BackupControlService {
-    public static func serve(_ connection: FileHandle, root: URL, index: BackupIndex) throws {
+    public static func serve(_ connection: FileHandle, root: URL, index: BackupIndex,
+                             onChange: () -> Void = {}) throws {
         do {
             let request = try BackupControlConnection.receive(BackupControlRequest.self, from: connection)
             guard request.version == BackupControlProtocol.version else {
@@ -139,16 +142,19 @@ public enum BackupControlService {
                     throw SyncError.invalidProtocol("Merged branch backup request is incomplete")
                 }
                 let receipt = try BackupIndex.retainMergedBranch(backup, in: root)
+                index.invalidate(backup.project, in: root)
+                onChange()
                 try BackupControlConnection.send(BackupControlResponse(mergedBranch: receipt), to: connection)
 
             case .list:
-                try BackupControlConnection.send(BackupControlResponse(items: try index.items(in: root)),
+                try BackupControlConnection.send(BackupControlResponse(items: try index.items(in: root, refresh: request.refresh == true)),
                                                  to: connection)
             case .archive:
                 guard let repository = request.repository else {
                     throw SyncError.invalidProtocol("Archive request is incomplete")
                 }
                 try index.archive(repository, in: root)
+                onChange()
                 try BackupControlConnection.send(BackupControlResponse(), to: connection)
             case .export:
                 guard let repository = request.repository, let snapshotID = request.snapshotID else {
@@ -169,6 +175,7 @@ public enum BackupControlService {
                     throw SyncError.invalidProtocol("Catalog request is incomplete")
                 }
                 try index.replaceCatalog(machine: machine, repositories: repositories)
+                onChange()
                 try BackupControlConnection.send(BackupControlResponse(), to: connection)
             case .content:
                 guard let repository = request.repository, let snapshotID = request.snapshotID else {

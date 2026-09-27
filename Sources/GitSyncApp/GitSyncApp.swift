@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 import GitSyncCore
 import GitSyncEngine
 import GitSyncGraph
+import PortalTerminal
 import gitdiff
 
 @main
@@ -25,6 +26,7 @@ struct GitSyncApp: App {
         .commands {
             SidebarCommands()
             EditorCommands(editor: model.editor)
+            TerminalCommands(workspace: model.terminals, enabled: model.selectedTab == .terminal, hosts: model.terminalHosts)
             CommandGroup(after: .appSettings) {
                 Button("Install Command Line Tool…") {
                     guard let script = Bundle.main.url(forResource: "install-gitinuum", withExtension: "command"),
@@ -115,6 +117,7 @@ struct ProjectStaging: Identifiable {
 @MainActor
 final class AppModel: ObservableObject {
     let editor = ProjectEditor()
+    let terminals = TerminalWorkspace()
     @Published var selectedTab: ProjectTab = .info
     @Published var configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
     @Published var github = GitHubState()
@@ -243,8 +246,32 @@ final class AppModel: ObservableObject {
         return selectedLocalRepositoryURL
     }
 
+    var terminalHosts: [TerminalHost] {
+        configuration.hosts.map { host in
+            TerminalHost(id: host.id.uuidString, name: host.name, peer: host.peer,
+                         helperPath: host.executable.hasPrefix("/Applications/")
+                            ? URL(fileURLWithPath: host.executable).deletingLastPathComponent()
+                                .deletingLastPathComponent().appendingPathComponent("Helpers/gitinuum-session-bridge").path
+                            : "~/.local/lib/gitinuum/terminal/gitinuum-session-bridge",
+                         directory: host.root)
+        }
+    }
+
+    var selectedTerminalHost: TerminalHost? {
+        guard case .host(let id) = projectSource else { return nil }
+        return terminalHosts.first { $0.id == id.uuidString }
+    }
+
+    var selectedTerminalDirectory: URL? {
+        if let host = selectedTerminalHost, let name = selectedProjectName {
+            return URL(fileURLWithPath: host.directory).appendingPathComponent(name)
+        }
+        return selectedLocalRepositoryURL
+    }
+
     var availableTabs: [ProjectTab] {
-        selectedStaging?.source == .local ? ProjectTab.allCases : [.info, .diff]
+        selectedStaging?.source == .local ? ProjectTab.allCases
+            : (selectedTerminalHost != nil ? [.info, .diff, .terminal] : [.info, .diff])
     }
 
     var stagingRows: [ProjectStaging] {
@@ -1144,13 +1171,11 @@ struct ProjectBrowserView: View {
                                            description: Text("Check out this project on this Mac to edit its files."))
                 }
             case .terminal:
-                ContentUnavailableView {
-                    Label("Terminal", systemImage: "terminal")
-                } description: {
-                    Text("An embedded terminal is coming next. Open the local project in your terminal app.")
-                } actions: {
-                    Button("Open in Terminal", action: model.openSelectedProjectInTerminal)
-                        .disabled(model.selectedLocalRepositoryURL == nil)
+                if let directory = model.selectedTerminalDirectory {
+                    model.terminals.view(directory: directory, hosts: model.terminalHosts, host: model.selectedTerminalHost)
+                } else {
+                    ContentUnavailableView("No Local Working Copy", systemImage: "terminal",
+                                           description: Text("Check out this project on this Mac to open its terminal."))
                 }
             }
         }

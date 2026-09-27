@@ -22,6 +22,7 @@ let package = Package(
             name: "GitSyncWatch",
             linkerSettings: [.linkedFramework("CoreServices", .when(platforms: [.macOS]))]
         ),
+        .target(name: "PortalTerminal", exclude: ["PROVENANCE.md"], resources: [.copy("Resources/completions")]),
         .target(name: "GitSyncCore", dependencies: ["GitSyncWatch"]),
         .target(name: "GitSyncEngine", dependencies: ["GitSyncCore"]),
         .target(name: "GitSyncGraph", dependencies: ["GitSyncCore"]),
@@ -29,12 +30,13 @@ let package = Package(
         .executableTarget(name: "gitinuumd", dependencies: ["GitSyncCore"]),
         .executableTarget(
             name: "GitSyncApp",
-            dependencies: ["GitSyncCore", "GitSyncEngine", "GitSyncGraph", .product(name: "gitdiff", package: "gitdiff"),
+            dependencies: [.target(name: "PortalTerminal", condition: .when(platforms: [.macOS])), "GitSyncCore", "GitSyncEngine", "GitSyncGraph", .product(name: "gitdiff", package: "gitdiff"),
                            .product(name: "CodeEditSourceEditor", package: "CodeEditSourceEditor", condition: .when(platforms: [.macOS])),
                            .product(name: "Textual", package: "textual", condition: .when(platforms: [.macOS]))],
             resources: [.process("Resources")]
         ),
         .executableTarget(name: "GitSyncMenuBar", dependencies: ["GitSyncEngine"]),
+        .testTarget(name: "PortalTerminalTests", dependencies: ["PortalTerminal"]),
         .testTarget(name: "GitinuumCLITests", dependencies: ["gitinuum"]),
         .testTarget(name: "GitSyncTests", dependencies: ["GitSyncCore"]),
         .testTarget(name: "GitSyncGraphTests", dependencies: ["GitSyncGraph", "GitSyncCore"]),

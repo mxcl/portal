@@ -26,6 +26,8 @@ app="$stage/Gitinuum.app"
 menu="$app/Contents/Library/LoginItems/Gitinuum Menu Helper.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" \
   "$menu/Contents/MacOS" "$menu/Contents/Resources" "$(dirname -- "$destination")"
+"$repo_dir/scripts/build-terminal-helpers.sh" "$app/Contents"
+"$repo_dir/scripts/bundle-terminal-completions.sh" "$app/Contents/Resources"
 cp "$build_dir/GitinuumApp" "$app/Contents/MacOS/GitinuumApp"
 for resource_bundle in "$build_dir"/*.bundle; do
   cp -R "$resource_bundle" "$app/Contents/Resources/"

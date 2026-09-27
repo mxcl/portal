@@ -447,7 +447,11 @@ impl TerminalState {
             .is_some_and(|chunk| chunk.sequence < history_start_sequence);
         let mut history = self.history_with_command_boundary(&selected);
         history.extend(self.history_filter.pending_replay());
-        let screen = self.parser.screen().contents_formatted();
+        let mut screen = Vec::new();
+        if self.parser.screen().alternate_screen() {
+            screen.extend_from_slice(b"\x1b[?1049h");
+        }
+        screen.extend(self.parser.screen().state_formatted());
         if history_lines == usize::MAX && self.parser.screen().alternate_screen() {
             // v1 has no SNAPSHOT message, so finish its replay with the live screen.
             history.extend_from_slice(&screen);
@@ -1594,6 +1598,18 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         false
+    }
+
+    #[test]
+    fn snapshot_preserves_fullscreen_and_input_modes() {
+        let mut terminal = TerminalState::new(24, 80);
+        terminal.record(b"\x1b[?1049h\x1b[?1hfullscreen".to_vec());
+        let snapshot = terminal.snapshot(INITIAL_HISTORY_LINES);
+        let mut restored = vt100::Parser::new(24, 80, 0);
+        restored.process(&snapshot.screen);
+        assert!(restored.screen().alternate_screen());
+        assert!(restored.screen().application_cursor());
+        assert!(restored.screen().contents().contains("fullscreen"));
     }
 
     #[test]

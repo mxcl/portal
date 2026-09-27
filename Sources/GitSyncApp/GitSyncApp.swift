@@ -40,6 +40,9 @@ struct GitSyncApp: App {
                 }
             }
             CommandGroup(after: .toolbar) {
+                Button("Show Next Project Terminal") { model.showNextProjectTerminal() }
+                    .keyboardShortcut("t")
+                    .disabled(model.projectTerminalSources.isEmpty)
                 ForEach(model.availableTabs) { tab in
                     Button("Show \(tab.title)") { model.selectedTab = tab }
                         .keyboardShortcut(KeyEquivalent(tab.rawValue.first!), modifiers: [.command, .option])
@@ -119,6 +122,7 @@ final class AppModel: ObservableObject {
     let editor = ProjectEditor()
     let terminals = TerminalWorkspace()
     @Published var selectedTab: ProjectTab = .info
+    @Published private var terminalSource: ProjectSource?
     @Published var configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
     @Published var github = GitHubState()
     @Published var globalShortcutEnabled = true
@@ -257,8 +261,27 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var projectTerminalSources: [ProjectSource] {
+        guard let name = selectedProjectName else { return [] }
+        let available = configuration.folders.first { $0.name == name }?.availableHosts ?? []
+        return (selectedLocalRepositoryURL != nil ? [.local] : []) + configuration.hosts
+            .filter { available.contains($0.id) }.map { .host($0.id) }
+    }
+
+    func showNextProjectTerminal() {
+        let sources = projectTerminalSources
+        guard let first = sources.first else { return }
+        let current = terminalSource ?? selectedStaging?.source ?? projectSource
+        if selectedTab == .terminal, let current, let index = sources.firstIndex(of: current) {
+            terminalSource = sources[(index + 1) % sources.count]
+        } else {
+            terminalSource = current.flatMap { sources.contains($0) ? $0 : nil } ?? first
+        }
+        selectedTab = .terminal
+    }
+
     var selectedTerminalHost: TerminalHost? {
-        guard case .host(let id) = selectedStaging?.source ?? projectSource else { return nil }
+        guard case .host(let id) = terminalSource ?? selectedStaging?.source ?? projectSource else { return nil }
         return terminalHosts.first { $0.id == id.uuidString }
     }
 
@@ -271,7 +294,7 @@ final class AppModel: ObservableObject {
 
     var availableTabs: [ProjectTab] {
         selectedStaging?.source == .local ? ProjectTab.allCases
-            : (selectedTerminalHost != nil ? [.info, .diff, .terminal] : [.info, .diff])
+            : (!projectTerminalSources.isEmpty ? [.info, .diff, .terminal] : [.info, .diff])
     }
 
     var stagingRows: [ProjectStaging] {
@@ -540,6 +563,7 @@ final class AppModel: ObservableObject {
     func selectProject(_ name: String?) {
         guard name != selectedProjectName else { return }
         guard editor.confirmDiscard() else { return }
+        terminalSource = nil
         selectedProjectName = name
         editor.connect(selectedEditorRepositoryURL)
         if let name { UserDefaults.standard.set(name, forKey: selectedProjectKey) }
@@ -567,6 +591,7 @@ final class AppModel: ObservableObject {
 
     fileprivate func selectProjectSource(_ source: ProjectSource) {
         guard source != projectSource, let name = selectedProjectName else { return }
+        terminalSource = nil
         selectCommit(nil)
         projectSnapshot = nil
         peerStagingRequest = nil
@@ -632,6 +657,7 @@ final class AppModel: ObservableObject {
     }
 
     func selectCommit(_ oid: String?) {
+        if selectedCommitID != oid { terminalSource = nil }
         let staging = stagingRows.first { $0.id == oid }
         if selectedCommitID != oid {
             selectedTab = staging != nil

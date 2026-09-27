@@ -87,7 +87,7 @@ public struct TerminalCommands: Commands {
     public var body: some Commands {
         CommandMenu("Terminal") {
             Button("New Terminal Tab") { workspace.perform(#selector(TerminalViewController.newTab(_:))) }
-                .keyboardShortcut("t").disabled(!enabled)
+                .disabled(!enabled)
             Button("Close Terminal Tab") { workspace.perform(#selector(TerminalViewController.closeActiveTabOrWindow(_:))) }
                 .keyboardShortcut("w", modifiers: [.command, .shift]).disabled(!enabled)
             Menu("New SSH Terminal") {

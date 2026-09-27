@@ -977,9 +977,21 @@ fn proxy_stdio(stream: UnixStream) -> io::Result<()> {
     let output_thread = thread::spawn(move || {
         let mut output_stream = output_stream;
         let mut stdout = io::stdout().lock();
-        let result = io::copy(&mut output_stream, &mut stdout);
-        let _ = stdout.flush();
-        result.map(|_| ())
+        // Flush each socket read: terminal replies must not wait for another frame.
+        // Explicit writes also avoid Linux splice forwarding fragmented socket writes
+        // as separate pipe buffers.
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let count = match output_stream.read(&mut buffer) {
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                result => result?,
+            };
+            if count == 0 {
+                return Ok(());
+            }
+            stdout.write_all(&buffer[..count])?;
+            stdout.flush()?;
+        }
     });
 
     let input_result = join_io_thread(input_thread);

@@ -406,3 +406,50 @@ The relay preserves history separately from unread state, retains unread state
 on conditional 304 responses or failed refreshes, and reports it independently
 of the 200-item history limit. The optional `hasUnreadNotifications` field keeps
 older relay responses and local caches readable (unknown state shows no dot).
+
+
+## Embedded terminals
+
+`PortalTerminal` imports Portal's AppKit ANSI renderer, command blocks, shell
+completion engine and persistent PTY sessions. Its public boundary is
+`TerminalWorkspace`, `TerminalHost` and `TerminalCommands`. The workspace owns
+controllers by project and host, so switching panes does not destroy a shell.
+Output parsing and replay live in `TerminalOutputProcessor`; rendering does not
+implement transport or session ownership. Portal's phone/iCloud relay, launcher
+and updater are not included. The original Portal repository remains independent.
+
+`gitinuum-sessiond` owns PTYs independently of the app. The app connects through
+`gitinuum-session-bridge`, locally or through `/usr/bin/ssh -T`. Configured Gitinuum
+hosts provide the SSH destination and project root. SSH uses existing config,
+agent and known-hosts entries, requires verified host keys and runs noninteractively.
+An unavailable connection retries with capped backoff. Reattachment joins the
+existing session and restores history, screen and input modes; it never resends
+input or silently creates a replacement shell. A confirmed shell exit ends retry.
+Closing a used tab or the app detaches; Exit Terminal Session explicitly terminates
+the shell. A host reboot or daemon exit ends its sessions.
+
+macOS local sockets authenticate the peer's audit token with Security.framework,
+requiring the expected Developer ID team and bundle identifiers on both ends.
+Linux uses owner-only runtime storage and same-UID peer credentials. SSH authenticates
+the remote host and account, not the originating application's code signature;
+another process running as that account can invoke the signed bridge. These are
+local helper identity checks, not cross-host application attestation.
+
+Runtime and per-project catalog files use Gitinuum's own Application Support
+directory (Linux: `$XDG_STATE_HOME/gitinuum-terminal`). Each catalog has one
+controller writer. The terminal wire protocol negotiates versions 1 and 2 and
+rejects unsupported versions independently of the Git replication protocol.
+Terminal commands are explicit user actions; importing this module does not
+change background Git ref ownership or the replication contract.
+
+`scripts/install.sh` builds and signs the bundled Rust helpers and packages the
+pinned Fig completion specifications. Rust/Cargo is required in addition to Swift.
+On Linux, run `scripts/install-terminal-helpers.sh` in this checkout; it installs
+the pair under `~/.local/lib/gitinuum/terminal`. macOS peers need the updated app.
+No helper is uploaded or installed automatically when a connection is opened.
+
+Validation: `swift test`, `cargo test --manifest-path TerminalHelpers/Cargo.toml`,
+`scripts/test-terminal-peer-authentication.sh /path/to/Gitinuum.app`, and
+`python3 scripts/test-terminal-sessions.py /path/to/Gitinuum.app` (or the Linux
+helper directory). The session check exercises detach, continued execution,
+history replay, reattach and exit against both wire versions.

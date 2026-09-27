@@ -232,6 +232,7 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
         relativeTo rect: NSRect,
         of view: NSView
     ) {
+        popover.appearance = view.effectiveAppearance
         self.suggestions = suggestions
         selectedIndex = 0
         showsSelection = false
@@ -338,7 +339,8 @@ final class CompletionPopupController: NSObject, NSPopoverDelegate {
     }
 
     private func popupPlacement(for rect: NSRect, of view: NSView, contentHeight: CGFloat) -> PopupPlacement {
-        let fallbackHeight = min(Self.maxPopupHeight, contentHeight)
+        let contentHeight = min(Self.maxPopupHeight, contentHeight)
+        let fallbackHeight = contentHeight
         guard let window = view.window else {
             return PopupPlacement(rect: positioningRect(for: rect), edge: .maxY, height: fallbackHeight)
         }

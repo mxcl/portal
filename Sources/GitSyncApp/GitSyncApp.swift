@@ -1697,7 +1697,7 @@ private struct CopyableCommitSHA: View {
                 .monospaced()
             Button("Copy commit SHA", systemImage: "doc.on.doc", action: copy)
                 .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
+                .buttonStyle(CopyButtonStyle())
                 .font(.caption2)
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(isHovered)
@@ -1715,6 +1715,13 @@ private struct CopyableCommitSHA: View {
     private func copy() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(sha, forType: .string)
+    }
+
+    private struct CopyButtonStyle: ButtonStyle {
+        func makeBody(configuration: ButtonStyleConfiguration) -> some View {
+            configuration.label
+                .opacity(configuration.isPressed ? 0.4 : 1)
+        }
     }
 }
 

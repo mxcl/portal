@@ -257,17 +257,20 @@ func distantBranchLabelsStayAtTheirCommits() {
     #expect(distant.first.map { $0.outline.boundingRect.minY < 71 * BranchGraphRowCanvas.rowHeight } == true)
 }
 
-@Test("detached worktree tips receive visible labels and duplicate names remain distinguishable")
-func detachedWorktreeLabels() {
+@Test("auxiliary tips receive visible labels and duplicate worktree names remain distinguishable")
+func auxiliaryHistoryLabels() {
     let root = RepositoryCommit(oid: "root", parents: [], author: "", date: .distantPast, message: "base")
     let tip = RepositoryCommit(oid: "tip", parents: ["root"], author: "", date: .distantPast, message: "detached")
-    let snapshot = RepositorySnapshot(commits: [tip, root], references: [], head: nil, branches: [],
+    let saved = RepositoryCommit(oid: "saved", parents: ["root"], author: "", date: .distantPast, message: "snapshot")
+    let ref = RepositoryReference(fullName: "refs/codex/snapshots/7d93887b2ca1", oid: "saved")
+    let snapshot = RepositorySnapshot(commits: [tip, saved, root], references: [ref], head: nil, branches: [],
         detachedWorktrees: ["tip": ["/tmp/checkout", "/tmp/one/project", "/tmp/two/project"]])
-    #expect(snapshot.detachedWorktreeLabels["tip"] == [
+    #expect(snapshot.auxiliaryHistoryLabels["tip"] == [
         "checkout (detached)", "/tmp/one/project (detached)", "/tmp/two/project (detached)"
     ])
     let graph = CommitGraphGenerator.generate(commits: snapshot.commits, headOID: nil,
-                                             branchNames: snapshot.detachedWorktreeLabels)
-    #expect(graph.branchLabels.count == 1)
-    #expect(graph.branchLabels.first?.outline.isEmpty == false)
+                                             branchNames: snapshot.auxiliaryHistoryLabels)
+    #expect(snapshot.auxiliaryHistoryLabels["saved"] == ["Codex snapshot 7d93887b"])
+    #expect(graph.branchLabels.count == 2)
+    #expect(graph.branchLabels.allSatisfy { !$0.outline.isEmpty })
 }

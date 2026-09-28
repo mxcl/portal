@@ -108,7 +108,7 @@ do {
         }
         if command == "project-content" {
             try FileHandle.standardOutput.write(contentsOf: JSONEncoder().encode(repository.content(
-                showDetachedWorktrees: arguments.contains("--show-detached-worktrees"))))
+                showAuxiliaryHistory: arguments.contains("--show-auxiliary-history") || arguments.contains("--show-detached-worktrees"))))
         } else {
             let diff = try arguments.contains("--working-changes")
                 ? repository.workingDiff(staged: arguments.contains("--staged"))

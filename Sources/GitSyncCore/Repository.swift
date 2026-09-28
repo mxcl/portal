@@ -11,6 +11,9 @@ public struct RepositoryReference: Codable, Equatable, Identifiable, Sendable {
     }
 
     public func displayName(hosts: [SyncHost]) -> String {
+        if fullName.hasPrefix("refs/codex/snapshots/") {
+            return "Codex snapshot \(fullName.dropFirst("refs/codex/snapshots/".count).prefix(8))"
+        }
         for host in hosts {
             for prefix in ["refs/remotes/\(Validator.remote(host.machine))/", "refs/sync/\(host.machine)/"] {
                 if fullName.hasPrefix(prefix) {
@@ -338,12 +341,13 @@ public struct Repository: Equatable {
         #endif
     }
 
-    public func snapshot(limit: Int = 250, showDetachedWorktrees: Bool = false) throws -> RepositorySnapshot {
-        let references = try referenceSnapshot()
+    public func snapshot(limit: Int = 250, showAuxiliaryHistory: Bool = false) throws -> RepositorySnapshot {
+        let references = try referenceSnapshot(includeAuxiliary: showAuxiliaryHistory)
         let head = try? Git.text(["-C", url.path, "symbolic-ref", "--quiet", "--short", "HEAD"])
-        // --all also walks detached worktree HEADs; the ref glob only walks named refs.
-        let history = try snapshot(limit: limit, references: references,
-                                   revisions: [showDetachedWorktrees ? "--all" : "--glob=refs/*"], head: head)
+        // Auxiliary history includes detached HEADs and internal Codex snapshot refs.
+        let revisions = showAuxiliaryHistory ? ["--all"]
+            : ["--exclude=refs/codex/snapshots/*", "--glob=refs/*"]
+        let history = try snapshot(limit: limit, references: references, revisions: revisions, head: head)
         let headOID = try? Git.text(["-C", url.path, "rev-parse", "--verify", "HEAD"])
         let mirrored = try Git.text(["-C", url.path, "rev-parse", "--is-bare-repository"]) == "true"
             || (try? Git.text(["-C", url.path, "config", "--bool", "git-sync.mirrored"])) == "true"
@@ -359,7 +363,7 @@ public struct Repository: Equatable {
         return RepositorySnapshot(commits: history.commits, references: references, head: head,
                                   branches: history.branches, headOID: headOID, workingChanges: changes,
                                   githubBranchStatus: mirrored ? nil : (try? githubBranchStatus(head: head, headOID: headOID)),
-                                  detachedWorktrees: showDetachedWorktrees ? try detachedWorktreePaths() : nil)
+                                  detachedWorktrees: showAuxiliaryHistory ? try detachedWorktreePaths() : nil)
     }
 
     private func workingLineCounts(files: [RepositoryFile]) throws -> Data {
@@ -374,8 +378,8 @@ public struct Repository: Equatable {
         return numstat
     }
 
-    public func content(limit: Int = 250, showDetachedWorktrees: Bool = false) throws -> RepositoryContent {
-        RepositoryContent(snapshot: try snapshot(limit: limit, showDetachedWorktrees: showDetachedWorktrees),
+    public func content(limit: Int = 250, showAuxiliaryHistory: Bool = false) throws -> RepositoryContent {
+        RepositoryContent(snapshot: try snapshot(limit: limit, showAuxiliaryHistory: showAuxiliaryHistory),
                           readme: readme(), githubURL: githubURL)
     }
 
@@ -444,11 +448,11 @@ public struct Repository: Equatable {
         return nil
     }
 
-    func referenceSnapshot() throws -> [RepositoryReference] {
+    func referenceSnapshot(includeAuxiliary: Bool = false) throws -> [RepositoryReference] {
         let data = try Git.run([
             "-C", url.path, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(*objectname)",
             "refs/heads", "refs/remotes", "refs/tags", "refs/sync",
-        ])
+        ] + (includeAuxiliary ? ["refs/codex/snapshots"] : []))
         return data.split(separator: 10).compactMap { line in
             let fields = line.split(separator: 0, maxSplits: 2, omittingEmptySubsequences: false)
             guard fields.count >= 2 else { return nil }

@@ -40,7 +40,7 @@ struct GitSyncApp: App {
                 }
             }
             CommandGroup(after: .toolbar) {
-                Toggle("Show Detached Worktrees", isOn: $model.showDetachedWorktrees)
+                Toggle("Show Auxiliary History", isOn: $model.showAuxiliaryHistory)
                 Divider()
                 Button("Show Next Project Terminal") { model.showNextProjectTerminal() }
                     .keyboardShortcut("t")
@@ -148,9 +148,10 @@ final class AppModel: ObservableObject {
     @Published var workingDiffStaged = false
     @Published var commitDiffError: String?
     @Published var isLoadingCommitDiff = false
-    @Published var showDetachedWorktrees = UserDefaults.standard.bool(forKey: "show-detached-worktrees") {
+    // Keep the original preference key so existing choices survive the menu rename.
+    @Published var showAuxiliaryHistory = UserDefaults.standard.bool(forKey: "show-detached-worktrees") {
         didSet {
-            UserDefaults.standard.set(showDetachedWorktrees, forKey: "show-detached-worktrees")
+            UserDefaults.standard.set(showAuxiliaryHistory, forKey: "show-detached-worktrees")
             selectCommit(nil)
             refreshProject()
         }
@@ -318,7 +319,7 @@ final class AppModel: ObservableObject {
     var stagingRows: [ProjectStaging] {
         guard let snapshot = projectSnapshot, let source = projectSource else { return [] }
         var rows: [ProjectStaging] = []
-        if snapshot.workingChanges != nil, showDetachedWorktrees || snapshot.head != nil || snapshot.headOID == nil {
+        if snapshot.workingChanges != nil, showAuxiliaryHistory || snapshot.head != nil || snapshot.headOID == nil {
             rows.append(ProjectStaging(id: CommitGraphGenerator.workingChangesID, source: source,
                                        host: source == .local ? configuration.machine : projectSourceLabel(source),
                                        snapshot: snapshot))
@@ -326,7 +327,7 @@ final class AppModel: ObservableObject {
         if case .backup = source { return rows }
         for host in configuration.hosts where source != .host(host.id) {
             guard let peer = peerSnapshots[host.id], peer.workingChanges != nil,
-                  showDetachedWorktrees || peer.head != nil || peer.headOID == nil else { continue }
+                  showAuxiliaryHistory || peer.head != nil || peer.headOID == nil else { continue }
             rows.append(ProjectStaging(id: CommitGraphGenerator.workingChangesID + ":" + host.id.uuidString,
                                        source: .host(host.id), host: host.name, snapshot: peer))
         }
@@ -635,7 +636,7 @@ final class AppModel: ObservableObject {
         projectSource = first
         projectError = nil
         isLoadingProject = true
-        let showDetachedWorktrees = showDetachedWorktrees
+        let showAuxiliaryHistory = showAuxiliaryHistory
         let configuration = configuration
         Task {
             defer {
@@ -649,7 +650,7 @@ final class AppModel: ObservableObject {
                 do {
                     let content = try await Task.detached(priority: .userInitiated) {
                         try Self.content(for: name, source: source, configuration: configuration,
-                                         showDetachedWorktrees: showDetachedWorktrees)
+                                         showAuxiliaryHistory: showAuxiliaryHistory)
                     }.value
                     guard generation == projectLoadGeneration, selectedProjectName == name else { return }
                     projectSource = source
@@ -1034,16 +1035,16 @@ final class AppModel: ObservableObject {
     }
 
     private nonisolated static func content(for name: String, source: ProjectSource,
-                                            configuration: AppConfiguration, showDetachedWorktrees: Bool = false) throws -> RepositoryContent {
+                                            configuration: AppConfiguration, showAuxiliaryHistory: Bool = false) throws -> RepositoryContent {
         switch source {
         case .local:
             let root = URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath)
-            return try Repository(name: name, url: root.appendingPathComponent(name)).content(showDetachedWorktrees: showDetachedWorktrees)
+            return try Repository(name: name, url: root.appendingPathComponent(name)).content(showAuxiliaryHistory: showAuxiliaryHistory)
         case .host(let id):
             guard let host = configuration.hosts.first(where: { $0.id == id }) else {
                 throw SyncError.invalidConfiguration("The selected host is no longer configured.")
             }
-            return try Runner.projectContent(name, showDetachedWorktrees: showDetachedWorktrees, configuration: remoteConfiguration(host, in: configuration))
+            return try Runner.projectContent(name, showAuxiliaryHistory: showAuxiliaryHistory, configuration: remoteConfiguration(host, in: configuration))
         case .backup(let snapshotID):
             if let root = try configuration.validatedBackupDestination() {
                 return try BackupIndex.content(name, snapshotID: snapshotID, from: root)
@@ -1558,7 +1559,7 @@ private struct CommitList: View {
         var labels = Dictionary(grouping: snapshot.references.filter(\.isGraphBranch), by: \.oid)
             .mapValues { RepositoryReference.graphNames($0, hosts: hosts, sourceMachine: sourceMachine,
                                                        allReferences: snapshot.references) }
-        labels.merge(snapshot.detachedWorktreeLabels) { $0 + $1 }
+        labels.merge(snapshot.auxiliaryHistoryLabels) { $0 + $1 }
         graph = CommitGraphGenerator.generate(
             commits: rows, headOID: headOID, branchNames: labels,
             preferredHost: localMachine
@@ -1575,7 +1576,7 @@ private struct CommitList: View {
                               isCurrent: commit.oid == headOID,
                               references: snapshot.references.filter { $0.oid == commit.oid },
                               allReferences: snapshot.references,
-                              detachedLabels: snapshot.detachedWorktreeLabels[commit.oid] ?? [],
+                              auxiliaryLabels: snapshot.auxiliaryHistoryLabels[commit.oid] ?? [],
                               hosts: hosts, sourceMachine: sourceMachine, graph: graph, rowIndex: index)
                         .listRowSeparator(.hidden)
                         .tag(commit.oid)
@@ -1669,7 +1670,7 @@ private struct CommitRow: View {
     let isCurrent: Bool
     let references: [RepositoryReference]
     let allReferences: [RepositoryReference]
-    let detachedLabels: [String]
+    let auxiliaryLabels: [String]
     let hosts: [SyncHost]
     let sourceMachine: String?
     let graph: CommitGraphModel
@@ -1710,9 +1711,9 @@ private struct CommitRow: View {
                 .offset(y: 4)
         }
         .accessibilityElement(children: .combine)
-        .help((RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine, allReferences: allReferences) + detachedLabels).joined(separator: "\n"))
+        .help((RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine, allReferences: allReferences) + auxiliaryLabels).joined(separator: "\n"))
         .accessibilityValue(([isCurrent ? "Checked out commit" : ""] +
-            RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine, allReferences: allReferences) + detachedLabels).filter { !$0.isEmpty }.joined(separator: ", "))
+            RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine, allReferences: allReferences) + auxiliaryLabels).filter { !$0.isEmpty }.joined(separator: ", "))
     }
 }
 

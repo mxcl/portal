@@ -39,14 +39,14 @@ public enum Runner {
         return try JSONDecoder().decode(PeerProject.self, from: data)
     }
 
-    public static func projectContent(_ repository: String, showDetachedWorktrees: Bool = false,
+    public static func projectContent(_ repository: String, showAuxiliaryHistory: Bool = false,
                                       configuration: Configuration) throws -> RepositoryContent {
         try configuration.validate()
         try Validator.project(repository)
         let data = try runRemote(
             configuration,
             arguments: ["project-content", "--root", configuration.remoteRoot,
-                        "--repository", repository] + (showDetachedWorktrees ? ["--show-detached-worktrees"] : []),
+                        "--repository", repository] + (showAuxiliaryHistory ? ["--show-auxiliary-history"] : []),
             failure: "Could not read \(repository) on the peer. Update Gitinuum on that host if remote browsing is unavailable"
         )
         return try JSONDecoder().decode(RepositoryContent.self, from: data)

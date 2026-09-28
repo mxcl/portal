@@ -4,15 +4,19 @@ import GitSyncCore
 import SwiftUI
 
 extension RepositorySnapshot {
-    public var detachedWorktreeLabels: [String: [String]] {
+    public var auxiliaryHistoryLabels: [String: [String]] {
         let paths = (detachedWorktrees ?? [:]).values.flatMap { $0 }
         let counts = Dictionary(grouping: paths, by: { ($0 as NSString).lastPathComponent })
-        return (detachedWorktrees ?? [:]).mapValues { paths in
+        var labels = (detachedWorktrees ?? [:]).mapValues { paths in
             paths.map { path in
                 let name = (path as NSString).lastPathComponent
                 return "\(counts[name]?.count == 1 ? name : path) (detached)"
             }
         }
+        for ref in references where ref.fullName.hasPrefix("refs/codex/snapshots/") {
+            labels[ref.oid, default: []].append(ref.displayName(hosts: []))
+        }
+        return labels
     }
 }
 

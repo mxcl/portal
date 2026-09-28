@@ -73,7 +73,10 @@ final class MenuBarRuntime: ObservableObject {
             }
         }
         observation = model.objectWillChange.sink { [weak self] in
-            self?.objectWillChange.send()
+            // Rebuilding a tracked menu dismisses its open submenus. Catch up after it closes.
+            RunLoop.main.perform(inModes: [.default]) { [weak self] in
+                MainActor.assumeIsolated { self?.objectWillChange.send() }
+            }
             DispatchQueue.main.async {
                 DistributedNotificationCenter.default().postNotificationName(
                     EngineControlProtocol.changedNotification,

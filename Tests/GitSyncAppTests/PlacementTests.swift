@@ -74,3 +74,27 @@ func placementConnectionFailure() async throws {
     #expect(model.checkoutRequest == nil)
     #expect(model.error?.contains("Helper disconnected") == true)
 }
+
+@Test("host status only claims its own confirmed backup and hides absent placement")
+@MainActor
+func hostPlacementStatus() throws {
+    let model = AppModel(connectToHelper: false)
+    model.configuration.backupDestination = BackupDestinationConfiguration(root: "/tmp/backup")
+    model.backupItems = try JSONDecoder().decode([BackupItem].self, from: Data("""
+        [{"name":"project","status":"mirrored","mirroredBy":["Pangolin"],
+          "snapshots":[{"id":"pangolin","machine":"Pangolin","branches":["main"],"syncMachines":[]}]}]
+        """.utf8))
+    #expect(model.placementStatus(for: "project", machine: "Pangolin", placement: .checkedOut) == "Checked out & Backed up")
+    #expect(model.placementStatus(for: "project", machine: "Maliwan", placement: .checkedOut) == "Checked out")
+    #expect(model.placementStatus(for: "other", machine: "Pangolin", placement: .checkedOut) == "Checked out")
+    #expect(model.placementStatus(for: "project", machine: "Pangolin", placement: .notPresent).isEmpty)
+    #expect(model.placementStatus(for: "project", machine: "Pangolin", placement: .mirrored) == "Mirrored & Backed up")
+    model.backupError = "Backup unavailable"
+    #expect(model.placementStatus(for: "project", machine: "Pangolin", placement: .checkedOut) == "Checked out")
+    model.backupError = nil
+    model.helperError = "Helper unavailable"
+    #expect(model.placementStatus(for: "project", machine: "Pangolin", placement: .checkedOut) == "Checked out")
+    model.helperError = nil
+    model.configuration.backupDestination = nil
+    #expect(model.placementStatus(for: "project", machine: "Pangolin", placement: .checkedOut) == "Checked out")
+}

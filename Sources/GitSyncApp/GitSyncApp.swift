@@ -240,6 +240,14 @@ final class AppModel: ObservableObject {
                 "Stored snapshots from: \(item.snapshots.map(\.machine).joined(separator: ", ")).")
     }
 
+    func placementStatus(for project: String, machine: String, placement: ProjectPlacement) -> String {
+        guard placement != .notPresent else { return "" }
+        let backedUp = (configuration.backup != nil || configuration.backupDestination != nil)
+            && backupError == nil && helperError == nil
+            && backupItems.contains { $0.name == project && $0.snapshots.contains { $0.machine == machine } }
+        return placement.title + (backedUp ? " & Backed up" : "")
+    }
+
     var selectedLocalRepositoryURL: URL? {
         guard let name = selectedProjectName else { return nil }
         return repositoryURL(for: name)
@@ -1776,23 +1784,6 @@ private struct ProjectOverview: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(name).font(.title2.bold())
-                            Spacer()
-                            backupStatus
-                        }
-                        VStack(alignment: .leading) {
-                            Text(name).font(.title2.bold())
-                            backupStatus
-                        }
-                    }
-                    if let source = model.projectSource, source != .local {
-                        Text("From \(model.projectSourceLabel(source))")
-                            .font(.callout).foregroundStyle(.secondary)
-                    }
-                }
                 if let archived = model.archivedProjects.first(where: { $0.name == name }) {
                     ArchivedProjectControls(item: archived, model: model)
                 } else {
@@ -1804,6 +1795,8 @@ private struct ProjectOverview: View {
                         Text("README").font(.headline)
                         Spacer()
                         Text(readme.source).font(.caption).foregroundStyle(.secondary)
+                            .help(model.projectSource.map { "From \(model.projectSourceLabel($0))" } ?? readme.source)
+                            .accessibilityValue(model.projectSource.map(model.projectSourceLabel) ?? readme.source)
                     }
                     MarkdownDocument(markdown: readme.markdown)
                 } else if model.projectSnapshot != nil {
@@ -1817,15 +1810,6 @@ private struct ProjectOverview: View {
             .padding(20)
         }
         .navigationTitle(name)
-    }
-
-    private var backupStatus: some View {
-        let backup = model.backupStatus(for: name)
-        return Label(backup.title, systemImage: backup.symbol)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .help(backup.detail)
-            .accessibilityHint(backup.detail)
     }
 }
 
@@ -1850,19 +1834,39 @@ private struct HostControls: View {
         let canArchive = model.configuration.backup != nil || model.configuration.backupDestination != nil
         return Group {
             PlacementRow(project: project, name: model.configuration.machine,
-                         placement: model.placement(of: project, on: nil), canArchive: canArchive, isLocal: true,
+                         placement: model.placement(of: project, on: nil),
+                         status: model.placementStatus(for: project, machine: model.configuration.machine,
+                                                       placement: model.placement(of: project, on: nil)),
+                         backupDetail: model.backupStatus(for: project).detail, canArchive: canArchive, isLocal: true,
                          progress: model.placementInProgress == "local") {
                 if $0 == .checkedOut { model.checkOut(project, hostID: nil) }
                 else { model.setPlacement($0, project: project, hostID: nil) }
             }
             ForEach(model.configuration.hosts) { host in
                 PlacementRow(project: project, name: host.name,
-                             placement: model.placement(of: project, on: host.id), canArchive: canArchive,
+                             placement: model.placement(of: project, on: host.id),
+                             status: model.placementStatus(for: project, machine: host.machine,
+                                                           placement: model.placement(of: project, on: host.id)),
+                             backupDetail: model.backupStatus(for: project).detail, canArchive: canArchive,
                              progress: model.placementInProgress == host.id.uuidString) {
                     if $0 == .checkedOut { model.checkOut(project, hostID: host.id) }
                     else { model.setPlacement($0, project: project, hostID: host.id) }
                 }
             }
+            Button(action: model.openSelectedProjectOnGitHub) {
+                Label {
+                    Text("GitHub")
+                } icon: {
+                    Image("GitHub", bundle: .module)
+                        .resizable().scaledToFit().frame(width: 16, height: 16)
+                }
+                .fontWeight(.medium)
+            }
+            .buttonStyle(.plain)
+            .disabled(model.projectGitHubURL == nil)
+            .foregroundStyle(model.projectGitHubURL == nil ? .tertiary : .primary)
+            .help(model.projectGitHubURL == nil ? "No GitHub remote" : "Open on GitHub")
+            .accessibilityValue(model.projectGitHubURL == nil ? "Not present" : "Available")
         }
     }
 }
@@ -1871,6 +1875,8 @@ private struct PlacementRow: View {
     let project: String
     let name: String
     let placement: ProjectPlacement
+    let status: String
+    let backupDetail: String
     let canArchive: Bool
     var isLocal = false
     let progress: Bool
@@ -1896,13 +1902,19 @@ private struct PlacementRow: View {
                         Text("Host unavailable")
                     }
                 } label: {
-                    Label(name, systemImage: "desktopcomputer")
-                        .fontWeight(.medium)
+                    Label {
+                        Text(name)
+                    } icon: {
+                        Image(systemName: "desktopcomputer")
+                            .foregroundStyle(placement == .notPresent ? .tertiary : .primary)
+                    }
+                    .fontWeight(.medium)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(name)
-                .accessibilityValue(progress ? "Updating, \(placement.title)" : placement.title)
+                .accessibilityValue(progress ? "Updating, \(placement.title)" : (status.isEmpty ? placement.title : status))
+                .help("\(placement.title). \(backupDetail)")
                 .disabled(progress || placement == .unknown || placement == .checkedOut && !canArchive)
                 .alert("Archive \(project)?", isPresented: $showingArchiveConfirmation) {
                     Button("Cancel", role: .cancel) {}
@@ -1912,9 +1924,12 @@ private struct PlacementRow: View {
                 }
                 if progress { ProgressView().controlSize(.small).accessibilityLabel("Updating \(name)") }
             }
-            Label(placement.title, systemImage: placement.symbol)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if !status.isEmpty {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help(backupDetail)
+            }
         }
         .padding(.trailing)
     }
@@ -1923,18 +1938,10 @@ private struct PlacementRow: View {
 private extension ProjectPlacement {
     var title: String {
         switch self {
-        case .checkedOut: "Checked Out"
+        case .checkedOut: "Checked out"
         case .mirrored: "Mirrored"
         case .notPresent: "Not Present"
         case .unknown: "Unavailable"
-        }
-    }
-    var symbol: String {
-        switch self {
-        case .checkedOut: "checkmark.circle.fill"
-        case .mirrored: "externaldrive.fill"
-        case .notPresent: "minus.circle"
-        case .unknown: "questionmark.circle"
         }
     }
 }

@@ -94,8 +94,12 @@ staging. Peer rows open Diff and never expose the local Editor or Terminal. The 
 and its selection remain when clean; mirrors and backups omit it.
 
 The detail column keeps project placement visible above a scrolling README.
-The overview pairs the project title with backup status and groups each host's
-menu above its placement status. These compact groups sit side by side when
+The overview omits the repeated project title and groups each host's menu above
+its plain-text placement status. Absent hosts have dim computer icons and no
+status line. A host with a stored backup snapshot adds “& Backed up” to its status;
+backup errors and details remain in help text. GitHub sits alongside hosts, dimmed
+when no GitHub remote is available. README help and accessibility retain the
+selected content source without a separate “From” heading. These compact groups sit side by side when
 space permits and stack in narrow panes using native fitting layouts.
 Selecting a commit replaces the overview with graph metadata and its diff, not a
 file browser. Remote-only projects remain discoverable and their Git history,

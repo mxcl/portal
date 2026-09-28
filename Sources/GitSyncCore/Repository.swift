@@ -56,10 +56,12 @@ public struct RepositorySnapshot: Codable, Equatable, Sendable {
     public let headOID: String?
     public let workingChanges: RepositoryWorkingChanges?
     public let githubBranchStatus: GitHubBranchStatus?
+    /// Detached worktree paths, keyed by their HEAD commit. Absent on older peers and backups.
+    public let detachedWorktrees: [String: [String]]?
 
     public init(commits: [RepositoryCommit], references: [RepositoryReference], head: String?, branches: [String],
                 headOID: String? = nil, workingChanges: RepositoryWorkingChanges? = nil,
-                githubBranchStatus: GitHubBranchStatus? = nil) {
+                githubBranchStatus: GitHubBranchStatus? = nil, detachedWorktrees: [String: [String]]? = nil) {
         self.commits = commits
         self.references = references
         self.head = head
@@ -67,6 +69,7 @@ public struct RepositorySnapshot: Codable, Equatable, Sendable {
         self.headOID = headOID
         self.workingChanges = workingChanges
         self.githubBranchStatus = githubBranchStatus
+        self.detachedWorktrees = detachedWorktrees
     }
 }
 
@@ -335,10 +338,12 @@ public struct Repository: Equatable {
         #endif
     }
 
-    public func snapshot(limit: Int = 250) throws -> RepositorySnapshot {
+    public func snapshot(limit: Int = 250, showDetachedWorktrees: Bool = false) throws -> RepositorySnapshot {
         let references = try referenceSnapshot()
         let head = try? Git.text(["-C", url.path, "symbolic-ref", "--quiet", "--short", "HEAD"])
-        let history = try snapshot(limit: limit, references: references, revisions: ["--all"], head: head)
+        // --all also walks detached worktree HEADs; the ref glob only walks named refs.
+        let history = try snapshot(limit: limit, references: references,
+                                   revisions: [showDetachedWorktrees ? "--all" : "--glob=refs/*"], head: head)
         let headOID = try? Git.text(["-C", url.path, "rev-parse", "--verify", "HEAD"])
         let mirrored = try Git.text(["-C", url.path, "rev-parse", "--is-bare-repository"]) == "true"
             || (try? Git.text(["-C", url.path, "config", "--bool", "git-sync.mirrored"])) == "true"
@@ -353,7 +358,8 @@ public struct Repository: Equatable {
         }
         return RepositorySnapshot(commits: history.commits, references: references, head: head,
                                   branches: history.branches, headOID: headOID, workingChanges: changes,
-                                  githubBranchStatus: mirrored ? nil : (try? githubBranchStatus(head: head, headOID: headOID)))
+                                  githubBranchStatus: mirrored ? nil : (try? githubBranchStatus(head: head, headOID: headOID)),
+                                  detachedWorktrees: showDetachedWorktrees ? try detachedWorktreePaths() : nil)
     }
 
     private func workingLineCounts(files: [RepositoryFile]) throws -> Data {
@@ -368,8 +374,27 @@ public struct Repository: Equatable {
         return numstat
     }
 
-    public func content(limit: Int = 250) throws -> RepositoryContent {
-        RepositoryContent(snapshot: try snapshot(limit: limit), readme: readme(), githubURL: githubURL)
+    public func content(limit: Int = 250, showDetachedWorktrees: Bool = false) throws -> RepositoryContent {
+        RepositoryContent(snapshot: try snapshot(limit: limit, showDetachedWorktrees: showDetachedWorktrees),
+                          readme: readme(), githubURL: githubURL)
+    }
+
+    private func detachedWorktreePaths() throws -> [String: [String]] {
+        let output = try Git.text(["-C", url.path, "worktree", "list", "--porcelain", "-z"])
+        var paths: [String: [String]] = [:]
+        var path: String?
+        var oid: String?
+        for field in output.split(separator: "\0", omittingEmptySubsequences: false) {
+            if field.hasPrefix("worktree ") {
+                path = String(field.dropFirst("worktree ".count))
+                oid = nil
+            } else if field.hasPrefix("HEAD ") {
+                oid = String(field.dropFirst("HEAD ".count))
+            } else if field == "detached", let path, let oid {
+                paths[oid, default: []].append(path)
+            }
+        }
+        return paths
     }
 
     func snapshot(limit: Int, references: [RepositoryReference], revisions: [String],

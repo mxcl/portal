@@ -134,3 +134,60 @@ func peerWorkingChangesSelection() async throws {
     #expect(model.stagingRows.map(\.id) == [local.id])
     #expect(model.selectedCommitID == local.id)
 }
+
+@Test("View preference reloads detached worktrees and clears a hidden selection")
+@MainActor
+func detachedWorktreeToggle() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let project = root.appendingPathComponent("project")
+    let detached = root.appendingPathComponent("detached")
+    let preference = UserDefaults.standard.object(forKey: "show-detached-worktrees")
+    defer {
+        UserDefaults.standard.set(preference, forKey: "show-detached-worktrees")
+        try? FileManager.default.removeItem(at: root)
+    }
+    _ = try Git.run(["init", "-q", "-b", "main", project.path])
+    for (key, value) in [("user.name", "Test"), ("user.email", "test@example.com"), ("commit.gpgsign", "false")] {
+        _ = try Git.run(["-C", project.path, "config", key, value])
+    }
+    _ = try Git.run(["-C", project.path, "commit", "--allow-empty", "-qm", "base"])
+    _ = try Git.run(["-C", project.path, "worktree", "add", "--detach", detached.path])
+    _ = try Git.run(["-C", detached.path, "commit", "--allow-empty", "-qm", "detached"])
+    let oid = try Git.text(["-C", detached.path, "rev-parse", "HEAD"])
+    let model = AppModel(connectToHelper: false)
+    model.showDetachedWorktrees = false
+    model.configuration = AppConfiguration(root: root.path, machine: "test",
+        folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)])
+    model.localProjects = ["project": PeerProject(name: "project", placement: .checkedOut)]
+    model.selectedProjectName = "project"
+    model.refreshProject()
+    func finishLoading() async throws {
+        let deadline = Date().addingTimeInterval(10)
+        while (model.isLoadingProject || model.isLoadingCommitDiff) && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(!model.isLoadingProject && !model.isLoadingCommitDiff)
+        try #require(model.projectError == nil && model.commitDiffError == nil)
+    }
+    try await finishLoading()
+    #expect(model.projectSnapshot?.commits.contains { $0.oid == oid } == false)
+    model.showDetachedWorktrees = true
+    try await finishLoading()
+    #expect(model.projectSnapshot?.commits.contains { $0.oid == oid } == true)
+    #expect(model.projectSnapshot?.detachedWorktreeLabels[oid] == ["detached (detached)"])
+    #expect(AppModel(connectToHelper: false).showDetachedWorktrees)
+    model.selectCommit(oid)
+    try await finishLoading()
+    model.showDetachedWorktrees = false
+    try await finishLoading()
+    #expect(model.selectedCommitID == nil)
+    #expect(model.projectSnapshot?.commits.contains { $0.oid == oid } == false)
+
+    // A detached source checkout must not leave an orphan staging row when hidden.
+    model.projectSnapshot = try Repository(name: "detached", url: detached).snapshot()
+    #expect(model.stagingRows.isEmpty)
+    model.showDetachedWorktrees = true
+    model.projectSnapshot = try Repository(name: "detached", url: detached).snapshot(showDetachedWorktrees: true)
+    #expect(model.stagingRows.count == 1)
+    try await finishLoading()
+}

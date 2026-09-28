@@ -177,6 +177,38 @@ func repositorySnapshot() throws {
     #expect(repository.readme()?.source == "Checked out HEAD")
 }
 
+@Test("detached worktree history is opt-in and carries paths without hiding named branches")
+func detachedWorktreeHistory() throws {
+    let fixture = try Fixture()
+    let repository = Repository(name: "project", url: fixture.a.appendingPathComponent("project"))
+    let detached = fixture.b.appendingPathComponent("detached\ncheckout")
+    let attached = fixture.b.appendingPathComponent("attached")
+    _ = try git(["-C", repository.url.path, "worktree", "add", "--detach", detached.path])
+    _ = try git(["-C", detached.path, "commit", "--allow-empty", "-qm", "detached-only"])
+    let detachedOID = try git(["-C", detached.path, "rev-parse", "HEAD"])
+    _ = try git(["-C", repository.url.path, "worktree", "add", "-b", "topic", attached.path])
+    _ = try git(["-C", attached.path, "commit", "--allow-empty", "-qm", "named-worktree"])
+    let attachedOID = try git(["-C", attached.path, "rev-parse", "HEAD"])
+
+    let hidden = try repository.snapshot()
+    #expect(!hidden.commits.contains { $0.oid == detachedOID })
+    #expect(hidden.commits.contains { $0.oid == attachedOID })
+    #expect(hidden.detachedWorktrees == nil)
+    let shown = try repository.snapshot(showDetachedWorktrees: true)
+    #expect(shown.commits.contains { $0.oid == detachedOID })
+    let detachedPath = try git(["-C", detached.path, "rev-parse", "--show-toplevel"])
+    #expect(shown.detachedWorktrees == [detachedOID: [detachedPath]])
+    #expect(try JSONDecoder().decode(RepositorySnapshot.self, from: JSONEncoder().encode(shown)) == shown)
+    #expect(try JSONDecoder().decode(RepositorySnapshot.self, from: JSONEncoder().encode(hidden)) == hidden)
+
+    // The same rule applies when browsing the detached checkout itself.
+    let checkout = Repository(name: "detached", url: detached)
+    #expect(try !checkout.snapshot().commits.contains { $0.oid == detachedOID })
+    // Naming the tip makes it ordinary history even with detached worktrees hidden.
+    _ = try git(["-C", repository.url.path, "branch", "retained", detachedOID])
+    #expect(try repository.snapshot().commits.contains { $0.oid == detachedOID })
+}
+
 @Test("history reports working changes and follows detached HEAD")
 func repositoryWorkingChanges() throws {
     let fixture = try Fixture()

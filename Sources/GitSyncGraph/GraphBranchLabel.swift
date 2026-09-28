@@ -3,6 +3,19 @@ import CoreText
 import GitSyncCore
 import SwiftUI
 
+extension RepositorySnapshot {
+    public var detachedWorktreeLabels: [String: [String]] {
+        let paths = (detachedWorktrees ?? [:]).values.flatMap { $0 }
+        let counts = Dictionary(grouping: paths, by: { ($0 as NSString).lastPathComponent })
+        return (detachedWorktrees ?? [:]).mapValues { paths in
+            paths.map { path in
+                let name = (path as NSString).lastPathComponent
+                return "\(counts[name]?.count == 1 ? name : path) (detached)"
+            }
+        }
+    }
+}
+
 extension RepositoryReference {
     public static func graphNames(_ references: [Self], hosts: [SyncHost], sourceMachine: String? = nil,
                                   allReferences: [Self]? = nil, tags: Bool = false) -> [String] {

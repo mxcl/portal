@@ -256,3 +256,18 @@ func distantBranchLabelsStayAtTheirCommits() {
     #expect(distant.count == 1)
     #expect(distant.first.map { $0.outline.boundingRect.minY < 71 * BranchGraphRowCanvas.rowHeight } == true)
 }
+
+@Test("detached worktree tips receive visible labels and duplicate names remain distinguishable")
+func detachedWorktreeLabels() {
+    let root = RepositoryCommit(oid: "root", parents: [], author: "", date: .distantPast, message: "base")
+    let tip = RepositoryCommit(oid: "tip", parents: ["root"], author: "", date: .distantPast, message: "detached")
+    let snapshot = RepositorySnapshot(commits: [tip, root], references: [], head: nil, branches: [],
+        detachedWorktrees: ["tip": ["/tmp/checkout", "/tmp/one/project", "/tmp/two/project"]])
+    #expect(snapshot.detachedWorktreeLabels["tip"] == [
+        "checkout (detached)", "/tmp/one/project (detached)", "/tmp/two/project (detached)"
+    ])
+    let graph = CommitGraphGenerator.generate(commits: snapshot.commits, headOID: nil,
+                                             branchNames: snapshot.detachedWorktreeLabels)
+    #expect(graph.branchLabels.count == 1)
+    #expect(graph.branchLabels.first?.outline.isEmpty == false)
+}

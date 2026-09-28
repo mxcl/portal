@@ -162,7 +162,7 @@ private struct StatusMenu: View {
                 }
             }
         }
-        Menu("GitHub Notifications") {
+        Section("GitHub Notifications") {
             let notifications = runtime.model.github.unreadNotifications
             if notifications.isEmpty { Text("No unread notifications") }
             ForEach(notifications.prefix(20)) { note in
@@ -172,11 +172,8 @@ private struct StatusMenu: View {
                     }
                 }.help(note.body)
             }
-            if let error = runtime.model.github.error { Text(error) }
-            Divider()
-            Button("Refresh GitHub") { Task { await runtime.model.githubAction?(.refresh) } }
-                .disabled(!runtime.model.github.connected)
         }
+        Divider()
         Menu("Events") {
             if runtime.model.menuLogs.isEmpty {
                 Text("No events yet")
@@ -184,7 +181,6 @@ private struct StatusMenu: View {
                 ForEach(Array(runtime.model.menuLogs.enumerated()), id: \.offset) { Text($0.element) }
             }
         }
-        Divider()
         Button(runtime.model.isPaused ? "Resume Sync" : "Pause Sync") {
             runtime.model.isPaused ? runtime.model.resume() : runtime.model.pause()
         }
@@ -199,7 +195,7 @@ private struct StatusMenu: View {
             Button("Login Items…") { SMAppService.openSystemSettingsLoginItems() }
         }
         Divider()
-        Button("Quit Gitinuum", action: runtime.quitEverything)
+        Button("Quit", action: runtime.quitEverything)
     }
 }
 #else

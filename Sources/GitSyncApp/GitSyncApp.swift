@@ -1163,7 +1163,12 @@ struct ProjectBrowserView: View {
                 if !archived.isEmpty {
                     Section("Archived") {
                         ForEach(archived) { item in
-                            Label(item.name, systemImage: "archivebox").tag(item.name)
+                            HStack(spacing: 8) {
+                                Image(systemName: "archivebox")
+                                    .foregroundStyle(.secondary)
+                                Text(item.name).lineLimit(1)
+                            }
+                            .tag(item.name)
                         }
                     }
                 }

@@ -92,4 +92,26 @@ func mergedCleanupWithoutBackup() async throws {
     model.pause()
     #expect(try await model.cleanMergedBranch(merge) == false)
 }
+@Test("GitHub inbox hides read history and consolidates unread updates by thread")
+func githubUnreadNotifications() throws {
+    var state = GitHubState()
+    let rows: [(String, Bool?)] = [
+        ("42:2026-09-28T12:00:00Z", true),
+        ("43:2026-09-28T11:00:00Z", false), // Read, even though still in history (not done).
+        ("42:2026-09-28T10:00:00Z", true),
+        ("44:2026-09-28T09:00:00Z", true),
+        ("45:2026-09-28T08:00:00Z", nil) // Legacy cache with unknown read state.
+    ]
+    state.notifications = try rows.map { id, unread in
+        var json: [String: Any] = ["id": id, "repository": "owner/repo", "title": "Same title",
+            "body": "Update", "url": "https://github.com/owner/repo/issues/\(id.prefix { $0 != ":" })", "alert": true]
+        if let unread { json["unread"] = unread }
+        return try JSONDecoder().decode(GitHubNotification.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+    #expect(state.unreadNotifications.map(\.id) == [rows[0].0, rows[3].0])
+    let restored = try JSONDecoder().decode(GitHubState.self, from: JSONEncoder().encode(state))
+    #expect(restored.unreadNotifications == state.unreadNotifications)
+    for index in state.notifications.indices { state.notifications[index].unread = false }
+    #expect(state.unreadNotifications.isEmpty)
+}
 #endif

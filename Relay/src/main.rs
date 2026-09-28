@@ -917,7 +917,7 @@ async fn sync(
         })
         .collect::<HashMap<_, _>>();
     let notes = sqlx::query_scalar::<_, Value>(
-        "SELECT note FROM notifications WHERE device=$1 ORDER BY updated_at DESC LIMIT 200",
+        "SELECT note FROM notifications WHERE device=$1 ORDER BY json_extract(note, '$.unread') DESC, updated_at DESC LIMIT 200",
     )
     .bind(device)
     .fetch_all(&state.db)

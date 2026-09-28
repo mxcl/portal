@@ -16,6 +16,7 @@ public struct GitHubNotification: Codable, Identifiable, Equatable, Sendable {
     public let body: String
     public let url: URL
     public let alert: Bool
+    public var unread: Bool?
 
     public var safeURL: URL? {
         guard url.scheme == "https", url.host?.lowercased() == "github.com", url.user == nil, url.password == nil else { return nil }
@@ -33,6 +34,14 @@ public struct GitHubState: Codable, Sendable {
     public var counts: [String: GitHubCounts] = [:]
     public var notifications: [GitHubNotification] = []
     public var hasUnreadNotifications: Bool?
+
+    public var unreadNotifications: [GitHubNotification] {
+        var threads = Set<Substring>()
+        // The relay orders newest first; IDs are "threadID:updated_at".
+        return notifications.filter {
+            $0.unread == true && threads.insert($0.id.prefix { $0 != ":" }).inserted
+        }
+    }
     public init() {}
 }
 

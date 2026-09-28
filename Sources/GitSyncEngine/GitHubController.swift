@@ -210,7 +210,7 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                 model.github.error = (response.errors + (missing.isEmpty ? [] : ["Unavailable repositories: \(missing.sorted().joined(separator: ", ")). Check remote URLs and Repository Access."]))
                     .first
                 for note in model.github.notifications where !seen.contains(note.id) {
-                    if note.alert, model.github.notificationPermission == "Allowed" {
+                    if note.unread == true, note.alert, model.github.notificationPermission == "Allowed" {
                         do { try await present(note) }
                         catch {
                             await updatePermission()

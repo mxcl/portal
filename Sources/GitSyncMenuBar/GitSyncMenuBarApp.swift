@@ -160,8 +160,9 @@ private struct StatusMenu: View {
             }
         }
         Menu("GitHub Notifications") {
-            if runtime.model.github.notifications.isEmpty { Text("No recent notifications") }
-            ForEach(runtime.model.github.notifications.prefix(20)) { note in
+            let notifications = runtime.model.github.unreadNotifications
+            if notifications.isEmpty { Text("No unread notifications") }
+            ForEach(notifications.prefix(20)) { note in
                 Button("\(note.repository): \(note.title)") {
                     if let url = note.safeURL, NSWorkspace.shared.open(url) {
                         Task { await runtime.model.githubAction?(.notificationOpened) }

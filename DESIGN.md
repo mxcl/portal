@@ -517,3 +517,10 @@ Single-project history, diff, export, and restore reads inspect only that backup
 The optional `refresh` field on a version-6 backup list request requests a full
 scan; older version-6 servers ignore it and retain their uncached behavior.
 Git replication, per-ref atomicity, and eventual consistency are unchanged.
+
+The GitHub notification menu shows only explicitly unread entries, keeping the
+newest update per GitHub thread (issue, pull request, or other subject). Read
+entries are hidden regardless of GitHub's Done state; unknown legacy read state
+is hidden until refreshed. The relay prioritizes unread entries before applying
+its history limit, so read history cannot crowd them out. Banner eligibility
+also requires unread state; history IDs remain available for deduplication.

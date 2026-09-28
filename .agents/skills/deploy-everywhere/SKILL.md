@@ -19,6 +19,10 @@ and the installed `aarch64-swift-linux-musl` SDK to cross-build a static binary
 both Mac apps at `/Applications/Gitinuum.app`, and verifies all four installed
 Mac executables against the built bundle, plus the Linux executable hash.
 
+The shared Mac installer launches the app with a minimal login environment on
+both hosts. Keep that boundary intact: never forward the agent's environment
+(including color, pager, terminal, or `CODEX_*` overrides) to the deployed app.
+
 `atlas` is an SSH-launched `daemon --stdio` endpoint, not a persistent systemd
 process. Install the `gitinuumd` build at `~/.local/bin/git-sync` for existing SSH
 configurations; do not create a service

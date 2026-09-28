@@ -49,7 +49,11 @@ menu_service="gui/$(id -u)/dev.mxcl.git-sync.menu-helper"
 if launchctl print "$menu_service" >/dev/null 2>&1; then
   launchctl kickstart -k "$menu_service"
 fi
-open "$target_app"
+# open forwards its environment to the app (and its terminal sessions).
+# Allow only normal login essentials, never the deploying agent's environment.
+/usr/bin/env -i HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" \
+  SHELL="${SHELL:-/bin/zsh}" TMPDIR="${TMPDIR:-/tmp}" \
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/open "$target_app"
 
 for _ in {1..50}; do
   if pgrep -x GitinuumApp >/dev/null &&

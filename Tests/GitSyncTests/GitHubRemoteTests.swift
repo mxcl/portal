@@ -71,3 +71,56 @@ func gitHelperSearchPath() {
     #expect(environment["GIT_TERMINAL_PROMPT"] == "0")
     #expect(Git.environment(["PATH": "/usr/local/bin:/usr/bin"])["PATH"]!.components(separatedBy: ":").filter { $0 == "/usr/local/bin" }.count == 1)
 }
+
+@Test("GitHub branch status compares known refs without fetching or changing local work")
+func githubKnownBranchStatus() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    _ = try Git.run(["init", "-q", "-b", "main", root.path])
+    func git(_ args: [String]) throws -> String { try Git.text(["-C", root.path] + args) }
+    _ = try git(["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "base"])
+    let base = try git(["rev-parse", "HEAD"])
+    let tree = try git(["rev-parse", "HEAD^{tree}"])
+    func commit(_ message: String) throws -> String {
+        try git(["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit-tree", tree, "-p", base, "-m", message])
+    }
+    let local = try commit("local"), remote = try commit("remote")
+    _ = try git(["remote", "add", "origin", "https://github.com/test/project.git"])
+    let repository = Repository(name: "project", url: root)
+    #expect(try repository.snapshot().githubBranchStatus == nil)
+    _ = try git(["update-ref", "refs/remotes/origin/main", base])
+    #expect(try repository.snapshot().githubBranchStatus?.title == "Up to date")
+    _ = try git(["update-ref", "refs/heads/main", local])
+    #expect(try repository.snapshot().githubBranchStatus?.title == "1 ahead")
+    _ = try git(["update-ref", "refs/remotes/origin/main", remote])
+    #expect(try repository.snapshot().githubBranchStatus?.title == "1 ahead, 1 behind")
+    _ = try git(["update-ref", "refs/heads/main", base])
+    #expect(try repository.snapshot().githubBranchStatus?.title == "1 behind")
+    // An upstream may use a different branch name; same-name origin is not authoritative then.
+    _ = try git(["config", "branch.main.remote", "origin"])
+    _ = try git(["config", "branch.main.merge", "refs/heads/release"])
+    #expect(try repository.snapshot().githubBranchStatus == nil)
+    _ = try git(["update-ref", "refs/remotes/origin/release", base])
+    #expect(try repository.snapshot().githubBranchStatus?.remoteBranch == "origin/release")
+    #expect(try repository.snapshot().githubBranchStatus?.title == "Up to date")
+    _ = try git(["config", "branch.main.remote", "."])
+    #expect(try repository.snapshot().githubBranchStatus == nil)
+    _ = try git(["checkout", "--detach", "--quiet", base])
+    #expect(try repository.snapshot().githubBranchStatus == nil)
+    #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".git/FETCH_HEAD").path))
+}
+
+@Test("Optional hardware and branch status preserve older inventory and content decoding")
+func optionalHostMetadataCompatibility() throws {
+    let inspection = try JSONDecoder().decode(PeerInspection.self, from: Data(#"{"version":5,"machine":"old","repositories":[]}"#.utf8))
+    #expect(inspection.hardware == nil)
+    let snapshot = try JSONDecoder().decode(RepositorySnapshot.self, from: Data(#"{"commits":[],"references":[],"branches":[]}"#.utf8))
+    #expect(snapshot.githubBranchStatus == nil)
+    let host = SyncHost(machine: "server", peer: "server", root: "/tmp", hardware: HostHardware(operatingSystem: "Linux"))
+    #expect(try JSONDecoder().decode(SyncHost.self, from: JSONEncoder().encode(host)) == host)
+    var legacy = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(host)) as? [String: Any])
+    legacy.removeValue(forKey: "hardware")
+    #expect(try JSONDecoder().decode(SyncHost.self, from: JSONSerialization.data(withJSONObject: legacy)).hardware == nil)
+    let current = PeerInspection(version: SyncProtocol.version, machine: "new", repositories: [], hardware: .current)
+    #expect(try JSONDecoder().decode(PeerInspection.self, from: JSONEncoder().encode(current)) == current)
+}

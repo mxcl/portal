@@ -121,12 +121,15 @@ public struct PeerInspection: Codable, Equatable, Sendable {
     public let machine: String
     public let repositories: [String]
     public let projects: [PeerProject]?
+    public let hardware: HostHardware?
 
-    public init(version: Int, machine: String, repositories: [String], projects: [PeerProject]? = nil) {
+    public init(version: Int, machine: String, repositories: [String], projects: [PeerProject]? = nil,
+                hardware: HostHardware? = nil) {
         self.version = version
         self.machine = machine
         self.repositories = repositories
         self.projects = projects
+        self.hardware = hardware
     }
 }
 
@@ -159,17 +162,19 @@ public struct SyncHost: Codable, Equatable, Identifiable, Sendable {
     public var peer: String
     public var root: String
     public var executable: String
+    public var hardware: HostHardware?
 
     public var name: String { displayName ?? machine }
 
     public init(id: UUID = UUID(), machine: String, displayName: String? = nil, peer: String, root: String,
-                executable: String = Configuration.defaultRemoteExecutable) {
+                executable: String = Configuration.defaultRemoteExecutable, hardware: HostHardware? = nil) {
         self.id = id
         self.machine = machine
         self.displayName = displayName
         self.peer = peer
         self.root = root
         self.executable = executable
+        self.hardware = hardware
     }
 }
 

@@ -98,7 +98,7 @@ do {
                                         projects: repositories.map {
                                             PeerProject(name: $0.name, placement: $0.placement,
                                                         defaultBranch: $0.defaultBranch, githubRepositories: $0.githubRepositories)
-                                        })
+                                        }, hardware: .current)
         print(String(decoding: try JSONEncoder().encode(inspection), as: UTF8.self))
     case "project-content", "project-diff":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)

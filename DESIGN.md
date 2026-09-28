@@ -99,7 +99,16 @@ its plain-text placement status. Hosts without a checkout have dimmed menus whos
 Absent hosts omit the placement line. Only the configured backup destination adds
 “& backed up” when a stored snapshot exists, or “Backed up” when it has no checkout;
 backup errors and details remain in help text. GitHub sits alongside hosts, dimmed
-when no GitHub remote is available. README help and accessibility retain the
+when no GitHub remote is available. Its status compares the selected host's current
+branch with its last known GitHub tracking ref: up to date, ahead, behind, or both.
+Missing refs, detached HEAD, and older snapshots show unknown status. The comparison
+reads Git only; existing push-triggered fetches and repository watchers refresh it
+without a new poll or fetch. The tooltip identifies the branch, host, and tracking ref.
+Hosts report optional OS/model metadata through the existing inspection. macOS uses
+its registered device-model type and NSWorkspace icon; Linux uses a server symbol.
+Unknown models and older hosts retain the generic computer icon. These optional
+fields preserve protocol compatibility and leave ref ownership, per-ref atomicity,
+and eventual consistency unchanged. README help and accessibility retain the
 selected content source without a separate “From” heading. These compact groups sit side by side when
 space permits and stack in narrow panes using native fitting layouts.
 Selecting a commit replaces the overview with graph metadata and its diff, not a

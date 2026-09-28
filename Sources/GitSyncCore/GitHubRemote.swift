@@ -6,6 +6,22 @@ public struct GitHubRemote: Equatable, Sendable {
     let url: String
 }
 
+public struct GitHubBranchStatus: Codable, Equatable, Sendable {
+    public let branch: String
+    public let remoteBranch: String
+    public let ahead: Int
+    public let behind: Int
+
+    public var title: String {
+        switch (ahead, behind) {
+        case (0, 0): "Up to date"
+        case (_, 0): "\(ahead) ahead"
+        case (0, _): "\(behind) behind"
+        default: "\(ahead) ahead, \(behind) behind"
+        }
+    }
+}
+
 extension Repository {
     public func githubRemotes() throws -> [GitHubRemote] {
         try Git.text(["-C", url.path, "remote"]).split(separator: "\n")
@@ -18,6 +34,26 @@ extension Repository {
     }
 
     public var githubRepositories: [String] { (try? githubRemotes().map(\.repository)) ?? [] }
+
+    /// Compare only locally known refs. Existing push-triggered fetches refresh them.
+    func githubBranchStatus(head: String?, headOID: String?) throws -> GitHubBranchStatus? {
+        guard let head, let headOID, let githubURL else { return nil }
+        let upstream = try Git.text(["-C", url.path, "for-each-ref",
+            "--format=%(upstream:remotename)%09%(upstream:remoteref)", "refs/heads/" + head])
+            .split(separator: "\t", omittingEmptySubsequences: false)
+        let remoteName = upstream.first.map(String.init) ?? ""
+        let remote = try githubRemotes().first { $0.name == (remoteName.isEmpty ? "origin" : remoteName) }
+        guard let remote, Self.githubURL(forOrigin: remote.url) == githubURL else { return nil }
+        let branchRef = upstream.count == 2 && !upstream[1].isEmpty ? String(upstream[1]) : "refs/heads/" + head
+        guard branchRef.hasPrefix("refs/heads/") else { return nil }
+        let remoteBranch = remote.name + "/" + branchRef.dropFirst("refs/heads/".count)
+        guard let remoteOID = try? Git.text(["-C", url.path, "rev-parse", "--verify",
+                                             "refs/remotes/" + remoteBranch + "^{commit}"]) else { return nil }
+        let counts = try Git.text(["-C", url.path, "rev-list", "--left-right", "--count",
+                                   headOID + "..." + remoteOID, "--"]).split(whereSeparator: \.isWhitespace)
+        guard counts.count == 2, let ahead = Int(counts[0]), let behind = Int(counts[1]) else { return nil }
+        return GitHubBranchStatus(branch: head, remoteBranch: remoteBranch, ahead: ahead, behind: behind)
+    }
 
     /// Only this remote's branch tracking namespace is writable. Never trust remote.*.fetch.
     public func fetchGitHub(_ repository: String, peerMachines: [String]) throws {

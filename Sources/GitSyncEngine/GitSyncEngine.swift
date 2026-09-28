@@ -443,7 +443,7 @@ public final class EngineModel: ObservableObject {
         }.value
         var candidate = configuration
         let host = SyncHost(machine: inspection.machine, peer: probe.peer,
-                            root: probe.remoteRoot, executable: probe.remoteExecutable)
+                            root: probe.remoteRoot, executable: probe.remoteExecutable, hardware: inspection.hardware)
         let collisions = try candidate.addHost(host, repositories: inspection.repositories)
         if !collisions.isEmpty && !allowNameCollisions {
             status = "Confirmation required"
@@ -821,6 +821,10 @@ public final class EngineModel: ObservableObject {
 
     private func recordInspection(_ inspection: PeerInspection, hostID: UUID,
                                   knownProjects: [String]) {
+        if let hardware = inspection.hardware,
+           let index = configuration.hosts.firstIndex(where: { $0.id == hostID }) {
+            configuration.hosts[index].hardware = hardware
+        }
         let reported = inspection.projects ?? inspection.repositories.map {
             PeerProject(name: $0, placement: .unknown)
         }

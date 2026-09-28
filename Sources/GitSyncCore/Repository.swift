@@ -55,15 +55,18 @@ public struct RepositorySnapshot: Codable, Equatable, Sendable {
     public let branches: [String]
     public let headOID: String?
     public let workingChanges: RepositoryWorkingChanges?
+    public let githubBranchStatus: GitHubBranchStatus?
 
     public init(commits: [RepositoryCommit], references: [RepositoryReference], head: String?, branches: [String],
-                headOID: String? = nil, workingChanges: RepositoryWorkingChanges? = nil) {
+                headOID: String? = nil, workingChanges: RepositoryWorkingChanges? = nil,
+                githubBranchStatus: GitHubBranchStatus? = nil) {
         self.commits = commits
         self.references = references
         self.head = head
         self.branches = branches
         self.headOID = headOID
         self.workingChanges = workingChanges
+        self.githubBranchStatus = githubBranchStatus
     }
 }
 
@@ -349,7 +352,8 @@ public struct Repository: Equatable {
             }
         }
         return RepositorySnapshot(commits: history.commits, references: references, head: head,
-                                  branches: history.branches, headOID: headOID, workingChanges: changes)
+                                  branches: history.branches, headOID: headOID, workingChanges: changes,
+                                  githubBranchStatus: mirrored ? nil : (try? githubBranchStatus(head: head, headOID: headOID)))
     }
 
     private func workingLineCounts(files: [RepositoryFile]) throws -> Data {

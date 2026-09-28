@@ -1839,7 +1839,7 @@ private struct HostControls: View {
     private var placements: some View {
         let canArchive = model.configuration.backup != nil || model.configuration.backupDestination != nil
         return Group {
-            PlacementRow(project: project, name: model.configuration.machine,
+            PlacementRow(project: project, name: model.configuration.machine, hardware: .current,
                          placement: model.placement(of: project, on: nil),
                          status: model.placementStatus(for: project, on: nil,
                                                        placement: model.placement(of: project, on: nil)),
@@ -1849,7 +1849,7 @@ private struct HostControls: View {
                 else { model.setPlacement($0, project: project, hostID: nil) }
             }
             ForEach(model.configuration.hosts) { host in
-                PlacementRow(project: project, name: host.name,
+                PlacementRow(project: project, name: host.name, hardware: host.hardware,
                              placement: model.placement(of: project, on: host.id),
                              status: model.placementStatus(for: project, on: host.id,
                                                            placement: model.placement(of: project, on: host.id)),
@@ -1859,27 +1859,46 @@ private struct HostControls: View {
                     else { model.setPlacement($0, project: project, hostID: host.id) }
                 }
             }
-            Button(action: model.openSelectedProjectOnGitHub) {
-                Label {
-                    Text("GitHub")
-                } icon: {
-                    Image("GitHub", bundle: .module)
-                        .resizable().scaledToFit().frame(width: 16, height: 16)
+            VStack(alignment: .leading) {
+                Button(action: model.openSelectedProjectOnGitHub) {
+                    Label {
+                        Text("GitHub")
+                    } icon: {
+                        Image("GitHub", bundle: .module)
+                            .resizable().scaledToFit().frame(width: 16, height: 16)
+                    }
+                    .fontWeight(.medium)
                 }
-                .fontWeight(.medium)
+                .buttonStyle(.plain)
+                .disabled(model.projectGitHubURL == nil)
+                .foregroundStyle(model.projectGitHubURL == nil ? .tertiary : .primary)
+                .help(model.projectGitHubURL == nil ? "No GitHub remote" : "Open on GitHub")
+                .accessibilityValue(model.projectGitHubURL == nil ? "Not present" : "Available")
+                if model.projectGitHubURL != nil {
+                    Text(model.projectSnapshot?.githubBranchStatus?.title ?? "Status unknown")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help(githubStatusDetail)
+                        .accessibilityHint(githubStatusDetail)
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(model.projectGitHubURL == nil)
-            .foregroundStyle(model.projectGitHubURL == nil ? .tertiary : .primary)
-            .help(model.projectGitHubURL == nil ? "No GitHub remote" : "Open on GitHub")
-            .accessibilityValue(model.projectGitHubURL == nil ? "Not present" : "Available")
         }
     }
+
+    private var githubStatusDetail: String {
+        guard let status = model.projectSnapshot?.githubBranchStatus else {
+            return "No known GitHub tracking ref for the current branch. No polling is performed."
+        }
+        let source = model.projectSource.map(model.projectSourceLabel) ?? "selected host"
+        return "\(status.branch) on \(source), compared with the last known \(status.remoteBranch). Updated by existing Git fetches, including push notifications."
+    }
+
 }
 
 private struct PlacementRow: View {
     let project: String
     let name: String
+    let hardware: HostHardware?
     let placement: ProjectPlacement
     let status: String
     let backupDetail: String
@@ -1908,7 +1927,7 @@ private struct PlacementRow: View {
                         Text("\(name) unavailable")
                     }
                 } label: {
-                    Label(name, systemImage: "desktopcomputer")
+                    Label { Text(name) } icon: { HostIcon(hardware: hardware) }
                         .fontWeight(.medium)
                 }
                 .menuStyle(.borderlessButton)

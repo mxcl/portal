@@ -95,8 +95,9 @@ and its selection remain when clean; mirrors and backups omit it.
 
 The detail column keeps project placement visible above a scrolling README.
 The overview omits the repeated project title and groups each host's menu above
-its plain-text placement status. Absent hosts have dim computer icons and no
-status line. A host with a stored backup snapshot adds “& Backed up” to its status;
+its plain-text placement status. Hosts without a checkout have dimmed menus whose actions name the target host.
+Absent hosts omit the placement line. Only the configured backup destination adds
+“& backed up” when a stored snapshot exists, or “Backed up” when it has no checkout;
 backup errors and details remain in help text. GitHub sits alongside hosts, dimmed
 when no GitHub remote is available. README help and accessibility retain the
 selected content source without a separate “From” heading. These compact groups sit side by side when

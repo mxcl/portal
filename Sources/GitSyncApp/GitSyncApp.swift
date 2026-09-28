@@ -240,12 +240,13 @@ final class AppModel: ObservableObject {
                 "Stored snapshots from: \(item.snapshots.map(\.machine).joined(separator: ", ")).")
     }
 
-    func placementStatus(for project: String, machine: String, placement: ProjectPlacement) -> String {
-        guard placement != .notPresent else { return "" }
-        let backedUp = (configuration.backup != nil || configuration.backupDestination != nil)
-            && backupError == nil && helperError == nil
-            && backupItems.contains { $0.name == project && $0.snapshots.contains { $0.machine == machine } }
-        return placement.title + (backedUp ? " & Backed up" : "")
+    func placementStatus(for project: String, on hostID: UUID?, placement: ProjectPlacement) -> String {
+        let isBackupDestination = configuration.backupDestination != nil
+            ? hostID == nil : hostID != nil && hostID == configuration.backup?.hostID
+        let backedUp = isBackupDestination && backupError == nil && helperError == nil
+            && backupItems.contains { $0.name == project && !$0.snapshots.isEmpty }
+        if placement == .notPresent { return backedUp ? "Backed up" : "" }
+        return placement.title + (backedUp ? " & backed up" : "")
     }
 
     var selectedLocalRepositoryURL: URL? {
@@ -1835,7 +1836,7 @@ private struct HostControls: View {
         return Group {
             PlacementRow(project: project, name: model.configuration.machine,
                          placement: model.placement(of: project, on: nil),
-                         status: model.placementStatus(for: project, machine: model.configuration.machine,
+                         status: model.placementStatus(for: project, on: nil,
                                                        placement: model.placement(of: project, on: nil)),
                          backupDetail: model.backupStatus(for: project).detail, canArchive: canArchive, isLocal: true,
                          progress: model.placementInProgress == "local") {
@@ -1845,7 +1846,7 @@ private struct HostControls: View {
             ForEach(model.configuration.hosts) { host in
                 PlacementRow(project: project, name: host.name,
                              placement: model.placement(of: project, on: host.id),
-                             status: model.placementStatus(for: project, machine: host.machine,
+                             status: model.placementStatus(for: project, on: host.id,
                                                            placement: model.placement(of: project, on: host.id)),
                              backupDetail: model.backupStatus(for: project).detail, canArchive: canArchive,
                              progress: model.placementInProgress == host.id.uuidString) {
@@ -1890,35 +1891,31 @@ private struct PlacementRow: View {
                     switch placement {
                     case .checkedOut:
                         if canArchive {
-                            Button("Archive…", role: .destructive) { showingArchiveConfirmation = true }
+                            Button("Archive on \(name)…", role: .destructive) { showingArchiveConfirmation = true }
                         }
                     case .mirrored:
-                        Button("Check Out") { change(.checkedOut) }
-                        Button("Move Repository to Trash", role: .destructive) { change(.notPresent) }
+                        Button("Check out on \(name)") { change(.checkedOut) }
+                        Button("Move repository to Trash on \(name)", role: .destructive) { change(.notPresent) }
                     case .notPresent:
-                        Button("Mirror on this Host (Bare Checkout)") { change(.mirrored) }
-                        if isLocal { Button("Check Out") { change(.checkedOut) } }
+                        Button("Mirror on \(name) (bare checkout)") { change(.mirrored) }
+                        if isLocal { Button("Check out on \(name)") { change(.checkedOut) } }
                     case .unknown:
-                        Text("Host unavailable")
+                        Text("\(name) unavailable")
                     }
                 } label: {
-                    Label {
-                        Text(name)
-                    } icon: {
-                        Image(systemName: "desktopcomputer")
-                            .foregroundStyle(placement == .notPresent ? .tertiary : .primary)
-                    }
-                    .fontWeight(.medium)
+                    Label(name, systemImage: "desktopcomputer")
+                        .fontWeight(.medium)
                 }
                 .menuStyle(.borderlessButton)
+                .opacity(placement == .checkedOut ? 1 : 0.45)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(name)
                 .accessibilityValue(progress ? "Updating, \(placement.title)" : (status.isEmpty ? placement.title : status))
                 .help("\(placement.title). \(backupDetail)")
                 .disabled(progress || placement == .unknown || placement == .checkedOut && !canArchive)
-                .alert("Archive \(project)?", isPresented: $showingArchiveConfirmation) {
+                .alert("Archive \(project) on \(name)?", isPresented: $showingArchiveConfirmation) {
                     Button("Cancel", role: .cancel) {}
-                    Button("Archive", role: .destructive) { change(.notPresent) }
+                    Button("Archive on \(name)", role: .destructive) { change(.notPresent) }
                 } message: {
                     Text("The checkout on \(name) will be moved to Trash. The backup will remain available to restore.")
                 }

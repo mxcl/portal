@@ -129,18 +129,25 @@ func branchLabels() {
     #expect(bounds.maxX < BranchGraphRowCanvas.laneWidth + BranchGraphRowCanvas.trailingPadding)
 }
 
-@Test("Nearby branch names share a continuous label without truncating master")
-func nearbyBranchLabels() {
+@Test("Nearby branch tips stay separate and truncate before the next SHA")
+func nearbyBranchLabels() throws {
     let commits = (0..<10).map {
         RepositoryCommit(oid: "\($0)", parents: $0 < 9 ? ["\($0 + 1)"] : [],
                          author: "", date: .distantPast, message: "")
     }
-    let names = ["0": ["master"], "1": ["origin/master"]]
+    let names = ["0": ["codex/history-complete-windows"], "3": ["main"]]
     let model = CommitGraphGenerator.generate(commits: commits, headOID: "0", branchNames: names)
+    let main = CommitGraphGenerator.generate(commits: commits, headOID: "0", branchNames: ["3": ["main"]])
+    #expect(model.branchLabels.count == 2)
+    let upper = try #require(model.branchLabels.first).outline.boundingRect
+    let lower = try #require(model.branchLabels.last).outline.boundingRect
+    #expect(upper.minY >= 0.5 * BranchGraphRowCanvas.rowHeight)
+    #expect(upper.maxY < 3.5 * BranchGraphRowCanvas.rowHeight)
+    #expect(lower.minY > upper.maxY)
+    #expect(model.branchLabels.last?.outline == main.branchLabels.first?.outline)
     let combined = CommitGraphGenerator.generate(commits: commits, headOID: "0",
-        branchNames: ["0": ["master", "origin/master"]])
-    #expect(model.branchLabels.count == 1)
-    #expect(model.branchLabels.first?.outline == combined.branchLabels.first?.outline)
+        branchNames: ["0": ["main", "codex/history-complete-windows"]])
+    #expect(combined.branchLabels.count == 1)
 }
 
 @Test("Matching branch and tag copies collapse only when every copy agrees")

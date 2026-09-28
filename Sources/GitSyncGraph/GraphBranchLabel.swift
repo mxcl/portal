@@ -62,76 +62,62 @@ struct GraphBranchLabel: Sendable {
             return (dot, names.joined(separator: " · ").uppercased(), route ?? model.paths.count + row)
         }
         let groups = Dictionary(grouping: anchors, by: \.route)
-        let spacedGroups = groups.keys.sorted().flatMap { key in
-            var result: [[(dot: GraphDot, name: String, route: Int)]] = []
-            for anchor in groups[key]! {
-                if let previous = result.last {
-                    let text = previous.map(\.name).joined(separator: " · ")
-                    let length = NSAttributedString(string: text, attributes: [
-                        .font: NSFont.monospacedSystemFont(ofSize: 8, weight: .regular), .kern: 1.1
-                    ]).size().width
-                    let gap = (anchor.dot.center.y - previous[0].dot.center.y) * BranchGraphRowCanvas.rowHeight
-                    if gap < length + 8 {
-                        result[result.count - 1].append(anchor)
-                        continue
+        return groups.keys.sorted().flatMap { key in
+            let group = groups[key]!
+            return group.enumerated().map { index, anchor in
+                let dot = anchor.dot
+                let names = anchor.name.components(separatedBy: " · ")
+                let prefix = preferredHost.map { $0.uppercased() + "/" }
+                let ordered = names.filter { prefix.map($0.hasPrefix) ?? false } +
+                    names.filter { !(prefix.map($0.hasPrefix) ?? false) }
+                // The last name in an upward-reading line is physically at the top.
+                let name = ordered.reversed().joined(separator: " · ")
+                let route = model.paths.indices.contains(key) ? model.paths[key] : nil
+                var path = route.map {
+                    BranchGraphCanvas.path(for: $0, rowHeight: BranchGraphRowCanvas.rowHeight,
+                                           laneWidth: BranchGraphRowCanvas.laneWidth)
+                } ?? Path()
+                let incoming = route.flatMap { route in
+                    model.links.first {
+                        $0.end == route.points.first && $0.colorIndex == route.colorIndex &&
+                            // Incoming curves end half a row before the first commit.
+                            dot.center.y <= $0.end.y + 0.5
                     }
                 }
-                result.append([anchor])
-            }
-            return result
-        }
-        return spacedGroups.map { group in
-            let key = group[0].route
-            let dot = group[0].dot
-            let names = group.flatMap { $0.name.components(separatedBy: " · ") }
-            let prefix = preferredHost.map { $0.uppercased() + "/" }
-            let ordered = names.filter { prefix.map($0.hasPrefix) ?? false } +
-                names.filter { !(prefix.map($0.hasPrefix) ?? false) }
-            // The last name in an upward-reading line is physically at the top.
-            let name = ordered.reversed().joined(separator: " · ")
-            let route = model.paths.indices.contains(key) ? model.paths[key] : nil
-            var path = route.map {
-                BranchGraphCanvas.path(for: $0, rowHeight: BranchGraphRowCanvas.rowHeight,
-                                       laneWidth: BranchGraphRowCanvas.laneWidth)
-            } ?? Path()
-            let incoming = route.flatMap { route in
-                model.links.first {
-                    $0.end == route.points.first && $0.colorIndex == route.colorIndex &&
-                        // Incoming curves end half a row before the first commit.
-                        dot.center.y <= $0.end.y + 0.5
+                if let incoming {
+                    var complete = BranchGraphCanvas.linkPath(for: incoming,
+                        rowHeight: BranchGraphRowCanvas.rowHeight, laneWidth: BranchGraphRowCanvas.laneWidth)
+                    complete.addPath(path)
+                    path = complete
                 }
-            }
-            if let incoming {
-                var complete = BranchGraphCanvas.linkPath(for: incoming,
-                    rowHeight: BranchGraphRowCanvas.rowHeight, laneWidth: BranchGraphRowCanvas.laneWidth)
-                complete.addPath(path)
-                path = complete
-            }
-            let start = BranchGraphCanvas.position(for: incoming?.start ?? dot.center, rowHeight: BranchGraphRowCanvas.rowHeight,
-                                                    laneWidth: BranchGraphRowCanvas.laneWidth)
-            if path.isEmpty {
-                path.move(to: start)
-                path.addLine(to: CGPoint(x: start.x, y: start.y + BranchGraphRowCanvas.rowHeight / 2 - 2))
-            }
-            func fraction(atY y: CGFloat) -> CGFloat {
-                var low: CGFloat = 0
-                var high: CGFloat = 1
-                for _ in 0..<18 {
-                    let middle = (low + high) / 2
-                    if (path.trimmedPath(from: 0, to: middle).currentPoint?.y ?? 0) < y {
-                        low = middle
-                    } else {
-                        high = middle
+                let start = BranchGraphCanvas.position(for: incoming?.start ?? dot.center, rowHeight: BranchGraphRowCanvas.rowHeight,
+                                                        laneWidth: BranchGraphRowCanvas.laneWidth)
+                if path.isEmpty {
+                    path.move(to: start)
+                    path.addLine(to: CGPoint(x: start.x, y: start.y + BranchGraphRowCanvas.rowHeight / 2 - 2))
+                }
+                func fraction(atY y: CGFloat) -> CGFloat {
+                    var low: CGFloat = 0
+                    var high: CGFloat = 1
+                    for _ in 0..<18 {
+                        let middle = (low + high) / 2
+                        if (path.trimmedPath(from: 0, to: middle).currentPoint?.y ?? 0) < y {
+                            low = middle
+                        } else {
+                            high = middle
+                        }
                     }
+                    return (low + high) / 2
                 }
-                return (low + high) / 2
+                let end = group.indices.contains(index + 1)
+                    ? fraction(atY: group[index + 1].dot.center.y * BranchGraphRowCanvas.rowHeight - 5) : 1
+                let trimmed = path.trimmedPath(from: fraction(atY: start.y + 5), to: end)
+                return Self(outline: outline(name, along: trimmed, truncate: group.count > 1), colorIndex: dot.colorIndex)
             }
-            let trimmed = path.trimmedPath(from: fraction(atY: start.y + 5), to: 1)
-            return Self(outline: outline(name, along: trimmed), colorIndex: dot.colorIndex)
         }
     }
 
-    static func outline(_ text: String, along path: Path) -> Path {
+    static func outline(_ text: String, along path: Path, truncate: Bool = false) -> Path {
         // Sample the existing curve once; glyphs use its tangent and distance, including lane bends.
         var start: CGPoint?
         path.forEach { element in
@@ -161,7 +147,12 @@ struct GraphBranchLabel: Sendable {
         let length = distances.last!
         guard length > 8 else { return Path() }
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .kern: 1.1]
-        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+        var line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+        if truncate {
+            let ellipsis = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: attributes))
+            guard let fitted = CTLineCreateTruncatedLine(line, Double(length - 4), .end, ellipsis) else { return Path() }
+            line = fitted
+        }
         let textLength = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
         // Leave a little space at the lower tip. Longer names continue along the
         // upper tangent rather than losing their suffix to an ellipsis.

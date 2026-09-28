@@ -13,9 +13,9 @@ selection behavior remain canonical.
 Branch and tag copies with the same name collapse to that name when all known
 copies point to the same commit. If any copy differs, every copy keeps its host
 or remote qualifier, including copies that still agree with each other. Graph
-labels, tag badges, and commit details share this rule. Distant branch labels
-anchor at their own commits even on a shared lane; nearby labels combine only
-when their text would overlap.
+labels, tag badges, and commit details share this rule. Branch labels
+anchor at their own commits even on a shared lane; middots join only names at
+the same SHA. Nearby labels truncate with an ellipsis before the next tip.
 
 The checked-out commit row has a thin, subdued system-accent outline, independent
 of the native selection fill. Its accessibility value identifies it as checked out.
@@ -63,10 +63,11 @@ show host presence and operational state without treating normal Git divergence
 as an error. The graph renders this Mac's local branches, received peer branches,
 and tags. In the graph list, branch names label the lanes, while local and peer
 tags appear as badges on the second row beside the author and commit SHA. HEAD badges are omitted. Branch names read upwards beside their colored lanes, bending with
-the path, in small, tracked, uppercase system-monospaced text. Names on the same continuous
-lane share a compact label with dot separators. Long names continue along the
-upper tangent instead of truncating; a 4-point gap separates the start of the text
-from the lower tip. Overlaps with other labels are intentional. Branches in a repository on this Mac are labeled with this Mac’s configured
+the path, in small, tracked, uppercase system-monospaced text. Names at the same SHA
+share a compact label with middot separators. Labels at different SHAs on a lane
+remain separate and truncate to fit between their tips. A lone long label may
+continue along the upper tangent; a 4-point gap separates the start of the text
+from the lower tip. Branches in a repository on this Mac are labeled with this Mac’s configured
 name (for example, `maliwan/main`), independently of received refs. Remote
 repositories use the selected host’s name, and backup histories use the snapshot’s
 source machine. Only identical

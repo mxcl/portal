@@ -20,8 +20,8 @@ restore() {
 trap restore EXIT
 
 # Login items can appear under their bundle identifier instead of the executable name.
-# Stop sessiond too: it otherwise survives with the previous launch environment.
-processes='GitinuumApp|gitinuumd|gitinuum-sessiond|GitSync|git-sync|GitSyncMenuBar|dev[.]mxcl[.]git-sync[.](menu(-helper)?|sessiond)'
+# Keep sessiond running so terminal sessions survive deployment.
+processes='GitinuumApp|gitinuumd|GitSync|git-sync|GitSyncMenuBar|dev[.]mxcl[.]git-sync[.]menu(-helper)?'
 pkill -x "$processes" 2>/dev/null || true
 for _ in {1..50}; do
   if ! pgrep -x "$processes" >/dev/null; then

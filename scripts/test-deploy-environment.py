@@ -59,8 +59,8 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
     launched = json.loads(captured.read_text())
     stop_args = json.loads(stopped.read_text())
     assert stop_args[0] == "-x", stop_args
-    assert re.fullmatch(stop_args[1], "gitinuum-sessiond"), stop_args
-    assert re.fullmatch(stop_args[1], "dev.mxcl.git-sync.sessiond"), stop_args
+    assert not re.fullmatch(stop_args[1], "gitinuum-sessiond"), stop_args
+    assert not re.fullmatch(stop_args[1], "dev.mxcl.git-sync.sessiond"), stop_args
     assert not pollution.keys() & launched.keys(), launched
     assert not any(name.startswith("CODEX_") for name in launched), launched
     for name in ("HOME", "USER", "LOGNAME", "SHELL", "TMPDIR"):

@@ -20,8 +20,8 @@ Linux toolchain or SDK.
 The shared installer launches the app with a minimal login environment. Keep
 that boundary intact: never forward the agent's environment (including color,
 pager, terminal, or `CODEX_*` overrides) to the deployed app.
-Deployment also stops the session helper and its terminal sessions so the next
-helper launch inherits the clean app environment.
+Preserve the session helper and its terminal sessions during deployment. Stop
+the session helper only when the user explicitly requests it separately.
 
 Deploy the invoking checkout as-is, including tracked or untracked changes.
 Do not pull, reset, switch branches, or copy the repository. Report the deployed

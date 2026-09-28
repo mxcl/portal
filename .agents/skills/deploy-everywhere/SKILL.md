@@ -22,8 +22,8 @@ Mac executables against the built bundle, plus the Linux executable hash.
 The shared Mac installer launches the app with a minimal login environment on
 both hosts. Keep that boundary intact: never forward the agent's environment
 (including color, pager, terminal, or `CODEX_*` overrides) to the deployed app.
-Deployment also stops each Mac's session helper and its terminal sessions so the
-next helper launch inherits the clean app environment.
+Preserve each Mac's session helper and its terminal sessions during deployment.
+Stop the session helper only when the user explicitly requests it separately.
 
 `atlas` is an SSH-launched `daemon --stdio` endpoint, not a persistent systemd
 process. Install the `gitinuumd` build at `~/.local/bin/git-sync` for existing SSH

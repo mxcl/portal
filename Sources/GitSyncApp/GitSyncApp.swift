@@ -905,11 +905,13 @@ final class AppModel: ObservableObject {
         let projects = [localProjects[project]] + configuration.hosts.map { remoteProjects[$0.id]?[project] }
         let checkouts = projects.compactMap { $0 }.filter { $0.placement == .checkedOut }
         guard let branch = checkouts.compactMap(\.defaultBranch).first else { return false }
+        if let local = localProjects[project], local.placement == .checkedOut,
+           let state = local.branchTips, let tip = state.local[branch],
+           let github = state.github[branch], github != tip { return true }
         var known: String?
         for state in checkouts.compactMap(\.branchTips) {
             guard let tip = state.local[branch] else { continue }
             if let known, known != tip { return true }
-            if let github = state.github[branch], github != tip { return true }
             known = tip
         }
         return false
@@ -1591,7 +1593,7 @@ private struct ProjectRow: View {
                 }
                 if model.hasBranchDifferences(for: name) {
                     Circle().fill(.orange).frame(width: 5, height: 5)
-                        .help("The default branch is ahead, behind, or diverged from another checked-out host or the last known GitHub state.")
+                        .help("The default branch is ahead, behind, or diverged from another checked-out host or this Mac’s last known GitHub state.")
                         .accessibilityHidden(true)
                 }
             }
@@ -1643,7 +1645,7 @@ private struct ProjectRow: View {
             " — uncommitted changes: \($0.additions) additions, \($0.deletions) deletions across hosts"
         } ?? ""
         let branches = model.hasBranchDifferences(for: name)
-            ? " — default branch differs across checked-out hosts or from known GitHub state" : ""
+            ? " — default branch differs across checked-out hosts or from this Mac’s known GitHub state" : ""
         return "\(name) — on \(count) host\(count == 1 ? "" : "s")\(changes)\(branches)\(github)"
     }
 }

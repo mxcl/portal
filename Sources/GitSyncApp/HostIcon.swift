@@ -14,8 +14,10 @@ struct HostIcon: View {
 
     var body: some View {
         Group {
-            if hardware?.operatingSystem == "Linux" {
-                Image(systemName: "server.rack")
+            if hardware?.operatingSystem == "Linux", let type = Self.macType(for: "RackMount") {
+                Image(nsImage: NSWorkspace.shared.icon(for: type))
+                    .renderingMode(.original)
+                    .resizable().scaledToFit()
             } else if hardware?.operatingSystem == "macOS", let model = hardware?.model,
                       let type = Self.macType(for: model) {
                 Image(nsImage: NSWorkspace.shared.icon(for: type))

@@ -901,6 +901,17 @@ final class AppModel: ObservableObject {
     func refreshLocal() { perform(.refresh) }
     func githubAction(_ action: GitHubAction) { perform(.github(action)) }
 
+    func workingChangeCounts(for project: String) -> (additions: Int, deletions: Int)? {
+        let projects = [localProjects[project]] + configuration.hosts.map { remoteProjects[$0.id]?[project] }
+        let changes = projects.compactMap { $0?.workingChanges }
+            .filter { !$0.isEmpty }
+        guard !changes.isEmpty else { return nil }
+        return changes.flatMap { $0.files ?? [] }.reduce(into: (additions: 0, deletions: 0)) {
+            $0.additions += $1.additions ?? 0
+            $0.deletions += $1.deletions ?? 0
+        }
+    }
+
     func githubCounts(for project: String) -> GitHubCounts? {
         let identities = localProjects[project]?.githubRepositories
             ?? configuration.hosts.compactMap { remoteProjects[$0.id]?[project]?.githubRepositories }.first ?? []
@@ -1566,6 +1577,14 @@ private struct ProjectRow: View {
                 }
             }
             Spacer(minLength: 4)
+            if let counts = model.workingChangeCounts(for: name) {
+                HStack(spacing: 4) {
+                    Text("+\(counts.additions)").foregroundStyle(.green)
+                    Text("−\(counts.deletions)").foregroundStyle(.red)
+                }
+                .font(.caption.monospacedDigit()).fixedSize()
+                .help("Uncommitted changes across hosts: \(counts.additions) additions, \(counts.deletions) deletions")
+            }
             if let counts = model.githubCounts(for: name),
                counts.stars > 0 || counts.pullRequests > 0 || counts.issues > 0 {
                 HStack(spacing: 6) {
@@ -1601,7 +1620,10 @@ private struct ProjectRow: View {
         guard let folder = model.configuration.folders.first(where: { $0.name == name }) else { return name }
         let count = (folder.availableLocally ? 1 : 0) + folder.availableHosts.count
         let github = model.githubCounts(for: name).map { " — " + $0.summary } ?? ""
-        return "\(name) — on \(count) host\(count == 1 ? "" : "s")\(github)"
+        let changes = model.workingChangeCounts(for: name).map {
+            " — uncommitted changes: \($0.additions) additions, \($0.deletions) deletions across hosts"
+        } ?? ""
+        return "\(name) — on \(count) host\(count == 1 ? "" : "s")\(changes)\(github)"
     }
 }
 

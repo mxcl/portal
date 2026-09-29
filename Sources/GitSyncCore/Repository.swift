@@ -355,19 +355,26 @@ public struct Repository: Equatable {
         let headOID = try? Git.text(["-C", url.path, "rev-parse", "--verify", "HEAD"])
         let mirrored = try Git.text(["-C", url.path, "rev-parse", "--is-bare-repository"]) == "true"
             || (try? Git.text(["-C", url.path, "config", "--bool", "git-sync.mirrored"])) == "true"
-        var changes = try mirrored ? nil : RepositoryWorkingChanges(porcelain: Git.run([
-            "--no-optional-locks", "-C", url.path, "status", "--porcelain=v1", "-z", "--untracked-files=all",
-        ]))
-        if changes?.isEmpty == false {
-            // Counts are optional: a disappearing file must not hide the repository's history.
-            if let numstat = try? workingLineCounts(files: changes?.files ?? []) {
-                changes?.addLineCounts(numstat)
-            }
-        }
+        let changes = try workingChanges()
         return RepositorySnapshot(commits: history.commits, references: references, head: head,
                                   branches: history.branches, headOID: headOID, workingChanges: changes,
                                   githubBranchStatus: mirrored ? nil : (try? githubBranchStatus(head: head, headOID: headOID)),
                                   detachedWorktrees: showAuxiliaryHistory ? try detachedWorktreePaths() : nil)
+    }
+
+    public func workingChanges() throws -> RepositoryWorkingChanges? {
+        if try Git.text(["-C", url.path, "rev-parse", "--is-bare-repository"]) == "true"
+            || (try? Git.text(["-C", url.path, "config", "--bool", "git-sync.mirrored"])) == "true" { return nil }
+        var changes = try RepositoryWorkingChanges(porcelain: Git.run([
+            "--no-optional-locks", "-C", url.path, "status", "--porcelain=v1", "-z", "--untracked-files=all",
+        ]))
+        if !changes.isEmpty {
+            // Counts are optional: a disappearing file must not hide the repository's history.
+            if let numstat = try? workingLineCounts(files: changes.files ?? []) {
+                changes.addLineCounts(numstat)
+            }
+        }
+        return changes
     }
 
     private func workingLineCounts(files: [RepositoryFile]) throws -> Data {

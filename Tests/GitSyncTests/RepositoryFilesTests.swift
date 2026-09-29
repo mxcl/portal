@@ -41,6 +41,7 @@ func editorGitFiles() throws {
     #expect(unstaged.contains("+new"))
     #expect(!unstaged.contains("hidden"))
     let changes = try #require(repo.snapshot().workingChanges?.files)
+    #expect(try repo.workingChanges()?.files == changes)
     #expect(changes.map(\.path) == ["a.txt", "new name\n.txt", "untracked\n.txt"])
     #expect(changes.first { $0.path == "a.txt" }?.additions == 2)
     #expect(changes.first { $0.path == "a.txt" }?.deletions == 2)

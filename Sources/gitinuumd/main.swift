@@ -98,7 +98,8 @@ do {
                                         repositories: repositories.map(\.name),
                                         projects: repositories.map {
                                             PeerProject(name: $0.name, placement: $0.placement,
-                                                        defaultBranch: $0.defaultBranch, githubRepositories: $0.githubRepositories)
+                                                        defaultBranch: $0.defaultBranch, githubRepositories: $0.githubRepositories,
+                                                        workingChanges: try? $0.workingChanges())
                                         }, hardware: .current)
         print(String(decoding: try JSONEncoder().encode(inspection), as: UTF8.self))
     case "project-content", "project-diff", "project-search":
@@ -134,7 +135,8 @@ do {
         let result = PeerProject(name: name,
                                  placement: placement == .notPresent ? .notPresent : repository.placement,
                                  defaultBranch: placement == .notPresent ? nil : repository.defaultBranch,
-                                 githubRepositories: placement == .notPresent ? nil : repository.githubRepositories)
+                                 githubRepositories: placement == .notPresent ? nil : repository.githubRepositories,
+                                 workingChanges: placement == .notPresent ? nil : (try? repository.workingChanges()))
         print(String(decoding: try JSONEncoder().encode(result), as: UTF8.self))
     case "check-backup":
         try LocalBackupTransport.connect(mode: LocalBackupTransport.check).close()

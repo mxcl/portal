@@ -59,6 +59,14 @@ protocol v4 includes the preference in snapshots and accepts its toggle command.
 Protocol v5 adds the notification-opened action for delayed inbox reconciliation.
 GitHub sign-in uses the built-in relay endpoint; its control command takes no URL.
 
+The sidebar shows green `+` and red `−` line counts for projects with known
+uncommitted changes, summed across this Mac and configured hosts. Clean projects
+omit the counts; binary-only changes show `+0 −0`. The existing 30-second discovery
+refresh carries optional `workingChanges` in peer inventories and helper snapshots;
+older hosts omit it. Counts reuse staging's staged, unstaged, and untracked diffs,
+without loading commit history. This additive metadata leaves protocol versions,
+ref ownership, per-ref atomicity, and eventual consistency unchanged.
+
 The sidebar groups active and archived projects. A project is the shared name
 of repositories observed across configured hosts and backup inventory. Rows
 show host presence and operational state without treating normal Git divergence

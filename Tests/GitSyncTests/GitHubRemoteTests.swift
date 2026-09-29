@@ -52,6 +52,7 @@ func githubFetchIsolation() throws {
 func githubInventoryCompatibility() throws {
     let project = try JSONDecoder().decode(PeerProject.self, from: Data(#"{"name":"old","placement":"checkedOut"}"#.utf8))
     #expect(project.githubRepositories == nil)
+    #expect(project.workingChanges == nil)
 }
 
 @Test("Git failures retain their diagnostic in localized error messages")

@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import GitSyncApp
 @testable import GitSyncEngine
-import GitSyncCore
+@testable import GitSyncCore
 
 @Test("Sidebar counts use the local GitHub identity or the first known peer without inventing zero counts")
 @MainActor
@@ -21,5 +21,33 @@ func githubSidebarCounts() throws {
     #expect(model.githubCounts(for: "remote")?.stars == 4)
     #expect(model.githubCounts(for: "unknown") == nil)
     #expect(model.githubCounts(for: "remote")?.summary == "4 stars, 0 open pull requests, 1 open issues")
+}
+@Test("Sidebar sums dirty hosts, omits clean trees, and retains binary-only indicators")
+@MainActor
+func workingTreeSidebarCounts() throws {
+    let model = AppModel(connectToHelper: false)
+    let host = SyncHost(machine: "peer", peer: "peer", root: "/tmp/projects")
+    model.configuration.hosts = [host]
+    func project(_ porcelain: String, _ numstat: String = "") throws -> PeerProject {
+        var changes = RepositoryWorkingChanges(porcelain: Data(porcelain.utf8))
+        changes.addLineCounts(Data(numstat.utf8))
+        let project = PeerProject(name: "project", placement: .checkedOut, workingChanges: changes)
+        return try JSONDecoder().decode(PeerProject.self, from: JSONEncoder().encode(project))
+    }
+    model.localProjects = ["project": try project("MM file\0", "3\t2\tfile\0")]
+    model.remoteProjects = [host.id: ["project": try project("?? new\0", "5\t0\tnew\0")]]
+    #expect(model.workingChangeCounts(for: "project")?.additions == 8)
+    #expect(model.workingChangeCounts(for: "project")?.deletions == 2)
+    model.localProjects["project"] = try project("")
+    #expect(model.workingChangeCounts(for: "project")?.additions == 5)
+    model.remoteProjects[host.id]?["project"] = try project(" M binary\0")
+    #expect(model.workingChangeCounts(for: "project")?.additions == 0)
+    #expect(model.workingChangeCounts(for: "project")?.deletions == 0)
+    model.remoteProjects[host.id]?["project"] = try project("")
+    #expect(model.workingChangeCounts(for: "project") == nil)
+    #expect(model.workingChangeCounts(for: "unknown") == nil)
+    model.configuration.hosts = []
+    model.remoteProjects[host.id]?["project"] = try project(" M file\0", "9\t9\tfile\0")
+    #expect(model.workingChangeCounts(for: "project") == nil)
 }
 #endif

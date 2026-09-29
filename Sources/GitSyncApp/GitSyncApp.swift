@@ -910,10 +910,19 @@ final class AppModel: ObservableObject {
                 if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &unavailable) {
                     guard try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
                         localizedReason: "Permanently delete all backups of \(item.name).") else { return }
-                } else if let unavailable,
-                          unavailable.code != LAError.biometryNotAvailable.rawValue,
-                          unavailable.code != LAError.biometryNotEnrolled.rawValue {
-                    throw unavailable
+                } else {
+                    if let unavailable,
+                       unavailable.code != LAError.biometryNotAvailable.rawValue,
+                       unavailable.code != LAError.biometryNotEnrolled.rawValue {
+                        throw unavailable
+                    }
+                    let alert = NSAlert()
+                    alert.alertStyle = .warning
+                    alert.messageText = "Delete backup of \(item.name)?"
+                    alert.informativeText = "This permanently deletes the stored repository and all its backup snapshots. This cannot be undone."
+                    alert.addButton(withTitle: "Cancel")
+                    alert.addButton(withTitle: "Delete Backup")
+                    guard alert.runModal() == .alertSecondButtonReturn else { return }
                 }
                 let reply = try await sendCommand(.deleteBackup(item.name))
                 if let snapshot = reply.snapshot { apply(snapshot) }

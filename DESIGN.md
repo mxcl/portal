@@ -266,7 +266,8 @@ moves or deletes the bare repository.
 
 The archived project controls offer explicit permanent deletion of the backup and
 all its snapshots. The initiating Mac requires Touch ID when biometrics are
-available; missing hardware or enrollment skips confirmation, while cancellation,
+available; missing hardware or enrollment shows a confirmation modal with Cancel
+as the default action. Cancellation,
 lockout, and authentication failure leave the backup intact. Backup-control v7
 adds `delete` (engine-control v7 adds `deleteBackup`). The destination validates
 the project name and freshly reads its snapshots, then checks complete absent

@@ -17,6 +17,7 @@ labels, tag badges, and commit details share this rule. Branch labels
 anchor at their own commits even on a shared lane; middots join only names at
 the same SHA. Nearby labels truncate with an ellipsis before the next tip. Hovering a lane label
 reveals its complete text above the graph, with a black outline around the colored letters.
+The first glyph stays anchored; the suffix expands upward along the same path and upper tangent.
 
 The checked-out commit row has a thin, subdued system-accent outline, independent
 of the native selection fill. Its accessibility value identifies it as checked out.

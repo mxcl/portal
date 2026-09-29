@@ -143,8 +143,7 @@ func nearbyBranchLabels() throws {
     let lower = try #require(model.branchLabels.last).outline.boundingRect
     #expect(upper.minY >= 0.5 * BranchGraphRowCanvas.rowHeight)
     #expect(upper.maxY < 3.5 * BranchGraphRowCanvas.rowHeight)
-    let full = CommitGraphGenerator.generate(commits: commits, headOID: "0", branchNames: ["0": names["0"]!])
-    #expect(model.branchLabels[0].hoverOutline == full.branchLabels[0].outline)
+    #expect(abs(model.branchLabels[0].hoverOutline.boundingRect.maxY - upper.maxY) < 0.01)
     #expect(model.branchLabels[0].hoverOutline.boundingRect.height > upper.height)
     #expect(lower.minY > upper.maxY)
     #expect(model.branchLabels.last?.outline == main.branchLabels.first?.outline)

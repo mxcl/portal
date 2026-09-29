@@ -131,13 +131,13 @@ struct GraphBranchLabel: Sendable {
                     ? fraction(atY: group[index + 1].dot.center.y * BranchGraphRowCanvas.rowHeight - 5) : 1
                 let trimmed = path.trimmedPath(from: fraction(atY: start.y + 5), to: end)
                 return Self(outline: outline(name, along: trimmed, truncate: group.count > 1),
-                            hoverOutline: outline(name, along: path.trimmedPath(from: fraction(atY: start.y + 5), to: 1)),
+                            hoverOutline: outline(name, along: trimmed, truncate: group.count > 1, expanded: true),
                             colorIndex: dot.colorIndex)
             }
         }
     }
 
-    static func outline(_ text: String, along path: Path, truncate: Bool = false) -> Path {
+    static func outline(_ text: String, along path: Path, truncate: Bool = false, expanded: Bool = false) -> Path {
         // Sample the existing curve once; glyphs use its tangent and distance, including lane bends.
         var start: CGPoint?
         path.forEach { element in
@@ -167,7 +167,8 @@ struct GraphBranchLabel: Sendable {
         let length = distances.last!
         guard length > 8 else { return Path() }
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .kern: 1.1]
-        var line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+        let fullLine = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+        var line = fullLine
         if truncate {
             let ellipsis = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: attributes))
             guard let fitted = CTLineCreateTruncatedLine(line, Double(length - 4), .end, ellipsis) else { return Path() }
@@ -177,6 +178,8 @@ struct GraphBranchLabel: Sendable {
         // Leave a little space at the lower tip. Longer names continue along the
         // upper tangent rather than losing their suffix to an ellipsis.
         let textStart = min(textLength, length - 4)
+        // Expansion keeps the first glyph anchored and reveals the suffix upward.
+        if expanded { line = fullLine }
         var result = Path()
         for run in CTLineGetGlyphRuns(line) as! [CTRun] {
             let count = CTRunGetGlyphCount(run)

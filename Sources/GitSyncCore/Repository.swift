@@ -24,6 +24,10 @@ public struct RepositoryReference: Codable, Equatable, Identifiable, Sendable {
         return name
     }
 
+    public func isPeerBranch(from machine: String) -> Bool {
+        fullName.hasPrefix("refs/remotes/\(Validator.remote(machine))/")
+    }
+
     public var name: String {
         for prefix in ["refs/heads/", "refs/remotes/", "refs/tags/", "refs/sync/"] {
             if fullName.hasPrefix(prefix) { return String(fullName.dropFirst(prefix.count)) }

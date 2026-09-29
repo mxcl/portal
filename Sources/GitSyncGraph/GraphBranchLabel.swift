@@ -22,14 +22,22 @@ extension RepositorySnapshot {
 
 extension RepositoryReference {
     public static func graphNames(_ references: [Self], hosts: [SyncHost], sourceMachine: String? = nil,
-                                  allReferences: [Self]? = nil, tags: Bool = false) -> [String] {
+                                  allReferences: [Self]? = nil, tags: Bool = false,
+                                  localMachine: String? = nil, expanded: Bool = false) -> [String] {
         let candidates = (allReferences ?? references).filter { tags ? $0.isGraphTag : $0.isGraphBranch }
         let groups = Dictionary(grouping: candidates, by: \.graphShortName)
         var seen: [String: Set<String>] = [:]
         return references.filter { tags ? $0.isGraphTag : $0.isGraphBranch }.compactMap { ref in
             let group = groups[ref.graphShortName] ?? []
             let name: String
-            if group.count > 1 && group.allSatisfy({ $0.oid == ref.oid }) {
+            let matching = group.filter { $0.oid == ref.oid }
+            let matchesLocal = !tags && localMachine.map { machine in
+                matching.contains {
+                    ($0.fullName.hasPrefix("refs/heads/") && sourceMachine == machine) ||
+                        $0.isPeerBranch(from: machine)
+                }
+            } == true
+            if !expanded && matching.count > 1 && (matching.count == group.count || matchesLocal) {
                 name = ref.graphShortName
             } else if (ref.fullName.hasPrefix("refs/heads/") || ref.fullName.hasPrefix("refs/tags/")),
                       let sourceMachine {
@@ -68,8 +76,8 @@ struct GraphBranchLabel: Sendable {
     let hoverOutline: Path
     let colorIndex: Int
 
-    static func make(names: [String: [String]], commits: [RepositoryCommit], model: CommitGraphModel, preferredHost: String? = nil) -> [Self] {
-        let anchors = commits.enumerated().compactMap { row, commit -> (dot: GraphDot, name: String, route: Int)? in
+    static func make(names: [String: [String]], hoverNames: [String: [String]] = [:], commits: [RepositoryCommit], model: CommitGraphModel, preferredHost: String? = nil) -> [Self] {
+        let anchors = commits.enumerated().compactMap { row, commit -> (dot: GraphDot, names: [String], hoverNames: [String], route: Int)? in
             guard let names = names[commit.oid], !names.isEmpty else { return nil }
             let dot = model.dots[row]
             let route = model.paths.firstIndex { path in
@@ -77,19 +85,22 @@ struct GraphBranchLabel: Sendable {
                     path.points.first!.y <= dot.center.y && path.points.last!.y > dot.center.y
             }
             // Isolated tips get their own label rather than sharing an unrelated lane.
-            return (dot, names.joined(separator: " · ").uppercased(), route ?? model.paths.count + row)
+            return (dot, names, hoverNames[commit.oid] ?? names, route ?? model.paths.count + row)
         }
         let groups = Dictionary(grouping: anchors, by: \.route)
         return groups.keys.sorted().flatMap { key in
             let group = groups[key]!
             return group.enumerated().map { index, anchor in
                 let dot = anchor.dot
-                let names = anchor.name.components(separatedBy: " · ")
-                let prefix = preferredHost.map { $0.uppercased() + "/" }
-                let ordered = names.filter { prefix.map($0.hasPrefix) ?? false } +
-                    names.filter { !(prefix.map($0.hasPrefix) ?? false) }
-                // The last name in an upward-reading line is physically at the top.
-                let name = ordered.reversed().joined(separator: " · ")
+                func text(_ names: [String]) -> String {
+                    let names = names.map { $0.uppercased() }
+                    let prefix = preferredHost.map { $0.uppercased() + "/" }
+                    let ordered = names.filter { prefix.map($0.hasPrefix) ?? false } +
+                        names.filter { !(prefix.map($0.hasPrefix) ?? false) }
+                    // The last name in an upward-reading line is physically at the top.
+                    return ordered.reversed().joined(separator: " · ")
+                }
+                let name = text(anchor.names)
                 let route = model.paths.indices.contains(key) ? model.paths[key] : nil
                 var path = route.map {
                     BranchGraphCanvas.path(for: $0, rowHeight: BranchGraphRowCanvas.rowHeight,
@@ -131,13 +142,14 @@ struct GraphBranchLabel: Sendable {
                     ? fraction(atY: group[index + 1].dot.center.y * BranchGraphRowCanvas.rowHeight - 5) : 1
                 let trimmed = path.trimmedPath(from: fraction(atY: start.y + 5), to: end)
                 return Self(outline: outline(name, along: trimmed, truncate: group.count > 1),
-                            hoverOutline: outline(name, along: trimmed, truncate: group.count > 1, expanded: true),
+                            hoverOutline: outline(name, along: trimmed, truncate: group.count > 1, expanded: true,
+                                                  expandedText: text(anchor.hoverNames)),
                             colorIndex: dot.colorIndex)
             }
         }
     }
 
-    static func outline(_ text: String, along path: Path, truncate: Bool = false, expanded: Bool = false) -> Path {
+    static func outline(_ text: String, along path: Path, truncate: Bool = false, expanded: Bool = false, expandedText: String? = nil) -> Path {
         // Sample the existing curve once; glyphs use its tangent and distance, including lane bends.
         var start: CGPoint?
         path.forEach { element in
@@ -179,7 +191,11 @@ struct GraphBranchLabel: Sendable {
         // upper tangent rather than losing their suffix to an ellipsis.
         let textStart = min(textLength, length - 4)
         // Expansion keeps the first glyph anchored and reveals the suffix upward.
-        if expanded { line = fullLine }
+        if expanded {
+            line = expandedText.map {
+                CTLineCreateWithAttributedString(NSAttributedString(string: $0, attributes: attributes))
+            } ?? fullLine
+        }
         var result = Path()
         for run in CTLineGetGlyphRuns(line) as! [CTRun] {
             let count = CTRunGetGlyphCount(run)

@@ -185,6 +185,46 @@ func matchingReferenceNames() {
     }
 }
 
+@Test("Branches matching this host collapse despite a differing destination and expand on hover")
+func partiallyMatchingBranchNames() {
+    let refs = [RepositoryReference(fullName: "refs/heads/feature/main", oid: "0"),
+                RepositoryReference(fullName: "refs/remotes/pangolin/feature/main", oid: "0"),
+                RepositoryReference(fullName: "refs/remotes/origin/feature/main", oid: "3")]
+    let grouped = Dictionary(grouping: refs, by: \.oid)
+    let names = grouped.mapValues {
+        RepositoryReference.graphNames($0, hosts: [], sourceMachine: "maliwan",
+                                       allReferences: refs, localMachine: "maliwan")
+    }
+    let expanded = grouped.mapValues {
+        RepositoryReference.graphNames($0, hosts: [], sourceMachine: "maliwan", expanded: true)
+    }
+    #expect(names == ["0": ["feature/main"], "3": ["origin/feature/main"]])
+    #expect(expanded["0"] == ["maliwan/feature/main", "pangolin/feature/main"])
+    #expect(RepositoryReference.graphNames(Array(refs.prefix(2)), hosts: [], sourceMachine: "maliwan",
+                                          allReferences: refs, localMachine: "atlas")
+            == ["maliwan/feature/main", "pangolin/feature/main"])
+    #expect(RepositoryReference.graphNames(Array(refs.prefix(2)), hosts: [], sourceMachine: "maliwan",
+                                          allReferences: refs, localMachine: "pangolin") == ["feature/main"])
+    let allMatching = refs.map { RepositoryReference(fullName: $0.fullName, oid: "0") }
+    #expect(RepositoryReference.graphNames(allMatching, hosts: [], sourceMachine: "maliwan", expanded: true)
+            == ["maliwan/feature/main", "pangolin/feature/main", "origin/feature/main"])
+    #expect(RepositoryReference(fullName: "refs/remotes/my-mac/feature/main", oid: "0")
+        .isPeerBranch(from: "My_Mac"))
+    let commits = (0..<10).map {
+        RepositoryCommit(oid: "\($0)", parents: $0 < 9 ? ["\($0 + 1)"] : [],
+                         author: "", date: .distantPast, message: "")
+    }
+    let compact = CommitGraphGenerator.generate(commits: commits, headOID: "0", branchNames: names)
+    let graph = CommitGraphGenerator.generate(commits: commits, headOID: "0", branchNames: names,
+                                              hoverBranchNames: expanded, preferredHost: "maliwan")
+    #expect(graph.branchLabels[0].outline == compact.branchLabels[0].outline)
+    #expect(graph.branchLabels[0].hoverOutline != compact.branchLabels[0].hoverOutline)
+    #expect(graph.branchLabels[0].hoverOutline.boundingRect.height > graph.branchLabels[0].outline.boundingRect.height)
+    // Different first letters have slightly different ink bounds at the same text anchor.
+    #expect(abs(graph.branchLabels[0].hoverOutline.boundingRect.maxY - graph.branchLabels[0].outline.boundingRect.maxY) < 1)
+    #expect(graph.branchLabels[1].hoverOutline == compact.branchLabels[1].hoverOutline)
+}
+
 @Test("Long lanes keep upward labels beside their tip")
 func longLaneLabelStartsAtTip() {
     let commits = (0..<500).map {

@@ -11,12 +11,12 @@ visual element. System colors, materials, typography, spacing, controls, and
 selection behavior remain canonical.
 
 Branch and tag copies with the same name collapse to that name when all known
-copies point to the same commit. If any copy differs, every copy keeps its host
-or remote qualifier, including copies that still agree with each other. Graph
-labels, tag badges, and commit details share this rule. Branch labels
+copies point to the same commit. Lane labels also consolidate branch copies matching this Mac’s copy even when
+another destination differs; differing copies retain their host or remote qualifier.
+Tag badges and commit details retain the all-copies rule. Branch labels
 anchor at their own commits even on a shared lane; middots join only names at
 the same SHA. Nearby labels truncate with an ellipsis before the next tip. Hovering a lane label
-reveals its complete text above the graph, with a black outline around the colored letters.
+reveals every qualified branch name at that commit above the graph, with a black outline around the colored letters.
 The first glyph stays anchored; the suffix expands upward along the same path and upper tangent.
 
 The checked-out commit row has a thin, subdued system-accent outline, independent

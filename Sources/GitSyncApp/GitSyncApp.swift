@@ -1682,12 +1682,16 @@ private struct CommitList: View {
             snapshot.references.first { $0.fullName == "refs/heads/\(head)" }?.oid
         }
         rows = CommitGraphGenerator.insertingStaging(staging.map(\.graphCommit), into: snapshot.commits)
-        var labels = Dictionary(grouping: snapshot.references.filter(\.isGraphBranch), by: \.oid)
-            .mapValues { RepositoryReference.graphNames($0, hosts: hosts, sourceMachine: sourceMachine,
-                                                       allReferences: snapshot.references) }
+        let branchRefs = Dictionary(grouping: snapshot.references.filter(\.isGraphBranch), by: \.oid)
+        var labels = branchRefs.mapValues { RepositoryReference.graphNames($0, hosts: hosts, sourceMachine: sourceMachine,
+                                                       allReferences: snapshot.references, localMachine: localMachine) }
+        var hoverLabels = branchRefs.mapValues {
+            RepositoryReference.graphNames($0, hosts: hosts, sourceMachine: sourceMachine, expanded: true)
+        }
         labels.merge(snapshot.auxiliaryHistoryLabels) { $0 + $1 }
+        hoverLabels.merge(snapshot.auxiliaryHistoryLabels) { $0 + $1 }
         graph = CommitGraphGenerator.generate(
-            commits: rows, headOID: headOID, branchNames: labels,
+            commits: rows, headOID: headOID, branchNames: labels, hoverBranchNames: hoverLabels,
             preferredHost: localMachine
         )
     }
@@ -1839,9 +1843,9 @@ private struct CommitRow: View {
                 .offset(y: 4)
         }
         .accessibilityElement(children: .combine)
-        .help((RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine, allReferences: allReferences) + auxiliaryLabels).joined(separator: "\n"))
+        .help((RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine, allReferences: allReferences, expanded: true) + auxiliaryLabels).joined(separator: "\n"))
         .accessibilityValue(([isCurrent ? "Checked out commit" : ""] +
-            RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine, allReferences: allReferences) + auxiliaryLabels).filter { !$0.isEmpty }.joined(separator: ", "))
+            RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine, allReferences: allReferences, expanded: true) + auxiliaryLabels).filter { !$0.isEmpty }.joined(separator: ", "))
     }
 }
 

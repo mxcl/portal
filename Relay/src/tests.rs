@@ -50,6 +50,60 @@ fn separate_counts_and_notification_baseline() {
     assert!(valid_repository("owner/a-repo.name"));
 }
 
+#[tokio::test]
+async fn release_notifications_use_browser_urls() {
+    let thread = json!({"id":"42","updated_at":"2026-09-29T12:00:00Z",
+        "repository":{"full_name":"automic-vault/automic-vault"},"reason":"subscribed",
+        "subject":{"title":"Release title is not the tag","type":"Release",
+            "url":"https://api.github.com/repos/automic-vault/automic-vault/releases/398703655"}});
+    let mut note =
+        notification_note(&thread, false, &["automic-vault/automic-vault".into()]).unwrap();
+    assert_eq!(
+        release_notification_api_url(&note).as_deref(),
+        thread["subject"]["url"].as_str()
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, Router::new().route("/release", get(|| async {
+            Json(json!({"html_url":"https://github.com/automic-vault/automic-vault/releases/tag/4.13.0"}))
+        })).route("/invalid", get(|| async {
+            Json(json!({"html_url":"https://example.com/release"}))
+        }))).await.unwrap();
+    });
+    let http = Client::new();
+    let original = note.clone();
+    assert!(
+        resolve_release_notification(&mut note, http.get(format!("http://{address}/invalid")))
+            .await
+            .is_err()
+    );
+    assert_eq!(note, original);
+    resolve_release_notification(&mut note, http.get(format!("http://{address}/release")))
+        .await
+        .unwrap();
+    assert!(release_notification_api_url(&note).is_none());
+    let mut unavailable = original.clone();
+    resolve_release_notification(
+        &mut unavailable,
+        http.get(format!("http://{address}/missing")),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        unavailable["url"],
+        "https://github.com/automic-vault/automic-vault/releases"
+    );
+    assert!(release_notification_api_url(&unavailable).is_none());
+    assert_eq!(note["id"], original["id"]);
+    assert_eq!(note["alert"], original["alert"]);
+    server.abort();
+    assert_eq!(
+        note["url"],
+        "https://github.com/automic-vault/automic-vault/releases/tag/4.13.0"
+    );
+}
+
 #[test]
 fn signatures_and_encrypted_credentials() {
     let mut version = HeaderMap::new();

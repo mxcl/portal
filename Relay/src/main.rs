@@ -916,12 +916,44 @@ async fn sync(
             )
         })
         .collect::<HashMap<_, _>>();
-    let notes = sqlx::query_scalar::<_, Value>(
+    let mut notes = sqlx::query_scalar::<_, Value>(
         "SELECT note FROM notifications WHERE device=$1 ORDER BY json_extract(note, '$.unread') DESC, updated_at DESC LIMIT 200",
     )
     .bind(device)
     .fetch_all(&state.db)
     .await?;
+    // Resolve both new and previously cached release IDs before sending browser links.
+    let mut resolve_releases = true;
+    for note in &mut notes {
+        let Some(api_url) = release_notification_api_url(note) else {
+            continue;
+        };
+        if resolve_releases {
+            match resolve_release_notification(
+                note,
+                state.http.get(api_url).bearer_auth(&app_token),
+            )
+            .await
+            {
+                Ok(()) => {
+                    sqlx::query("UPDATE notifications SET note=json_set(note, '$.url', $3) WHERE device=$1 AND id=$2")
+                        .bind(device).bind(note["id"].as_str()).bind(note["url"].as_str())
+                        .execute(&state.db).await?;
+                    continue;
+                }
+                Err(error) => {
+                    retry_after = Some(retry_after.unwrap_or(0).max(error.2.unwrap_or(60)));
+                    errors.push(error.1);
+                    resolve_releases = false;
+                }
+            }
+        }
+        // Keep the ID in storage for a later retry, but never send a broken browser URL.
+        note["url"] = json!(format!(
+            "https://github.com/{}/releases",
+            note["repository"].as_str().unwrap()
+        ));
+    }
     let has_unread = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM notifications WHERE device=$1 AND json_extract(note, '$.unread')=1)",
     ).bind(device).fetch_one(&state.db).await?;
@@ -953,6 +985,44 @@ async fn queue_inbox_refresh(db: &SqlitePool, device: Uuid, names: &[String]) ->
 async fn queue(db: &SqlitePool, device: Uuid, repo: &str, kind: &str) -> WebResult<()> {
     sqlx::query("INSERT INTO pending(device,repository,kind,id,attempts) VALUES($1,$2,$3,$4,1) ON CONFLICT(device,repository,kind) DO UPDATE SET id=EXCLUDED.id,attempts=EXCLUDED.attempts")
         .bind(device).bind(repo).bind(kind).bind(Uuid::new_v4()).execute(db).await?;
+    Ok(())
+}
+fn release_notification_api_url(note: &Value) -> Option<String> {
+    let repo = note["repository"].as_str()?;
+    if !valid_repository(repo) {
+        return None;
+    }
+    let id = note["url"]
+        .as_str()?
+        .strip_prefix(&format!("https://github.com/{repo}/releases/"))?;
+    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!("https://api.github.com/repos/{repo}/releases/{id}"))
+}
+async fn resolve_release_notification(
+    note: &mut Value,
+    request: reqwest::RequestBuilder,
+) -> WebResult<()> {
+    let response = request.send().await?;
+    if response.status() == StatusCode::NOT_FOUND {
+        note["url"] = json!(format!(
+            "https://github.com/{}/releases",
+            note["repository"].as_str().unwrap()
+        ));
+        return Ok(());
+    }
+    let release: Value = checked(response).await?.json().await?;
+    let url = release["html_url"]
+        .as_str()
+        .filter(|url| {
+            url.starts_with(&format!(
+                "https://github.com/{}/releases/",
+                note["repository"].as_str().unwrap()
+            ))
+        })
+        .ok_or_else(|| WebError::internal("Invalid release browser URL"))?;
+    note["url"] = json!(url);
     Ok(())
 }
 fn notification_note(thread: &Value, baseline: bool, names: &[String]) -> Option<Value> {

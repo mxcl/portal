@@ -149,6 +149,7 @@ func optionalHostMetadataCompatibility() throws {
     #expect(inspection.hardware == nil)
     let snapshot = try JSONDecoder().decode(RepositorySnapshot.self, from: Data(#"{"commits":[],"references":[],"branches":[]}"#.utf8))
     #expect(snapshot.githubBranchStatus == nil)
+    #expect(snapshot.branchTips == nil)
     let host = SyncHost(machine: "server", peer: "server", root: "/tmp", hardware: HostHardware(operatingSystem: "Linux"))
     #expect(try JSONDecoder().decode(SyncHost.self, from: JSONEncoder().encode(host)) == host)
     var legacy = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(host)) as? [String: Any])

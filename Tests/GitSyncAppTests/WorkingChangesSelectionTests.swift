@@ -192,3 +192,49 @@ func auxiliaryHistoryToggle() async throws {
     #expect(model.stagingRows.count == 1)
     try await finishLoading()
 }
+
+@Test("Project refresh clears the sidebar dot after tracking refs catch up, despite stale inventory")
+@MainActor
+func sidebarRefreshAfterPush() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let project = root.appendingPathComponent("project")
+    defer { try? FileManager.default.removeItem(at: root) }
+    _ = try Git.run(["init", "-q", "-b", "main", project.path])
+    func git(_ args: [String]) throws -> String { try Git.text(["-C", project.path] + args) }
+    _ = try git(["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "base"])
+    _ = try git(["remote", "add", "origin", "https://github.com/test/project.git"])
+    _ = try git(["update-ref", "refs/remotes/origin/main", "HEAD"])
+    _ = try git(["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "ahead"])
+    let repository = Repository(name: "project", url: project)
+    let stale = PeerProject(name: "project", placement: .checkedOut, defaultBranch: "main",
+                            branchTips: try repository.branchTips())
+    let model = AppModel(connectToHelper: false)
+    model.configuration = AppConfiguration(root: root.path, machine: "test",
+        folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)])
+    model.localProjects = ["project": stale]
+    model.selectedProjectName = "project"
+    func refresh() async throws {
+        model.refreshProject()
+        let deadline = Date().addingTimeInterval(10)
+        while model.isLoadingProject && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(!model.isLoadingProject && model.projectError == nil)
+    }
+    try await refresh()
+    #expect(model.hasBranchDifferences(for: "project"))
+    // A successful push updates this tracking ref; no network is needed to reproduce it.
+    _ = try git(["update-ref", "refs/remotes/origin/main", "HEAD"])
+    try await refresh()
+    model.localProjects = ["project": stale]
+    #expect(!model.hasBranchDifferences(for: "project"))
+    let host = SyncHost(machine: "peer", peer: "peer", root: "/unused")
+    model.configuration.hosts = [host]
+    model.remoteProjects[host.id] = ["project": PeerProject(name: "project", placement: .checkedOut,
+        defaultBranch: "main", branchTips: RepositoryBranchTips(local: ["main": "stale"], github: [:]))]
+    let snapshot = try #require(model.projectSnapshot)
+    // Older peer content still has fresh local refs even without branchTips metadata.
+    model.peerSnapshots[host.id] = RepositorySnapshot(commits: [], references: snapshot.references,
+        head: snapshot.head, branches: snapshot.branches)
+    #expect(!model.hasBranchDifferences(for: "project"))
+}

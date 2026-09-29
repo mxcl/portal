@@ -74,7 +74,10 @@ checked-out host is compared; other branches and unknown defaults do not trigger
 GitHub upstream takes precedence over the same-name origin branch. Missing
 counterparts and mirrors do not trigger the dot. Optional `branchTips` inventory
 metadata carries these local-only observations on the existing discovery cycle;
-older hosts omit it. The indicator performs no fetch or GitHub API requests and
+older hosts omit it. The selected project uses the graph’s fresh snapshots for
+sidebar branch tips and working changes, so repository-watcher updates do not wait
+for discovery. Content snapshots carry optional `branchTips`; older snapshots fall
+back to inventory. The indicator performs no fetch or GitHub API requests and
 leaves the existing relay-triggered fetch/catch-up behavior unchanged.
 
 The sidebar groups active and archived projects. A project is the shared name

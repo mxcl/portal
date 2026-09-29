@@ -26,6 +26,11 @@ public struct GitHubBranchStatus: Codable, Equatable, Sendable {
 public struct RepositoryBranchTips: Codable, Equatable, Sendable {
     public let local: [String: String]
     public let github: [String: String]
+
+    public init(local: [String: String], github: [String: String]) {
+        self.local = local
+        self.github = github
+    }
 }
 
 extension Repository {

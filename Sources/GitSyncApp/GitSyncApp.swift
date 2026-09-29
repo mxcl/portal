@@ -901,11 +901,26 @@ final class AppModel: ObservableObject {
     func refreshLocal() { perform(.refresh) }
     func githubAction(_ action: GitHubAction) { perform(.github(action)) }
 
+    private func sidebarProject(_ name: String, hostID: UUID? = nil) -> PeerProject? {
+        let inventory = hostID.map { remoteProjects[$0]?[name] } ?? localProjects[name]
+        guard let inventory, selectedProjectName == name else { return inventory }
+        let source: ProjectSource = hostID.map(ProjectSource.host) ?? .local
+        let snapshot = projectSource == source ? projectSnapshot : hostID.flatMap { peerSnapshots[$0] }
+        guard let snapshot, inventory.placement == .checkedOut else { return inventory }
+        let tips = RepositoryBranchTips(local: Dictionary(uniqueKeysWithValues: snapshot.references
+            .filter { $0.fullName.hasPrefix("refs/heads/") }.map { ($0.name, $0.oid) }),
+            github: snapshot.branchTips?.github ?? inventory.branchTips?.github ?? [:])
+        return PeerProject(name: name, placement: inventory.placement, defaultBranch: inventory.defaultBranch,
+                           githubRepositories: inventory.githubRepositories,
+                           workingChanges: snapshot.workingChanges ?? inventory.workingChanges,
+                           branchTips: tips)
+    }
+
     func hasBranchDifferences(for project: String) -> Bool {
-        let projects = [localProjects[project]] + configuration.hosts.map { remoteProjects[$0.id]?[project] }
+        let projects = [sidebarProject(project)] + configuration.hosts.map { sidebarProject(project, hostID: $0.id) }
         let checkouts = projects.compactMap { $0 }.filter { $0.placement == .checkedOut }
         guard let branch = checkouts.compactMap(\.defaultBranch).first else { return false }
-        if let local = localProjects[project], local.placement == .checkedOut,
+        if let local = sidebarProject(project), local.placement == .checkedOut,
            let state = local.branchTips, let tip = state.local[branch],
            let github = state.github[branch], github != tip { return true }
         var known: String?
@@ -918,7 +933,7 @@ final class AppModel: ObservableObject {
     }
 
     func workingChangeCounts(for project: String) -> (additions: Int, deletions: Int)? {
-        let projects = [localProjects[project]] + configuration.hosts.map { remoteProjects[$0.id]?[project] }
+        let projects = [sidebarProject(project)] + configuration.hosts.map { sidebarProject(project, hostID: $0.id) }
         let changes = projects.compactMap { $0?.workingChanges }
             .filter { !$0.isEmpty }
         guard !changes.isEmpty else { return nil }

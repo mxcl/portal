@@ -63,12 +63,13 @@ public struct RepositorySnapshot: Codable, Equatable, Sendable {
     public let headOID: String?
     public let workingChanges: RepositoryWorkingChanges?
     public let githubBranchStatus: GitHubBranchStatus?
+    public let branchTips: RepositoryBranchTips?
     /// Detached worktree paths, keyed by their HEAD commit. Absent on older peers and backups.
     public let detachedWorktrees: [String: [String]]?
 
     public init(commits: [RepositoryCommit], references: [RepositoryReference], head: String?, branches: [String],
                 headOID: String? = nil, workingChanges: RepositoryWorkingChanges? = nil,
-                githubBranchStatus: GitHubBranchStatus? = nil, detachedWorktrees: [String: [String]]? = nil) {
+                githubBranchStatus: GitHubBranchStatus? = nil, branchTips: RepositoryBranchTips? = nil, detachedWorktrees: [String: [String]]? = nil) {
         self.commits = commits
         self.references = references
         self.head = head
@@ -76,6 +77,7 @@ public struct RepositorySnapshot: Codable, Equatable, Sendable {
         self.headOID = headOID
         self.workingChanges = workingChanges
         self.githubBranchStatus = githubBranchStatus
+        self.branchTips = branchTips
         self.detachedWorktrees = detachedWorktrees
     }
 }
@@ -359,6 +361,7 @@ public struct Repository: Equatable {
         return RepositorySnapshot(commits: history.commits, references: references, head: head,
                                   branches: history.branches, headOID: headOID, workingChanges: changes,
                                   githubBranchStatus: mirrored ? nil : (try? githubBranchStatus(head: head, headOID: headOID)),
+                                  branchTips: try? branchTips(),
                                   detachedWorktrees: showAuxiliaryHistory ? try detachedWorktreePaths() : nil)
     }
 

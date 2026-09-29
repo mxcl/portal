@@ -18,6 +18,7 @@ struct GitSyncApp: App {
     var body: some Scene {
         Window("Gitinuum", id: "projects") {
             ProjectBrowserView(model: model)
+                .focusedSceneValue(\.paletteModel, model)
                 .onAppear { appDelegate.editor = model.editor }
                 .modifier(EditorCloseGuard(editor: model.editor))
         }
@@ -25,6 +26,7 @@ struct GitSyncApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             SidebarCommands()
+            PaletteCommands()
             EditorCommands(editor: model.editor)
             TerminalCommands(workspace: model.terminals, enabled: model.selectedTab == .terminal, hosts: model.terminalHosts)
             CommandGroup(after: .appSettings) {
@@ -142,6 +144,12 @@ final class AppModel: ObservableObject {
     @Published var showingRenameHost = false
     @Published var showingOverlapConfirmation = false
     @Published var overlappingRepositories: [String] = []
+    @Published private(set) var showingPalette = false
+    @Published private(set) var paletteCommit: RepositoryCommit?
+    private weak var palettePreviousResponder: NSResponder?
+    private weak var paletteWindow: NSWindow?
+    private var paletteView: NSView?
+    private var paletteNavigation = UUID()
     @Published var selectedProjectName: String?
     @Published var selectedCommitID: String?
     @Published var selectedCommitDiff: String?
@@ -383,7 +391,9 @@ final class AppModel: ObservableObject {
 
     fileprivate var projectSources: [ProjectSource] {
         guard let name = selectedProjectName else { return [] }
-        return sources(for: name)
+        var sources = sources(for: name)
+        if let projectSource, !sources.contains(projectSource) { sources.append(projectSource) }
+        return sources
     }
 
     fileprivate var projectSourceMachine: String? {
@@ -583,6 +593,7 @@ final class AppModel: ObservableObject {
     func selectProject(_ name: String?) {
         guard name != selectedProjectName else { return }
         guard editor.confirmDiscard() else { return }
+        paletteNavigation = UUID()
         terminalSource = nil
         selectedProjectName = name
         editor.connect(selectedEditorRepositoryURL)
@@ -611,6 +622,7 @@ final class AppModel: ObservableObject {
 
     fileprivate func selectProjectSource(_ source: ProjectSource) {
         guard source != projectSource, let name = selectedProjectName else { return }
+        paletteNavigation = UUID()
         terminalSource = nil
         selectCommit(nil)
         projectSnapshot = nil
@@ -679,9 +691,11 @@ final class AppModel: ObservableObject {
     }
 
     func selectCommit(_ oid: String?) {
+        if selectedCommitID != oid { paletteNavigation = UUID() }
         if selectedCommitID != oid { terminalSource = nil }
         let staging = stagingRows.first { $0.id == oid }
         if selectedCommitID != oid {
+            paletteCommit = nil
             selectedTab = staging != nil
                 ? (staging?.source == .local && selectedEditorRepositoryURL != nil ? .editor : .diff)
                 : (oid == nil ? .info : .diff)
@@ -1023,6 +1037,107 @@ final class AppModel: ObservableObject {
         return expandedRoot.appendingPathComponent(name, isDirectory: true)
     }
 
+    var paletteProjects: [String] {
+        Set(configuration.folders.map(\.name) + backupItems.map(\.name)).sorted()
+    }
+
+    var paletteTargets: [PaletteTarget] {
+        paletteProjects.flatMap { name -> [PaletteTarget] in
+            var targets: [PaletteTarget] = []
+            if repositoryURL(for: name) != nil {
+                targets.append(PaletteTarget(project: name, source: .local, label: "This Mac", priority: 0))
+            }
+            let folder = configuration.folders.first { $0.name == name }
+            for (index, host) in configuration.hosts.enumerated() where folder?.availableHosts.contains(host.id) == true {
+                targets.append(PaletteTarget(project: name, source: .host(host.id), label: host.name, priority: index + 1))
+            }
+            for (index, snapshot) in (backupItems.first { $0.name == name }?.snapshots ?? []).enumerated() {
+                targets.append(PaletteTarget(project: name, source: .backup(snapshot.id),
+                    label: "Backup — " + snapshot.machine, priority: configuration.hosts.count + index + 1))
+            }
+            return targets
+        }
+    }
+
+    func showPalette(in window: NSWindow? = nil) {
+        guard !showingPalette else { return }
+        paletteNavigation = UUID()
+        paletteWindow = window ?? NSApp.keyWindow
+        palettePreviousResponder = paletteWindow?.firstResponder
+        guard let content = paletteWindow?.contentView else { return }
+        showingPalette = true
+        let overlay = NSHostingView(rootView: PaletteOverlay(model: self))
+        overlay.frame = content.bounds
+        overlay.autoresizingMask = [.width, .height]
+        content.addSubview(overlay)
+        paletteView = overlay
+        // Mount the native search field before returning from the menu command.
+        overlay.layoutSubtreeIfNeeded()
+    }
+
+    func dismissPalette() {
+        paletteView?.removeFromSuperview()
+        paletteView = nil
+        showingPalette = false
+        paletteNavigation = UUID()
+        let window = paletteWindow, responder = palettePreviousResponder
+        Task { @MainActor in
+            await Task.yield()
+            if !showingPalette { window?.makeFirstResponder(responder) }
+        }
+    }
+
+    func openPaletteResult(_ result: PaletteResult) {
+        guard editor.confirmDiscard() else { return }
+        selectProject(result.project)
+        guard selectedProjectName == result.project else { return }
+        guard let match = result.match, let target = result.target else {
+            selectCommit(nil)
+            selectedTab = .info
+            dismissPalette()
+            return
+        }
+        dismissPalette()
+        let navigation = UUID()
+        paletteNavigation = navigation
+        let localURL = repositoryURL(for: result.project)
+        let previousTab = selectedTab
+        Task {
+            let hasLocal = await Task.detached(priority: .userInitiated) {
+                localURL.map { (try? Repository(name: result.project, url: $0).commit(at: match.commit.oid)) != nil } ?? false
+            }.value
+            guard paletteNavigation == navigation, selectedProjectName == result.project,
+                  selectedTab == previousTab else { return }
+            selectProjectSource(hasLocal ? .local : target.source)
+            selectCommit(match.commit.oid)
+            paletteCommit = match.commit
+            selectedTab = .diff
+        }
+    }
+
+    nonisolated static func search(_ target: PaletteTarget, query: String,
+                                   configuration: AppConfiguration) throws -> [RepositorySearchMatch] {
+        switch target.source {
+        case .local:
+            let root = URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath)
+            return try Repository(name: target.project, url: root.appendingPathComponent(target.project)).search(query).checked()
+        case .host(let id):
+            guard let host = configuration.hosts.first(where: { $0.id == id }) else {
+                throw SyncError.invalidConfiguration("Host is no longer configured")
+            }
+            return try Runner.projectSearch(target.project, query: query, configuration: remoteConfiguration(host, in: configuration))
+        case .backup(let id):
+            if let root = try configuration.validatedBackupDestination() {
+                return try BackupIndex.search(target.project, snapshotID: id, query: query, from: root).checked()
+            }
+            guard let host = try configuration.backupHost() else {
+                throw SyncError.invalidConfiguration("Backup is unavailable")
+            }
+            return try Runner.backupSearch(target.project, snapshotID: id, query: query,
+                configuration: remoteConfiguration(host, in: configuration, receiveOnly: true))
+        }
+    }
+
     private func sources(for name: String) -> [ProjectSource] {
         if repositoryURL(for: name) != nil { return [.local] }
         let live = configuration.folders.first(where: { $0.name == name }).map { folder in
@@ -1239,6 +1354,8 @@ struct ProjectBrowserView: View {
                 HelperUnavailableView(model: model)
             }
         }
+        .disabled(model.showingPalette)
+        .accessibilityHidden(model.showingPalette)
         .onAppear {
             if model.selectedProjectName == nil { model.selectProject(model.projectNames.first) }
             projectSelection = model.selectedProjectName
@@ -1782,7 +1899,8 @@ private struct ProjectDetailView: View {
                     .padding().frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else if let commitID = model.selectedCommitID,
-               let commit = model.projectSnapshot?.commits.first(where: { $0.oid == commitID }) {
+               let commit = model.projectSnapshot?.commits.first(where: { $0.oid == commitID })
+                    ?? model.paletteCommit.flatMap({ $0.oid == commitID ? $0 : nil }) {
                 CommitDetail(commit: commit,
                              references: model.projectSnapshot?.references ?? [],
                              sourceMachine: model.projectSourceMachine,

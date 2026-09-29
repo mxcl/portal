@@ -60,7 +60,13 @@ extension Repository {
         let references = try supplied ?? referenceSnapshot()
         var matches: [RepositorySearchMatch] = []
         var commits: [String: RepositoryCommit] = [:]
-        for reference in references where !reference.fullName.hasSuffix("/stash") {
+        for reference in references {
+            let parts = reference.fullName.split(separator: "/", maxSplits: 4)
+            let isTag = reference.fullName.hasPrefix("refs/tags/") ||
+                (parts.count == 5 && parts[1] == "sync" && parts[3] == "tags")
+            let isBranch = reference.fullName.hasPrefix("refs/heads/") ||
+                (reference.fullName.hasPrefix("refs/remotes/") && !reference.fullName.hasSuffix("/HEAD"))
+            guard isTag || isBranch else { continue }
             guard PaletteMatch.rank(reference.name, query: query) != nil else { continue }
             // Tags may point to trees or blobs; only commit targets are navigable.
             guard let commit = commits[reference.oid] ?? (try? self.commit(at: reference.oid)) else { continue }

@@ -39,6 +39,7 @@ Usage:
   gitinuumd list --root PATH
   gitinuumd inspect --root PATH [--machine NAME]
   gitinuumd project-content --root PATH --repository NAME
+  gitinuumd project-search --root PATH --repository NAME --query TEXT --search-version 1
   gitinuumd project-diff --root PATH --repository NAME --oid OID
   gitinuumd project-diff --root PATH --repository NAME --working-changes [--staged]
   gitinuumd project-state --root PATH --repository NAME --placement checkedOut|mirrored|notPresent [--branch NAME]

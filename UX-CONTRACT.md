@@ -15,6 +15,35 @@
   selected commit, graph, README, or diff. Reading from its backup preserves the
   existing content during the source transition and uses the same overview layout.
 
+## Command palette
+
+- Command-P opens Command Palette in the project window; Command-Shift-P retains
+  Pause/Resume Sync. The palette owns focus until dismissal, then restores it.
+- One field fuzzy-matches project, branch, and tag names (case-insensitive exact,
+  prefix, substring, then subsequence). Empty input lists projects alphabetically.
+  Four or more hexadecimal characters also search commit SHA prefixes, including
+  commits outside the graph's loaded history. Ambiguous prefixes list every match.
+- Up/Down select, Return opens, Escape or clicking outside dismisses. Clear resets
+  the query and focuses the field. Native system styling and accessible result
+  labels match the project browser; project/source subtitles distinguish results.
+- Search covers known local repositories, configured host copies, and backup
+  snapshots, including archives. Names appear immediately; Git reads debounce for
+  300 ms and use at most four concurrent blocking operations across searches.
+  Superseded replies cannot replace newer results. Partial failures retain useful
+  results, identify unavailable sources, and offer Retry.
+- Identical project/ref/commit matches collapse, preferring this Mac, then hosts
+  in configuration order, then backups. Divergent tips remain separate results.
+- Project results open Info. Ref and SHA results open commit metadata and Diff,
+  guarding unsaved edits with the existing editor confirmation. An out-of-history
+  commit has separate detail state, without adding a disconnected graph row.
+- Local presentation remains preferred when its object exists locally. Explicit
+  palette activation may use the matching host or backup when it does not; this
+  source choice never promotes refs or changes HEAD, the index, or working files.
+- Search protocol v1 is independent of replication and backup control versions.
+  Daemon searches require `--search-version 1`; backup search requests carry
+  `searchVersion: 1`. Responses carry a checked version. Older hosts report search
+  unavailable without interrupting replication or existing browsing operations.
+
 ## Project and host state
 
 - Same-named repositories form one project. Adding a host warns before pairing
@@ -73,8 +102,9 @@
   and a diff. The file browser belongs to Staging; there are no graph filters or activity pane.
 - Both README views use Textual for Markdown headings, blockquotes, lists, code
   blocks, and tables, preserve text selection, and label the source ref.
-- A local repository is always the presentation source when present; remote source
-  selection and reads never change refs, the index, `HEAD`, or a working tree.
+- A local repository is the default presentation source when present. Explicit
+  palette navigation may select another source for an object missing locally;
+  source selection and reads never change refs, the index, `HEAD`, or a working tree.
 - A failed backup inventory refresh retains the last successful list and reports
   the connection error. Cached inventory cannot authorize removal of a last host
   copy while that error remains.

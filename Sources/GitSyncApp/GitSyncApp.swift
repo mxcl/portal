@@ -1875,7 +1875,7 @@ private struct HostControls: View {
                     else { model.setPlacement($0, project: project, hostID: host.id) }
                 }
             }
-            VStack(alignment: .leading) {
+            VStack(alignment: .leading, spacing: 4) {
                 Button(action: model.openSelectedProjectOnGitHub) {
                     Label {
                         Text("GitHub")
@@ -1886,6 +1886,7 @@ private struct HostControls: View {
                     .fontWeight(.medium)
                 }
                 .buttonStyle(.plain)
+                .frame(height: 32)
                 .disabled(model.projectGitHubURL == nil)
                 .foregroundStyle(model.projectGitHubURL == nil ? .tertiary : .primary)
                 .help(model.projectGitHubURL == nil ? "No GitHub remote" : "Open on GitHub")
@@ -1925,7 +1926,7 @@ private struct PlacementRow: View {
     @State private var showingArchiveConfirmation = false
 
     var body: some View {
-        VStack(alignment: .leading) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Menu {
                     switch placement {
@@ -1961,6 +1962,7 @@ private struct PlacementRow: View {
                 }
                 if progress { ProgressView().controlSize(.small).accessibilityLabel("Updating \(name)") }
             }
+            .frame(height: 32)
             if !status.isEmpty {
                 Text(status)
                     .font(.caption)

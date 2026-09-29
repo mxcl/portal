@@ -17,6 +17,7 @@ Tag badges and commit details retain the all-copies rule. Branch labels
 anchor at their own commits even on a shared lane; middots join only names at
 the same SHA. Nearby labels truncate with an ellipsis before the next tip. Hovering a lane label
 reveals every qualified branch name at that commit above the graph, with a black outline around the colored letters.
+The primary (leftmost) lane places its labels on the left; other lanes place them on the right.
 The first glyph stays anchored; the suffix expands upward along the same path and upper tangent.
 
 The checked-out commit row has a thin, subdued system-accent outline, independent

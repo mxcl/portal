@@ -21,6 +21,7 @@ public struct BranchGraphRowCanvas: View {
     static let rowHeight: CGFloat = 44
     static let laneWidth: CGFloat = 24
     static let dotSize: CGFloat = 8
+    static let leadingPadding: CGFloat = 4
     static let trailingPadding: CGFloat = 4
     static let verticalBleed: CGFloat = 2
 
@@ -42,19 +43,19 @@ public struct BranchGraphRowCanvas: View {
     }
 
     public static func graphWidth(model: CommitGraphModel, commitOID: String) -> CGFloat {
-        CGFloat(model.laneCount(for: commitOID)) * laneWidth + trailingPadding
+        leadingPadding + CGFloat(model.laneCount(for: commitOID)) * laneWidth + trailingPadding
     }
 
     public var body: some View {
         Canvas { context, _ in
-            context.translateBy(x: 0, y: Self.verticalBleed)
+            context.translateBy(x: Self.leadingPadding, y: Self.verticalBleed)
             drawRow(in: &context)
         }
         .frame(width: graphWidth, height: Self.rowHeight + Self.verticalBleed * 2)
         .onContinuousHover { phase in
             switch phase {
             case .active(let location):
-                let point = CGPoint(x: location.x,
+                let point = CGPoint(x: location.x - Self.leadingPadding,
                                     y: location.y - Self.verticalBleed + CGFloat(rowIndex) * Self.rowHeight)
                 if let hoveredLabel, model.branchLabels.indices.contains(hoveredLabel),
                    model.branchLabels[hoveredLabel].hoverOutline.strokedPath(StrokeStyle(lineWidth: 6)).contains(point) {

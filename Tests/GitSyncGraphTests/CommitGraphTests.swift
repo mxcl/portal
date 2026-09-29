@@ -39,7 +39,7 @@ func wideHistoryLaneSpacing() {
 
     let firstWidth = BranchGraphRowCanvas.graphWidth(model: model, commitOID: tips[0].oid)
     let lastWidth = BranchGraphRowCanvas.graphWidth(model: model, commitOID: tips.last!.oid)
-    #expect(firstWidth == 28)
+    #expect(firstWidth == 32)
     #expect(abs(lastWidth - firstWidth - 17 * 24) < 0.001)
 }
 
@@ -323,4 +323,30 @@ func auxiliaryHistoryLabels() {
     #expect(snapshot.auxiliaryHistoryLabels["saved"] == ["Codex snapshot 7d93887b"])
     #expect(graph.branchLabels.count == 2)
     #expect(graph.branchLabels.allSatisfy { !$0.outline.isEmpty })
+}
+
+@Test("Primary lane labels sit to the left, including expanded names")
+func primaryLaneLabelsOnLeft() {
+    let commits = [
+        RepositoryCommit(oid: "main", parents: ["root"], author: "", date: .distantPast, message: ""),
+        RepositoryCommit(oid: "feature", parents: ["root"], author: "", date: .distantPast, message: ""),
+        RepositoryCommit(oid: "root", parents: [], author: "", date: .distantPast, message: ""),
+    ]
+    let graph = CommitGraphGenerator.generate(commits: commits, headOID: "main",
+        branchNames: ["main": ["main"], "feature": ["feature"]],
+        hoverBranchNames: ["main": ["maliwan/main", "origin/main"]])
+    #expect(graph.branchLabels.count == 2)
+    for (label, dot) in zip(graph.branchLabels, graph.dots) {
+        let x = BranchGraphCanvas.position(for: dot.center,
+            rowHeight: BranchGraphRowCanvas.rowHeight, laneWidth: BranchGraphRowCanvas.laneWidth).x
+        for outline in [label.outline, label.hoverOutline] {
+            #expect(!outline.isEmpty)
+            if dot.lane == 0 {
+                #expect(outline.boundingRect.maxX < x - 7)
+                #expect(outline.boundingRect.minX + BranchGraphRowCanvas.leadingPadding >= 0)
+            } else {
+                #expect(outline.boundingRect.minX > x)
+            }
+        }
+    }
 }

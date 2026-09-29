@@ -141,15 +141,15 @@ struct GraphBranchLabel: Sendable {
                 let end = group.indices.contains(index + 1)
                     ? fraction(atY: group[index + 1].dot.center.y * BranchGraphRowCanvas.rowHeight - 5) : 1
                 let trimmed = path.trimmedPath(from: fraction(atY: start.y + 5), to: end)
-                return Self(outline: outline(name, along: trimmed, truncate: group.count > 1),
-                            hoverOutline: outline(name, along: trimmed, truncate: group.count > 1, expanded: true,
+                return Self(outline: outline(name, along: trimmed, onLeft: dot.lane == 0, truncate: group.count > 1),
+                            hoverOutline: outline(name, along: trimmed, onLeft: dot.lane == 0, truncate: group.count > 1, expanded: true,
                                                   expandedText: text(anchor.hoverNames)),
                             colorIndex: dot.colorIndex)
             }
         }
     }
 
-    static func outline(_ text: String, along path: Path, truncate: Bool = false, expanded: Bool = false, expandedText: String? = nil) -> Path {
+    static func outline(_ text: String, along path: Path, onLeft: Bool = false, truncate: Bool = false, expanded: Bool = false, expandedText: String? = nil) -> Path {
         // Sample the existing curve once; glyphs use its tangent and distance, including lane bends.
         var start: CGPoint?
         path.forEach { element in
@@ -163,7 +163,7 @@ struct GraphBranchLabel: Sendable {
         }
         guard centerline.count > 1 else { return Path() }
         let font = NSFont.monospacedSystemFont(ofSize: 8, weight: .regular)
-        let offset = 8 + font.capHeight
+        let offset = onLeft ? -8 : 8 + font.capHeight
         let points = centerline.indices.map { index in
             let before = centerline[max(0, index - 1)]
             let after = centerline[min(centerline.count - 1, index + 1)]

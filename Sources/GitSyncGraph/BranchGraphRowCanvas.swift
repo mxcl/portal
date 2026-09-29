@@ -27,16 +27,18 @@ public struct BranchGraphRowCanvas: View {
     let model: CommitGraphModel
     let rowIndex: Int
     let commitOID: String
+    @Binding var hoveredLabel: Int?
     @Environment(\.backgroundProminence) private var backgroundProminence
 
     private var graphWidth: CGFloat {
         Self.graphWidth(model: model, commitOID: commitOID)
     }
 
-    public init(model: CommitGraphModel, rowIndex: Int, commitOID: String) {
+    public init(model: CommitGraphModel, rowIndex: Int, commitOID: String, hoveredLabel: Binding<Int?>) {
         self.model = model
         self.rowIndex = rowIndex
         self.commitOID = commitOID
+        _hoveredLabel = hoveredLabel
     }
 
     public static func graphWidth(model: CommitGraphModel, commitOID: String) -> CGFloat {
@@ -49,6 +51,22 @@ public struct BranchGraphRowCanvas: View {
             drawRow(in: &context)
         }
         .frame(width: graphWidth, height: Self.rowHeight + Self.verticalBleed * 2)
+        .onContinuousHover { phase in
+            switch phase {
+            case .active(let location):
+                let point = CGPoint(x: location.x,
+                                    y: location.y - Self.verticalBleed + CGFloat(rowIndex) * Self.rowHeight)
+                if let hoveredLabel, model.branchLabels.indices.contains(hoveredLabel),
+                   model.branchLabels[hoveredLabel].hoverOutline.strokedPath(StrokeStyle(lineWidth: 6)).contains(point) {
+                    return
+                }
+                hoveredLabel = model.branchLabels.indices.reversed().first { index in
+                    model.branchLabels[index].outline.strokedPath(StrokeStyle(lineWidth: 6)).contains(point)
+                }
+            case .ended:
+                hoveredLabel = nil
+            }
+        }
         // Draw through List's native vertical insets so paths meet between rows.
         .padding(.vertical, -(4 + Self.verticalBleed))
         .accessibilityHidden(true)
@@ -100,7 +118,7 @@ public struct BranchGraphRowCanvas: View {
             )
         }
 
-        for label in model.branchLabels {
+        for (index, label) in model.branchLabels.enumerated() where index != hoveredLabel {
             let bounds = label.outline.boundingRect
             guard bounds.maxY >= CGFloat(rowIndex) * Self.rowHeight - Self.verticalBleed,
                   bounds.minY <= CGFloat(rowIndex + 1) * Self.rowHeight + Self.verticalBleed else { continue }
@@ -118,6 +136,12 @@ public struct BranchGraphRowCanvas: View {
                 rowOffset: rowOffset,
                 background: dotBackground
             )
+        }
+        if let hoveredLabel, model.branchLabels.indices.contains(hoveredLabel) {
+            let label = model.branchLabels[hoveredLabel]
+            let outline = label.hoverOutline.offsetBy(dx: 0, dy: -CGFloat(rowIndex) * Self.rowHeight)
+            context.stroke(outline, with: .color(.black), style: StrokeStyle(lineWidth: 2, lineJoin: .round))
+            context.fill(outline, with: .color(GraphPalette.color(for: label.colorIndex)))
         }
     }
 

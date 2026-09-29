@@ -1532,6 +1532,7 @@ private struct ProjectHistoryView: View {
 }
 
 private struct CommitList: View {
+    @State private var hoveredLabel: Int?
     let snapshot: RepositorySnapshot
     let hosts: [SyncHost]
     @Binding var selection: String?
@@ -1577,7 +1578,8 @@ private struct CommitList: View {
                               references: snapshot.references.filter { $0.oid == commit.oid },
                               allReferences: snapshot.references,
                               auxiliaryLabels: snapshot.auxiliaryHistoryLabels[commit.oid] ?? [],
-                              hosts: hosts, sourceMachine: sourceMachine, graph: graph, rowIndex: index)
+                              hosts: hosts, sourceMachine: sourceMachine, graph: graph, rowIndex: index,
+                              hoveredLabel: $hoveredLabel)
                         .listRowSeparator(.hidden)
                         .tag(commit.oid)
                 }
@@ -1605,7 +1607,7 @@ private struct CommitList: View {
         if let changes = checkout.snapshot.workingChanges {
             let status = changes.isEmpty ? "Clean" : changes.summary
             HStack(alignment: .top, spacing: 8) {
-                BranchGraphRowCanvas(model: graph, rowIndex: index, commitOID: checkout.id)
+                BranchGraphRowCanvas(model: graph, rowIndex: index, commitOID: checkout.id, hoveredLabel: $hoveredLabel)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .firstTextBaseline) {
                         Text("Staging").fixedSize()
@@ -1675,10 +1677,11 @@ private struct CommitRow: View {
     let sourceMachine: String?
     let graph: CommitGraphModel
     let rowIndex: Int
+    @Binding var hoveredLabel: Int?
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            BranchGraphRowCanvas(model: graph, rowIndex: rowIndex, commitOID: commit.oid)
+            BranchGraphRowCanvas(model: graph, rowIndex: rowIndex, commitOID: commit.oid, hoveredLabel: $hoveredLabel)
             VStack(alignment: .leading, spacing: 4) {
                 Text(commit.subject).lineLimit(1)
                 HStack {

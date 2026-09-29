@@ -65,6 +65,7 @@ extension RepositoryReference {
 
 struct GraphBranchLabel: Sendable {
     let outline: Path
+    let hoverOutline: Path
     let colorIndex: Int
 
     static func make(names: [String: [String]], commits: [RepositoryCommit], model: CommitGraphModel, preferredHost: String? = nil) -> [Self] {
@@ -129,7 +130,9 @@ struct GraphBranchLabel: Sendable {
                 let end = group.indices.contains(index + 1)
                     ? fraction(atY: group[index + 1].dot.center.y * BranchGraphRowCanvas.rowHeight - 5) : 1
                 let trimmed = path.trimmedPath(from: fraction(atY: start.y + 5), to: end)
-                return Self(outline: outline(name, along: trimmed, truncate: group.count > 1), colorIndex: dot.colorIndex)
+                return Self(outline: outline(name, along: trimmed, truncate: group.count > 1),
+                            hoverOutline: outline(name, along: path.trimmedPath(from: fraction(atY: start.y + 5), to: 1)),
+                            colorIndex: dot.colorIndex)
             }
         }
     }

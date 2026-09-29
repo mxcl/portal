@@ -15,7 +15,8 @@ copies point to the same commit. If any copy differs, every copy keeps its host
 or remote qualifier, including copies that still agree with each other. Graph
 labels, tag badges, and commit details share this rule. Branch labels
 anchor at their own commits even on a shared lane; middots join only names at
-the same SHA. Nearby labels truncate with an ellipsis before the next tip.
+the same SHA. Nearby labels truncate with an ellipsis before the next tip. Hovering a lane label
+reveals its complete text above the graph, with a black outline around the colored letters.
 
 The checked-out commit row has a thin, subdued system-accent outline, independent
 of the native selection fill. Its accessibility value identifies it as checked out.

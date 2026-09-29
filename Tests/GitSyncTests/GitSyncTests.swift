@@ -716,6 +716,11 @@ func unarchiveOntoThisHost() throws {
     let snapshot = try #require(item.snapshots.first { $0.machine == "A" })
 
     let content = try BackupIndex.content(item.name, snapshotID: snapshot.id, from: fixture.b)
+    let found = try BackupIndex.search(item.name, snapshotID: snapshot.id, query: "main", from: fixture.b).checked()
+    #expect(found.contains { $0.reference?.fullName == "refs/heads/main" && $0.commit.oid == tip })
+    #expect(try BackupIndex.search(item.name, snapshotID: snapshot.id, query: "backup-only", from: fixture.b).checked().isEmpty)
+    #expect(try BackupIndex.search(item.name, snapshotID: snapshot.id, query: String(tip.prefix(7)), from: fixture.b)
+        .checked().contains { $0.commit.oid == tip })
     #expect(content.snapshot.head == "main")
     #expect(content.snapshot.branches == ["feature", "main"])
     #expect(content.snapshot.references.contains { $0.fullName == "refs/heads/main" })
@@ -891,6 +896,15 @@ func backupControl() throws {
 
     let bundle = fixture.root.appendingPathComponent("export.bundle")
     let snapshot = try #require(candidate.snapshots.first)
+    let searchData = try requestPayload(BackupControlRequest(action: .search, repository: candidate.name,
+        snapshotID: snapshot.id, query: "main", searchVersion: RepositorySearchReply.currentVersion))
+    #expect(try JSONDecoder().decode(RepositorySearchReply.self, from: searchData).checked()
+        .contains { $0.reference?.fullName == "refs/heads/main" })
+    #expect(throws: (any Error).self) {
+        try requestPayload(BackupControlRequest(action: .search, repository: candidate.name,
+            snapshotID: snapshot.id, query: "main", searchVersion: 99))
+    }
+
     let contentData = try requestPayload(BackupControlRequest(
         action: .content, repository: candidate.name, snapshotID: snapshot.id
     ))

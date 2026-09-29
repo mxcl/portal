@@ -27,6 +27,7 @@ public enum BackupControlAction: String, Codable, Sendable {
     case content
     case diff
     case retainMergedBranch
+    case search
 }
 
 public struct BackupControlRequest: Codable, Sendable {
@@ -38,12 +39,14 @@ public struct BackupControlRequest: Codable, Sendable {
     public let machine: String?
     public let repositories: [String]?
     public let mergedBranch: MergedBranchBackup?
+    public let query: String?
+    public let searchVersion: Int?
     public let refresh: Bool?
 
     public init(version: Int = BackupControlProtocol.version, action: BackupControlAction,
                 repository: String? = nil, snapshotID: String? = nil,
                 oid: String? = nil, machine: String? = nil, repositories: [String]? = nil,
-                mergedBranch: MergedBranchBackup? = nil, refresh: Bool? = nil) {
+                mergedBranch: MergedBranchBackup? = nil, refresh: Bool? = nil, query: String? = nil, searchVersion: Int? = nil) {
         self.version = version
         self.action = action
         self.repository = repository
@@ -52,6 +55,8 @@ public struct BackupControlRequest: Codable, Sendable {
         self.machine = machine
         self.repositories = repositories
         self.mergedBranch = mergedBranch
+        self.query = query
+        self.searchVersion = searchVersion
         self.refresh = refresh
     }
 }
@@ -177,6 +182,16 @@ public enum BackupControlService {
                 try index.replaceCatalog(machine: machine, repositories: repositories)
                 onChange()
                 try BackupControlConnection.send(BackupControlResponse(), to: connection)
+            case .search:
+                guard request.searchVersion == RepositorySearchReply.currentVersion,
+                      let repository = request.repository, let snapshotID = request.snapshotID,
+                      let query = request.query else {
+                    throw SyncError.invalidProtocol("Unsupported or incomplete search request")
+                }
+                let data = try JSONEncoder().encode(BackupIndex.search(repository, snapshotID: snapshotID,
+                                                                       query: query, from: root))
+                try BackupControlConnection.send(BackupControlResponse(byteCount: data.count), to: connection)
+                try connection.write(contentsOf: data)
             case .content:
                 guard let repository = request.repository, let snapshotID = request.snapshotID else {
                     throw SyncError.invalidProtocol("Content request is incomplete")

@@ -100,13 +100,19 @@ do {
                                                         defaultBranch: $0.defaultBranch, githubRepositories: $0.githubRepositories)
                                         }, hardware: .current)
         print(String(decoding: try JSONEncoder().encode(inspection), as: UTF8.self))
-    case "project-content", "project-diff":
+    case "project-content", "project-diff", "project-search":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
         let name = try required("--repository", in: arguments).precomposedStringWithCanonicalMapping
         guard let repository = try Repository.discover(in: root).first(where: { $0.name == name }) else {
             throw SyncError.invalidConfiguration("Project does not exist: \(name)")
         }
-        if command == "project-content" {
+        if command == "project-search" {
+            guard try required("--search-version", in: arguments) == String(RepositorySearchReply.currentVersion) else {
+                throw SyncError.invalidProtocol("Unsupported search version")
+            }
+            try FileHandle.standardOutput.write(contentsOf: JSONEncoder().encode(
+                repository.search(required("--query", in: arguments))))
+        } else if command == "project-content" {
             try FileHandle.standardOutput.write(contentsOf: JSONEncoder().encode(repository.content(
                 showAuxiliaryHistory: arguments.contains("--show-auxiliary-history") || arguments.contains("--show-detached-worktrees"))))
         } else {

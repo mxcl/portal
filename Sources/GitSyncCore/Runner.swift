@@ -39,6 +39,25 @@ public enum Runner {
         return try JSONDecoder().decode(PeerProject.self, from: data)
     }
 
+    public static func projectSearch(_ repository: String, query: String,
+                                     configuration: Configuration) throws -> [RepositorySearchMatch] {
+        try configuration.validate()
+        try Validator.project(repository)
+        let data = try runRemote(configuration, arguments: ["project-search", "--root", configuration.remoteRoot,
+            "--repository", repository, "--query", query, "--search-version", String(RepositorySearchReply.currentVersion)],
+            failure: "Search unavailable on this host; update Gitinuum if needed")
+        return try JSONDecoder().decode(RepositorySearchReply.self, from: data).checked()
+    }
+
+    public static func backupSearch(_ repository: String, snapshotID: String, query: String,
+                                    configuration: Configuration) throws -> [RepositorySearchMatch] {
+        try Validator.project(repository)
+        let data = try backupPayload(BackupControlRequest(action: .search, repository: repository,
+            snapshotID: snapshotID, query: query, searchVersion: RepositorySearchReply.currentVersion),
+            configuration: configuration)
+        return try JSONDecoder().decode(RepositorySearchReply.self, from: data).checked()
+    }
+
     public static func projectContent(_ repository: String, showAuxiliaryHistory: Bool = false,
                                       configuration: Configuration) throws -> RepositoryContent {
         try configuration.validate()

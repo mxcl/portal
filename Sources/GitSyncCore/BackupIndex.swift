@@ -166,6 +166,22 @@ public final class BackupIndex: @unchecked Sendable {
     public static func content(_ name: String, snapshotID: String,
                                from backupRoot: URL, limit: Int = 250) throws -> RepositoryContent {
         let (repository, snapshot) = try snapshotRepository(name, snapshotID: snapshotID, in: backupRoot)
+        let (projected, revisions) = try searchReferences(repository, snapshot: snapshot)
+        let branch = preferredBranch(snapshot.branches)
+        let readmeRef = branch.map {
+            snapshot.id == storedSnapshotID ? "refs/heads/\($0)" : "refs/remotes/\(snapshot.id)/\($0)"
+        }
+        return RepositoryContent(
+            snapshot: try repository.snapshot(limit: limit,
+                                              references: projected.values.sorted { $0.fullName < $1.fullName },
+                                              revisions: revisions.sorted(), head: branch),
+            readme: readmeRef.flatMap(repository.readme(at:)),
+            githubURL: nil
+        )
+    }
+
+    private static func searchReferences(_ repository: Repository, snapshot: BackupSnapshot) throws
+        -> ([String: RepositoryReference], Set<String>) {
         let references = try repository.referenceSnapshot()
         var projected: [String: RepositoryReference] = [:]
         var revisions = Set<String>()
@@ -212,17 +228,14 @@ public final class BackupIndex: @unchecked Sendable {
             }
         }
 
-        let branch = preferredBranch(snapshot.branches)
-        let readmeRef = branch.map {
-            snapshot.id == storedSnapshotID ? "refs/heads/\($0)" : "refs/remotes/\(snapshot.id)/\($0)"
-        }
-        return RepositoryContent(
-            snapshot: try repository.snapshot(limit: limit,
-                                              references: projected.values.sorted { $0.fullName < $1.fullName },
-                                              revisions: revisions.sorted(), head: branch),
-            readme: readmeRef.flatMap(repository.readme(at:)),
-            githubURL: nil
-        )
+        return (projected, revisions)
+    }
+
+    public static func search(_ name: String, snapshotID: String, query: String,
+                              from root: URL) throws -> RepositorySearchReply {
+        let (repository, snapshot) = try snapshotRepository(name, snapshotID: snapshotID, in: root)
+        let (references, _) = try searchReferences(repository, snapshot: snapshot)
+        return try repository.search(query, references: Array(references.values))
     }
 
     public static func diff(_ name: String, snapshotID: String, oid: String,

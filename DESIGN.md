@@ -282,7 +282,13 @@ than enlarging the control-message envelope.
 
 ### Merged-branch cleanup
 
-On connected Macs, new verified GitHub `pull_request` events with `action=closed`
+Settings → GitHub contains “Automatically delete merged branches”, a per-Mac
+preference stored by the menu helper and defaulting to off, including upgrades.
+Engine control protocol v6 carries this preference and its setter. Disabled cleanup
+leaves relay work pending and stops its filesystem watcher; enabling it retries
+pending work. The preference is rechecked after backup confirmation before deletion.
+
+On opted-in connected Macs, new verified GitHub `pull_request` events with `action=closed`
 and `merged=true` authorize cleanup of the source branch, including squash and
 rebase merges. The original PR head SHA is the identity; ancestry of the resulting
 merge commit is irrelevant. The relay stores each PR/head independently per device

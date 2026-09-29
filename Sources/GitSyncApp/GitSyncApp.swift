@@ -130,6 +130,7 @@ final class AppModel: ObservableObject {
     @Published var configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
     @Published var github = GitHubState()
     @Published var globalShortcutEnabled = true
+    @Published var mergedBranchCleanupEnabled = false
     @Published var status = "Starting Sync Helper"
     @Published var error: String?
     @Published var hostError: String?
@@ -512,6 +513,7 @@ final class AppModel: ObservableObject {
         configuration = snapshot.configuration
         github = snapshot.github
         globalShortcutEnabled = snapshot.globalShortcutEnabled
+        mergedBranchCleanupEnabled = snapshot.mergedBranchCleanupEnabled
         status = snapshot.status
         error = snapshot.error
         isChecking = snapshot.isChecking
@@ -1036,6 +1038,10 @@ final class AppModel: ObservableObject {
 
     func setSyncCheckouts(_ enabled: Bool) {
         perform(.setSyncCheckouts(enabled))
+    }
+
+    func setMergedBranchCleanupEnabled(_ enabled: Bool) {
+        perform(.setMergedBranchCleanupEnabled(enabled))
     }
 
     func setGlobalShortcutEnabled(_ enabled: Bool) {
@@ -2429,6 +2435,13 @@ struct SettingsView: View {
                         }
                     }
                     if let error = model.github.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+                }
+                Section("Merged Branches") {
+                    Toggle("Automatically delete merged branches", isOn: Binding(
+                        get: { model.mergedBranchCleanupEnabled }, set: model.setMergedBranchCleanupEnabled
+                    ))
+                    Text("On this Mac, delete merged branches only after their history is permanently backed up. Branches with new commits or active checkouts are kept. Includes squash and rebase merges.")
+                        .foregroundStyle(.secondary)
                 }
                 Section("Notifications") {
                     LabeledContent("Push updates", value: model.github.pushStatus)

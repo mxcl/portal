@@ -46,7 +46,7 @@ func githubResponseDecoding() throws {
         #expect(restored.hasUnreadNotifications == unread)
     }
     #expect(try JSONDecoder().decode(GitHubState.self, from: JSONEncoder().encode(GitHubState())).hasUnreadNotifications == nil)
-    #expect(EngineControlProtocol.version == 5)
+    #expect(EngineControlProtocol.version == 6)
 }
 @Test("GitHub sign-in control requests require no relay configuration")
 func githubConnectAction() throws {
@@ -82,13 +82,21 @@ func mergedCleanupWithoutBackup() async throws {
         "oid":"\(oid)","baseBranch":"main","defaultBranch":"main","pullRequest":7,"mergedAt":"2026-09-27T12:00:00Z"}
         """.utf8)
     let merge = try JSONDecoder().decode(MergedBranch.self, from: data)
+    let suite = "MergedCleanupTests.\(UUID())"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
     let model = EngineModel(executableURL: URL(fileURLWithPath: "/usr/bin/false"),
                             configuration: AppConfiguration(root: root.path, machine: "Mac"),
-                            support: root.appendingPathComponent("support"))
+                            support: root.appendingPathComponent("support"), defaults: defaults)
     #expect(try await model.cleanMergedBranch(merge) == false)
     #expect(try Git.text(["-C", project.path, "rev-parse", "topic"]) == oid)
     _ = try Git.run(["-C", project.path, "branch", "-D", "topic"])
+    #expect(try await model.cleanMergedBranch(merge) == false) // Disabled work is not acknowledged.
+    _ = await model.handle(.setMergedBranchCleanupEnabled(true))
     #expect(try await model.cleanMergedBranch(merge) == true)
+    _ = await model.handle(.setMergedBranchCleanupEnabled(false))
+    #expect(try await model.cleanMergedBranch(merge) == false)
+    _ = await model.handle(.setMergedBranchCleanupEnabled(true))
     model.pause()
     #expect(try await model.cleanMergedBranch(merge) == false)
 }

@@ -69,12 +69,18 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
             .store(in: &observations)
         model.$isPaused.removeDuplicates().dropFirst().filter { !$0 }
             .sink { [weak self] _ in self?.refresh(catchUp: false) }.store(in: &observations)
+        model.$mergedBranchCleanupEnabled.removeDuplicates().dropFirst()
+            .sink { [weak self] enabled in
+                guard let self else { return }
+                if enabled { self.refresh(catchUp: false) }
+                else { self.mergeWatcher = nil; self.mergeWatchPaths = [] }
+            }.store(in: &observations)
         // Backup completion and checkout changes wake deferred work without an idle polling loop.
         Publishers.Merge3(model.$logs.map { _ in () }, model.$projectStatuses.removeDuplicates().map { _ in () },
                           model.$configuration.removeDuplicates().map { _ in () })
             .dropFirst().debounce(for: .seconds(2), scheduler: DispatchQueue.main)
             .sink { [weak self] in
-                guard let self, self.pendingMerges else { return }
+                guard let self, self.pendingMerges, self.model?.mergedBranchCleanupEnabled == true else { return }
                 self.refresh(catchUp: false)
             }.store(in: &observations)
         network.pathUpdateHandler = { [weak self] path in
@@ -283,16 +289,16 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
     }
 
     private func updateMergeWatcher() async throws {
-        guard pendingMerges, let model, model.isConfigured else { mergeWatcher = nil; mergeWatchPaths = []; return }
+        guard pendingMerges, let model, model.isConfigured, model.mergedBranchCleanupEnabled else { mergeWatcher = nil; mergeWatchPaths = []; return }
         let root = URL(fileURLWithPath: NSString(string: model.configuration.root).expandingTildeInPath)
         let paths = try await Task.detached(priority: .utility) {
             let repositories = try Repository.discover(in: root)
             let metadata = try repositories.flatMap { try RepositoryWatcher.paths(for: $0.url) }
             return Array(Set([root.path] + metadata)).sorted()
         }.value
-        guard paths != mergeWatchPaths else { return }
+        guard pendingMerges, model.mergedBranchCleanupEnabled, paths != mergeWatchPaths else { return }
         mergeWatcher = try RepositoryWatcher(paths: paths) { [weak self] in
-            guard let self, self.pendingMerges else { return }
+            guard let self, self.pendingMerges, self.model?.mergedBranchCleanupEnabled == true else { return }
             self.refresh(catchUp: false)
         }
         mergeWatchPaths = paths

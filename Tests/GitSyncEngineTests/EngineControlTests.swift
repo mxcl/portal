@@ -172,3 +172,29 @@ func globalShortcutPreference() async throws {
     }
     #expect(!FileManager.default.fileExists(atPath: support.path))
 }
+
+@Test("merged branch cleanup defaults off and persists toggles independently of repository setup")
+@MainActor
+func mergedBranchCleanupPreference() async throws {
+    let suite = "GitSyncTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let support = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let model = EngineModel(executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+                            configuration: AppConfiguration(root: "", machine: "test"),
+                            support: support, defaults: defaults)
+    #expect(!model.snapshot().mergedBranchCleanupEnabled)
+    for enabled in [true, false] {
+        let request = try JSONDecoder().decode(EngineRequest.self, from: JSONEncoder().encode(
+            EngineRequest(command: .setMergedBranchCleanupEnabled(enabled))))
+        let reply = await model.handle(request.command)
+        #expect(reply.error == nil)
+        let decoded = try JSONDecoder().decode(EngineReply.self, from: JSONEncoder().encode(reply))
+        #expect(decoded.snapshot?.mergedBranchCleanupEnabled == enabled)
+        let restarted = EngineModel(executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+                                    configuration: AppConfiguration(root: "", machine: "test"),
+                                    support: support, defaults: defaults)
+        #expect(restarted.mergedBranchCleanupEnabled == enabled)
+    }
+    #expect(!FileManager.default.fileExists(atPath: support.path))
+}

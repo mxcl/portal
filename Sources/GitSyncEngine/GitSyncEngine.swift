@@ -5,7 +5,7 @@ import Foundation
 import GitSyncCore
 
 public enum EngineControlProtocol {
-    public static let version = 5
+    public static let version = 6
     public static let changedNotification = Notification.Name("dev.mxcl.git-sync.engine-changed")
     public static var socketURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -27,6 +27,7 @@ public enum EngineCommand: Codable, Sendable {
     case chooseBackupHost(UUID)
     case setSyncCheckouts(Bool)
     case setGlobalShortcutEnabled(Bool)
+    case setMergedBranchCleanupEnabled(Bool)
     case setPlacement(ProjectPlacement, project: String, hostID: UUID?, branch: String?)
     case restoreBackup(BackupItem, BackupSnapshot)
     case prepareForTermination
@@ -46,6 +47,7 @@ public struct EngineSnapshot: Codable, Sendable {
     public let configuration: AppConfiguration
     public var github = GitHubState()
     public let globalShortcutEnabled: Bool
+    public let mergedBranchCleanupEnabled: Bool
     public let status: String
     public let error: String?
     public let isChecking: Bool
@@ -89,6 +91,7 @@ public enum EngineControlError: Error, LocalizedError {
 public final class EngineModel: ObservableObject {
     @Published public private(set) var configuration: AppConfiguration
     @Published public private(set) var globalShortcutEnabled: Bool
+    @Published public private(set) var mergedBranchCleanupEnabled: Bool
     @Published public var github = GitHubState()
     public var githubAction: ((GitHubAction) async -> Void)?
     @Published public var globalShortcutError: String?
@@ -131,6 +134,7 @@ public final class EngineModel: ObservableObject {
         self.configuration = configuration
         self.support = support
         self.defaults = defaults
+        mergedBranchCleanupEnabled = defaults.bool(forKey: "merged-branch-cleanup-enabled")
         globalShortcutEnabled = defaults.object(forKey: "global-shortcut-enabled") as? Bool ?? true
     }
 
@@ -190,6 +194,7 @@ public final class EngineModel: ObservableObject {
 
     public func snapshot() -> EngineSnapshot {
         EngineSnapshot(configuration: configuration, github: github, globalShortcutEnabled: globalShortcutEnabled,
+                       mergedBranchCleanupEnabled: mergedBranchCleanupEnabled,
                        status: status, error: error ?? globalShortcutError,
                        isChecking: isChecking, isRunning: isRunning, isPaused: isPaused,
                        logs: logs, backupItems: backupItems, backupError: backupError,
@@ -234,6 +239,9 @@ public final class EngineModel: ObservableObject {
                 chooseBackupHost(id)
             case .setSyncCheckouts(let enabled):
                 setSyncCheckouts(enabled)
+            case .setMergedBranchCleanupEnabled(let enabled):
+                defaults.set(enabled, forKey: "merged-branch-cleanup-enabled")
+                mergedBranchCleanupEnabled = enabled
             case .setGlobalShortcutEnabled(let enabled):
                 defaults.set(enabled, forKey: "global-shortcut-enabled")
                 globalShortcutEnabled = enabled
@@ -910,7 +918,7 @@ public final class EngineModel: ObservableObject {
 
     /// Called only for authenticated relay merge work. False leaves the relay work pending.
     func cleanMergedBranch(_ merge: MergedBranch) async throws -> Bool {
-        guard isConfigured, !isPaused else { return false }
+        guard mergedBranchCleanupEnabled, isConfigured, !isPaused else { return false }
         let root = expandedRoot, machine = configuration.machine
         let local = configuration.backupDestination != nil
         let remote = local ? nil : try backupControlConfiguration()
@@ -920,7 +928,7 @@ public final class EngineModel: ObservableObject {
         var finished = true
         for repository in repositories {
             try Task.checkCancellation()
-            guard !isPaused else { return false }
+            guard mergedBranchCleanupEnabled, !isPaused else { return false }
             let eligibility = try await Task.detached(priority: .utility) {
                 try repository.mergedBranchEligibility(merge)
             }.value
@@ -935,7 +943,7 @@ public final class EngineModel: ObservableObject {
                 return try Runner.retainMergedBranchLocally(backup)
             }.value
             try Task.checkCancellation()
-            guard !isPaused else { return false }
+            guard mergedBranchCleanupEnabled, !isPaused else { return false }
             guard expandedRoot == root, configuration.machine == machine else { return false }
             let result = try await Task.detached(priority: .utility) {
                 try repository.deleteMergedBranch(backup, receipt: receipt)

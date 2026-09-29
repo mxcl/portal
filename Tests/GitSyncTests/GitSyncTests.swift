@@ -693,6 +693,34 @@ func backupArchiveClassification() throws {
     #expect(try BackupIndex(url: indexURL).items(in: fixture.b).first?.status == .mirrored)
 }
 
+@Test("backup deletion requires complete absent catalogs and refreshes cached inventory")
+func deleteArchivedBackup() throws {
+    let fixture = try Fixture()
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
+                     stateURL: fixture.state, bareDestination: true)
+    let indexURL = fixture.root.appendingPathComponent("backup-index.json")
+    let index = try BackupIndex(url: indexURL)
+    #expect(throws: (any Error).self) { try index.delete("project", in: fixture.b) }
+    try index.replaceCatalog(machine: "A", repositories: [])
+    #expect(try index.items(in: fixture.b).first?.status == .archived)
+    // A checkout can appear after the UI showed an archived backup.
+    try index.replaceCatalog(machine: "A", repositories: ["project"])
+    #expect(throws: (any Error).self) { try index.delete("project", in: fixture.b) }
+    #expect(FileManager.default.fileExists(atPath: fixture.b.appendingPathComponent("project.git").path))
+    try index.replaceCatalog(machine: "A", repositories: [])
+    #expect(throws: (any Error).self) { try index.delete("../project", in: fixture.b) }
+    let backup = fixture.b.appendingPathComponent("project.git").path
+    let tip = try git(["-C", backup, "rev-parse", "refs/remotes/a/main"])
+    _ = try git(["-C", backup, "update-ref", "refs/remotes/unknown/main", tip])
+    #expect(throws: (any Error).self) { try index.delete("project", in: fixture.b) }
+    _ = try git(["-C", backup, "update-ref", "-d", "refs/remotes/unknown/main"])
+
+    try index.delete("project", in: fixture.b)
+    #expect(try index.items(in: fixture.b).isEmpty)
+    #expect(try BackupIndex(url: indexURL).items(in: fixture.b).isEmpty)
+    #expect(FileManager.default.fileExists(atPath: fixture.a.appendingPathComponent("project/.git").path))
+}
+
 @Test("unarchive restores one snapshot onto this host without losing peer history")
 func unarchiveOntoThisHost() throws {
     let fixture = try Fixture()
@@ -856,7 +884,7 @@ func backupControl() throws {
             defer { try? server.close() }
             guard (try? LocalBackupTransport.mode(from: server)) == LocalBackupTransport.session else { return }
             try? BackupControlService.serve(server, root: fixture.b, index: index, onChange: {
-                #expect(request.action == .archive || request.action == .catalog)
+                #expect(request.action == .archive || request.action == .catalog || request.action == .delete)
             })
         }
         try BackupControlConnection.send(request, to: client)
@@ -878,7 +906,7 @@ func backupControl() throws {
             defer { try? server.close() }
             guard (try? LocalBackupTransport.mode(from: server)) == LocalBackupTransport.session else { return }
             try? BackupControlService.serve(server, root: fixture.b, index: index, onChange: {
-                #expect(request.action == .archive || request.action == .catalog)
+                #expect(request.action == .archive || request.action == .catalog || request.action == .delete)
             })
         }
         try BackupControlConnection.send(request, to: client)
@@ -929,6 +957,17 @@ func backupControl() throws {
     _ = try git(["init", "-q", "--bare", added.path])
     #expect(try request(BackupControlRequest(action: .list)).items?.count == 1)
     #expect(try request(BackupControlRequest(action: .list, refresh: true)).items?.count == 2)
+    #expect(throws: (any Error).self) {
+        try request(BackupControlRequest(action: .delete, repository: candidate.name))
+    }
+    _ = try request(BackupControlRequest(action: .catalog, machine: "A", repositories: []))
+    #expect(throws: (any Error).self) {
+        try request(BackupControlRequest(version: 6, action: .delete, repository: candidate.name))
+    }
+    #expect(throws: (any Error).self) { try request(BackupControlRequest(action: .delete)) }
+    _ = try request(BackupControlRequest(action: .delete, repository: candidate.name))
+    #expect(try request(BackupControlRequest(action: .list)).items?.map(\.name) == ["z-added"])
+
 }
 
 @Test("app-owned backups do not require a remote filesystem path")

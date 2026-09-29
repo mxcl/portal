@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import LocalAuthentication
 import ServiceManagement
 import SwiftUI
 import Textual
@@ -139,6 +140,7 @@ final class AppModel: ObservableObject {
     @Published var isPaused = false
     @Published var backupItems: [BackupItem] = []
     @Published var backupError: String?
+    @Published var deletingBackup: String?
     @Published var restoringBackup: String?
     @Published var selectedHostID: UUID?
     @Published var showingAddHost = false
@@ -896,7 +898,36 @@ final class AppModel: ObservableObject {
         perform(.setBackupDestination(root))
     }
 
+    func deleteBackup(_ item: BackupItem) {
+        guard item.status == .archived, deletingBackup == nil else { return }
+        deletingBackup = item.name
+        Task {
+            defer { deletingBackup = nil }
+            do {
+                let context = LAContext()
+                context.localizedFallbackTitle = ""
+                var unavailable: NSError?
+                if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &unavailable) {
+                    guard try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
+                        localizedReason: "Permanently delete all backups of \(item.name).") else { return }
+                } else if let unavailable,
+                          unavailable.code != LAError.biometryNotAvailable.rawValue,
+                          unavailable.code != LAError.biometryNotEnrolled.rawValue {
+                    throw unavailable
+                }
+                let reply = try await sendCommand(.deleteBackup(item.name))
+                if let snapshot = reply.snapshot { apply(snapshot) }
+                error = reply.error
+            } catch let failure as LAError where failure.code == .userCancel || failure.code == .appCancel || failure.code == .systemCancel {
+                // Cancellation leaves the backup untouched.
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
+    }
+
     func unarchiveBackup(_ item: BackupItem, snapshot: BackupSnapshot) {
+        guard deletingBackup == nil else { return }
         perform(.restoreBackup(item, snapshot))
     }
 
@@ -2355,6 +2386,10 @@ private struct ArchivedProjectControls: View {
                     }
                 }
             }
+            Button("Delete Backup", role: .destructive) { model.deleteBackup(item) }
+                .disabled(model.deletingBackup != nil || model.restoringBackup != nil)
+                .help("Permanently delete this project’s stored repository and all backup snapshots.")
+            if model.deletingBackup == item.name { ProgressView("Deleting backup…") }
             if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
         }
     }

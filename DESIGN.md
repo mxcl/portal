@@ -264,6 +264,19 @@ explicitly marked archived; offline or not-yet-observed sources leave its status
 unknown rather than producing a false orphan. Archival is metadata only and never
 moves or deletes the bare repository.
 
+The archived project controls offer explicit permanent deletion of the backup and
+all its snapshots. The initiating Mac requires Touch ID when biometrics are
+available; missing hardware or enrollment skips confirmation, while cancellation,
+lockout, and authentication failure leave the backup intact. Backup-control v7
+adds `delete` (engine-control v7 adds `deleteBackup`). The destination validates
+the project name and freshly reads its snapshots, then checks complete absent
+host catalogs under the catalog lock before deleting the bare repository and
+invalidating its inventory entry. Active mirrors/checkouts and unknown sources
+are rejected. This uses the latest reported host catalogs, not a distributed
+lease: a host that recreates a project later may back it up again. Replication's
+per-ref atomicity and eventual consistency are unchanged.
+
+
 Archive inventory and metadata mutations are available to configured source Macs
 through SSH and a second owner-only app socket. Unarchive is an explicit promotion
 action on the Mac where it is chosen. The receiver exports a Git bundle for the
@@ -284,7 +297,7 @@ than enlarging the control-message envelope.
 
 Settings → GitHub contains “Automatically delete merged branches”, a per-Mac
 preference stored by the menu helper and defaulting to off, including upgrades.
-Engine control protocol v6 carries this preference and its setter. Disabled cleanup
+Engine control protocol v7 carries this preference and its setter. Disabled cleanup
 leaves relay work pending and stops its filesystem watcher; enabling it retries
 pending work. The preference is rechecked after backup confirmation before deletion.
 
@@ -303,7 +316,7 @@ backup. Pending events survive relay/client restarts. Backup progress, local
 status changes, configuration changes, and existing GitHub refresh triggers retry
 pending work; failures use the existing bounded retry schedule.
 
-The backup-control endpoint (protocol v6, independent of replication protocol v5)
+The backup-control endpoint (protocol v7, independent of replication protocol v5)
 accepts `retainMergedBranch`. Update backup receivers before clients; mismatched
 control versions fail closed and prevent cleanup. Normal replication must first
 supply the objects. The receiver rejects shallow/alternate-backed history, checks
@@ -564,7 +577,7 @@ hour after the last full scan rebuild the inventory. The hourly pass catches
 external additions, removals, and edits. A missing destination reports an error
 even when an inventory is cached; failed scans are retried on subsequent requests.
 Single-project history, diff, export, and restore reads inspect only that backup.
-The optional `refresh` field on a version-6 backup list request requests a full
+The optional `refresh` field on a version-7 backup list request requests a full
 scan; older version-6 servers ignore it and retain their uncached behavior.
 Git replication, per-ref atomicity, and eventual consistency are unchanged.
 

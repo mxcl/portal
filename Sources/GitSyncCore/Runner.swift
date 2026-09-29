@@ -217,6 +217,12 @@ public enum Runner {
                               configuration: configuration)
     }
 
+    public static func deleteBackup(_ name: String, configuration: Configuration) throws {
+        try Validator.project(name)
+        _ = try backupControl(BackupControlRequest(action: .delete, repository: name),
+                              configuration: configuration)
+    }
+
     public static func backupContent(_ name: String, snapshotID: String,
                                      configuration: Configuration) throws -> RepositoryContent {
         try Validator.project(name)

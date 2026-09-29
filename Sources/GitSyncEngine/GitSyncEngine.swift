@@ -5,7 +5,7 @@ import Foundation
 import GitSyncCore
 
 public enum EngineControlProtocol {
-    public static let version = 6
+    public static let version = 7
     public static let changedNotification = Notification.Name("dev.mxcl.git-sync.engine-changed")
     public static var socketURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -29,6 +29,7 @@ public enum EngineCommand: Codable, Sendable {
     case setGlobalShortcutEnabled(Bool)
     case setMergedBranchCleanupEnabled(Bool)
     case setPlacement(ProjectPlacement, project: String, hostID: UUID?, branch: String?)
+    case deleteBackup(String)
     case restoreBackup(BackupItem, BackupSnapshot)
     case prepareForTermination
 }
@@ -247,6 +248,28 @@ public final class EngineModel: ObservableObject {
                 globalShortcutEnabled = enabled
             case let .setPlacement(placement, project, hostID, branch):
                 setPlacement(placement, project: project, hostID: hostID, branch: branch)
+            case .deleteBackup(let name):
+                let root = try configuration.validatedBackupDestination()
+                let index = backupIndex
+                let remote = root == nil ? try backupControlConfiguration() : nil
+                let projectsRoot = expandedRoot
+                guard restoringBackup == nil, placementInProgress == nil else {
+                    throw EngineControlError.message("Wait for the current project operation to finish.")
+                }
+                placementInProgress = "backup-delete"
+                defer { placementInProgress = nil }
+                try await Task.detached(priority: .userInitiated) {
+                    guard try !Repository.discover(in: projectsRoot).contains(where: { $0.name == name }) else {
+                        throw EngineControlError.message("This project still has a local checkout or mirror.")
+                    }
+                    if let root, let index { try index.delete(name, in: root) }
+                    else if let remote { try Runner.deleteBackup(name, configuration: remote) }
+                    else { throw EngineControlError.message("The backup destination is unavailable.") }
+                }.value
+                configuration.folders.removeAll { $0.name == name }
+                try save()
+                await refreshBackupItems()?.value
+                appendLog("Deleted backup for \(name)")
             case let .restoreBackup(item, backup):
                 restoreBackup(item, snapshot: backup)
             case .prepareForTermination:
@@ -378,6 +401,7 @@ public final class EngineModel: ObservableObject {
     }
 
     public func restoreBackup(_ item: BackupItem, snapshot: BackupSnapshot) {
+        guard placementInProgress == nil, restoringBackup == nil else { return }
         do {
             let backupRoot = try configuration.validatedBackupDestination()
             let index = backupIndex

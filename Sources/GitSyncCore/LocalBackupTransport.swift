@@ -16,12 +16,13 @@ public enum LocalBackupTransport {
 }
 
 public enum BackupControlProtocol {
-    public static let version = 6
+    public static let version = 7
 }
 
 public enum BackupControlAction: String, Codable, Sendable {
     case list
     case archive
+    case delete
     case export
     case catalog
     case content
@@ -159,6 +160,13 @@ public enum BackupControlService {
                     throw SyncError.invalidProtocol("Archive request is incomplete")
                 }
                 try index.archive(repository, in: root)
+                onChange()
+                try BackupControlConnection.send(BackupControlResponse(), to: connection)
+            case .delete:
+                guard let repository = request.repository else {
+                    throw SyncError.invalidProtocol("Delete request is incomplete")
+                }
+                try index.delete(repository, in: root)
                 onChange()
                 try BackupControlConnection.send(BackupControlResponse(), to: connection)
             case .export:

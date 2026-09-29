@@ -137,6 +137,28 @@ public final class BackupIndex: @unchecked Sendable {
         try save()
     }
 
+    /// Explicit user deletion; never called by background retention or replication.
+    public func delete(_ name: String, in root: URL) throws {
+        try Validator.project(name)
+        inventoryLock.lock(); defer { inventoryLock.unlock() }
+        lock.lock(); defer { lock.unlock() }
+        let target = root.appendingPathComponent(name + ".git")
+        guard let repository = try Self.repository(at: target),
+              try Git.text(["-C", target.path, "rev-parse", "--is-bare-repository"]) == "true",
+              !(try target.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink ?? false),
+              !document.catalogs.isEmpty,
+              !document.catalogs.values.contains(where: { $0.repositories.contains(name) }),
+              Set(repository.snapshots.map(\.id)).subtracting([Self.storedSnapshotID])
+                .isSubset(of: Set(document.catalogs.keys)) else {
+            throw SyncError.invalidConfiguration("Only backups confirmed absent from every known host can be deleted.")
+        }
+        try FileManager.default.removeItem(at: target)
+        inventory.removeValue(forKey: name)
+        dirtyRepositories.remove(name)
+        document.archived.remove(name)
+        try save()
+    }
+
     public static func restore(_ name: String, snapshotID: String,
                                from backupRoot: URL, to projectsRoot: URL) throws {
         try Validator.project(name)

@@ -89,6 +89,12 @@ func archiveRefreshesInventory() async throws {
     while model.backupError != nil && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
     #expect(model.backupError == nil)
     #expect(model.backupItems.first?.status == .archived)
+    let deletion = await model.handle(.deleteBackup("project"))
+    #expect(deletion.error == nil)
+    #expect(deletion.snapshot?.backupItems.isEmpty == true)
+    #expect(model.placementInProgress == nil)
+    #expect(!model.configuration.folders.contains { $0.name == "project" })
+    #expect(!FileManager.default.fileExists(atPath: backup.appendingPathComponent("project.git").path))
 }
 
 @Test("placement failures remain visible after restarting local sync")

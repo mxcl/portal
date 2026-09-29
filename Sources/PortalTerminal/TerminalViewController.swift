@@ -5116,7 +5116,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         commandHistory: [String] = [],
         initialCommand: InitialCommand? = nil,
         shellPath: String? = nil,
-        showsSessionPicker: Bool = true,
+        showsSessionPicker: Bool = false,
         activates: Bool = true,
         persists: Bool = true
     ) {

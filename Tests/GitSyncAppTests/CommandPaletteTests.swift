@@ -1,9 +1,35 @@
 #if os(macOS)
 import Foundation
 import AppKit
+import SwiftUI
 import Testing
 @testable import GitSyncApp
 @testable import GitSyncCore
+
+@MainActor
+@Test func paletteStaysAboveHostedContentWhenWindowResizes() throws {
+    let model = AppModel(connectToHelper: false)
+    let content = NSHostingView(rootView: ProjectBrowserView(model: model))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+                          styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+    window.contentView = content
+    defer { model.dismissPalette(); window.orderOut(nil) }
+    content.layoutSubtreeIfNeeded()
+    model.showPalette(in: window)
+    let container = try #require(content.superview)
+    // A child of SwiftUI's hosting view can receive input yet remain invisible.
+    // Keep the palette above that entire rendering subtree.
+    let overlay = try #require(container.subviews.first { $0 is NSHostingView<PaletteOverlay> })
+    #expect(try #require(container.subviews.firstIndex(of: overlay)) > #require(container.subviews.firstIndex(of: content)))
+    for size in [NSSize(width: 860, height: 520), NSSize(width: 1400, height: 900)] {
+        window.setContentSize(size)
+        container.layoutSubtreeIfNeeded()
+        #expect(overlay.frame == content.frame)
+        #expect(!overlay.isHidden)
+    }
+    model.dismissPalette()
+    #expect(overlay.superview == nil)
+}
 
 @MainActor
 @Test func paletteFocusesSynchronouslyAndRestoresResponder() async throws {

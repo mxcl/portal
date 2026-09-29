@@ -267,7 +267,6 @@ private struct PaletteSearchField: NSViewRepresentable {
         field.placeholderString = "Search projects, branches, tags, or SHA"
         field.setAccessibilityLabel("Search projects, branches, tags, or SHA")
         field.font = .systemFont(ofSize: 16)
-        field.isBordered = false
         field.focusRingType = .none
         field.sendsSearchStringImmediately = true
         field.delegate = context.coordinator

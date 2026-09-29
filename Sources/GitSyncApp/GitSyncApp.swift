@@ -1064,12 +1064,20 @@ final class AppModel: ObservableObject {
         paletteNavigation = UUID()
         paletteWindow = window ?? NSApp.keyWindow
         palettePreviousResponder = paletteWindow?.firstResponder
-        guard let content = paletteWindow?.contentView else { return }
+        guard let content = paletteWindow?.contentView, let container = content.superview else { return }
         showingPalette = true
         let overlay = NSHostingView(rootView: PaletteOverlay(model: self))
-        overlay.frame = content.bounds
-        overlay.autoresizingMask = [.width, .height]
-        content.addSubview(overlay)
+        overlay.frame = content.convert(content.bounds, to: container)
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        // SwiftUI owns its hosting view's rendering subtree. Present alongside it,
+        // so its compositing passes cannot cover the palette's native hosting view.
+        container.addSubview(overlay, positioned: .above, relativeTo: content)
+        NSLayoutConstraint.activate([
+            overlay.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            overlay.topAnchor.constraint(equalTo: content.topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
         paletteView = overlay
         // Mount the native search field before returning from the menu command.
         overlay.layoutSubtreeIfNeeded()

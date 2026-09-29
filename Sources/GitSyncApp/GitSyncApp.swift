@@ -903,14 +903,14 @@ final class AppModel: ObservableObject {
 
     func hasBranchDifferences(for project: String) -> Bool {
         let projects = [localProjects[project]] + configuration.hosts.map { remoteProjects[$0.id]?[project] }
-        let states = projects.compactMap { $0?.placement == .checkedOut ? $0?.branchTips : nil }
-        var known: [String: String] = [:]
-        for state in states {
-            for (branch, tip) in state.local {
-                if let other = known[branch], other != tip { return true }
-                if let github = state.github[branch], github != tip { return true }
-                known[branch] = tip
-            }
+        let checkouts = projects.compactMap { $0 }.filter { $0.placement == .checkedOut }
+        guard let branch = checkouts.compactMap(\.defaultBranch).first else { return false }
+        var known: String?
+        for state in checkouts.compactMap(\.branchTips) {
+            guard let tip = state.local[branch] else { continue }
+            if let known, known != tip { return true }
+            if let github = state.github[branch], github != tip { return true }
+            known = tip
         }
         return false
     }
@@ -1582,16 +1582,16 @@ private struct ProjectRow: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 3) {
                 Text(name).lineLimit(1)
-                if model.hasBranchDifferences(for: name) {
-                    Circle().fill(.orange).frame(width: 5, height: 5)
-                        .help("Branches are ahead, behind, or diverged from another checked-out host or the last known GitHub state.")
-                        .accessibilityHidden(true)
-                }
                 if let folder = model.configuration.folders.first(where: { $0.name == name }),
                    !folder.availableLocally {
                     Image(systemName: "globe")
                         .font(.caption2.weight(.light))
                         .foregroundStyle(Color.secondary.opacity(0.5))
+                        .accessibilityHidden(true)
+                }
+                if model.hasBranchDifferences(for: name) {
+                    Circle().fill(.orange).frame(width: 5, height: 5)
+                        .help("The default branch is ahead, behind, or diverged from another checked-out host or the last known GitHub state.")
                         .accessibilityHidden(true)
                 }
             }
@@ -1643,7 +1643,7 @@ private struct ProjectRow: View {
             " — uncommitted changes: \($0.additions) additions, \($0.deletions) deletions across hosts"
         } ?? ""
         let branches = model.hasBranchDifferences(for: name)
-            ? " — branches differ across checked-out hosts or from known GitHub state" : ""
+            ? " — default branch differs across checked-out hosts or from known GitHub state" : ""
         return "\(name) — on \(count) host\(count == 1 ? "" : "s")\(changes)\(branches)\(github)"
     }
 }

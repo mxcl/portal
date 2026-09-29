@@ -50,15 +50,15 @@ func workingTreeSidebarCounts() throws {
     model.remoteProjects[host.id]?["project"] = try project(" M file\0", "9\t9\tfile\0")
     #expect(model.workingChangeCounts(for: "project") == nil)
 }
-@Test("Sidebar branch dot compares checked-out hosts and known GitHub tips only")
+@Test("Sidebar branch dot compares only the default branch on checked-out hosts and GitHub")
 @MainActor
 func branchDifferenceSidebar() throws {
     let model = AppModel(connectToHelper: false)
     let host = SyncHost(machine: "peer", peer: "peer", root: "/tmp/projects")
     model.configuration.hosts = [host]
     func project(_ local: [String: String], github: [String: String] = [:],
-                 placement: ProjectPlacement = .checkedOut) throws -> PeerProject {
-        let value = PeerProject(name: "project", placement: placement,
+                 placement: ProjectPlacement = .checkedOut, defaultBranch: String? = "main") throws -> PeerProject {
+        let value = PeerProject(name: "project", placement: placement, defaultBranch: defaultBranch,
                                 branchTips: RepositoryBranchTips(local: local, github: github))
         return try JSONDecoder().decode(PeerProject.self, from: JSONEncoder().encode(value))
     }
@@ -79,6 +79,19 @@ func branchDifferenceSidebar() throws {
     #expect(!model.hasBranchDifferences(for: "project"))
     model.localProjects["project"] = try project(["main": "a"], github: ["main": "b"])
     #expect(model.hasBranchDifferences(for: "project"))
+    model.localProjects["project"] = try project(["main": "a", "topic": "b"],
+        github: ["main": "a", "topic": "c"])
+    model.configuration.hosts = [host]
+    model.remoteProjects[host.id]?["project"] = try project(["main": "a", "topic": "d"])
+    #expect(!model.hasBranchDifferences(for: "project"))
+    model.localProjects["project"] = try project(["trunk": "a"], defaultBranch: "trunk")
+    model.remoteProjects[host.id]?["project"] = try project(["trunk": "b"], defaultBranch: "trunk")
+    #expect(model.hasBranchDifferences(for: "project"))
+    model.localProjects = [:]
+    model.remoteProjects[host.id]?["project"] = try project(["trunk": "a"], github: ["trunk": "b"], defaultBranch: "trunk")
+    #expect(model.hasBranchDifferences(for: "project"))
+    model.remoteProjects[host.id]?["project"] = try project(["main": "a"], github: ["main": "b"], defaultBranch: nil)
+    #expect(!model.hasBranchDifferences(for: "project"))
     #expect(!model.hasBranchDifferences(for: "unknown"))
 }
 #endif

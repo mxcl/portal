@@ -67,9 +67,10 @@ older hosts omit it. Counts reuse staging's staged, unstaged, and untracked diff
 without loading commit history. This additive metadata leaves protocol versions,
 ref ownership, per-ref atomicity, and eventual consistency unchanged.
 
-A small amber dot beside the project name indicates differing same-name local
-branch tips across checked-out hosts, or a local branch differing from its known
-GitHub tracking tip. Every local branch participates, not just HEAD. A configured
+A small amber dot after the project name and optional globe indicates differing
+default-branch tips across checked-out hosts, or that branch differing from its known
+GitHub tracking tip. The first known default branch from this Mac or a configured
+checked-out host is compared; other branches and unknown defaults do not trigger it. A configured
 GitHub upstream takes precedence over the same-name origin branch. Missing
 counterparts and mirrors do not trigger the dot. Optional `branchTips` inventory
 metadata carries these local-only observations on the existing discovery cycle;

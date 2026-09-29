@@ -16,7 +16,7 @@ struct GitSyncMenuBarApp: App {
                 .task { await runtime.model.refreshProjectStatuses() }
         } label: {
             MenuBarIcon(isPaused: runtime.model.isPaused,
-                        hasUnreadNotifications: runtime.model.github.hasUnreadNotifications == true)
+                        hasUnreadNotifications: runtime.model.github.showsUnreadNotifications)
         }
     }
 }
@@ -168,7 +168,7 @@ private struct StatusMenu: View {
             ForEach(notifications.prefix(20)) { note in
                 Button("\(note.repository): \(note.title)") {
                     if let url = note.safeURL, NSWorkspace.shared.open(url) {
-                        Task { await runtime.model.githubAction?(.notificationOpened) }
+                        Task { await runtime.model.githubAction?(.notificationOpened(id: note.id)) }
                     }
                 }.help(note.body)
             }

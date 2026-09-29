@@ -46,7 +46,7 @@ func githubResponseDecoding() throws {
         #expect(restored.hasUnreadNotifications == unread)
     }
     #expect(try JSONDecoder().decode(GitHubState.self, from: JSONEncoder().encode(GitHubState())).hasUnreadNotifications == nil)
-    #expect(EngineControlProtocol.version == 7)
+    #expect(EngineControlProtocol.version == 8)
 }
 @Test("GitHub sign-in control requests require no relay configuration")
 func githubConnectAction() throws {
@@ -58,11 +58,12 @@ func githubConnectAction() throws {
     }
     #expect(String(decoding: data, as: UTF8.self) == #"{"connect":{}}"#)
     let opened = try JSONDecoder().decode(GitHubAction.self,
-        from: JSONEncoder().encode(GitHubAction.notificationOpened))
-    guard case .notificationOpened = opened else {
+        from: JSONEncoder().encode(GitHubAction.notificationOpened(id: "42:now")))
+    guard case .notificationOpened(let id) = opened else {
         Issue.record("Expected a notification-opened action across the engine connection")
         return
     }
+    #expect(id == "42:now")
 }
 
 @Test("Merged cleanup defers without backup and while paused; changed tips are terminal")
@@ -121,5 +122,54 @@ func githubUnreadNotifications() throws {
     #expect(restored.unreadNotifications == state.unreadNotifications)
     for index in state.notifications.indices { state.notifications[index].unread = false }
     #expect(state.unreadNotifications.isEmpty)
+}
+@Test("Opening a notification clears its menu entry and dot before inbox polling")
+func githubNotificationOpenedImmediately() throws {
+    var state = GitHubState()
+    let note = GitHubNotification(id: "42:2026-09-29T12:00:00Z", repository: "owner/repo",
+        title: "Update", body: "", url: URL(string: "https://github.com/owner/repo/issues/1")!,
+        alert: true, unread: true)
+    state.notifications = [note]
+    state.hasUnreadNotifications = true
+    state.notificationOpened(id: note.id)
+    #expect(state.unreadNotifications.isEmpty)
+    #expect(!state.showsUnreadNotifications)
+    #expect(state.hasUnreadNotifications == true) // Keep reconciling with GitHub.
+
+    // A restart and a throttled or already-in-flight response must not undo the click.
+    state = try JSONDecoder().decode(GitHubState.self, from: JSONEncoder().encode(state))
+    state.notifications = [note]
+    #expect(state.unreadNotifications.isEmpty)
+    #expect(!state.showsUnreadNotifications)
+
+    let newer = GitHubNotification(id: "42:2026-09-29T13:00:00Z", repository: note.repository,
+        title: note.title, body: note.body, url: note.url, alert: true, unread: true)
+    state.notifications = [newer, note]
+    #expect(state.unreadNotifications.map(\.id) == [newer.id])
+    #expect(state.showsUnreadNotifications)
+    state.notificationOpened(id: note.id) // An older banner cannot dismiss a newer update.
+    #expect(state.showsUnreadNotifications)
+    state.notificationOpened(id: newer.id)
+    #expect(state.unreadNotifications.isEmpty)
+    #expect(!state.showsUnreadNotifications)
+
+    // Once GitHub confirms read, a deliberate mark-unread is visible again.
+    var read = note
+    read.unread = false
+    state.notifications = [read]
+    state.notifications = [note]
+    #expect(state.showsUnreadNotifications)
+
+    let other = GitHubNotification(id: "43:2026-09-29T12:00:00Z", repository: note.repository,
+        title: "Another thread", body: note.body, url: note.url, alert: true, unread: true)
+    state.notifications = [other, note]
+    state.notificationOpened(id: other.id)
+    #expect(state.unreadNotifications.map(\.id) == [note.id])
+    #expect(state.showsUnreadNotifications)
+
+    var legacy = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+    legacy.removeValue(forKey: "openedNotificationIDs")
+    let restored = try JSONDecoder().decode(GitHubState.self, from: JSONSerialization.data(withJSONObject: legacy))
+    #expect(restored.showsUnreadNotifications)
 }
 #endif

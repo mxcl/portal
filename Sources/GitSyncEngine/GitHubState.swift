@@ -32,21 +32,38 @@ public struct GitHubState: Codable, Sendable {
     public var notificationPermission = "Not requested"
     public var installationURL: URL?
     public var counts: [String: GitHubCounts] = [:]
-    public var notifications: [GitHubNotification] = []
+    public var notifications: [GitHubNotification] = [] {
+        didSet {
+            openedNotificationIDs?.formIntersection(notifications.filter { $0.unread == true }.map(\.id))
+        }
+    }
     public var hasUnreadNotifications: Bool?
+    // Optional for older caches. Keep local acknowledgments until the relay confirms read.
+    private var openedNotificationIDs: Set<String>?
+
+    public var showsUnreadNotifications: Bool {
+        hasUnreadNotifications == true && (openedNotificationIDs?.isEmpty != false || !unreadNotifications.isEmpty)
+    }
+
+    public mutating func notificationOpened(id: String) {
+        guard notifications.contains(where: { $0.id == id }) else { return }
+        openedNotificationIDs = (openedNotificationIDs ?? []).union([id])
+    }
 
     public var unreadNotifications: [GitHubNotification] {
         var threads = Set<Substring>()
         // The relay orders newest first; IDs are "threadID:updated_at".
         return notifications.filter {
             $0.unread == true && threads.insert($0.id.prefix { $0 != ":" }).inserted
+                && openedNotificationIDs?.contains($0.id) != true
         }
     }
     public init() {}
 }
 
 public enum GitHubAction: Codable, Sendable {
-    case connect, refresh, disconnect, requestNotificationPermission, installations, notificationOpened
+    case connect, refresh, disconnect, requestNotificationPermission, installations
+    case notificationOpened(id: String)
 }
 
 struct GitHubWork: Codable, Sendable {

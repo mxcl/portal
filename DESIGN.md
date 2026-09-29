@@ -57,6 +57,7 @@ default, which opens or activates the main app. General settings can disable it
 immediately; the helper persists this local preference in UserDefaults. Control
 protocol v4 includes the preference in snapshots and accepts its toggle command.
 Protocol v5 adds the notification-opened action for delayed inbox reconciliation.
+Protocol v8 includes the opened notification ID for immediate local dismissal.
 GitHub sign-in uses the built-in relay endpoint; its control command takes no URL.
 
 The sidebar shows green `+` and red `−` line counts for projects with known
@@ -501,7 +502,13 @@ The menu bar icon shows a 6-point blue dot at its upper-right corner when the
 last successful GitHub inbox snapshot contains unread notifications for tracked
 repositories. Its 22-by-18-point image keeps the same size with and without the
 dot, preserves the paused symbol, and includes unread status in its accessible
-label. Opening the menu does not mark notifications read. Reading on GitHub
+label. A successful banner or menu-item click immediately acknowledges that update
+locally, removing its row and clearing the dot when no other unread entries remain.
+Acknowledgments persist in the helper cache until the relay no longer reports that
+update as unread, so throttled or in-flight responses cannot resurrect it. A newer
+update to the same thread has a different ID and appears normally. The raw relay
+unread flag continues driving polling until GitHub confirms read status.
+Opening the menu does not mark notifications read. Reading on GitHub
 clears the dot after the next successful inbox refresh. While the dot is present,
 the helper requests an inbox refresh every 60 seconds; it stops when unread state
 clears. Opening a banner or menu notification schedules a check after three

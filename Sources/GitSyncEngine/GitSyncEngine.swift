@@ -5,7 +5,7 @@ import Foundation
 import GitSyncCore
 
 public enum EngineControlProtocol {
-    public static let version = 7
+    public static let version = 8
     public static let changedNotification = Notification.Name("dev.mxcl.git-sync.engine-changed")
     public static var socketURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

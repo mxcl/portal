@@ -154,7 +154,9 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                 await updatePermission()
                 await model.refreshProjectStatuses()
                 refresh(catchUp: true)
-            case .notificationOpened:
+            case .notificationOpened(let id):
+                model.github.notificationOpened(id: id)
+                saveCache()
                 clickRefreshTask?.cancel()
                 clickRefreshTask = Task { [weak self] in
                     do { try await Task.sleep(for: .seconds(3)) } catch { return }
@@ -403,8 +405,9 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
         didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
         if let text = response.notification.request.content.userInfo["url"] as? String,
            let url = URL(string: text), url.scheme == "https", url.host == "github.com", url.user == nil, url.password == nil {
+            let id = response.notification.request.identifier
             Task { @MainActor [weak self] in
-                if NSWorkspace.shared.open(url) { await self?.handle(.notificationOpened) }
+                if NSWorkspace.shared.open(url) { await self?.handle(.notificationOpened(id: id)) }
             }
         }
         completionHandler()

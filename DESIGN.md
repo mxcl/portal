@@ -67,6 +67,15 @@ older hosts omit it. Counts reuse staging's staged, unstaged, and untracked diff
 without loading commit history. This additive metadata leaves protocol versions,
 ref ownership, per-ref atomicity, and eventual consistency unchanged.
 
+A small amber dot beside the project name indicates differing same-name local
+branch tips across checked-out hosts, or a local branch differing from its known
+GitHub tracking tip. Every local branch participates, not just HEAD. A configured
+GitHub upstream takes precedence over the same-name origin branch. Missing
+counterparts and mirrors do not trigger the dot. Optional `branchTips` inventory
+metadata carries these local-only observations on the existing discovery cycle;
+older hosts omit it. The indicator performs no fetch or GitHub API requests and
+leaves the existing relay-triggered fetch/catch-up behavior unchanged.
+
 The sidebar groups active and archived projects. A project is the shared name
 of repositories observed across configured hosts and backup inventory. Rows
 show host presence and operational state without treating normal Git divergence

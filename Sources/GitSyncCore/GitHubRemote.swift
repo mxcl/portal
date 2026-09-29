@@ -22,6 +22,12 @@ public struct GitHubBranchStatus: Codable, Equatable, Sendable {
     }
 }
 
+/// Branch tips and GitHub comparisons from local refs only; never performs network I/O.
+public struct RepositoryBranchTips: Codable, Equatable, Sendable {
+    public let local: [String: String]
+    public let github: [String: String]
+}
+
 extension Repository {
     public func githubRemotes() throws -> [GitHubRemote] {
         try Git.text(["-C", url.path, "remote"]).split(separator: "\n")
@@ -34,6 +40,26 @@ extension Repository {
     }
 
     public var githubRepositories: [String] { (try? githubRemotes().map(\.repository)) ?? [] }
+
+    public func branchTips() throws -> RepositoryBranchTips? {
+        guard placement == .checkedOut else { return nil }
+        let remotes = Set(try githubRemotes().map(\.name))
+        let rows = String(decoding: try Git.run(["-C", url.path, "for-each-ref",
+            "--format=%(refname)%09%(objectname)%09%(upstream:remotename)%09%(upstream:remoteref)",
+            "refs/heads/", "refs/remotes/"]), as: UTF8.self)
+            .split(separator: "\n").map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+        let refs = Dictionary(uniqueKeysWithValues: rows.filter { $0.count == 4 }.map { ($0[0], $0[1]) })
+        var local: [String: String] = [:], github: [String: String] = [:]
+        for row in rows where row.count == 4 && row[0].hasPrefix("refs/heads/") {
+            let branch = String(row[0].dropFirst("refs/heads/".count))
+            local[branch] = row[1]
+            let remote = row[2].isEmpty ? "origin" : row[2]
+            let upstream = row[3].isEmpty ? row[0] : row[3]
+            guard remotes.contains(remote), upstream.hasPrefix("refs/heads/") else { continue }
+            github[branch] = refs["refs/remotes/" + remote + "/" + upstream.dropFirst("refs/heads/".count)]
+        }
+        return RepositoryBranchTips(local: local, github: github)
+    }
 
     /// Compare only locally known refs. Existing push-triggered fetches refresh them.
     func githubBranchStatus(head: String?, headOID: String?) throws -> GitHubBranchStatus? {

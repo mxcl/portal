@@ -50,4 +50,35 @@ func workingTreeSidebarCounts() throws {
     model.remoteProjects[host.id]?["project"] = try project(" M file\0", "9\t9\tfile\0")
     #expect(model.workingChangeCounts(for: "project") == nil)
 }
+@Test("Sidebar branch dot compares checked-out hosts and known GitHub tips only")
+@MainActor
+func branchDifferenceSidebar() throws {
+    let model = AppModel(connectToHelper: false)
+    let host = SyncHost(machine: "peer", peer: "peer", root: "/tmp/projects")
+    model.configuration.hosts = [host]
+    func project(_ local: [String: String], github: [String: String] = [:],
+                 placement: ProjectPlacement = .checkedOut) throws -> PeerProject {
+        let value = PeerProject(name: "project", placement: placement,
+                                branchTips: RepositoryBranchTips(local: local, github: github))
+        return try JSONDecoder().decode(PeerProject.self, from: JSONEncoder().encode(value))
+    }
+    model.localProjects["project"] = try project(["main": "a"])
+    model.remoteProjects[host.id] = ["project": try project(["main": "a", "topic": "b"])]
+    #expect(!model.hasBranchDifferences(for: "project"))
+    model.remoteProjects[host.id]?["project"] = try project(["main": "b"])
+    #expect(model.hasBranchDifferences(for: "project"))
+    model.remoteProjects[host.id]?["project"] = try project(["main": "b"], placement: .mirrored)
+    #expect(!model.hasBranchDifferences(for: "project"))
+    model.remoteProjects[host.id]?["project"] = try project(["main": "a"], github: ["main": "b"])
+    #expect(model.hasBranchDifferences(for: "project"))
+    model.localProjects = [:]
+    #expect(model.hasBranchDifferences(for: "project"))
+    model.configuration.hosts = []
+    #expect(!model.hasBranchDifferences(for: "project"))
+    model.localProjects["project"] = try project(["main": "a"], github: ["main": "a"])
+    #expect(!model.hasBranchDifferences(for: "project"))
+    model.localProjects["project"] = try project(["main": "a"], github: ["main": "b"])
+    #expect(model.hasBranchDifferences(for: "project"))
+    #expect(!model.hasBranchDifferences(for: "unknown"))
+}
 #endif

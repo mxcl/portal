@@ -75,6 +75,7 @@ func githubInventoryCompatibility() throws {
     let project = try JSONDecoder().decode(PeerProject.self, from: Data(#"{"name":"old","placement":"checkedOut"}"#.utf8))
     #expect(project.githubRepositories == nil)
     #expect(project.workingChanges == nil)
+    #expect(project.branchTips == nil)
 }
 
 @Test("Git failures retain their diagnostic in localized error messages")
@@ -111,12 +112,17 @@ func githubKnownBranchStatus() throws {
     _ = try git(["remote", "add", "origin", "https://github.com/test/project.git"])
     let repository = Repository(name: "project", url: root)
     #expect(try repository.snapshot().githubBranchStatus == nil)
+    #expect(try repository.branchTips() == RepositoryBranchTips(local: ["main": base], github: [:]))
     _ = try git(["update-ref", "refs/remotes/origin/main", base])
     #expect(try repository.snapshot().githubBranchStatus?.title == "Up to date")
     _ = try git(["update-ref", "refs/heads/main", local])
     #expect(try repository.snapshot().githubBranchStatus?.title == "1 ahead")
     _ = try git(["update-ref", "refs/remotes/origin/main", remote])
     #expect(try repository.snapshot().githubBranchStatus?.title == "1 ahead, 1 behind")
+    #expect(try repository.branchTips() == RepositoryBranchTips(local: ["main": local], github: ["main": remote]))
+    _ = try git(["branch", "topic", base])
+    _ = try git(["update-ref", "refs/remotes/origin/topic", local])
+    #expect(try repository.branchTips()?.github["topic"] == local)
     _ = try git(["update-ref", "refs/heads/main", base])
     #expect(try repository.snapshot().githubBranchStatus?.title == "1 behind")
     // An upstream may use a different branch name; same-name origin is not authoritative then.
@@ -125,12 +131,16 @@ func githubKnownBranchStatus() throws {
     #expect(try repository.snapshot().githubBranchStatus == nil)
     _ = try git(["update-ref", "refs/remotes/origin/release", base])
     #expect(try repository.snapshot().githubBranchStatus?.remoteBranch == "origin/release")
+    #expect(try repository.branchTips()?.github["main"] == base)
     #expect(try repository.snapshot().githubBranchStatus?.title == "Up to date")
     _ = try git(["config", "branch.main.remote", "."])
+    #expect(try repository.branchTips()?.github["main"] == nil)
     #expect(try repository.snapshot().githubBranchStatus == nil)
     _ = try git(["checkout", "--detach", "--quiet", base])
     #expect(try repository.snapshot().githubBranchStatus == nil)
     #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".git/FETCH_HEAD").path))
+    _ = try git(["config", "git-sync.mirrored", "true"])
+    #expect(try repository.branchTips() == nil)
 }
 
 @Test("Optional hardware and branch status preserve older inventory and content decoding")

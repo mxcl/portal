@@ -147,14 +147,16 @@ public struct PeerProject: Codable, Equatable, Identifiable, Sendable {
     public let defaultBranch: String?
     public let githubRepositories: [String]?
     public let workingChanges: RepositoryWorkingChanges?
+    public let branchTips: RepositoryBranchTips?
 
     public init(name: String, placement: ProjectPlacement, defaultBranch: String? = nil, githubRepositories: [String]? = nil,
-                workingChanges: RepositoryWorkingChanges? = nil) {
+                workingChanges: RepositoryWorkingChanges? = nil, branchTips: RepositoryBranchTips? = nil) {
         self.name = name
         self.placement = placement
         self.defaultBranch = defaultBranch
         self.githubRepositories = githubRepositories
         self.workingChanges = workingChanges
+        self.branchTips = branchTips
     }
 }
 

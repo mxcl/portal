@@ -129,7 +129,7 @@ func branchLabels() {
     #expect(bounds.maxX < BranchGraphRowCanvas.laneWidth + BranchGraphRowCanvas.trailingPadding)
 }
 
-@Test("Nearby branch tips stay separate and truncate before the next SHA")
+@Test("Nearby primary lane tips stay separate by using opposite sides")
 func nearbyBranchLabels() throws {
     let commits = (0..<10).map {
         RepositoryCommit(oid: "\($0)", parents: $0 < 9 ? ["\($0 + 1)"] : [],
@@ -142,10 +142,10 @@ func nearbyBranchLabels() throws {
     let upper = try #require(model.branchLabels.first).outline.boundingRect
     let lower = try #require(model.branchLabels.last).outline.boundingRect
     #expect(upper.minY >= 0.5 * BranchGraphRowCanvas.rowHeight)
-    #expect(upper.maxY < 3.5 * BranchGraphRowCanvas.rowHeight)
+    #expect(upper.maxY > 3.5 * BranchGraphRowCanvas.rowHeight)
     #expect(abs(model.branchLabels[0].hoverOutline.boundingRect.maxY - upper.maxY) < 0.01)
-    #expect(model.branchLabels[0].hoverOutline.boundingRect.height > upper.height)
-    #expect(lower.minY > upper.maxY)
+    #expect(model.branchLabels[0].hoverOutline == model.branchLabels[0].outline)
+    #expect(upper.maxX < lower.minX)
     #expect(model.branchLabels.last?.outline == main.branchLabels.first?.outline)
     let combined = CommitGraphGenerator.generate(commits: commits, headOID: "0",
         branchNames: ["0": ["main", "codex/history-complete-windows"]])
@@ -325,28 +325,48 @@ func auxiliaryHistoryLabels() {
     #expect(graph.branchLabels.allSatisfy { !$0.outline.isEmpty })
 }
 
-@Test("Primary lane labels sit to the left, including expanded names")
-func primaryLaneLabelsOnLeft() {
-    let commits = [
-        RepositoryCommit(oid: "main", parents: ["root"], author: "", date: .distantPast, message: ""),
-        RepositoryCommit(oid: "feature", parents: ["root"], author: "", date: .distantPast, message: ""),
-        RepositoryCommit(oid: "root", parents: [], author: "", date: .distantPast, message: ""),
-    ]
-    let graph = CommitGraphGenerator.generate(commits: commits, headOID: "main",
-        branchNames: ["main": ["main"], "feature": ["feature"]],
-        hoverBranchNames: ["main": ["maliwan/main", "origin/main"]])
-    #expect(graph.branchLabels.count == 2)
-    for (label, dot) in zip(graph.branchLabels, graph.dots) {
-        let x = BranchGraphCanvas.position(for: dot.center,
-            rowHeight: BranchGraphRowCanvas.rowHeight, laneWidth: BranchGraphRowCanvas.laneWidth).x
-        for outline in [label.outline, label.hoverOutline] {
-            #expect(!outline.isEmpty)
-            if dot.lane == 0 {
-                #expect(outline.boundingRect.maxX < x - 7)
-                #expect(outline.boundingRect.minX + BranchGraphRowCanvas.leadingPadding >= 0)
-            } else {
-                #expect(outline.boundingRect.minX > x)
-            }
+@Test("Primary lane labels prefer the right and use the left to avoid truncation")
+func primaryLaneLabelsUseAvailableSpace() {
+    let commits = (0..<12).map {
+        RepositoryCommit(oid: "\($0)", parents: $0 < 11 ? ["\($0 + 1)"] : [],
+                         author: "", date: .distantPast, message: "")
+    }
+    let names = ["0": ["codex/history-complete-windows"], "3": ["main"], "8": ["older"]]
+    let graph = CommitGraphGenerator.generate(commits: commits, headOID: "0", branchNames: names,
+        hoverBranchNames: ["0": ["maliwan/codex/history-complete-windows", "origin/codex/history-complete-windows"]])
+    #expect(graph.branchLabels.count == 3)
+    let moved = graph.branchLabels[0]
+    for outline in [moved.outline, moved.hoverOutline] {
+        #expect(!outline.isEmpty)
+        #expect(outline.boundingRect.maxX < BranchGraphRowCanvas.laneWidth / 2 - 7)
+        #expect(outline.boundingRect.minX + BranchGraphRowCanvas.leadingPadding >= 0)
+    }
+    #expect(moved.outline.boundingRect.height > 3 * BranchGraphRowCanvas.rowHeight)
+    for label in graph.branchLabels.dropFirst() {
+        #expect(label.outline.boundingRect.minX > BranchGraphRowCanvas.laneWidth / 2)
+    }
+    let roomy = CommitGraphGenerator.generate(commits: commits, headOID: "0", branchNames: ["0": names["0"]!])
+    #expect(roomy.branchLabels[0].outline.boundingRect.minX > BranchGraphRowCanvas.laneWidth / 2)
+}
+
+@Test("Crowded primary lane labels use both sides and still truncate when both are full")
+func crowdedPrimaryLaneLabels() {
+    let commits = (0..<8).map {
+        RepositoryCommit(oid: "\($0)", parents: $0 < 7 ? ["\($0 + 1)"] : [],
+                         author: "", date: .distantPast, message: "")
+    }
+    let names = Dictionary(uniqueKeysWithValues: commits.prefix(6).map {
+        ($0.oid, ["codex/a-long-branch-name-that-cannot-fit-between-adjacent-commits"])
+    })
+    let graph = CommitGraphGenerator.generate(commits: commits, headOID: "0", branchNames: names)
+    #expect(graph.branchLabels.count == names.count)
+    #expect(graph.branchLabels.allSatisfy { !$0.outline.isEmpty })
+    #expect(graph.branchLabels.contains { $0.outline.boundingRect.maxX < 12 })
+    #expect(graph.branchLabels.contains { $0.outline.boundingRect.minX > 12 })
+    #expect(graph.branchLabels.contains { $0.hoverOutline.boundingRect.height > $0.outline.boundingRect.height })
+    for (index, label) in graph.branchLabels.enumerated() {
+        for other in graph.branchLabels.dropFirst(index + 1) {
+            #expect(!label.outline.boundingRect.intersects(other.outline.boundingRect))
         }
     }
 }

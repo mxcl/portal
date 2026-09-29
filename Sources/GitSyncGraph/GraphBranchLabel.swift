@@ -90,7 +90,8 @@ struct GraphBranchLabel: Sendable {
         let groups = Dictionary(grouping: anchors, by: \.route)
         return groups.keys.sorted().flatMap { key in
             let group = groups[key]!
-            return group.enumerated().map { index, anchor in
+            func label(at index: Int, onLeft: Bool, next: (index: Int, label: Self)?) -> (label: Self, fits: Bool) {
+                let anchor = group[index]
                 let dot = anchor.dot
                 func text(_ names: [String]) -> String {
                     let names = names.map { $0.uppercased() }
@@ -138,14 +139,38 @@ struct GraphBranchLabel: Sendable {
                     }
                     return (low + high) / 2
                 }
-                let end = group.indices.contains(index + 1)
-                    ? fraction(atY: group[index + 1].dot.center.y * BranchGraphRowCanvas.rowHeight - 5) : 1
+                let end = next.map {
+                    fraction(atY: min(group[$0.index].dot.center.y * BranchGraphRowCanvas.rowHeight - 5,
+                                      $0.label.outline.boundingRect.minY - 4))
+                } ?? 1
                 let trimmed = path.trimmedPath(from: fraction(atY: start.y + 5), to: end)
-                return Self(outline: outline(name, along: trimmed, onLeft: dot.lane == 0, truncate: group.count > 1),
-                            hoverOutline: outline(name, along: trimmed, onLeft: dot.lane == 0, truncate: group.count > 1, expanded: true,
-                                                  expandedText: text(anchor.hoverNames)),
-                            colorIndex: dot.colorIndex)
+                let truncate = onLeft ? next != nil : group.count > 1
+                let full = outline(name, along: trimmed, onLeft: onLeft)
+                let fitted = truncate ? outline(name, along: trimmed, onLeft: onLeft, truncate: true) : full
+                return (Self(outline: fitted,
+                             hoverOutline: outline(name, along: trimmed, onLeft: onLeft, truncate: truncate,
+                                                   expanded: true, expandedText: text(anchor.hoverNames)),
+                             colorIndex: dot.colorIndex), !full.isEmpty && fitted == full)
             }
+            var placed: [Self] = []
+            var nextRight: (index: Int, label: Self)?
+            var nextLeft: (index: Int, label: Self)?
+            // Work upward so moving one label frees room for earlier labels on the right.
+            for index in group.indices.reversed() {
+                let right = label(at: index, onLeft: false, next: nextRight)
+                if group[index].dot.lane == 0, !right.fits {
+                    let left = label(at: index, onLeft: true, next: nextLeft)
+                    if left.fits || left.label.outline.boundingRect.height > right.label.outline.boundingRect.height {
+                        placed.append(left.label)
+                        nextLeft = (index, left.label)
+                        continue
+                    }
+                }
+                placed.append(right.label)
+                nextRight = (index, right.label)
+            }
+            return placed.reversed()
+
         }
     }
 

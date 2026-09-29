@@ -161,6 +161,14 @@ func matchingReferenceNames() {
         let short = tags ? "releases/v1" : "feature/main"
         let matching = names.map { RepositoryReference(fullName: $0, oid: "a") }
         #expect(RepositoryReference.graphNames(matching, hosts: [], sourceMachine: "Maliwan", tags: tags) == [short])
+        let peers = Array(matching.dropFirst())
+        #expect(RepositoryReference.graphNames(peers, hosts: [], sourceMachine: "Maliwan",
+                                              allReferences: peers, tags: tags) == [short])
+        let divergentPeers = [peers[0], RepositoryReference(fullName: peers[1].fullName, oid: "b")]
+        for peer in divergentPeers {
+            #expect(RepositoryReference.graphNames([peer], hosts: [], sourceMachine: "Maliwan",
+                                                  allReferences: divergentPeers, tags: tags) == [peer.name])
+        }
         #expect(RepositoryReference.graphNames([matching[0]], hosts: [], sourceMachine: "Maliwan", tags: tags)
                 == ["maliwan/\(short)"])
         let divergent = Array(matching.prefix(2)) + [RepositoryReference(fullName: names[2], oid: "b")]

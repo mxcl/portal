@@ -447,8 +447,14 @@ discovery timers must not become GitHub polling timers.
 With GitHub connected, branch events may fetch into `refs/remotes/<remote>/*`
 for a matching, configured github.com remote in a local checkout. This is a
 narrow exception to peer-only background ref writes. The fetch uses an explicit
-branch-only refspec, never the configured remote refspecs, and does not write
-`FETCH_HEAD`, tags, local branches, stash, HEAD, index or working files. Peer
+branch refspec, never the configured remote refspecs. Tag push/create events also
+queue fetch work. For a matching GitHub `origin`, each fetch (including catch-up)
+also fetches `refs/tags/*:refs/tags/*` in a separate non-pruning, non-forced fetch.
+This additional exception creates local tags but never replaces or deletes existing
+tags; conflicting tags report a fetch error and leave work pending for retry.
+Tag deletion events do not queue work. Other GitHub remotes fetch only branches.
+Neither fetch writes `FETCH_HEAD`, local branches, stash, HEAD, index or working files.
+Symbolic tag destinations are rejected. Peer
 namespace collisions, mirror remotes and symbolic refs escaping the destination
 namespace are rejected. Git retains responsibility for ref locking and updates;
 per-ref atomicity and eventual consistency remain unchanged. Pausing sync defers

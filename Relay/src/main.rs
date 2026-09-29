@@ -1223,10 +1223,12 @@ async fn finish_notification_work(
 fn event_work(event: &str, payload: &Value) -> Vec<&'static str> {
     let mut work = Vec::new();
     if (event == "push"
-        && payload["ref"]
-            .as_str()
-            .is_some_and(|s| s.starts_with("refs/heads/")))
+        && payload["ref"].as_str().is_some_and(|s| {
+            s.starts_with("refs/heads/")
+                || (s.starts_with("refs/tags/") && payload["deleted"] != true)
+        }))
         || (["create", "delete"].contains(&event) && payload["ref_type"] == "branch")
+        || (event == "create" && payload["ref_type"] == "tag")
     {
         work.push("fetch");
     }

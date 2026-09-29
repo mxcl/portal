@@ -6,7 +6,16 @@ fn events_route_only_relevant_work() {
         event_work("push", &json!({"ref":"refs/heads/main"})),
         vec!["fetch"]
     );
-    assert!(event_work("push", &json!({"ref":"refs/tags/v1"})).is_empty());
+    assert_eq!(
+        event_work("push", &json!({"ref":"refs/tags/v1"})),
+        vec!["fetch"]
+    );
+    assert_eq!(
+        event_work("create", &json!({"ref_type":"tag"})),
+        vec!["fetch"]
+    );
+    assert!(event_work("push", &json!({"ref":"refs/tags/v1", "deleted":true})).is_empty());
+    assert!(event_work("delete", &json!({"ref_type":"tag"})).is_empty());
     assert_eq!(
         event_work("create", &json!({"ref_type":"branch"})),
         vec!["fetch"]

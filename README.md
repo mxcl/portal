@@ -54,7 +54,7 @@ updates leave the checkout untouched. A checkout that becomes clean later
 retries the fast-forward during reconciliation (within five minutes).
 
 The optional [GitHub integration](Relay/README.md) adds project notifications,
-star/open PR/open issue counts, and branch fetches triggered by GitHub pushes.
+star/open PR/open issue counts, and branch/tag fetches triggered by GitHub pushes.
 It uses a separate relay and APNs, with no recurring GitHub polling.
 
 ## Install the Mac app

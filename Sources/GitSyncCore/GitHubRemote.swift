@@ -55,7 +55,7 @@ extension Repository {
         return GitHubBranchStatus(branch: head, remoteBranch: remoteBranch, ahead: ahead, behind: behind)
     }
 
-    /// Only this remote's branch tracking namespace is writable. Never trust remote.*.fetch.
+    /// Fetch tracking branches and origin tags with explicit destinations, never remote.*.fetch.
     public func fetchGitHub(_ repository: String, peerMachines: [String]) throws {
         guard placement == .checkedOut else {
             throw SyncError.invalidConfiguration("GitHub fetch requires a local checkout")
@@ -80,6 +80,17 @@ extension Repository {
                              "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules",
                              "--no-auto-maintenance", "--prune", "--refmap=", "--", remote.url,
                              "+refs/heads/*:\(prefix)*"], environment: ["GIT_TERMINAL_PROMPT": "0"])
+            if remote.name == "origin" {
+                let symrefs = try Git.text(["-C", url.path, "for-each-ref", "--format=%(symref)", "refs/tags/"])
+                guard symrefs.isEmpty else {
+                    throw SyncError.invalidConfiguration("GitHub tag destination contains symbolic refs")
+                }
+                // Tags are never forced or pruned, even when local fetch configuration requests it.
+                _ = try Git.run(["-C", url.path, "-c", "fetch.pruneTags=false", "fetch",
+                                 "--no-tags", "--no-prune", "--no-write-fetch-head", "--no-recurse-submodules",
+                                 "--no-auto-maintenance", "--refmap=", "--", remote.url,
+                                 "refs/tags/*:refs/tags/*"], environment: ["GIT_TERMINAL_PROMPT": "0"])
+            }
         }
     }
 }

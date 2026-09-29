@@ -3,6 +3,7 @@
 - Commit regularly.
 - Treat `git-sync` as a continuous bidirectional Git fetch/push system. It exchanges objects and publishes ref snapshots. Each working repository remains independent.
 - Each host owns its local branches, tags, stash, `HEAD`, index, and working tree. Background code may only write the peer namespaces documented in `DESIGN.md`.
+- Exception: GitHub webhook/catch-up fetches may create missing local tags from a matching GitHub `origin`, without replacing or pruning existing tags, as documented in `DESIGN.md`.
 - Exception: verified GitHub merge cleanup may delete an unchanged, non-checked-out local PR branch only after the configured backup destination confirms permanent retention of its complete objects and branch metadata. Never delete a default/base branch or a diverged tip.
 - Preserve divergence. Never merge, rebase, reset, check out, or promote an incoming peer ref to a local ref in background code.
 - Require a user action to promote a peer ref into local work if promotion is ever added.

@@ -1,7 +1,7 @@
 # Gitinuum GitHub relay
 
 GitHub events wake Gitinuum. The Mac refreshes notifications and project counts,
-then fetches changed GitHub branches. There is no recurring GitHub poll.
+then fetches changed GitHub branches and new tags from a matching GitHub origin. There is no recurring GitHub poll.
 
 This is an independent, trimmed port of `~/src/canopy`: no Canopy
 database contents, billing, hooks, or iOS app is reused. Credentials and hosting
@@ -22,7 +22,7 @@ Create a GitHub App with callback `https://YOUR_RELAY_HOST/oauth/hello`, webhook
 user tokens. Configure these read permissions: metadata, contents, issues, pull
 requests, actions, checks, deployments, and Dependabot alerts.
 
-Subscribe to pushes, branch creation/deletion, stars, issues, issue comments,
+Subscribe to pushes, branch/tag creation/deletion, stars, issues, issue comments,
 pull requests, PR reviews/comments, releases, workflow runs, check runs/suites,
 deployment statuses and Dependabot alerts. Installation lifecycle events arrive
 automatically. Install the App on the repositories Gitinuum tracks.

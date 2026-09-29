@@ -1356,6 +1356,7 @@ final class AppModel: ObservableObject {
 
 struct ProjectBrowserView: View {
     @ObservedObject var model: AppModel
+    @FocusState private var isSidebarFocused: Bool
     @Environment(\.openSettings) private var openSettings
     @State private var search = ""
     @State private var visibility: NavigationSplitViewVisibility = .all
@@ -1398,6 +1399,10 @@ struct ProjectBrowserView: View {
                 }
             }
             .navigationTitle("Projects")
+            .focused($isSidebarFocused)
+            .onChange(of: model.selectedTab, initial: true) { _, tab in
+                if tab == .info { isSidebarFocused = true }
+            }
             .searchable(text: $search, placement: .sidebar, prompt: "Projects")
             .overlay {
                 if projects.isEmpty && archived.isEmpty {
@@ -1713,6 +1718,7 @@ private struct ProjectRow: View {
 
 private struct ProjectHistoryView: View {
     @ObservedObject var model: AppModel
+    @FocusState private var isFocused: Bool
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -1746,12 +1752,19 @@ private struct ProjectHistoryView: View {
                            sourceMachine: model.projectSourceMachine, selection: Binding(
                     get: { model.selectedCommitID }, set: model.selectCommit
                 ))
+                .focused($isFocused)
             } else {
                 ContentUnavailableView("No Available Copy", systemImage: "desktopcomputer.trianglebadge.exclamationmark",
                                        description: Text("Bring this project to a configured host to render its Git tree and README."))
             }
         }
         .navigationTitle(model.selectedProjectName ?? "Git Tree")
+        .onChange(of: model.selectedProjectName, initial: true) { _, _ in
+            if model.selectedTab == .diff { isFocused = true }
+        }
+        .onChange(of: model.selectedTab) { _, tab in
+            if tab == .diff { isFocused = true }
+        }
         .task(id: model.selectedProjectName) {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }

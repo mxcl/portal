@@ -76,6 +76,9 @@ enum TahoeGlassPalette {
     static let windowTintEnd = tint(light: 0, dark: 0.24)
     static let topBarTint = tint(light: 0.04, dark: 0.26)
     static let commandBackground = NSColor.textBackgroundColor
+    static var failedCommandBackground: NSColor {
+        commandBackground.blended(withFraction: 0.08, of: .systemRed) ?? commandBackground
+    }
     static let hairline = NSColor.separatorColor
     static let titleTopHairline = NSColor.labelColor.withAlphaComponent(0.20)
     static let titleText = NSColor.secondaryLabelColor
@@ -1803,7 +1806,10 @@ private final class BlockView: NSView {
         case .completed(let code):
             minimumHeightConstraint?.constant = 0
             contentBottomConstraint?.isActive = true
-            layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
+            layer?.backgroundColor = (code == 0
+                ? TahoeGlassPalette.commandBackground
+                : TahoeGlassPalette.failedCommandBackground
+            ).cgColor
             if let duration = durationText(for: block) {
                 metadata.append(MetadataSegment(text: duration, color: .tertiaryLabelColor))
             }

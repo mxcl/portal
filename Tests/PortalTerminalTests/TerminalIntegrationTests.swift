@@ -40,6 +40,10 @@ struct TerminalIntegrationTests {
             appearance.performAsCurrentDrawingAppearance {
                 colors.append(yellow.usingColorSpace(.sRGB)!)
                 surfaces.append(TahoeGlassPalette.commandBackground.usingColorSpace(.sRGB)!)
+                let failure = TahoeGlassPalette.failedCommandBackground.usingColorSpace(.sRGB)!
+                #expect(failure.alphaComponent == 1)
+                #expect(failure.redComponent > failure.greenComponent)
+                #expect(failure != surfaces.last!)
                 explicitColors.append(rgb.usingColorSpace(.sRGB)!)
             }
         }

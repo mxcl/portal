@@ -4008,6 +4008,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let initialDirectory: URL
     private let selfTestCommand: String?
     private let launchCommand: String?
+    private let sessionHosts: [TerminalHost]
     private let sessionCatalog: SessionCatalog
     private var windowID: String { sessionCatalog.windowID }
     private let restoresPersistedWindow: Bool
@@ -4150,7 +4151,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         initialDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         initialHostID: String? = nil,
         standalone: Bool = false,
-        launchCommand: String? = nil
+        launchCommand: String? = nil,
+        sessionHosts: [TerminalHost] = []
     ) {
         _ = Self.didRunPassthroughRoutingSelfTest
         self.standalone = standalone
@@ -4158,6 +4160,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         self.initialDirectory = initialDirectory
         self.selfTestCommand = selfTestCommand
         self.launchCommand = launchCommand
+        self.sessionHosts = sessionHosts
         self.sessionCatalog = SessionCatalog(url: Self.sessionStateURL().deletingLastPathComponent()
             .appendingPathComponent((standalone ? "windows/" : "projects/") + windowID + ".json"), windowID: windowID)
         self.restoresPersistedWindow = restoresPersistedWindow
@@ -4172,6 +4175,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         self.initialDirectory = FileManager.default.homeDirectoryForCurrentUser
         self.selfTestCommand = nil
         self.launchCommand = nil
+        self.sessionHosts = []
         self.sessionCatalog = SessionCatalog(url: Self.sessionStateURL(), windowID: UUID().uuidString)
         self.restoresPersistedWindow = true
         self.showsTabStrip = false
@@ -5388,7 +5392,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 else {
                     return
                 }
-                self.renderSessionPicker(snapshot, for: tab)
+                self.renderSessionPicker(snapshot.offeringNewSessions(on: self.sessionHosts), for: tab)
             }
         )
     }

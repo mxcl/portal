@@ -41,7 +41,7 @@ public final class TerminalWorkspace: ObservableObject {
 
     public func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hosts: [TerminalHost]? = nil) {
         if let hosts { PtySession.configureSSHHosts(hosts) }
-        let controller = TerminalViewController(restoresPersistedWindow: false, initialDirectory: directory, standalone: true, launchCommand: command)
+        let controller = TerminalViewController(restoresPersistedWindow: false, initialDirectory: directory, standalone: true, launchCommand: command, sessionHosts: hosts ?? [])
         let window = StandaloneTerminalWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 760),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
@@ -89,7 +89,7 @@ public final class TerminalWorkspace: ObservableObject {
         }
         let key = SHA256.hash(data: Data(path.utf8)).map { String(format: "%02x", $0) }.joined()
         let controller = TerminalViewController(windowID: key, restoresPersistedWindow: false,
-                                                initialDirectory: directory, initialHostID: host?.id)
+                                                initialDirectory: directory, initialHostID: host?.id, sessionHosts: hosts)
         controllers[path] = controller
         activeController = controller
         return controller

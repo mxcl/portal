@@ -13,6 +13,16 @@ struct TerminalIntegrationTests {
         #expect(portalFailedCommandDividersSelfTest())
     }
 
+    @Test func configuredDestinationsAppearBeforeRemoteInventory() {
+        let hosts = ["pangolin", "atlas"].map {
+            TerminalHost(id: $0, name: $0, peer: $0, helperPath: "/helper", directory: "/projects")
+        }
+        let snapshot = SessionPickerSnapshot(sections: []).offeringNewSessions(on: hosts)
+        #expect(Set(snapshot.sections.map(\.title)) == ["pangolin", "atlas"])
+        #expect(snapshot.sections.allSatisfy { $0.newSession?.action == .create && $0.items.isEmpty })
+        #expect(snapshot.offeringNewSessions(on: hosts) == snapshot)
+    }
+
     @Test @MainActor func standaloneUsesPortalBlurMaterial() {
         let root = TahoeGlassRootView()
         let material = root.subviews.compactMap { $0 as? NSVisualEffectView }.first!

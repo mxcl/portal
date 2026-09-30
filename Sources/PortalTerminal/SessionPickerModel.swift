@@ -42,6 +42,26 @@ struct SessionPickerSection: Equatable, Sendable {
 struct SessionPickerSnapshot: Equatable, Sendable {
     var sections: [SessionPickerSection]
 
+    func offeringNewSessions(on hosts: [TerminalHost]) -> Self {
+        var snapshot = self
+        for host in hosts {
+            let location = SessionLocation.sshHost(host.id)
+            let candidate = SessionPickerCandidate(
+                sessionRef: SessionRef(location: location, sessionID: "new", hostName: host.name),
+                hostTitle: host.name, title: "New session", cwd: host.directory,
+                isClosed: false, commandCount: 0, commandHistory: [], action: .create
+            )
+            if let index = snapshot.sections.firstIndex(where: { $0.location == location }) {
+                snapshot.sections[index].newSession = candidate
+            } else {
+                snapshot.sections.append(SessionPickerSection(
+                    location: location, title: host.name, newSession: candidate, items: []
+                ))
+            }
+        }
+        return snapshot
+    }
+
     func matchingItems(_ query: String) -> [SessionPickerItem] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return [] }

@@ -71,6 +71,14 @@ public enum Runner {
         return try JSONDecoder().decode(RepositoryContent.self, from: data)
     }
 
+    public static func projectStaging(_ repository: String, configuration: Configuration) throws -> RepositorySnapshot {
+        try configuration.validate()
+        try Validator.project(repository)
+        let data = try runRemote(configuration, arguments: ["project-staging", "--root", configuration.remoteRoot,
+            "--repository", repository], failure: "Could not read staging; update Gitinuum on the peer if needed")
+        return try JSONDecoder().decode(RepositorySnapshot.self, from: data)
+    }
+
     public static func projectDiff(_ repository: String, oid: String?, staged: Bool = false,
                                    configuration: Configuration) throws -> String {
         try configuration.validate()
@@ -418,7 +426,7 @@ public enum Runner {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private static func remoteCommand(_ executable: String, _ arguments: [String]) -> String {
+    static func remoteCommand(_ executable: String, _ arguments: [String]) -> String {
         "exec " + ([executable] + arguments).map(shellQuote).joined(separator: " ")
     }
 }

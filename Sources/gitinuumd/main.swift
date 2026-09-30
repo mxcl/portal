@@ -38,7 +38,9 @@ Usage:
   gitinuumd daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--receive-only] [--sync-checkouts] [--state PATH]
   gitinuumd list --root PATH
   gitinuumd inspect --root PATH [--machine NAME]
+  gitinuumd watch-projects --root PATH --watch-version 1
   gitinuumd project-content --root PATH --repository NAME
+  gitinuumd project-staging --root PATH --repository NAME
   gitinuumd project-search --root PATH --repository NAME --query TEXT --search-version 1
   gitinuumd project-diff --root PATH --repository NAME --oid OID
   gitinuumd project-diff --root PATH --repository NAME --working-changes [--staged]
@@ -90,6 +92,18 @@ do {
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
         let data = try JSONEncoder().encode(Repository.discover(in: root).map(\.name))
         print(String(decoding: data, as: UTF8.self))
+    case "watch-projects":
+        let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
+        guard let version = Int(try required("--watch-version", in: arguments)) else {
+            throw SyncError.invalidProtocol("Invalid project watch version")
+        }
+        _ = try ProjectChange(version: version).checked()
+        // SSH closes stdin when its client leaves. Do not leave an orphan watcher.
+        DispatchQueue.global().async {
+            while !FileHandle.standardInput.readData(ofLength: 4096).isEmpty {}
+            exit(0)
+        }
+        try Runner.watchProjects(root: root, version: version)
     case "inspect":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
         let repositories = try Repository.discover(in: root)
@@ -102,13 +116,15 @@ do {
                                                         workingChanges: try? $0.workingChanges(), branchTips: try? $0.branchTips())
                                         }, hardware: .current)
         print(String(decoding: try JSONEncoder().encode(inspection), as: UTF8.self))
-    case "project-content", "project-diff", "project-search":
+    case "project-content", "project-diff", "project-search", "project-staging":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
         let name = try required("--repository", in: arguments).precomposedStringWithCanonicalMapping
         guard let repository = try Repository.discover(in: root).first(where: { $0.name == name }) else {
             throw SyncError.invalidConfiguration("Project does not exist: \(name)")
         }
-        if command == "project-search" {
+        if command == "project-staging" {
+            try FileHandle.standardOutput.write(contentsOf: JSONEncoder().encode(repository.snapshot(limit: 0)))
+        } else if command == "project-search" {
             guard try required("--search-version", in: arguments) == String(RepositorySearchReply.currentVersion) else {
                 throw SyncError.invalidProtocol("Unsupported search version")
             }

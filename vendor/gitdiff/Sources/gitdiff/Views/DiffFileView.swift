@@ -34,7 +34,11 @@ public struct DiffFileView: View {
           Group {
             if let openFile {
               Button(file.displayName) { openFile(file) }
-                .buttonStyle(.plain)
+                #if os(macOS)
+                .buttonStyle(.link)
+                #else
+                .buttonStyle(.borderless)
+                #endif
                 .help("Open local working copy in editor")
             } else {
               Text(file.displayName)

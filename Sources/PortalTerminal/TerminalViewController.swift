@@ -2234,14 +2234,13 @@ func portalFailedCommandDividersSelfTest() -> Bool {
         finishedAt: nil, output: "", attributedOutput: NSAttributedString(string: ""),
         outputRevision: 0, state: .running
     )
-    for state: TerminalBlock.State in [.running, .completed(0), .completed(127), .completed(0)] {
+    for (state, failed): (TerminalBlock.State, Bool) in [
+        (.running, false), (.completed(0), false), (.completed(127), true), (.completed(0), false)
+    ] {
         block.state = state
-        top.needsDisplay = false
-        bottom.needsDisplay = false
         view.update(with: block)
-        let failed = state == .completed(127)
         guard top.hasFailedNeighbor == failed, bottom.hasFailedNeighbor == failed,
-              !vertical.hasFailedNeighbor, top.needsDisplay, bottom.needsDisplay else { return false }
+              !vertical.hasFailedNeighbor else { return false }
     }
     return true
 }

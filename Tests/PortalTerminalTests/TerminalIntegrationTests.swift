@@ -5,6 +5,10 @@ import Testing
 
 @Suite("Embedded terminal", .serialized)
 struct TerminalIntegrationTests {
+    @Test @MainActor func failedCommandDividers() {
+        #expect(portalFailedCommandDividersSelfTest())
+    }
+
     @Test @MainActor func tabBarStartsHidden() {
         let controller = TerminalViewController()
         #expect(!controller.isTabSession)

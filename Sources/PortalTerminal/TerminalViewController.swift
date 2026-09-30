@@ -1811,6 +1811,13 @@ private final class BlockView: NSView {
     }
 
     func update(with block: TerminalBlock, now: Date = Date()) {
+        // Cached terminals can receive history updates outside their drawing context.
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            updateContent(with: block, now: now)
+        }
+    }
+
+    private func updateContent(with block: TerminalBlock, now: Date) {
         lastBlock = block
         topSeparator?.needsDisplay = true
         bottomSeparator?.needsDisplay = true
@@ -2247,6 +2254,35 @@ func portalFailedCommandDividersSelfTest() -> Bool {
 
 func portalBlockWidthReflowSelfTest() -> Bool {
     BlockView.widthReflowSelfTest()
+}
+
+func portalDetachedBlockAppearanceSelfTest() -> Bool {
+    let view = BlockView()
+    var block = TerminalBlock(
+        id: UUID(), command: "false", cwd: "/tmp", startedAt: Date(),
+        finishedAt: Date(), output: "", attributedOutput: NSAttributedString(string: ""),
+        outputRevision: 0, state: .completed(127)
+    )
+    for name in [NSAppearance.Name.darkAqua, .aqua] {
+        view.appearance = NSAppearance(named: name)
+        let otherAppearance = NSAppearance(named: name == .aqua ? .darkAqua : .aqua)!
+        for state: TerminalBlock.State in [.running, .completed(0), .completed(127)] {
+            block.state = state
+            var expected: CGColor?
+            view.effectiveAppearance.performAsCurrentDrawingAppearance {
+                if case .completed(127) = state {
+                    expected = TahoeGlassPalette.failedCommandBackground.cgColor
+                } else {
+                    expected = TahoeGlassPalette.commandBackground.cgColor
+                }
+            }
+            otherAppearance.performAsCurrentDrawingAppearance {
+                view.update(with: block)
+            }
+            guard view.layer?.backgroundColor == expected else { return false }
+        }
+    }
+    return true
 }
 
 private final class TitleTabButton: NSButton {

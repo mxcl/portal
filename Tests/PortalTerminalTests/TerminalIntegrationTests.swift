@@ -5,6 +5,10 @@ import Testing
 
 @Suite("Embedded terminal", .serialized)
 struct TerminalIntegrationTests {
+    @Test @MainActor func detachedBlockColorsFollowAppearance() {
+        #expect(portalDetachedBlockAppearanceSelfTest())
+    }
+
     @Test @MainActor func failedCommandDividers() {
         #expect(portalFailedCommandDividersSelfTest())
     }

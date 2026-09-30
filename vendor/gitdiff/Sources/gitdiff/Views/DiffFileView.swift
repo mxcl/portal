@@ -34,11 +34,7 @@ public struct DiffFileView: View {
           Group {
             if let openFile {
               Button(file.displayName) { openFile(file) }
-                #if os(macOS)
-                .buttonStyle(.link)
-                #else
-                .buttonStyle(.borderless)
-                #endif
+                .buttonStyle(DiffFileButtonStyle())
                 .help("Open local working copy in editor")
             } else {
               Text(file.displayName)
@@ -99,6 +95,33 @@ public struct DiffFileView: View {
       RoundedRectangle(cornerRadius: 6)
         .stroke(Color.gray.opacity(0.3), lineWidth: 1)
     )
+  }
+}
+
+private struct DiffFileButtonStyle: ButtonStyle {
+  @State private var isHovered = false
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .modifier(DiffFileButtonFeedback(isHovered: isHovered && isEnabled,
+                                       isPressed: configuration.isPressed && isEnabled))
+      .onHover { isHovered = $0 }
+  }
+}
+
+struct DiffFileButtonFeedback: ViewModifier {
+  let isHovered: Bool
+  let isPressed: Bool
+
+  func body(content: Content) -> some View {
+    content
+      .underline(isHovered || isPressed)
+      .padding(.horizontal, 6)
+      .padding(.vertical, 3)
+      .background(Color.accentColor.opacity(isPressed ? 0.3 : (isHovered ? 0.15 : 0)),
+                  in: RoundedRectangle(cornerRadius: 4))
+      .contentShape(Rectangle())
   }
 }
 

@@ -5,7 +5,8 @@ import CodeEditLanguages
 import CodeEditTextView
 @testable import CodeEditSourceEditor
 import Testing
-import gitdiff
+@testable import gitdiff
+import SwiftUI
 @testable import GitSyncApp
 @testable import GitSyncCore
 
@@ -270,5 +271,24 @@ func editorOpensDiffFile(newPath: String) async throws {
     model.selectedTab = .diff
     model.openDiffFile(file)
     #expect(model.selectedTab == .diff)
+}
+@Test("Diff filenames render distinct idle, hover, and pressed states", arguments: [ColorScheme.light, .dark])
+@MainActor
+func diffFilenameFeedback(scheme: ColorScheme) throws {
+    func render(hovered: Bool, pressed: Bool) throws -> NSBitmapImageRep {
+        let image = ImageRenderer(content: Text("Sources/File.swift")
+            .font(.headline).foregroundColor(scheme == .dark ? .white : .black)
+            .modifier(DiffFileButtonFeedback(isHovered: hovered, isPressed: pressed))
+            .padding(8).background(scheme == .dark ? Color.black : .white)
+            .environment(\.colorScheme, scheme))
+        return NSBitmapImageRep(cgImage: try #require(image.cgImage))
+    }
+    let idle = try render(hovered: false, pressed: false)
+    let hover = try render(hovered: true, pressed: false)
+    let pressed = try render(hovered: true, pressed: true)
+    #expect(idle.pixelsWide == hover.pixelsWide && hover.pixelsWide == pressed.pixelsWide)
+    #expect(idle.pixelsHigh == hover.pixelsHigh && hover.pixelsHigh == pressed.pixelsHigh)
+    #expect(idle.tiffRepresentation != hover.tiffRepresentation)
+    #expect(hover.tiffRepresentation != pressed.tiffRepresentation)
 }
 #endif

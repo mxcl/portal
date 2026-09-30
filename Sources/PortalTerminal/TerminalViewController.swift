@@ -75,9 +75,7 @@ enum TahoeGlassPalette {
     static let windowTintMid = tint(light: 0.01, dark: 0.26)
     static let windowTintEnd = tint(light: 0, dark: 0.24)
     static let topBarTint = tint(light: 0.04, dark: 0.26)
-    static let surfaceTint = tint(light: 0.025, dark: 0.18)
-    static let failureSurfaceTint = NSColor.systemRed.withAlphaComponent(0.08)
-    static let commandTint = tint(light: 0.045, dark: 0.22)
+    static let commandBackground = NSColor.textBackgroundColor
     static let hairline = NSColor.separatorColor
     static let titleTopHairline = NSColor.labelColor.withAlphaComponent(0.20)
     static let titleText = NSColor.secondaryLabelColor
@@ -1675,7 +1673,7 @@ private final class BlockView: NSView {
         wantsLayer = true
         layer?.cornerRadius = 0
         layer?.borderWidth = 0
-        layer?.backgroundColor = TahoeGlassPalette.surfaceTint.cgColor
+        layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
         findReticuleLayer.isHidden = true
         findReticuleLayer.opacity = 0
         findReticuleLayer.borderWidth = 0
@@ -1793,7 +1791,7 @@ private final class BlockView: NSView {
         ]
         switch block.state {
         case .running:
-            layer?.backgroundColor = TahoeGlassPalette.commandTint.cgColor
+            layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
             if !hidesLiveDuration {
                 metadata.append(MetadataSegment(
                     text: liveDurationText(startedAt: block.startedAt, now: now),
@@ -1805,10 +1803,7 @@ private final class BlockView: NSView {
         case .completed(let code):
             minimumHeightConstraint?.constant = 0
             contentBottomConstraint?.isActive = true
-            layer?.backgroundColor = (code == 0
-                ? TahoeGlassPalette.surfaceTint
-                : TahoeGlassPalette.failureSurfaceTint
-            ).cgColor
+            layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
             if let duration = durationText(for: block) {
                 metadata.append(MetadataSegment(text: duration, color: .tertiaryLabelColor))
             }
@@ -1816,7 +1811,7 @@ private final class BlockView: NSView {
                 metadata.append(MetadataSegment(text: timestamp, color: .tertiaryLabelColor))
             }
             if code != 0 {
-                metadata.append(MetadataSegment(text: "exit \(code)", color: .secondaryLabelColor))
+                metadata.append(MetadataSegment(text: "exit \(code)", color: .systemRed))
             }
         }
         metaLabel.attributedStringValue = attributedMetadata(metadata)
@@ -3307,7 +3302,7 @@ private final class TerminalTab {
         statusLineStack.addArrangedSubview(statusLabel)
 
         commandBarView.wantsLayer = true
-        commandBarView.layer?.backgroundColor = TahoeGlassPalette.commandTint.cgColor
+        commandBarView.layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
         commandBarView.translatesAutoresizingMaskIntoConstraints = false
         findCloseButton.isHidden = true
         findCloseButton.translatesAutoresizingMaskIntoConstraints = false
@@ -3826,7 +3821,7 @@ private final class GitTreeView: NSView {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.backgroundColor = TahoeGlassPalette.commandTint.cgColor
+        layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
 
         canvas.setAccessibilityRole(.staticText)
         canvas.setAccessibilityLabel("Git tree")
@@ -3860,7 +3855,7 @@ private final class GitTreeView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = TahoeGlassPalette.commandTint.cgColor
+            layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
         }
         canvas.needsDisplay = true
     }
@@ -4068,7 +4063,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         rootView.onAppearanceChange = { [weak self] in
             guard let self else { return }
             for tab in tabs {
-                tab.commandBarView.layer?.backgroundColor = TahoeGlassPalette.commandTint.cgColor
+                tab.commandBarView.layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
             }
         }
         rootView.onLayout = { [weak self] in
@@ -4809,7 +4804,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.findQuery = ""
         tab.findResults = []
         tab.findResultIndex = nil
-        tab.commandBarView.layer?.backgroundColor = TahoeGlassPalette.commandTint.cgColor
+        tab.commandBarView.layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
         tab.findCloseButton.isHidden = true
         tab.inputView.setAccessibilityLabel("Terminal command input")
         setInput(tab.findCommandDraft, in: tab)

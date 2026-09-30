@@ -116,7 +116,6 @@ struct DiffFileButtonFeedback: ViewModifier {
 
   func body(content: Content) -> some View {
     content
-      .underline(isHovered || isPressed)
       .padding(.horizontal, 6)
       .padding(.vertical, 3)
       .background(Color.accentColor.opacity(isPressed ? 0.3 : (isHovered ? 0.15 : 0)),

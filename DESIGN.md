@@ -43,7 +43,7 @@ The existing repository watcher refreshes file status and diffs. Clicking a diff
 filename opens its local working copy in Editor, retaining the selected history
 entry and guarding unsaved edits. Renames use the new path; deleted files use the
 old path and show the editor’s missing-file error when absent locally. Clickable
-filenames underline and gain a light accent background on hover, with a stronger
+filenames gain a light accent background on hover, with a stronger
 accent background while pressed.
 
 Save and Command-S atomically save a regular UTF-8 file, preserving line endings.

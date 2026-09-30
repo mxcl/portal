@@ -220,8 +220,9 @@ func partiallyMatchingBranchNames() {
     #expect(graph.branchLabels[0].outline == compact.branchLabels[0].outline)
     #expect(graph.branchLabels[0].hoverOutline != compact.branchLabels[0].hoverOutline)
     #expect(graph.branchLabels[0].hoverOutline.boundingRect.height > graph.branchLabels[0].outline.boundingRect.height)
-    // Different first letters have slightly different ink bounds at the same text anchor.
-    #expect(abs(graph.branchLabels[0].hoverOutline.boundingRect.maxY - graph.branchLabels[0].outline.boundingRect.maxY) < 1)
+    // Expansion uses the remaining room below before extending above the tip.
+    #expect(graph.branchLabels[0].hoverOutline.boundingRect.maxY > graph.branchLabels[0].outline.boundingRect.maxY)
+    #expect(graph.branchLabels[0].hoverOutline.boundingRect.maxY < graph.branchLabels[1].outline.boundingRect.minY)
     #expect(graph.branchLabels[1].hoverOutline == compact.branchLabels[1].hoverOutline)
 }
 
@@ -342,6 +343,9 @@ func primaryLaneLabelsUseAvailableSpace() {
         #expect(outline.boundingRect.minX + BranchGraphRowCanvas.leadingPadding >= 0)
     }
     #expect(moved.outline.boundingRect.height > 3 * BranchGraphRowCanvas.rowHeight)
+    #expect(moved.hoverOutline.boundingRect.minY >= 0.5 * BranchGraphRowCanvas.rowHeight)
+    #expect(moved.hoverOutline.boundingRect.maxY > moved.outline.boundingRect.maxY)
+    #expect(moved.hoverOutline.boundingRect.maxY < CGFloat(commits.count) * BranchGraphRowCanvas.rowHeight)
     for label in graph.branchLabels.dropFirst() {
         #expect(label.outline.boundingRect.minX > BranchGraphRowCanvas.laneWidth / 2)
     }

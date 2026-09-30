@@ -211,16 +211,15 @@ struct GraphBranchLabel: Sendable {
             guard let fitted = CTLineCreateTruncatedLine(line, Double(length - 4), .end, ellipsis) else { return Path() }
             line = fitted
         }
-        let textLength = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-        // Leave a little space at the lower tip. Longer names continue along the
-        // upper tangent rather than losing their suffix to an ellipsis.
-        let textStart = min(textLength, length - 4)
-        // Expansion keeps the first glyph anchored and reveals the suffix upward.
         if expanded {
             line = expandedText.map {
                 CTLineCreateWithAttributedString(NSAttributedString(string: $0, attributes: attributes))
             } ?? fullLine
         }
+        let textLength = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        // Use room below the tip before extending upward, including on hover.
+        // Leave a little space at the lower end of the available path.
+        let textStart = min(textLength, length - 4)
         var result = Path()
         for run in CTLineGetGlyphRuns(line) as! [CTRun] {
             let count = CTRunGetGlyphCount(run)

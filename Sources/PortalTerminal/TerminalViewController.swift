@@ -7644,11 +7644,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func addBlockView(_ block: TerminalBlock, to tab: TerminalTab) {
-        if !tab.stackView.arrangedSubviews.isEmpty {
-            let separator = SeparatorView()
-            tab.stackView.addArrangedSubview(separator)
-            separator.widthAnchor.constraint(equalTo: tab.stackView.widthAnchor).isActive = true
-        }
+        let separator = SeparatorView()
+        tab.stackView.addArrangedSubview(separator)
+        separator.widthAnchor.constraint(equalTo: tab.stackView.widthAnchor).isActive = true
 
         let blockView = BlockView()
         blockView.update(with: block)

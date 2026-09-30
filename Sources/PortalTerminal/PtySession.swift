@@ -294,10 +294,6 @@ final class PtySession {
         }
     }
 
-    func isCanonicalInputModeEnabled() -> Bool? {
-        nil
-    }
-
     func sendInterrupt() {
         send(.interrupt)
         queue.async { [weak self] in

@@ -5,7 +5,7 @@ import Foundation
 import GitSyncCore
 
 public enum EngineControlProtocol {
-    public static let version = 8
+    public static let version = 9
     public static let changedNotification = Notification.Name("dev.mxcl.git-sync.engine-changed")
     public static var socketURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -44,7 +44,7 @@ public struct EngineRequest: Codable, Sendable {
     }
 }
 
-public struct EngineSnapshot: Codable, Sendable {
+public struct EngineSnapshot: Codable, Equatable, Sendable {
     public let configuration: AppConfiguration
     public var github = GitHubState()
     public let globalShortcutEnabled: Bool
@@ -54,13 +54,14 @@ public struct EngineSnapshot: Codable, Sendable {
     public let isChecking: Bool
     public let isRunning: Bool
     public let isPaused: Bool
-    public let logs: [String]
+    public var logs: [String]
     public let backupItems: [BackupItem]
     public let backupError: String?
     public let restoringBackup: String?
     public let placementInProgress: String?
     public let localProjects: [String: PeerProject]
     public let remoteProjects: [UUID: [String: PeerProject]]
+    public var projectRevisions: [UUID: UUID] = [:]
 }
 
 public struct EngineReply: Codable, Sendable {
@@ -128,7 +129,10 @@ public final class EngineModel: ObservableObject {
     private var backupRefreshTask: Task<Void, Never>?
     private var backupRefreshPending = false
     private var backupFullRefreshPending = false
-    private var discoveryTask: Task<Void, Never>?
+    @Published private var projectRevisions: [UUID: UUID] = [:]
+    private var projectObservations: [String: ProjectObservation] = [:]
+    private var observingProjects = false
+    @Published private var projectObservationErrors: [String: String] = [:]
 
     init(executableURL: URL, configuration: AppConfiguration, support: URL, defaults: UserDefaults = .standard) {
         self.executableURL = executableURL
@@ -165,12 +169,8 @@ public final class EngineModel: ObservableObject {
         } else {
             status = configuration.backupDestination == nil ? "Add a host" : "Stopped"
         }
-        discoveryTask = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.refreshDiscovery()
-                try? await Task.sleep(for: .seconds(30))
-            }
-        }
+        observingProjects = true
+        updateProjectObservation()
     }
 
     public var isConfigured: Bool { !configuration.root.isEmpty }
@@ -196,11 +196,11 @@ public final class EngineModel: ObservableObject {
     public func snapshot() -> EngineSnapshot {
         EngineSnapshot(configuration: configuration, github: github, globalShortcutEnabled: globalShortcutEnabled,
                        mergedBranchCleanupEnabled: mergedBranchCleanupEnabled,
-                       status: status, error: error ?? globalShortcutError,
+                       status: status, error: error ?? globalShortcutError ?? projectObservationErrors.sorted(by: { $0.key < $1.key }).first?.value,
                        isChecking: isChecking, isRunning: isRunning, isPaused: isPaused,
                        logs: logs, backupItems: backupItems, backupError: backupError,
                        restoringBackup: restoringBackup, placementInProgress: placementInProgress,
-                       localProjects: localProjects, remoteProjects: remoteProjects)
+                       localProjects: localProjects, remoteProjects: remoteProjects, projectRevisions: projectRevisions)
     }
 
     public func handle(_ command: EngineCommand) async -> EngineReply {
@@ -283,8 +283,9 @@ public final class EngineModel: ObservableObject {
     }
 
     public func shutdown() {
-        discoveryTask?.cancel()
-        discoveryTask = nil
+        observingProjects = false
+        projectObservations.values.forEach { $0.stop() }
+        projectObservations = [:]
         stopProcesses()
         status = "Stopped"
     }
@@ -556,6 +557,7 @@ public final class EngineModel: ObservableObject {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(configuration).write(to: configURL, options: .atomic)
+        updateProjectObservation()
     }
 
     private func restartIfRunning() {
@@ -804,9 +806,13 @@ public final class EngineModel: ObservableObject {
             })
             return (projects, statuses)
         }.value
-        try configuration.discoverLocal(projects.map(\.name))
-        localProjects = Dictionary(uniqueKeysWithValues: projects.map { ($0.name, $0) })
-        projectStatuses = statuses
+        try Task.checkCancellation()
+        var updated = configuration
+        try updated.discoverLocal(projects.map(\.name))
+        if configuration != updated { configuration = updated }
+        let local = Dictionary(uniqueKeysWithValues: projects.map { ($0.name, $0) })
+        if localProjects != local { localProjects = local }
+        if projectStatuses != statuses { projectStatuses = statuses }
     }
 
     private func refreshHostIdentities(startAfter: Bool) async {
@@ -832,23 +838,58 @@ public final class EngineModel: ObservableObject {
         }
     }
 
-    private func refreshDiscovery() async {
-        guard isConfigured, !isChecking, placementInProgress == nil else { return }
-        let original = configuration
-        try? await discoverLocalProjects(priority: .utility)
+    private func updateProjectObservation() {
+        guard observingProjects, isConfigured else { return }
+        let keys = Set(["local"] + configuration.hosts.map { $0.id.uuidString })
+        for key in Array(projectObservations.keys) where !keys.contains(key) {
+            projectObservations.removeValue(forKey: key)?.stop()
+            projectObservationErrors[key] = nil
+        }
+        let root = expandedRoot.path
+        let executable = executableURL
+        observeProjects(key: "local", identity: [root, executable.path], makeProcess: {
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = ["watch-projects", "--root", root, "--watch-version", String(ProjectChange.currentVersion)]
+            return process
+        }, hostID: nil)
         for host in configuration.hosts {
             let probe = Configuration(root: configuration.root, machine: configuration.machine,
-                                      peer: host.peer, remoteRoot: host.root,
-                                      remoteExecutable: host.executable, repositories: [])
-            if let inspection = try? await Task.detached(priority: .utility, operation: {
-                try Runner.inspectPeer(probe)
-            }).value {
-                recordInspection(inspection, hostID: host.id,
-                                 knownProjects: configuration.folders.map(\.name))
-            }
+                peer: host.peer, remoteRoot: host.root, remoteExecutable: host.executable, repositories: [])
+            observeProjects(key: host.id.uuidString, identity: [host.peer, host.root, host.executable],
+                makeProcess: { try Runner.projectWatchProcess(probe) }, hostID: host.id)
         }
+    }
+
+    private func observeProjects(key: String, identity: [String], makeProcess: @escaping () throws -> Process, hostID: UUID?) {
+        guard projectObservations[key]?.identity != identity else { return }
+        projectObservations.removeValue(forKey: key)?.stop()
+        projectObservations[key] = ProjectObservation(identity: identity, makeProcess: makeProcess,
+            changed: { [weak self] in
+                if self?.projectObservationErrors[key] != nil { self?.projectObservationErrors[key] = nil }
+                try await self?.projectsChanged(hostID: hostID)
+            },
+            failed: { [weak self] message in
+                if self?.projectObservationErrors[key] != message { self?.projectObservationErrors[key] = message }
+            })
+    }
+
+    private func projectsChanged(hostID: UUID?) async throws {
+        let original = configuration
+        if let hostID {
+            guard let host = configuration.hosts.first(where: { $0.id == hostID }) else { return }
+            let probe = Configuration(root: configuration.root, machine: configuration.machine,
+                peer: host.peer, remoteRoot: host.root, remoteExecutable: host.executable, repositories: [])
+            let inspection = try await Task.detached(priority: .utility) { try Runner.inspectPeer(probe) }.value
+            guard !Task.isCancelled, configuration.hosts.contains(host) else { return }
+            recordInspection(inspection, hostID: hostID, knownProjects: configuration.folders.map(\.name))
+            projectRevisions[hostID] = UUID()
+        } else {
+            try await discoverLocalProjects(priority: .utility)
+        }
+        guard !Task.isCancelled else { return }
         if configuration != original {
-            try? save()
+            try save()
             restartIfRunning()
         }
         refreshBackupItems()
@@ -856,6 +897,7 @@ public final class EngineModel: ObservableObject {
 
     private func recordInspection(_ inspection: PeerInspection, hostID: UUID,
                                   knownProjects: [String]) {
+        var configuration = self.configuration
         if let hardware = inspection.hardware,
            let index = configuration.hosts.firstIndex(where: { $0.id == hostID }) {
             configuration.hosts[index].hardware = hardware
@@ -867,7 +909,7 @@ public final class EngineModel: ObservableObject {
         for name in knownProjects where states[name] == nil {
             states[name] = PeerProject(name: name, placement: .notPresent)
         }
-        remoteProjects[hostID] = states
+        if remoteProjects[hostID] != states { remoteProjects[hostID] = states }
         let present = Set(inspection.repositories)
         for index in configuration.folders.indices {
             if present.contains(configuration.folders[index].name) {
@@ -882,6 +924,7 @@ public final class EngineModel: ObservableObject {
             configuration.folders.append(SyncFolder(name: project.name, hosts: [hostID], availableHosts: [hostID]))
         }
         configuration.folders.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        if self.configuration != configuration { self.configuration = configuration }
     }
 
     private var expandedRoot: URL {

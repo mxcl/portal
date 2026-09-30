@@ -46,7 +46,7 @@ func githubResponseDecoding() throws {
         #expect(restored.hasUnreadNotifications == unread)
     }
     #expect(try JSONDecoder().decode(GitHubState.self, from: JSONEncoder().encode(GitHubState())).hasUnreadNotifications == nil)
-    #expect(EngineControlProtocol.version == 8)
+    #expect(EngineControlProtocol.version == 9)
 }
 @Test("GitHub sign-in control requests require no relay configuration")
 func githubConnectAction() throws {
@@ -123,7 +123,7 @@ func githubUnreadNotifications() throws {
     for index in state.notifications.indices { state.notifications[index].unread = false }
     #expect(state.unreadNotifications.isEmpty)
 }
-@Test("Opening a notification clears its menu entry and dot before inbox polling")
+@Test("Opening a notification clears its menu entry and dot before inbox reconciliation")
 func githubNotificationOpenedImmediately() throws {
     var state = GitHubState()
     let note = GitHubNotification(id: "42:2026-09-29T12:00:00Z", repository: "owner/repo",

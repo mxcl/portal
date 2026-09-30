@@ -24,7 +24,7 @@ public struct GitHubNotification: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
-public struct GitHubState: Codable, Sendable {
+public struct GitHubState: Codable, Equatable, Sendable {
     public var connected = false
     public var status = "Not connected"
     public var pushStatus = "Not registered"

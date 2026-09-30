@@ -203,6 +203,8 @@ final class AppModel: ObservableObject {
     private var watchedRepositoryURL: URL?
     private var watcherSetup: Task<Void, Never>?
     private var projectRefreshPending = false
+    private var projectRevisions: [UUID: UUID] = [:]
+    private var peerStagingRefreshPending = false
     private var pendingPlacement: String?
     private let sendCommand: (EngineCommand) async throws -> EngineReply
 
@@ -354,8 +356,8 @@ final class AppModel: ObservableObject {
     }
 
     func refreshPeerStaging() async {
-        guard let name = selectedProjectName, let source = projectSource,
-              peerStagingRequest == nil else { return }
+        guard let name = selectedProjectName, let source = projectSource else { return }
+        guard peerStagingRequest == nil else { peerStagingRefreshPending = true; return }
         if case .backup = source { return }
         let request = UUID()
         peerStagingRequest = request
@@ -364,6 +366,10 @@ final class AppModel: ObservableObject {
             if peerStagingRequest == request {
                 peerStagingRequest = nil
                 isLoadingPeerStaging = false
+                if peerStagingRefreshPending {
+                    peerStagingRefreshPending = false
+                    Task { await refreshPeerStaging() }
+                }
             }
         }
         let configuration = configuration
@@ -371,13 +377,15 @@ final class AppModel: ObservableObject {
             source != .host($0.id) && configuration.folders.first { $0.name == name }?.availableHosts.contains($0.id) == true
         }
         let ids = Set(hosts.map(\.id))
-        peerSnapshots = peerSnapshots.filter { ids.contains($0.key) }
-        peerStagingErrors = peerStagingErrors.filter { ids.contains($0.key) }
+        let retained = peerSnapshots.filter { ids.contains($0.key) }
+        let errors = peerStagingErrors.filter { ids.contains($0.key) }
+        if peerSnapshots != retained { peerSnapshots = retained }
+        if peerStagingErrors != errors { peerStagingErrors = errors }
         await withTaskGroup(of: (UUID, Result<RepositorySnapshot, Error>).self) { group in
             for host in hosts {
                 group.addTask {
-                    (host.id, Result { try Self.content(for: name, source: .host(host.id),
-                                                        configuration: configuration).snapshot })
+                    (host.id, Result { try Runner.projectStaging(name,
+                        configuration: Self.remoteConfiguration(host, in: configuration)) })
                 }
             }
             for await (id, result) in group {
@@ -385,8 +393,8 @@ final class AppModel: ObservableObject {
                       selectedProjectName == name, projectSource == source else { continue }
                 switch result {
                 case .success(let snapshot):
-                    peerSnapshots[id] = snapshot
-                    peerStagingErrors[id] = nil
+                    if peerSnapshots[id] != snapshot { peerSnapshots[id] = snapshot }
+                    if peerStagingErrors[id] != nil { peerStagingErrors[id] = nil }
                 case .failure(let error):
                     peerSnapshots[id] = nil
                     peerStagingErrors[id] = String(describing: error)
@@ -452,8 +460,8 @@ final class AppModel: ObservableObject {
                 do {
                     let reply = try await sendCommand(.snapshot)
                     apply(reply)
-                    helperAvailable = true
-                    helperError = nil
+                    if !helperAvailable { helperAvailable = true }
+                    if helperError != nil { helperError = nil }
                     return
                 } catch {
                     if (attempt + 1).isMultiple(of: 4) {
@@ -476,8 +484,8 @@ final class AppModel: ObservableObject {
             do {
                 let reply = try await sendCommand(.snapshot)
                 apply(reply)
-                helperAvailable = true
-                helperError = nil
+                if !helperAvailable { helperAvailable = true }
+                if helperError != nil { helperError = nil }
             } catch {
                 helperAvailable = false
                 helperError = "Sync Helper unavailable: \(error.localizedDescription)"
@@ -496,7 +504,7 @@ final class AppModel: ObservableObject {
             do {
                 let reply = try await sendCommand(command)
                 apply(reply)
-                helperAvailable = true
+                if !helperAvailable { helperAvailable = true }
                 if let message = reply.error {
                     if hostCommand { hostError = message } else { error = message }
                 } else {
@@ -518,21 +526,23 @@ final class AppModel: ObservableObject {
             configuration.folders.first(where: { $0.name == name })?.availableLocally
         }
         let oldSource = projectSource
-        configuration = snapshot.configuration
-        github = snapshot.github
-        globalShortcutEnabled = snapshot.globalShortcutEnabled
-        mergedBranchCleanupEnabled = snapshot.mergedBranchCleanupEnabled
-        status = snapshot.status
-        error = snapshot.error
-        isChecking = snapshot.isChecking
-        isRunning = snapshot.isRunning
-        isPaused = snapshot.isPaused
-        backupItems = snapshot.backupItems
-        backupError = snapshot.backupError
-        restoringBackup = snapshot.restoringBackup
-        placementInProgress = pendingPlacement ?? snapshot.placementInProgress
-        localProjects = snapshot.localProjects
-        remoteProjects = snapshot.remoteProjects
+        let changedPeers = Set(snapshot.projectRevisions.keys.filter { projectRevisions[$0] != snapshot.projectRevisions[$0] })
+        projectRevisions = snapshot.projectRevisions
+        if configuration != snapshot.configuration { configuration = snapshot.configuration }
+        if github != snapshot.github { github = snapshot.github }
+        if globalShortcutEnabled != snapshot.globalShortcutEnabled { globalShortcutEnabled = snapshot.globalShortcutEnabled }
+        if mergedBranchCleanupEnabled != snapshot.mergedBranchCleanupEnabled { mergedBranchCleanupEnabled = snapshot.mergedBranchCleanupEnabled }
+        if status != snapshot.status { status = snapshot.status }
+        if error != snapshot.error { error = snapshot.error }
+        if isChecking != snapshot.isChecking { isChecking = snapshot.isChecking }
+        if isRunning != snapshot.isRunning { isRunning = snapshot.isRunning }
+        if isPaused != snapshot.isPaused { isPaused = snapshot.isPaused }
+        if backupItems != snapshot.backupItems { backupItems = snapshot.backupItems }
+        if backupError != snapshot.backupError { backupError = snapshot.backupError }
+        if restoringBackup != snapshot.restoringBackup { restoringBackup = snapshot.restoringBackup }
+        if placementInProgress != (pendingPlacement ?? snapshot.placementInProgress) { placementInProgress = pendingPlacement ?? snapshot.placementInProgress }
+        if localProjects != snapshot.localProjects { localProjects = snapshot.localProjects }
+        if remoteProjects != snapshot.remoteProjects { remoteProjects = snapshot.remoteProjects }
 
         let availableNames = Set(configuration.folders.map(\.name)).union(backupItems.map(\.name))
         if selectedProjectName == nil || !availableNames.contains(selectedProjectName!) {
@@ -545,6 +555,14 @@ final class AppModel: ObservableObject {
             if oldLocal != newLocal || oldSource.map({ !sources(for: name).contains($0) }) == true
                 || oldSource == nil && !sources(for: name).isEmpty {
                 loadProject(name, from: sources(for: name))
+            }
+        }
+        if !changedPeers.isEmpty, let source = projectSource {
+            if case .host(let id) = source, changedPeers.contains(id) {
+                if isLoadingProject { projectRefreshPending = true }
+                else { refreshProject() }
+            } else if selectedProjectName != nil {
+                Task { await refreshPeerStaging() }
             }
         }
         updateRepositoryWatcher()
@@ -677,9 +695,9 @@ final class AppModel: ObservableObject {
                     guard generation == projectLoadGeneration, selectedProjectName == name else { return }
                     projectSource = source
                     projectError = nil
-                    projectSnapshot = content.snapshot
-                    projectReadme = content.readme
-                    projectGitHubURL = content.githubURL
+                    if projectSnapshot != content.snapshot { projectSnapshot = content.snapshot }
+                    if projectReadme != content.readme { projectReadme = content.readme }
+                    if projectGitHubURL != content.githubURL { projectGitHubURL = content.githubURL }
                     isLoadingProject = false
                     if let oid = selectedCommitID {
                         if CommitGraphGenerator.isStaging(oid) {
@@ -1036,7 +1054,7 @@ final class AppModel: ObservableObject {
                     allowNameCollisions: allowNameCollisions
                 ))
                 apply(reply)
-                helperAvailable = true
+                if !helperAvailable { helperAvailable = true }
                 if let message = reply.error {
                     hostError = "The host was not added. \(message)"
                 } else if !reply.nameCollisions.isEmpty {
@@ -1773,12 +1791,7 @@ private struct ProjectHistoryView: View {
         .onChange(of: model.selectedTab) { _, tab in
             if tab == .diff { isFocused = true }
         }
-        .task(id: model.selectedProjectName) {
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
-                await model.refreshPeerStaging()
-            }
-        }
+
 
     }
 }

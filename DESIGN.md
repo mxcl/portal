@@ -112,9 +112,9 @@ Counts sum the staged and unstaged diffs, including untracked files. The tooltip
 lists all paths and counts. Older hosts without file details retain the count summary.
 Diff remains available with separate
 Staged and Unstaged views, including untracked files, and reads from the selected
-row's host. Local staging refreshes with the repository; peer staging uses existing
-read-only project-content requests on project load, Refresh, and every 30 seconds
-while history is visible. Unavailable hosts show a retry message instead of stale
+row's host. Local staging refreshes with the repository; peer staging uses lightweight
+read-only project-staging requests on project load, Refresh, and pushed host
+invalidation events. Healthy connections have no refresh timer. Unavailable hosts show a retry message instead of stale
 staging. Peer rows open Diff and never expose the local Editor or Terminal. The row
 and its selection remain when clean; mirrors and backups omit it.
 
@@ -508,11 +508,12 @@ locally, removing its row and clearing the dot when no other unread entries rema
 Acknowledgments persist in the helper cache until the relay no longer reports that
 update as unread, so throttled or in-flight responses cannot resurrect it. A newer
 update to the same thread has a different ID and appears normally. The raw relay
-unread flag continues driving polling until GitHub confirms read status.
+unread flag is retained until GitHub confirms read status.
 Opening the menu does not mark notifications read. Reading on GitHub
-clears the dot after the next successful inbox refresh. While the dot is present,
-the helper requests an inbox refresh every 60 seconds; it stops when unread state
-clears. Opening a banner or menu notification schedules a check after three
+clears the dot after the next successful inbox refresh triggered by a push,
+wake, reconnect, opening the menu, or explicit Refresh. There is no unread-inbox polling timer;
+reading on GitHub alone may remain stale until one of those triggers arrives.
+Opening a banner or menu notification schedules a check after three
 seconds, coalescing repeated clicks. Each sync requests inbox reconciliation via
 the optional `refreshInbox` flag, without enqueuing counts or repository fetches.
 The relay enforces the shared per-user `X-Poll-Interval` / retry deadline, including
@@ -535,6 +536,8 @@ the opaque command background and retain a system-red exit status. AppKit
 semantic colors own text and separators. Terminal dividers use the native thin
 split-view treatment: one point of `separatorColor` over the opaque command
 background, so the darker empty-area material cannot strengthen the line.
+Horizontal dividers bordering a failed command overlay the same 8% system red;
+shared dividers tint when either adjacent command failed. Vertical dividers stay neutral.
 The ANSI renderer adapts the basic 16-color palette for light backgrounds while
 preserving explicit RGB and extended colors. The history scroll view extends
 beneath the native toolbar, with a top content inset and a matching reduction in
@@ -610,3 +613,31 @@ entries are hidden regardless of GitHub's Done state; unknown legacy read state
 is hidden until refreshed. The relay prioritizes unread entries before applying
 its history limit, so read history cannot crowd them out. Banner eligibility
 also requires unread state; history IDs remain available for deduplication.
+
+### Project-window invalidation
+
+The helper observes project roots through a persistent `watch-projects` subprocess,
+locally and over a persistent SSH connection for each configured host. The stream
+uses bounded length-prefixed `ProjectChange` messages and its own version (1),
+which both ends reject when incompatible. It invalidates read-only UI data and
+does not change Git replication, ref ownership, or snapshot atomicity.
+
+Every connection emits an initial catch-up event after installing its watch.
+FSEvents on macOS and recursive inotify on Linux retain events while inventories
+are read; new directories and external common Git directories are watched too.
+Bursts are coalesced, and the client retains the newest pending invalidation while
+refreshing. Failures reconnect with backoff and a full catch-up; unsupported hosts
+show an error requiring an update rather than silently reverting to polling.
+Linux watch exhaustion/overflow fails the stream instead of losing updates.
+
+Engine control version 9 includes per-host invalidation revisions so a working-file
+edit with identical line counts still refreshes a selected remote diff. These are
+connection-local invalidations, not persistent ordering state. The app compares
+snapshot fields before publication; helper notifications are coalesced and log-only
+changes do not invalidate the project window. Git replication's existing watcher
+repair and transport retry mechanisms are unchanged.
+
+The terminal's optional Git tree watches its visible local checkout and common
+Git metadata, replacing its half-second refresh timer. Terminal mode follows
+output events; the former TTY timer only queried an unimplemented (`nil`) mode
+probe. Visible elapsed-time displays and failure retry deadlines remain timers.

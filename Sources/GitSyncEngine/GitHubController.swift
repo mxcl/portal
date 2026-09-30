@@ -14,7 +14,6 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
     private var credential: Credential?
     private var deviceToken: String?
     private var task: Task<Void, Never>?
-    private var inboxPollTask: Task<Void, Never>?
     private var clickRefreshTask: Task<Void, Never>?
     private var schedule = GitHubRefreshSchedule()
     private var observations = Set<AnyCancellable>()
@@ -99,14 +98,12 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
             await model.refreshProjectStatuses()
             await self?.updatePermission()
             self?.ready = true
-            self?.updateInboxPolling()
             self?.refresh(catchUp: true)
         }
     }
 
     public func shutdown() {
         task?.cancel()
-        inboxPollTask?.cancel()
         clickRefreshTask?.cancel()
         network.cancel()
         mergeWatcher = nil
@@ -118,6 +115,7 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
     }
     public func registrationFailed(_ error: Error) { model?.github.pushStatus = error.localizedDescription }
     public func receivedPush() { refresh(catchUp: false) }
+    public func menuOpened() { refresh(catchUp: false) }
 
     private var repositories: Set<String> {
         guard let model else { return [] }
@@ -168,8 +166,6 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                     _ = try await request("disconnect", body: Data("{}".utf8), relay: credential.relay, credential: credential.session)
                 }
                 try Self.deleteCredential()
-                inboxPollTask?.cancel()
-                inboxPollTask = nil
                 clickRefreshTask?.cancel()
                 credential = nil
                 seen = []
@@ -213,7 +209,6 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                     .merging(response.counts.filter { authorized.contains($0.key) }) { _, new in new }
                 model.github.notifications = response.notifications.filter { authorized.contains($0.repository) }
                 model.github.hasUnreadNotifications = response.hasUnreadNotifications
-                updateInboxPolling()
                 let missing = repositories.subtracting(authorized)
                 model.github.error = (response.errors + (missing.isEmpty ? [] : ["Unavailable repositories: \(missing.sorted().joined(separator: ", ")). Check remote URLs and Repository Access."]))
                     .first
@@ -304,22 +299,6 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
             self.refresh(catchUp: false)
         }
         mergeWatchPaths = paths
-    }
-
-    private func updateInboxPolling() {
-        guard model?.github.hasUnreadNotifications == true else {
-            inboxPollTask?.cancel()
-            inboxPollTask = nil
-            return
-        }
-        guard inboxPollTask == nil else { return }
-        inboxPollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(60)) } catch { return }
-                guard let self else { return }
-                self.refresh(catchUp: false)
-            }
-        }
     }
 
     private func present(_ note: GitHubNotification) async throws {

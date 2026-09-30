@@ -22,7 +22,7 @@ let package = Package(
             name: "GitSyncWatch",
             linkerSettings: [.linkedFramework("CoreServices", .when(platforms: [.macOS]))]
         ),
-        .target(name: "PortalTerminal", exclude: ["PROVENANCE.md"], resources: [.copy("Resources/completions")]),
+        .target(name: "PortalTerminal", dependencies: ["GitSyncCore"], exclude: ["PROVENANCE.md"], resources: [.copy("Resources/completions")]),
         .target(name: "GitSyncCore", dependencies: ["GitSyncWatch"]),
         .target(name: "GitSyncEngine", dependencies: ["GitSyncCore"]),
         .target(name: "GitSyncGraph", dependencies: ["GitSyncCore"]),

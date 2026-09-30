@@ -15,10 +15,16 @@ import Combine
 enum EngineControlProtocol {
     static let changedNotification = Notification.Name("dev.mxcl.git-sync.menu-tracking-test")
 }
-@MainActor final class Model: ObservableObject { @Published var value = 0 }
+struct EngineSnapshot: Equatable { var value: Int; var logs: [String] = [] }
+@MainActor final class Model: ObservableObject {
+    @Published var value = 0
+    func snapshot() -> EngineSnapshot { EngineSnapshot(value: value) }
+}
 @MainActor final class Runtime: ObservableObject {
     let model = Model()
     var observation: AnyCancellable?
+    var appNotificationPending = false
+    var lastAppSnapshot: EngineSnapshot?
     init() {
         observation = model.objectWillChange.sink''' + bridge + '''
     }

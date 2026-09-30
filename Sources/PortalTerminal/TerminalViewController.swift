@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import Foundation
+import GitSyncCore
 import QuartzCore
 import SwiftUI
 
@@ -109,6 +110,13 @@ private func hostPrefixAttributedString(
 }
 
 private final class SeparatorView: NSView {
+    weak var blockAbove: BlockView? { didSet { needsDisplay = true } }
+    weak var blockBelow: BlockView? { didSet { needsDisplay = true } }
+
+    var hasFailedNeighbor: Bool {
+        blockAbove?.hasFailed == true || blockBelow?.hasFailed == true
+    }
+
     init() {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -128,6 +136,10 @@ private final class SeparatorView: NSView {
         bounds.fill()
         NSColor.separatorColor.setFill()
         bounds.fill()
+        if hasFailedNeighbor {
+            NSColor.systemRed.withAlphaComponent(0.08).setFill()
+            bounds.fill()
+        }
     }
 }
 
@@ -1601,6 +1613,12 @@ private final class BlockView: NSView {
     private var needsOutputHeightMeasurement = true
     private var renderedOutputRevision = -1
     private var lastBlock: TerminalBlock?
+    weak var topSeparator: SeparatorView?
+    weak var bottomSeparator: SeparatorView?
+    var hasFailed: Bool {
+        if case .completed(let code) = lastBlock?.state { return code != 0 }
+        return false
+    }
     private var findSelectionTarget: FindResultTarget?
     private var findSelectionRange: NSRange?
 
@@ -1794,6 +1812,8 @@ private final class BlockView: NSView {
 
     func update(with block: TerminalBlock, now: Date = Date()) {
         lastBlock = block
+        topSeparator?.needsDisplay = true
+        bottomSeparator?.needsDisplay = true
         commandLabel.stringValue = block.command
         hasVisibleOutput = !block.output.isEmpty
         outputView.isHidden = !hasVisibleOutput
@@ -2200,6 +2220,30 @@ private final class BlockView: NSView {
         let exponent = floor(log10(value))
         return pow(10, exponent - 2)
     }
+}
+
+func portalFailedCommandDividersSelfTest() -> Bool {
+    let view = BlockView()
+    let top = SeparatorView(), bottom = SeparatorView(), vertical = SeparatorView()
+    top.blockBelow = view
+    bottom.blockAbove = view
+    view.topSeparator = top
+    view.bottomSeparator = bottom
+    var block = TerminalBlock(
+        id: UUID(), command: "false", cwd: "/tmp", startedAt: Date(),
+        finishedAt: nil, output: "", attributedOutput: NSAttributedString(string: ""),
+        outputRevision: 0, state: .running
+    )
+    for state: TerminalBlock.State in [.running, .completed(0), .completed(127), .completed(0)] {
+        block.state = state
+        top.needsDisplay = false
+        bottom.needsDisplay = false
+        view.update(with: block)
+        let failed = state == .completed(127)
+        guard top.hasFailedNeighbor == failed, bottom.hasFailedNeighbor == failed,
+              !vertical.hasFailedNeighbor, top.needsDisplay, bottom.needsDisplay else { return false }
+    }
+    return true
 }
 
 func portalBlockWidthReflowSelfTest() -> Bool {
@@ -3214,7 +3258,6 @@ private final class TerminalTab {
     var mouseTrackingMode: Ansi.MouseTrackingMode?
     var usesSGRMouseMode = false
     var runningElapsedTimer: Timer?
-    var ttyModeTimer: Timer?
     var commandHistory: [String] { commandLifecycle.state.commandHistory }
     var hostHistoryOptOutBlockIDs = Set<UUID>()
     var isFindMode = false
@@ -3966,7 +4009,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var contentTrailingToGitTreeConstraint: NSLayoutConstraint?
     private var isGitTreeVisible: Bool { activeTab?.isGitTreeVisible == true }
     private var isGitTreeRefreshPending = false
-    private var gitTreeRefreshTimer: Timer?
+    private var gitTreeWatcher: RepositoryWatcher?
+    private var gitTreeWatchURL: URL?
+    private var gitTreeWatchTask: Task<Void, Never>?
+    private var gitTreeRefreshAgain = false
     private let blockViewRenderDelay: TimeInterval = 1.0 / 12.0
     private let interactiveBlockViewRenderDelay: TimeInterval = 1.0 / 60.0
     private let fallbackDisplayRefreshRate = 60
@@ -4201,7 +4247,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         if let commandFocusMonitor {
             NSEvent.removeMonitor(commandFocusMonitor)
         }
-        gitTreeRefreshTimer?.invalidate()
+        gitTreeWatchTask?.cancel()
         stopAllSessions()
     }
 
@@ -4238,7 +4284,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         if isVisible {
             gitTreeView.display(.message("Loading Git tree…"))
         }
-        updateGitTreeRefreshTimer()
         refreshGitTreeIfVisible()
         tab.blockViews.values.forEach { $0.needsLayout = true }
         view.needsLayout = true
@@ -4252,7 +4297,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         for tab in tabs {
             let shouldKillUnpersistedSession = !shouldPersistSession(tab) && !isSessionVisibleOutsideTab(tab)
             stopRunningElapsedUpdates(for: tab)
-            stopTtyModePolling(for: tab)
             if shouldKillUnpersistedSession {
                 tab.session.kill()
             } else {
@@ -5007,7 +5051,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             sessionCatalog.appendClosed(storedTab(from: tab))
         }
         stopRunningElapsedUpdates(for: tab)
-        stopTtyModePolling(for: tab)
         if !shouldPersistTab && !isVisibleOutsideTab {
             tab.session.kill()
         } else {
@@ -5667,6 +5710,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func resetTranscriptViews(for tab: TerminalTab) {
+        tab.commandSeparator.blockAbove = nil
         tab.blockViews.removeAll()
         for view in tab.stackView.arrangedSubviews {
             tab.stackView.removeArrangedSubview(view)
@@ -6136,7 +6180,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 }
                 self.stopRunningElapsedUpdates(for: tab)
                 self.updateTabTitleForDirectory(tab)
-                self.stopTtyModePolling(for: tab)
                 self.setTerminalControl(false, in: tab)
                 self.updateCommandBarVisibility(for: tab)
             }
@@ -6758,7 +6801,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         updateCommandBarVisibility(for: tab)
         resizePtyToViewport(for: tab)
         scrollToBottomNow(tab)
-        startTtyModePolling(for: tab)
         startRunningElapsedUpdates(for: tab)
 
         let script = shellInputResetPrefixIfNeeded(in: tab) + PortalCommandEnvelope.shellScript(
@@ -6954,7 +6996,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 }
             }
             stopRunningElapsedUpdates(for: tab)
-            stopTtyModePolling(for: tab)
             setTerminalControl(false, in: tab)
             updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
             refreshGitTreeIfVisible(for: tab)
@@ -7235,27 +7276,43 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
     }
 
-    private func updateGitTreeRefreshTimer() {
-        gitTreeRefreshTimer?.invalidate()
-        gitTreeRefreshTimer = nil
-        guard isGitTreeVisible else { return }
-        let timer = Timer(timeInterval: 0.5, repeats: true) {
-            [weak self] _ in
-            self?.refreshGitTreeIfVisible()
+    private func updateGitTreeWatcher() {
+        let url: URL?
+        if isGitTreeVisible, let tab = activeTab, case .local = tab.sessionRef.location {
+            url = URL(fileURLWithPath: tab.currentCwd, isDirectory: true)
+        } else { url = nil }
+        guard gitTreeWatchURL != url else { return }
+        gitTreeWatchTask?.cancel()
+        gitTreeWatcher = nil
+        gitTreeWatchURL = url
+        guard let url else { return }
+        gitTreeWatchTask = Task { [weak self] in
+            let paths = await Task.detached {
+                (try? RepositoryWatcher.paths(for: url)) ?? [url.path]
+            }.value
+            guard !Task.isCancelled, let self, self.gitTreeWatchURL == url else { return }
+            do {
+                self.gitTreeWatcher = try RepositoryWatcher(paths: paths) { [weak self] in
+                    self?.refreshGitTreeIfVisible()
+                    self?.refreshVisibleCommandBarGitStatus()
+                }
+                self.refreshGitTreeIfVisible()
+            } catch {
+                self.gitTreeView.display(.message("Live Git tree updates unavailable: \(error.localizedDescription)"))
+            }
         }
-        RunLoop.main.add(timer, forMode: .common)
-        gitTreeRefreshTimer = timer
     }
 
     private func refreshGitTreeIfVisible(for tab: TerminalTab? = nil) {
+        updateGitTreeWatcher()
         guard isGitTreeVisible,
-              !isGitTreeRefreshPending,
               let tab = tab ?? activeTab,
               tab.id == activeTabID
         else {
             return
         }
 
+        if isGitTreeRefreshPending { gitTreeRefreshAgain = true; return }
         let cwd = tab.currentCwd
         let location = tab.sessionRef.location
         guard case .local = location else {
@@ -7273,6 +7330,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             DispatchQueue.main.async { [weak self, weak tab] in
                 guard let self else { return }
                 self.isGitTreeRefreshPending = false
+                defer {
+                    if self.gitTreeRefreshAgain {
+                        self.gitTreeRefreshAgain = false
+                        self.refreshGitTreeIfVisible()
+                    }
+                }
                 guard let tab,
                       self.isGitTreeVisible,
                       tab.id == self.activeTabID,
@@ -7467,29 +7530,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return 1.0 / TimeInterval(max(1, refreshRate))
     }
 
-    private func startTtyModePolling(for tab: TerminalTab) {
-        stopTtyModePolling(for: tab)
-        tab.ttyModeTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self, weak tab] timer in
-            guard let self, let tab else {
-                timer.invalidate()
-                return
-            }
-            guard self.isCommandRunning(in: tab) else {
-                self.stopTtyModePolling(for: tab)
-                return
-            }
-            self.refreshTerminalControl(in: tab)
-        }
-    }
-
-    private func stopTtyModePolling(for tab: TerminalTab) {
-        tab.ttyModeTimer?.invalidate()
-        tab.ttyModeTimer = nil
-    }
-
     private func refreshTerminalControl(in tab: TerminalTab) {
-        let isRawInputMode = tab.session.isCanonicalInputModeEnabled() == false
-        setTerminalControl(isCommandRunning(in: tab) && (tab.isAlternateScreenActive || isRawInputMode), in: tab)
+        setTerminalControl(isCommandRunning(in: tab) && tab.isAlternateScreenActive, in: tab)
     }
 
     private func setTerminalControl(_ isActive: Bool, in tab: TerminalTab) {
@@ -7517,6 +7559,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func updateCommandBarVisibility(for tab: TerminalTab) {
         let shouldShowCommandBar = tab.isFindMode || (!tab.isTerminalControlActive && !isCommandRunning(in: tab))
+        guard tab.commandBarView.isHidden == shouldShowCommandBar else { return }
         tab.commandBarView.isHidden = !shouldShowCommandBar
         tab.commandSeparator.isHidden = !shouldShowCommandBar
         tab.scrollBottomToCommandBarConstraint?.isActive = shouldShowCommandBar
@@ -7649,6 +7692,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         separator.widthAnchor.constraint(equalTo: tab.stackView.widthAnchor).isActive = true
 
         let blockView = BlockView()
+        let previousBlock = tab.commandSeparator.blockAbove
+        separator.blockAbove = previousBlock
+        separator.blockBelow = blockView
+        previousBlock?.bottomSeparator = separator
+        blockView.topSeparator = separator
+        blockView.bottomSeparator = tab.commandSeparator
+        tab.commandSeparator.blockAbove = blockView
         blockView.update(with: block)
         blockView.onCopyMarkdown = { [weak self, weak tab] in
             guard let self else { return }
@@ -7685,6 +7735,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func rebuildBlockViews(for tab: TerminalTab) {
+        tab.commandSeparator.blockAbove = nil
         for view in tab.stackView.arrangedSubviews {
             tab.stackView.removeArrangedSubview(view)
             view.removeFromSuperview()

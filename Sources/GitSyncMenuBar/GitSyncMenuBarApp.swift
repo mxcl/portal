@@ -13,7 +13,7 @@ struct GitSyncMenuBarApp: App {
     var body: some Scene {
         MenuBarExtra {
             StatusMenu(runtime: runtime)
-                .task { await runtime.model.refreshProjectStatuses() }
+                .task { await runtime.menuOpened() }
         } label: {
             MenuBarIcon(isPaused: runtime.model.isPaused,
                         hasUnreadNotifications: runtime.model.github.showsUnreadNotifications)
@@ -53,6 +53,8 @@ final class MenuBarRuntime: ObservableObject {
     private let github: GitHubController
     private let server: EngineControlServer?
     private var observation: AnyCancellable?
+    private var appNotificationPending = false
+    private var lastAppSnapshot: EngineSnapshot?
     private var terminationObservation: AnyCancellable?
     private let shortcut = GlobalShortcut()
     private var shortcutObservation: AnyCancellable?
@@ -77,7 +79,15 @@ final class MenuBarRuntime: ObservableObject {
             RunLoop.main.perform(inModes: [.default]) { [weak self] in
                 MainActor.assumeIsolated { self?.objectWillChange.send() }
             }
-            DispatchQueue.main.async {
+            guard let self, !self.appNotificationPending else { return }
+            self.appNotificationPending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard let self else { return }
+                self.appNotificationPending = false
+                var snapshot = self.model.snapshot()
+                snapshot.logs = [] // Menu logs do not change the project window.
+                guard snapshot != self.lastAppSnapshot else { return }
+                self.lastAppSnapshot = snapshot
                 DistributedNotificationCenter.default().postNotificationName(
                     EngineControlProtocol.changedNotification,
                     object: nil,
@@ -88,6 +98,11 @@ final class MenuBarRuntime: ObservableObject {
         terminationObservation = NotificationCenter.default
             .publisher(for: NSApplication.willTerminateNotification)
             .sink { [weak self] _ in self?.github.shutdown(); self?.model.shutdown() }
+    }
+
+    func menuOpened() async {
+        github.menuOpened()
+        await model.refreshProjectStatuses()
     }
 
     func quitEverything() {

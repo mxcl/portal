@@ -51,6 +51,9 @@ struct GitSyncApp: App {
             CommandGroup(after: .toolbar) {
                 Toggle("Show Auxiliary History", isOn: $model.showAuxiliaryHistory)
                 Divider()
+                Button("Select Next Staging") { model.selectNextStaging() }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                    .disabled(model.stagingRows.isEmpty)
                 Button("Show Next Project Terminal") { model.showNextProjectTerminal() }
                     .keyboardShortcut("t")
                     .disabled(model.projectTerminalSources.isEmpty)
@@ -58,6 +61,15 @@ struct GitSyncApp: App {
                     Button("Show \(tab.title)") { model.selectedTab = tab }
                         .keyboardShortcut(KeyEquivalent(tab.rawValue.first!), modifiers: [.command, .option])
                 }
+                Divider()
+                Button("Reveal in Finder", action: model.revealSelectedProjectInFinder)
+                    .disabled(model.selectedLocalRepositoryURL == nil)
+                Button("Open in Terminal", action: model.openSelectedProjectInTerminal)
+                    .disabled(model.selectedLocalRepositoryURL == nil)
+                Button("Open in External Editor", action: model.openSelectedProjectInEditor)
+                    .disabled(model.selectedLocalRepositoryURL == nil)
+                Button("Open on GitHub", action: model.openSelectedProjectOnGitHub)
+                    .disabled(model.projectGitHubURL == nil)
                 Divider()
                 Button(model.isPaused ? "Resume Sync" : "Pause Sync") {
                     model.isPaused ? model.resume() : model.pause()
@@ -375,6 +387,26 @@ final class AppModel: ObservableObject {
     }
 
     var selectedStaging: ProjectStaging? { stagingRows.first { $0.id == selectedCommitID } }
+
+    var isSelectedProjectArchived: Bool {
+        archivedProjects.contains { $0.name == selectedProjectName }
+    }
+
+    var toolbarTabs: [ProjectTab] {
+        if let staging = selectedStaging {
+            return staging.source == .local && selectedEditorRepositoryURL != nil
+                ? [.editor, .terminal] : [.diff, .terminal]
+        }
+        return isSelectedProjectArchived ? [.info, .diff] : [.diff]
+    }
+
+    func selectNextStaging() {
+        let rows = stagingRows
+        guard !rows.isEmpty else { return }
+        let next = selectedCommitID.flatMap { id in rows.firstIndex { $0.id == id } }
+            .map { ($0 + 1) % rows.count } ?? 0
+        selectCommit(rows[next].id)
+    }
 
     var selectedCommit: RepositoryCommit? {
         guard let selectedCommitID else { return nil }
@@ -1491,8 +1523,12 @@ struct ProjectBrowserView: View {
         } detail: {
             switch model.selectedTab {
             case .info:
-                if let name = model.selectedProjectName { ProjectOverview(name: name, model: model) }
-                else { ContentUnavailableView("Select a Project", systemImage: "sidebar.left") }
+                if let name = model.selectedProjectName, model.isSelectedProjectArchived {
+                    ProjectOverview(name: name, model: model)
+                } else if model.selectedProjectName != nil {
+                    ProjectDetailView(model: model)
+                        .environment(\.diffOpenFile, model.diffFileAction)
+                } else { ContentUnavailableView("Select a Project", systemImage: "sidebar.left") }
             case .diff:
                 ProjectDetailView(model: model)
                     .environment(\.diffOpenFile, model.diffFileAction)
@@ -1580,42 +1616,24 @@ struct ProjectBrowserView: View {
             ToolbarSpacer(.fixed)
         }
         ToolbarItem(placement: .primaryAction) {
-            Picker("Main view", selection: $model.selectedTab) {
-                ForEach(model.availableTabs) { tab in
-                    Label("Show \(tab.title)", systemImage: tab.symbol).tag(tab)
+            if model.selectedStaging != nil || model.isSelectedProjectArchived {
+                Picker("Main view", selection: Binding<ProjectTab?>(
+                    get: { model.toolbarTabs.contains(model.selectedTab) ? model.selectedTab : nil },
+                    set: { if let tab = $0 { model.selectedTab = tab } }
+                )) {
+                    ForEach(model.toolbarTabs) { tab in
+                        Label("Show \(tab.title)", systemImage: tab.symbol).tag(Optional(tab))
+                    }
                 }
+                .pickerStyle(.segmented)
+                .labelStyle(.iconOnly)
+                .help("Choose the main view")
             }
-            .pickerStyle(.segmented)
-            .labelStyle(.iconOnly)
-            .help("Choose the main view")
         }
         ToolbarItemGroup {
-            Button("Reveal in Finder", systemImage: "folder", action: model.revealSelectedProjectInFinder)
-                .disabled(model.selectedLocalRepositoryURL == nil)
-                .help("Reveal in Finder")
-            Button("Open in Terminal", systemImage: "terminal", action: model.openSelectedProjectInTerminal)
-                .disabled(model.selectedLocalRepositoryURL == nil)
-                .help("Open in Terminal")
-            Button("Open in External Editor", systemImage: "square.and.pencil", action: model.openSelectedProjectInEditor)
-                .disabled(model.selectedLocalRepositoryURL == nil)
-                .help("Open in External Editor")
-            Button(action: model.openSelectedProjectOnGitHub) {
-                Label {
-                    Text("Open on GitHub")
-                } icon: {
-                    Image("GitHub", bundle: .module)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 16, height: 16)
-                }
+            if let name = model.selectedProjectName, !model.isSelectedProjectArchived {
+                HostControls(project: name, model: model)
             }
-            .disabled(model.projectGitHubURL == nil)
-            .help("Open on GitHub")
-        }
-        ToolbarSpacer(.fixed)
-        ToolbarItem {
-            Button("Refresh", systemImage: "arrow.clockwise") { model.refreshProject(); model.editor.refresh() }
-                .help("Refresh project")
         }
     }
 }
@@ -1904,7 +1922,7 @@ private struct CommitList: View {
                     .listRowSeparator(.hidden)
             }
             ForEach(stagingErrors, id: \.id) { error in
-                Label("\(error.host) staging unavailable. Try Refresh.", systemImage: "exclamationmark.triangle")
+                Label("\(error.host) staging unavailable. Retrying automatically.", systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.secondary)
                     .help(error.message)
                     .listRowSeparator(.hidden)
@@ -2135,8 +2153,6 @@ private struct ProjectOverview: View {
             VStack(alignment: .leading, spacing: 18) {
                 if let archived = model.archivedProjects.first(where: { $0.name == name }) {
                     ArchivedProjectControls(item: archived, model: model)
-                } else {
-                    HostControls(project: name, model: model)
                 }
                 Divider()
                 if let readme = model.projectReadme {
@@ -2168,11 +2184,8 @@ private struct HostControls: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top) { placements }
-                    .fixedSize(horizontal: true, vertical: false)
-                VStack(alignment: .leading) { placements }
-            }
+            HStack { placements }
+                .fixedSize(horizontal: true, vertical: false)
             if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
         }
         .accessibilityElement(children: .contain)
@@ -2202,30 +2215,16 @@ private struct HostControls: View {
                     else { model.setPlacement($0, project: project, hostID: host.id) }
                 }
             }
-            VStack(alignment: .leading, spacing: 4) {
-                Button(action: model.openSelectedProjectOnGitHub) {
-                    Label {
-                        Text("GitHub")
-                    } icon: {
-                        Image("GitHub", bundle: .module)
-                            .resizable().scaledToFit().frame(width: 16, height: 16)
-                    }
-                    .fontWeight(.medium)
-                }
-                .buttonStyle(.plain)
-                .frame(height: 32)
-                .disabled(model.projectGitHubURL == nil)
-                .foregroundStyle(model.projectGitHubURL == nil ? .tertiary : .primary)
-                .help(model.projectGitHubURL == nil ? "No GitHub remote" : "Open on GitHub")
-                .accessibilityValue(model.projectGitHubURL == nil ? "Not present" : "Available")
-                if model.projectGitHubURL != nil {
-                    Text(model.projectSnapshot?.githubBranchStatus?.title ?? "Status unknown")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .help(githubStatusDetail)
-                        .accessibilityHint(githubStatusDetail)
-                }
+            Label {
+                Text("GitHub")
+            } icon: {
+                Image("GitHub", bundle: .module)
+                    .resizable().scaledToFit().frame(width: 16, height: 16)
             }
+            .fontWeight(.medium)
+            .foregroundStyle(model.projectGitHubURL == nil ? .tertiary : .primary)
+            .help(model.projectGitHubURL == nil ? "No GitHub remote" : "\(model.projectSnapshot?.githubBranchStatus?.title ?? "Status unknown"). \(githubStatusDetail)")
+            .accessibilityValue(model.projectGitHubURL == nil ? "Not present" : model.projectSnapshot?.githubBranchStatus?.title ?? "Status unknown")
         }
     }
 
@@ -2279,7 +2278,7 @@ private struct PlacementRow: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(name)
                 .accessibilityValue(progress ? "Updating, \(placement.title)" : (status.isEmpty ? placement.title : status))
-                .help("\(placement.title). \(backupDetail)")
+                .help("\(name): \(status.isEmpty ? placement.title : status). \(backupDetail)")
                 .disabled(progress || placement == .unknown || placement == .checkedOut && !canArchive)
                 .alert("Archive \(project) on \(name)?", isPresented: $showingArchiveConfirmation) {
                     Button("Cancel", role: .cancel) {}
@@ -2289,15 +2288,7 @@ private struct PlacementRow: View {
                 }
                 if progress { ProgressView().controlSize(.small).accessibilityLabel("Updating \(name)") }
             }
-            .frame(height: 32)
-            if !status.isEmpty {
-                Text(status)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .help(backupDetail)
-            }
         }
-        .padding(.trailing)
     }
 }
 
@@ -2569,7 +2560,6 @@ struct SettingsView: View {
                     LabeledContent("Connection", value: model.github.status)
                     HStack {
                         if model.github.connected {
-                            Button("Refresh") { model.githubAction(.refresh) }
                             Button("Repository Access…") { model.githubAction(.installations) }
                                 .disabled(model.github.installationURL == nil)
                             Button("Disconnect") { model.githubAction(.disconnect) }
@@ -2592,7 +2582,7 @@ struct SettingsView: View {
                     Button("Allow Notifications…") { model.githubAction(.requestNotificationPermission) }
                     Text("Notifications cover tracked GitHub projects. Stars and open PR/issue counts appear in the sidebar.")
                         .foregroundStyle(.secondary)
-                    Text("Updates arrive through push notifications, with catch-up on launch, reconnect, and Refresh. Unread notifications are checked every minute and after opening a notification.")
+                    Text("Updates arrive through push notifications, with catch-up on launch and reconnect. Unread notifications are checked every minute and after opening a notification.")
                         .foregroundStyle(.secondary)
                 }
             }

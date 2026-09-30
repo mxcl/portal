@@ -74,6 +74,8 @@ func archivePreservesSelection() async throws {
     #expect(model.projectSnapshot?.commits.contains(where: { $0.oid == oid }) == true)
     #expect(model.projectNames.isEmpty)
     #expect(model.archivedProjects.map(\.name) == ["project"])
+    #expect(model.isSelectedProjectArchived)
+    #expect(model.toolbarTabs == [.info, .diff])
     deadline = Date().addingTimeInterval(5)
     while model.isLoadingProject && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
     #expect(model.projectError == nil)

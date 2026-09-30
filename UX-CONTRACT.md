@@ -91,16 +91,19 @@
   A partially staged file counts in both staged and unstaged totals. Local filesystem
   refresh updates the row and selected diff; clean repositories keep the row and selection.
   Selecting the local row opens the editor and file browser together in the right
-  detail pane while the lanes remain visible. Editor and Terminal toolbar choices
-  appear only while local Staging is selected. Remote staging opens that host's Diff.
-  Peer staging refreshes on project load, Refresh, and every 30 seconds while history
+  detail pane while the lanes remain visible. Command-Shift-S cycles through available
+  Staging rows and wraps; Command-S remains Save. The staging toolbar offers Editor
+  and Terminal locally, or Diff and Terminal remotely. Other view and external-app
+  actions remain in menus. Host placement/status controls appear in the toolbar.
+  README/Info is shown only for archived projects. There is no manual Refresh control.
+  Peer staging refreshes on project load and every 30 seconds while history
   is visible. Failed reads remove stale peer staging and show a retry message with
   the connection error in its tooltip. Diff retains
   Staged and Unstaged choices, including untracked files. Mirrors and backups omit
   Staging. Reading diffs never changes the index or checkout.
 - Commit detail contains message, author, date, object ID, parents, pointing refs,
   and a diff. The file browser belongs to Staging; there are no graph filters or activity pane.
-- Both README views use Textual for Markdown headings, blockquotes, lists, code
+- Archived project README views use Textual for Markdown headings, blockquotes, lists, code
   blocks, and tables, preserve text selection, and label the source ref.
 - A local repository is the default presentation source when present. Explicit
   palette navigation may select another source for an object missing locally;

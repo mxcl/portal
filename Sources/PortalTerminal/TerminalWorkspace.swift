@@ -29,8 +29,12 @@ public final class TerminalWorkspace {
     public init() {}
 
     public func view(directory: URL, hosts: [TerminalHost], host: TerminalHost? = nil) -> some View {
-        EmbeddedTerminal(workspace: self, directory: directory, hosts: hosts, host: host)
-            .id((host?.id ?? "local") + directory.path)
+        GeometryReader { geometry in
+            EmbeddedTerminal(workspace: self, directory: directory, hosts: hosts, host: host,
+                             toolbarInset: geometry.safeAreaInsets.top)
+                .ignoresSafeArea(.container, edges: .top)
+        }
+        .id((host?.id ?? "local") + directory.path)
     }
 
     fileprivate func controller(directory: URL, hosts: [TerminalHost], host: TerminalHost?) -> TerminalViewController {
@@ -63,13 +67,17 @@ private struct EmbeddedTerminal: NSViewControllerRepresentable {
     let directory: URL
     let hosts: [TerminalHost]
     let host: TerminalHost?
+    let toolbarInset: CGFloat
 
     func makeNSViewController(context: Context) -> NSViewController {
-        workspace.controller(directory: directory, hosts: hosts, host: host)
+        let controller = workspace.controller(directory: directory, hosts: hosts, host: host)
+        controller.toolbarInset = toolbarInset
+        return controller
     }
 
     func updateNSViewController(_ controller: NSViewController, context: Context) {
         PtySession.configureSSHHosts(hosts)
+        (controller as? TerminalViewController)?.toolbarInset = toolbarInset
     }
 }
 

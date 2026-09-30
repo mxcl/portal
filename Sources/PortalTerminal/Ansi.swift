@@ -1566,7 +1566,7 @@ enum Ansi {
 
             if isInverse {
                 let originalForeground = foregroundColor
-                foregroundColor = backgroundColor ?? .black
+                foregroundColor = backgroundColor ?? .textBackgroundColor
                 backgroundColor = originalForeground
             }
 
@@ -1671,7 +1671,16 @@ enum Ansi {
             ]
 
             if clamped < base.count {
-                return base[clamped]
+                let light: [NSColor] = [
+                    rgb(0, 0, 0), rgb(170, 30, 40), rgb(0, 112, 70), rgb(130, 95, 0),
+                    rgb(30, 85, 175), rgb(140, 45, 150), rgb(0, 105, 130), rgb(75, 75, 75),
+                    rgb(100, 100, 100), rgb(190, 35, 45), rgb(0, 125, 75), rgb(145, 105, 0),
+                    rgb(35, 95, 190), rgb(155, 50, 165), rgb(0, 115, 140), rgb(45, 45, 45)
+                ]
+                return NSColor(name: nil) { appearance in
+                    appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                        ? base[clamped] : light[clamped]
+                }
             }
 
             if clamped < 232 {

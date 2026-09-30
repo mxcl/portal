@@ -28,8 +28,7 @@ The trailing segmented control selects Info or Diff, with Editor and Terminal
 available only while Staging is selected. Info shows project placement and README;
 selecting a commit opens Diff. Selecting Staging opens the local editor: a native
 file outline and CodeEditSourceEditor share a resizable split in the detail column,
-keeping the commit lanes visible. Remote staging opens Diff. Terminal currently
-offers the external terminal action while its embedded view is deferred. External
+keeping the commit lanes visible. Remote staging opens Diff. Terminal opens the embedded terminal for the selected working copy. External
 editor, Finder, Terminal, and GitHub actions are direct project toolbar buttons,
 separated from Refresh by a fixed toolbar spacer. GitHub uses its official
 Invertocat from https://brand.github.com/foundations/logo as a template asset.
@@ -526,6 +525,14 @@ older relay responses and local caches readable (unknown state shows no dot).
 
 
 ## Embedded terminals
+
+The terminal follows the window’s light/dark appearance. `TahoeGlassPalette`
+owns adaptive surface tints; AppKit semantic colors own text and separators.
+Failed commands use a faint system-red wash, with the exit status still visible.
+The ANSI renderer adapts the basic 16-color palette for light backgrounds while
+preserving explicit RGB and extended colors. The history scroll view extends
+beneath the native toolbar, with a top content inset and a matching reduction in
+PTY height so the first line and full-screen terminal apps remain readable.
 
 `PortalTerminal` imports Portal's AppKit ANSI renderer, command blocks, shell
 completion engine and persistent PTY sessions. Its public boundary is

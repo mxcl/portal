@@ -43,7 +43,7 @@ private struct FindResult: Equatable {
     }
 }
 
-private enum TahoeGlassPalette {
+enum TahoeGlassPalette {
     static let windowCornerRadius: CGFloat = 22
     static let titleBarHeight: CGFloat = 50
     static let titleTabHeight: CGFloat = 34
@@ -64,18 +64,25 @@ private enum TahoeGlassPalette {
     static let titleTabCloseButtonVerticalOffset: CGFloat = 1
     static let titleTabRunningIndicatorSize: CGFloat = 5
     static let titleHairlineEndpointGap: CGFloat = 1
-    static let windowTintStart = NSColor.black.withAlphaComponent(0.30)
-    static let windowTintMid = NSColor.black.withAlphaComponent(0.26)
-    static let windowTintEnd = NSColor.black.withAlphaComponent(0.24)
-    static let topBarTint = NSColor.black.withAlphaComponent(0.26)
-    static let surfaceTint = NSColor.black.withAlphaComponent(0.18)
-    static let failureSurfaceTint = NSColor.systemRed.withAlphaComponent(0.22)
-    static let commandTint = NSColor.black.withAlphaComponent(0.22)
-    static let hairline = NSColor.white.withAlphaComponent(0.12)
-    static let titleTopHairline = NSColor.white.withAlphaComponent(0.20)
-    static let titleText = NSColor.white.withAlphaComponent(0.44)
-    static let titleTextActive = NSColor.white.withAlphaComponent(0.62)
-    static let titleSegmentHoverFill = NSColor.white.withAlphaComponent(0.045)
+    static func tint(light: CGFloat, dark: CGFloat) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor.black.withAlphaComponent(isDark ? dark : light)
+        }
+    }
+
+    static let windowTintStart = tint(light: 0.02, dark: 0.30)
+    static let windowTintMid = tint(light: 0.01, dark: 0.26)
+    static let windowTintEnd = tint(light: 0, dark: 0.24)
+    static let topBarTint = tint(light: 0.04, dark: 0.26)
+    static let surfaceTint = tint(light: 0.025, dark: 0.18)
+    static let failureSurfaceTint = NSColor.systemRed.withAlphaComponent(0.08)
+    static let commandTint = tint(light: 0.045, dark: 0.22)
+    static let hairline = NSColor.separatorColor
+    static let titleTopHairline = NSColor.labelColor.withAlphaComponent(0.20)
+    static let titleText = NSColor.secondaryLabelColor
+    static let titleTextActive = NSColor.labelColor
+    static let titleSegmentHoverFill = NSColor.labelColor.withAlphaComponent(0.045)
 }
 
 private func mutedGitStatusColor(_ color: NSColor) -> NSColor {
@@ -707,6 +714,7 @@ private final class TahoeGlassRootView: NSView {
         }
     }
 
+    var onAppearanceChange: (() -> Void)?
     var onLayout: (() -> Void)?
     var showsTopBar = true {
         didSet {
@@ -738,7 +746,6 @@ private final class TahoeGlassRootView: NSView {
         originalMaterialView.material = .underWindowBackground
         originalMaterialView.blendingMode = .withinWindow
         originalMaterialView.state = .active
-        originalMaterialView.appearance = NSAppearance(named: .darkAqua)
         originalMaterialView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(originalMaterialView, positioned: .below, relativeTo: nil)
 
@@ -804,6 +811,20 @@ private final class TahoeGlassRootView: NSView {
             y: max(0, bounds.height - contentTop),
             activeTabFrame: activeTabFrame
         )
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            originalTintLayer.colors = [
+                TahoeGlassPalette.windowTintStart.cgColor,
+                TahoeGlassPalette.windowTintMid.cgColor,
+                TahoeGlassPalette.windowTintEnd.cgColor
+            ]
+            topBarLayer.fillColor = TahoeGlassPalette.topBarTint.cgColor
+            topBarSeparatorLayer.strokeColor = TahoeGlassPalette.hairline.cgColor
+            onAppearanceChange?()
+        }
     }
 
     private func updateBackgroundBlurEffect() {
@@ -1053,7 +1074,7 @@ private final class TitleTabCloseButton: NSButton {
                 width: side,
                 height: side
             )
-            NSColor.white.withAlphaComponent(0.08).setFill()
+            NSColor.labelColor.withAlphaComponent(0.08).setFill()
             NSBezierPath(
                 roundedRect: hoverRect,
                 xRadius: TahoeGlassPalette.titleTabCloseButtonCornerRadius,
@@ -1189,7 +1210,7 @@ private final class SelectableBlockTextField: NSTextField {
 }
 
 private final class BlockOutputTextView: NSTextView {
-    private static let linkCapsuleColor = NSColor.white.withAlphaComponent(0.10)
+    private static let linkCapsuleColor = NSColor.labelColor.withAlphaComponent(0.10)
     private var linkTrackingArea: NSTrackingArea?
     private var firstMouseLink: (value: Any, characterIndex: Int)?
     var onTerminalMouseEvent: ((NSEvent, NSPoint) -> Bool)?
@@ -1466,7 +1487,7 @@ private final class HoverCopyMarkdownButton: NSButton {
 
     private func updateHoverAppearance() {
         layer?.backgroundColor = (isHovering
-            ? NSColor.white.withAlphaComponent(0.10)
+            ? NSColor.labelColor.withAlphaComponent(0.10)
             : NSColor.clear
         ).cgColor
         contentTintColor = isHovering ? .labelColor : .secondaryLabelColor
@@ -1527,7 +1548,7 @@ private final class FindCloseButton: NSButton {
 
     private func updateAppearance() {
         layer?.backgroundColor = (isHovering
-            ? NSColor.white.withAlphaComponent(0.10)
+            ? NSColor.labelColor.withAlphaComponent(0.10)
             : NSColor.clear
         ).cgColor
         contentTintColor = isHovering ? .labelColor : .secondaryLabelColor
@@ -1744,6 +1765,13 @@ private final class BlockView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            if let lastBlock { update(with: lastBlock) }
+        }
     }
 
     func update(with block: TerminalBlock, now: Date = Date()) {
@@ -3554,13 +3582,13 @@ private final class GitTreeCanvas: NSView {
             }
         }
 
-        NSColor.white.withAlphaComponent(0.82).setStroke()
+        NSColor.labelColor.withAlphaComponent(0.82).setStroke()
         stroke.stroke()
 
         for (index, character) in graph.enumerated() where character == "*" {
             let midX = padding + CGFloat(index) * graphCharacterWidth + graphCharacterWidth / 2
             let node = NSBezierPath(ovalIn: NSRect(x: midX - 3, y: midY - 3, width: 6, height: 6))
-            NSColor.white.setFill()
+            NSColor.labelColor.setFill()
             node.fill()
         }
     }
@@ -3639,7 +3667,7 @@ private final class GitTreeCanvas: NSView {
     private func drawLabel(_ label: String, at point: NSPoint) {
         (label as NSString).draw(at: point, withAttributes: [
             .font: subjectFont,
-            .foregroundColor: NSColor.white
+            .foregroundColor: NSColor.labelColor
         ])
     }
 
@@ -3660,7 +3688,7 @@ private final class GitTreeCanvas: NSView {
             hash,
             font: shaFont,
             at: NSPoint(x: x, y: point.y + 1),
-            color: selectedHash == hash ? .selectedTextColor : .white
+            color: selectedHash == hash ? .selectedTextColor : .labelColor
         )
         x += textWidth(hash, font: shaFont)
 
@@ -3670,7 +3698,7 @@ private final class GitTreeCanvas: NSView {
             let rect = NSRect(x: x, y: point.y, width: width, height: pillHeight)
             (reference.isActive
                 ? NSColor.controlAccentColor
-                : NSColor.white.withAlphaComponent(0.14)
+                : NSColor.labelColor.withAlphaComponent(0.14)
             ).setFill()
             NSBezierPath(
                 roundedRect: rect,
@@ -3681,7 +3709,7 @@ private final class GitTreeCanvas: NSView {
                 reference.text,
                 font: reference.isActive ? activeReferenceFont : referenceFont,
                 at: NSPoint(x: rect.minX + pillHorizontalPadding, y: rect.minY + 1),
-                color: reference.isActive ? .selectedControlTextColor : .white
+                color: reference.isActive ? .selectedControlTextColor : .labelColor
             )
             x = rect.maxX
         }
@@ -3709,7 +3737,7 @@ private final class GitTreeCanvas: NSView {
         _ text: String,
         font: NSFont,
         at point: NSPoint,
-        color: NSColor = .white
+        color: NSColor = .labelColor
     ) {
         (text as NSString).draw(at: point, withAttributes: [
             .font: font,
@@ -3798,7 +3826,7 @@ private final class GitTreeView: NSView {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.28).cgColor
+        layer?.backgroundColor = TahoeGlassPalette.commandTint.cgColor
 
         canvas.setAccessibilityRole(.staticText)
         canvas.setAccessibilityLabel("Git tree")
@@ -3809,10 +3837,7 @@ private final class GitTreeView: NSView {
         scrollView.contentView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        let separator = NSView()
-        separator.wantsLayer = true
-        separator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.14).cgColor
-        separator.translatesAutoresizingMaskIntoConstraints = false
+        let separator = SeparatorView()
 
         addSubview(scrollView)
         addSubview(separator)
@@ -3830,6 +3855,14 @@ private final class GitTreeView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = TahoeGlassPalette.commandTint.cgColor
+        }
+        canvas.needsDisplay = true
     }
 
     override func layout() {
@@ -4021,11 +4054,23 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         super.init(coder: coder)
     }
 
+    var toolbarInset: CGFloat = 0 {
+        didSet {
+            guard toolbarInset != oldValue, isViewLoaded else { return }
+            handleRootLayout()
+        }
+    }
+
     override func loadView() {
         let rootView = TahoeGlassRootView()
-        rootView.appearance = NSAppearance(named: .darkAqua)
         rootView.backgroundBlurEffect = backgroundBlurEffect
         rootView.showsTopBar = isTabStripVisible
+        rootView.onAppearanceChange = { [weak self] in
+            guard let self else { return }
+            for tab in tabs {
+                tab.commandBarView.layer?.backgroundColor = TahoeGlassPalette.commandTint.cgColor
+            }
+        }
         rootView.onLayout = { [weak self] in
             self?.handleRootLayout()
         }
@@ -4305,6 +4350,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         updateActiveTabCutoutFrame()
         titleTabBorderView.needsDisplay = true
         for tab in tabs {
+            tab.scrollView.automaticallyAdjustsContentInsets = false
+            tab.scrollView.contentInsets.top = toolbarInset
+            tab.scrollView.scrollerInsets.top = toolbarInset
             updateScrollRegion(for: tab)
             resizePtyToViewport(for: tab)
         }
@@ -7505,7 +7553,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func terminalGridSize(for tab: TerminalTab) -> TerminalGridSize? {
-        let viewport = tab.scrollView.contentView.bounds
+        var viewport = tab.scrollView.contentView.bounds
+        viewport.size.height -= toolbarInset
         guard viewport.width > 0, viewport.height > 0 else { return nil }
 
         let contentSize = latestRunningBlock(in: tab)
@@ -7736,7 +7785,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
         documentView.layoutSubtreeIfNeeded()
         tab.scrollView.contentView.layoutSubtreeIfNeeded()
-        let maxY = max(0, documentView.bounds.height - tab.scrollView.contentView.bounds.height)
+        let maxY = max(-tab.scrollView.contentInsets.top, documentView.bounds.height - tab.scrollView.contentView.bounds.height)
         tab.scrollView.contentView.scroll(to: NSPoint(x: 0, y: maxY))
         tab.scrollView.reflectScrolledClipView(tab.scrollView.contentView)
     }

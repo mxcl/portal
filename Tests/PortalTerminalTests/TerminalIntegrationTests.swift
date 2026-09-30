@@ -28,6 +28,27 @@ struct TerminalIntegrationTests {
         #expect(ShellCompletionParser.midTokenReplacementRangeSelfTest())
     }
 
+    @Test @MainActor func terminalColorsFollowAppearance() throws {
+        let output = Ansi.StyledTextRenderer().process("\u{1B}[93mY\u{1B}[38;2;12;34;56mR").attributedText
+        let yellow = try #require(output.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)
+        let rgb = try #require(output.attribute(.foregroundColor, at: 1, effectiveRange: nil) as? NSColor)
+        var colors: [NSColor] = []
+        var surfaces: [CGFloat] = []
+        var explicitColors: [NSColor] = []
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = try #require(NSAppearance(named: name))
+            appearance.performAsCurrentDrawingAppearance {
+                colors.append(yellow.usingColorSpace(.sRGB)!)
+                surfaces.append(TahoeGlassPalette.surfaceTint.cgColor.alpha)
+                explicitColors.append(rgb.usingColorSpace(.sRGB)!)
+            }
+        }
+        #expect(colors[0].greenComponent < 0.5)
+        #expect(colors[1].greenComponent > 0.9)
+        #expect(surfaces[0] < surfaces[1])
+        #expect(explicitColors[0] == explicitColors[1])
+    }
+
     @Test func processExitDrainsOutput() async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")

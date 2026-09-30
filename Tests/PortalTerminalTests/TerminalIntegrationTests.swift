@@ -13,6 +13,23 @@ struct TerminalIntegrationTests {
         #expect(portalFailedCommandDividersSelfTest())
     }
 
+    @Test @MainActor func standaloneCannotEnterTabSession() {
+        let controller = TerminalViewController(standalone: true)
+        controller.enterTabSession()
+        #expect(!controller.isTabSession)
+        controller.newTab(nil)
+        #expect(!controller.isViewLoaded)
+    }
+
+    @Test func projectSessionsAreExcludedEvenAfterClosing() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let json = #"{"visibleTabs":[{"sessionID":"project","title":"Project","cwd":"/tmp"}],"closedTabs":[{"sessionID":"closed-project","title":"Closed","cwd":"/tmp"}]}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("project.json"))
+        #expect(TerminalViewController.projectSessionRefs(in: directory) == [.local("project"), .local("closed-project")])
+    }
+
     @Test @MainActor func tabBarStartsHidden() {
         let controller = TerminalViewController()
         #expect(!controller.isTabSession)

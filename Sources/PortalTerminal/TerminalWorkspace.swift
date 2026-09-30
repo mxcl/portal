@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import CryptoKit
+import Combine
 import SwiftUI
 
 /// SSH uses the user's normal configuration, agent, and known_hosts database.
@@ -22,11 +23,45 @@ public struct TerminalHost: Equatable, Sendable {
 
 /// Owns project terminals for the lifetime of the app, including while another pane is visible.
 @MainActor
-public final class TerminalWorkspace {
+public final class TerminalWorkspace: ObservableObject {
     private var controllers: [String: TerminalViewController] = [:]
     private var activeController: TerminalViewController?
+    private var windows: [NSWindow] = []
 
-    public init() {}
+    @Published fileprivate var standaloneFocused = false
+    private var focusObserver: AnyCancellable?
+
+    public init() {
+        focusObserver = NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)
+            .merge(with: NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification))
+            .sink { [weak self] _ in
+                self?.standaloneFocused = (NSApp.keyWindow?.contentViewController as? TerminalViewController)?.standalone == true
+            }
+    }
+
+    public func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil) {
+        let controller = TerminalViewController(restoresPersistedWindow: false, initialDirectory: directory, standalone: true, launchCommand: command)
+        let window = StandaloneTerminalWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.delegate = window
+        window.title = "Terminal"
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.isRestorable = false
+        window.isReleasedWhenClosed = false
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.tabbingMode = .disallowed
+        window.contentViewController = controller
+        windows.removeAll { !$0.isVisible }
+        windows.append(window)
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
 
     public func view(directory: URL, hosts: [TerminalHost], host: TerminalHost? = nil) -> some View {
         GeometryReader { geometry in
@@ -57,8 +92,18 @@ public final class TerminalWorkspace {
     }
 
     fileprivate func perform(_ action: Selector) {
-        guard let controller = activeController else { return }
+        guard let controller = (NSApp.keyWindow?.contentViewController as? TerminalViewController) ?? activeController else { return }
         NSApp.sendAction(action, to: controller, from: nil)
+    }
+}
+
+private final class StandaloneTerminalWindow: NSWindow, NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        (contentViewController as? TerminalViewController)?.stopAllSessions()
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        (contentViewController as? TerminalViewController)?.windowDidBecomeActive()
     }
 }
 
@@ -82,7 +127,7 @@ private struct EmbeddedTerminal: NSViewControllerRepresentable {
 }
 
 public struct TerminalCommands: Commands {
-    let workspace: TerminalWorkspace
+    @ObservedObject private var workspace: TerminalWorkspace
     let enabled: Bool
     let hosts: [TerminalHost]
 
@@ -92,28 +137,30 @@ public struct TerminalCommands: Commands {
         self.hosts = hosts
     }
 
+    private var standalone: Bool { workspace.standaloneFocused }
+
     public var body: some Commands {
         CommandMenu("Terminal") {
             Button("New Terminal Tab") { workspace.perform(#selector(TerminalViewController.newTab(_:))) }
-                .disabled(!enabled)
-            Button("Close Terminal Tab") { workspace.perform(#selector(TerminalViewController.closeActiveTabOrWindow(_:))) }
-                .keyboardShortcut("w", modifiers: [.command, .shift]).disabled(!enabled)
+                .disabled(!enabled || standalone)
+            Button(standalone ? "Close Terminal Window" : "Close Terminal Tab") { workspace.perform(#selector(TerminalViewController.closeActiveTabOrWindow(_:))) }
+                .keyboardShortcut("w", modifiers: [.command, .shift]).disabled(!enabled && !standalone)
             Menu("New SSH Terminal") {
                 ForEach(hosts, id: \.id) { host in
                     Button(host.name) { workspace.connect(host) }
                 }
-            }.disabled(!enabled || hosts.isEmpty)
+            }.disabled(!enabled || standalone || hosts.isEmpty)
             Button("Reopen Closed Terminal Tab") { workspace.perform(#selector(TerminalViewController.reopenClosedTab(_:))) }
-                .keyboardShortcut("t", modifiers: [.command, .shift]).disabled(!enabled)
+                .keyboardShortcut("t", modifiers: [.command, .shift]).disabled(!enabled || standalone)
             Button("Exit Terminal Session…") { workspace.perform(#selector(TerminalViewController.exitActiveSession(_:))) }
-                .disabled(!enabled)
+                .disabled(!enabled && !standalone)
             Divider()
             Button("Find in Terminal History…") { workspace.perform(#selector(TerminalViewController.findInHistory(_:))) }
-                .keyboardShortcut("f", modifiers: [.command, .shift]).disabled(!enabled)
+                .keyboardShortcut("f", modifiers: [.command, .shift]).disabled(!enabled && !standalone)
             Button("Clear Terminal") { workspace.perform(#selector(TerminalViewController.clearActiveTab(_:))) }
-                .keyboardShortcut("k").disabled(!enabled)
+                .keyboardShortcut("k").disabled(!enabled && !standalone)
             Button("Clear Command History…") { workspace.perform(#selector(TerminalViewController.clearCommandHistory(_:))) }
-                .disabled(!enabled)
+                .disabled(!enabled && !standalone)
         }
     }
 }

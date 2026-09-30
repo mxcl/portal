@@ -3986,9 +3986,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let cols: UInt16
     }
 
+    let standalone: Bool
     private let initialHostID: String?
     private let initialDirectory: URL
     private let selfTestCommand: String?
+    private let launchCommand: String?
     private let sessionCatalog: SessionCatalog
     private var windowID: String { sessionCatalog.windowID }
     private let restoresPersistedWindow: Bool
@@ -4129,14 +4131,18 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         restoresPersistedWindow: Bool = true,
         showsTabStrip: Bool = false,
         initialDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        initialHostID: String? = nil
+        initialHostID: String? = nil,
+        standalone: Bool = false,
+        launchCommand: String? = nil
     ) {
         _ = Self.didRunPassthroughRoutingSelfTest
+        self.standalone = standalone
         self.initialHostID = initialHostID
         self.initialDirectory = initialDirectory
         self.selfTestCommand = selfTestCommand
+        self.launchCommand = launchCommand
         self.sessionCatalog = SessionCatalog(url: Self.sessionStateURL().deletingLastPathComponent()
-            .appendingPathComponent("projects/" + windowID + ".json"), windowID: windowID)
+            .appendingPathComponent((standalone ? "windows/" : "projects/") + windowID + ".json"), windowID: windowID)
         self.restoresPersistedWindow = restoresPersistedWindow
         self.showsTabStrip = showsTabStrip
         super.init(nibName: nil, bundle: nil)
@@ -4144,9 +4150,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     required init?(coder: NSCoder) {
         _ = Self.didRunPassthroughRoutingSelfTest
+        self.standalone = false
         self.initialHostID = nil
         self.initialDirectory = FileManager.default.homeDirectoryForCurrentUser
         self.selfTestCommand = nil
+        self.launchCommand = nil
         self.sessionCatalog = SessionCatalog(url: Self.sessionStateURL(), windowID: UUID().uuidString)
         self.restoresPersistedWindow = true
         self.showsTabStrip = false
@@ -4370,7 +4378,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     var isTabSession: Bool { showsTabStrip }
 
     func enterTabSession() {
-        guard !showsTabStrip else { return }
+        guard !standalone, !showsTabStrip else { return }
         showsTabStrip = true
         guard isViewLoaded else { return }
         installTabMouseDownMonitor()
@@ -4693,11 +4701,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     @objc func newTab(_ sender: Any?) {
+        guard !standalone else { return }
         enterTabSession()
         createTab()
     }
 
     func newSSHSession(_ host: TerminalHost) {
+        guard !standalone else { return }
         createTab(workingDirectory: URL(fileURLWithPath: host.directory),
                   sessionRef: SessionRef(location: .sshHost(host.id), sessionID: UUID().uuidString, hostName: host.name),
                   showsSessionPicker: false)
@@ -4771,6 +4781,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     @objc func closeActiveTabOrWindow(_ sender: Any?) {
+        if standalone { view.window?.performClose(sender); return }
         guard let activeTabID else {
             createTab()
             return
@@ -4779,6 +4790,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     @objc func reopenClosedTab(_ sender: Any?) {
+        guard !standalone else { return }
         guard let stored = sessionCatalog.popLastClosed() else {
             NSSound.beep()
             return
@@ -5129,7 +5141,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let tabsToRestore = restoration.tabs
 
         if tabsToRestore.isEmpty {
-            createTab()
+            createTab(initialCommand: launchCommand.map { InitialCommand(command: $0, exitsShellAfterCompletion: false) },
+                      showsSessionPicker: standalone && launchCommand == nil)
             return
         }
 
@@ -5242,6 +5255,16 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         latestRunningBlock(in: tab)?.command
     }
 
+    static func projectSessionRefs(in directory: URL? = nil) -> Set<SessionRef> {
+        let directory = directory ?? sessionStateURL().deletingLastPathComponent().appendingPathComponent("projects")
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        return Set(files.flatMap { url -> [SessionRef] in
+            guard let data = try? Data(contentsOf: url),
+                  let storage = try? JSONDecoder().decode(SessionCatalog.Storage.self, from: data) else { return [] }
+            return (storage.visibleTabs + storage.closedTabs).map(\.resolvedRef)
+        })
+    }
+
     private static func sessionStateURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
@@ -5264,6 +5287,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         activates: Bool = true,
         persists: Bool = true
     ) {
+        guard !standalone || tabs.isEmpty else { return }
         let sessionRef = sessionRef ?? SessionRef(location: initialHostID.map(SessionLocation.sshHost) ?? .local,
                                                  sessionID: UUID().uuidString)
         let directoryURL = (workingDirectory ?? initialDirectory).standardizedFileURL
@@ -5313,7 +5337,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             if case .sshHost = $0.sessionRef.location { return false }
             return true
         }
-        let excluded = Set(tabs.map(\.sessionRef))
+        let excluded = Set(tabs.map(\.sessionRef)).union(standalone ? Self.projectSessionRefs() : [])
         let tabID = tab.id
         let localHostName = Host.current().localizedName ?? "This Mac"
         model.refresh(

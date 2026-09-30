@@ -59,7 +59,7 @@ final class SessionCatalog {
         }
     }
 
-    private struct Storage: Codable {
+    struct Storage: Codable {
         var visibleTabs: [Record]
         var closedTabs: [Record]
         var activeSessionID: String?

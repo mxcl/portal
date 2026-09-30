@@ -26,6 +26,9 @@ struct GitSyncApp: App {
         .defaultSize(width: 1180, height: 720)
         .windowResizability(.contentMinSize)
         .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("New Terminal Window") { appDelegate.terminals.newWindow() }.keyboardShortcut("n")
+            }
             SidebarCommands()
             PaletteCommands()
             EditorCommands(editor: model.editor)
@@ -69,8 +72,28 @@ struct GitSyncApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var editor: ProjectEditor?
+    let terminals = TerminalWorkspace()
+
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        let item = menu.addItem(withTitle: "New Terminal Window", action: #selector(newTerminalWindow), keyEquivalent: "")
+        item.target = self
+        return menu
+    }
+
+    @objc private func newTerminalWindow() { terminals.newWindow() }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.isFileURL {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { continue }
+            let command = isDirectory.boolValue ? nil : "'" + url.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+            terminals.newWindow(directory: isDirectory.boolValue ? url : url.deletingLastPathComponent(), command: command)
+        }
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         editor?.confirmDiscard() == false ? .terminateCancel : .terminateNow
@@ -2518,6 +2541,17 @@ struct SettingsView: View {
                     ))
                     Text("Off by default. When enabled, only matching branches with clean working trees are advanced.")
                         .foregroundStyle(.secondary)
+                }
+                Section("Terminal") {
+                    Button("Become Default Terminal App") {
+                        Task { @MainActor in
+                            do {
+                                for type in [UTType.unixExecutable, UTType(importedAs: "com.apple.terminal.shell-script")] {
+                                    try await NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpen: type)
+                                }
+                            } catch { NSAlert(error: error).runModal() }
+                        }
+                    }
                 }
                 Section("Editor") {
                     Toggle("Show scroll preview", isOn: $showScrollPreview)

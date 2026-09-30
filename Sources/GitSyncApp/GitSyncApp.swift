@@ -347,6 +347,12 @@ final class AppModel: ObservableObject {
 
     var selectedStaging: ProjectStaging? { stagingRows.first { $0.id == selectedCommitID } }
 
+    var selectedCommit: RepositoryCommit? {
+        guard let selectedCommitID else { return nil }
+        return projectSnapshot?.commits.first { $0.oid == selectedCommitID }
+            ?? paletteCommit.flatMap { $0.oid == selectedCommitID ? $0 : nil }
+    }
+
     func refreshPeerStaging() async {
         guard let name = selectedProjectName, let source = projectSource,
               peerStagingRequest == nil else { return }
@@ -1449,6 +1455,8 @@ struct ProjectBrowserView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        // Use the system Copy command so text responders take priority and Edit flashes.
+        .copyable(model.selectedCommit.map { [$0.oid] } ?? [])
         .frame(minWidth: 860, minHeight: 520)
         .overlay {
             if !model.helperAvailable {
@@ -2029,9 +2037,7 @@ private struct ProjectDetailView: View {
                     }
                     .padding().frame(maxWidth: .infinity, alignment: .leading)
                 }
-            } else if let commitID = model.selectedCommitID,
-               let commit = model.projectSnapshot?.commits.first(where: { $0.oid == commitID })
-                    ?? model.paletteCommit.flatMap({ $0.oid == commitID ? $0 : nil }) {
+            } else if let commit = model.selectedCommit {
                 CommitDetail(commit: commit,
                              references: model.projectSnapshot?.references ?? [],
                              sourceMachine: model.projectSourceMachine,

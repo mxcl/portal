@@ -16,7 +16,7 @@ another destination differs; differing copies retain their host or remote qualif
 Tag badges and commit details retain the all-copies rule. Branch labels
 anchor at their own commits even on a shared lane; middots join only names at
 the same SHA. Nearby labels truncate with an ellipsis before the next tip. Hovering a lane label
-reveals every qualified branch name at that commit above the graph, with a black outline around the colored letters.
+reveals every qualified branch name at that commit above the graph, with a white outline in light mode and a black outline in dark mode around the colored letters.
 Lane labels prefer the right side. On the primary (leftmost) lane, labels move left only
 when doing so reduces truncation; the freed space remains available to labels on the right.
 The first glyph stays anchored; the suffix expands upward along the same path and upper tangent.

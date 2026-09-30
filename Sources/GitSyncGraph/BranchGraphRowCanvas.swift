@@ -29,6 +29,7 @@ public struct BranchGraphRowCanvas: View {
     let rowIndex: Int
     let commitOID: String
     @Binding var hoveredLabel: Int?
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.backgroundProminence) private var backgroundProminence
 
     private var graphWidth: CGFloat {
@@ -141,7 +142,7 @@ public struct BranchGraphRowCanvas: View {
         if let hoveredLabel, model.branchLabels.indices.contains(hoveredLabel) {
             let label = model.branchLabels[hoveredLabel]
             let outline = label.hoverOutline.offsetBy(dx: 0, dy: -CGFloat(rowIndex) * Self.rowHeight)
-            context.stroke(outline, with: .color(.black), style: StrokeStyle(lineWidth: 2, lineJoin: .round))
+            context.stroke(outline, with: .color(colorScheme == .light ? .white : .black), style: StrokeStyle(lineWidth: 2, lineJoin: .round))
             context.fill(outline, with: .color(GraphPalette.color(for: label.colorIndex)))
         }
     }

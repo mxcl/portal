@@ -104,15 +104,26 @@ private func hostPrefixAttributedString(
     )
 }
 
-private final class SeparatorView: NSBox {
+private final class SeparatorView: NSView {
     init() {
         super.init(frame: .zero)
-        boxType = .separator
         translatesAutoresizingMaskIntoConstraints = false
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: 1)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        // Match a thin NSSplitView divider over the same opaque content background.
+        TahoeGlassPalette.commandBackground.setFill()
+        bounds.fill()
+        NSColor.separatorColor.setFill()
+        bounds.fill()
     }
 }
 

@@ -531,7 +531,9 @@ owns adaptive surface tints; command blocks and the command bar use opaque
 AppKit `textBackgroundColor` (white in light mode). Only empty terminal space
 shows the darker background material. Failed commands blend 8% system red into
 the opaque command background and retain a system-red exit status. AppKit
-semantic colors own text and separators.
+semantic colors own text and separators. Terminal dividers use the native thin
+split-view treatment: one point of `separatorColor` over the opaque command
+background, so the darker empty-area material cannot strengthen the line.
 The ANSI renderer adapts the basic 16-color palette for light backgrounds while
 preserving explicit RGB and extended colors. The history scroll view extends
 beneath the native toolbar, with a top content inset and a matching reduction in

@@ -28,7 +28,7 @@ func workingChangesSelection() async throws {
         try #require(model.projectError == nil && model.commitDiffError == nil)
     }
     try await finishLoading()
-    #expect(model.availableTabs == [.info, .diff, .terminal])
+    #expect(model.availableTabs == ProjectTab.allCases)
     model.selectCommit(CommitGraphGenerator.workingChangesID)
     try await finishLoading()
     #expect(model.selectedTab == .editor)
@@ -58,13 +58,13 @@ func workingChangesSelection() async throws {
     model.selectCommit(try #require(model.projectSnapshot?.headOID))
     try await finishLoading()
     #expect(model.selectedTab == .diff)
-    #expect(model.availableTabs == [.info, .diff, .terminal])
+    #expect(model.availableTabs == ProjectTab.allCases)
     model.selectCommit(CommitGraphGenerator.workingChangesID)
     try await finishLoading()
     #expect(model.selectedTab == .editor)
 }
 
-@Test("Peer staging keeps its own HEAD and files and cannot open the local editor or diff")
+@Test("Peer staging keeps its own HEAD and files and opens its remote diff")
 @MainActor
 func peerWorkingChangesSelection() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -101,7 +101,7 @@ func peerWorkingChangesSelection() async throws {
     try await finishLoading()
     #expect(model.selectedStaging?.source == .host(host.id))
     #expect(model.selectedTab == .diff)
-    #expect(model.availableTabs == [.info, .diff, .terminal])
+    #expect(model.availableTabs == ProjectTab.allCases)
     #expect(model.selectedTerminalHost?.id == host.id.uuidString)
     #expect(model.selectedTerminalDirectory?.path == "/remote/projects/project")
     #expect(model.workingDiffStaged)

@@ -5,6 +5,7 @@ import CodeEditLanguages
 import CodeEditTextView
 @testable import CodeEditSourceEditor
 import Testing
+import gitdiff
 @testable import GitSyncApp
 @testable import GitSyncCore
 
@@ -230,5 +231,44 @@ func editorDraftLifecycle() async throws {
     #expect(!editor.isDirty)
     #expect(editor.text == "draft\n")
     #expect(try String(contentsOf: url, encoding: .utf8) == "outside\n")
+}
+@Test("Diff filenames open the working copy and preserve history selection", arguments: ["file.txt", "", "/dev/null"])
+@MainActor
+func editorOpensDiffFile(newPath: String) async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let project = root.appendingPathComponent("project")
+    defer { try? FileManager.default.removeItem(at: root) }
+    _ = try Git.run(["init", "-q", project.path])
+    try Data("working copy\n".utf8).write(to: project.appendingPathComponent("file.txt"))
+    let model = AppModel(connectToHelper: false)
+    model.configuration = AppConfiguration(root: root.path, machine: "test",
+        folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)])
+    model.localProjects = ["project": PeerProject(name: "project", placement: .checkedOut)]
+    model.selectedProjectName = "project"
+    model.selectedCommitID = "selected-history-entry"
+    model.selectedTab = .diff
+    let file = DiffFile(oldPath: newPath == "file.txt" ? "old.txt" : "file.txt",
+                        newPath: newPath, hunks: [], isRenamed: newPath == "file.txt")
+    model.openDiffFile(file)
+    #expect(model.selectedTab == .editor)
+    #expect(model.availableTabs.contains(.editor))
+    #expect(model.selectedCommitID == "selected-history-entry")
+    #expect(model.editor.path == "file.txt")
+    let deadline = Date().addingTimeInterval(5)
+    while !model.editor.canEdit && model.editor.error == nil && Date() < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    try #require(model.editor.canEdit)
+    #expect(model.editor.text == "working copy\n")
+    model.editor.text = "unsaved draft"
+    model.selectedTab = .diff
+    model.openDiffFile(file)
+    #expect(model.selectedTab == .editor)
+    #expect(model.editor.text == "unsaved draft")
+    model.editor.discard()
+    model.localProjects = [:]
+    model.selectedTab = .diff
+    model.openDiffFile(file)
+    #expect(model.selectedTab == .diff)
 }
 #endif

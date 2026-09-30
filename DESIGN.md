@@ -25,7 +25,8 @@ The checked-out commit row has a thin, subdued system-accent outline, independen
 of the native selection fill. Its accessibility value identifies it as checked out.
 
 The trailing segmented control selects Info or Diff, with Editor and Terminal
-available only while Staging is selected. Info shows project placement and README;
+available while Staging is selected; Editor is also available whenever the project
+has a local working copy. Info shows project placement and README;
 selecting a commit opens Diff. Selecting Staging opens the local editor: a native
 file outline and CodeEditSourceEditor share a resizable split in the detail column,
 keeping the commit lanes visible. Remote staging opens Diff. Terminal opens the embedded terminal for the selected working copy. External
@@ -38,7 +39,10 @@ for diff inspection. Green checkmarks identify staged files; orange marks identi
 unstaged or untracked files; conflicts have a warning symbol. A file may show both
 staged and unstaged marks. Separate diff choices compare saved work with the index
 or the index with HEAD using the existing gitdiff renderer. Saving never stages.
-The existing repository watcher refreshes file status and diffs.
+The existing repository watcher refreshes file status and diffs. Clicking a diff
+filename opens its local working copy in Editor, retaining the selected history
+entry and guarding unsaved edits. Renames use the new path; deleted files use the
+old path and show the editor’s missing-file error when absent locally.
 
 Save and Command-S atomically save a regular UTF-8 file, preserving line endings.
 The first editor supports files up to 2 MB; binary files, symlinks, and Git metadata

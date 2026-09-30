@@ -11,8 +11,18 @@ struct DiffParserKey: EnvironmentKey {
     static let defaultValue: any DiffParsing = UnifiedDiffParser()
 }
 
+private struct DiffOpenFileKey: EnvironmentKey {
+    static let defaultValue: ((DiffFile) -> Void)? = nil
+}
+
 /// Environment extensions for diff configuration
 extension EnvironmentValues {
+    /// Opens the local working copy represented by a diff header.
+    public var diffOpenFile: ((DiffFile) -> Void)? {
+        get { self[DiffOpenFileKey.self] }
+        set { self[DiffOpenFileKey.self] = newValue }
+    }
+
     public var diffConfiguration: DiffConfiguration {
         get { self[DiffConfigurationKey.self] }
         set { self[DiffConfigurationKey.self] = newValue }

@@ -325,7 +325,7 @@ final class AppModel: ObservableObject {
     }
 
     var availableTabs: [ProjectTab] {
-        selectedStaging?.source == .local ? ProjectTab.allCases
+        selectedStaging?.source == .local || selectedEditorRepositoryURL != nil ? ProjectTab.allCases
             : (!projectTerminalSources.isEmpty ? [.info, .diff, .terminal] : [.info, .diff])
     }
 
@@ -616,6 +616,23 @@ final class AppModel: ObservableObject {
               !name.contains("/"), !name.contains("\\"), !name.contains("\0") else { return false }
         selectProject(name)
         return true
+    }
+
+    var diffFileAction: ((DiffFile) -> Void)? {
+        guard selectedEditorRepositoryURL != nil else { return nil }
+        return { file in self.openDiffFile(file) }
+    }
+
+    func openDiffFile(_ file: DiffFile) {
+        guard let repository = selectedEditorRepositoryURL else { return }
+        if editor.repository != repository {
+            guard editor.confirmDiscard() else { return }
+            editor.connect(repository)
+        }
+        let path = file.newPath.isEmpty || file.newPath == "/dev/null" ? file.oldPath : file.newPath
+        editor.open(path)
+        guard editor.path == path else { return }
+        selectedTab = .editor
     }
 
     func selectProject(_ name: String?) {
@@ -1451,6 +1468,7 @@ struct ProjectBrowserView: View {
                 else { ContentUnavailableView("Select a Project", systemImage: "sidebar.left") }
             case .diff:
                 ProjectDetailView(model: model)
+                    .environment(\.diffOpenFile, model.diffFileAction)
             case .editor:
                 if model.selectedEditorRepositoryURL != nil {
                     HSplitView {

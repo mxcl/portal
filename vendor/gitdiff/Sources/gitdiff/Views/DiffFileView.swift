@@ -11,6 +11,8 @@ import SwiftUI
 public struct DiffFileView: View {
   let file: DiffFile
 
+  @Environment(\.diffOpenFile) private var openFile
+
   @Environment(\.diffConfiguration) private var configuration
 
   public init(file: DiffFile) {
@@ -29,7 +31,15 @@ public struct DiffFileView: View {
           Image(systemName: "doc.text")
             .foregroundColor(configuration.theme.fileHeaderText)
 
-          Text(file.displayName)
+          Group {
+            if let openFile {
+              Button(file.displayName) { openFile(file) }
+                .buttonStyle(.plain)
+                .help("Open local working copy in editor")
+            } else {
+              Text(file.displayName)
+            }
+          }
             .font(.system(.headline, design: configuration.fontFamily))
             .fontWeight(.bold)
             .foregroundColor(configuration.theme.fileHeaderText)

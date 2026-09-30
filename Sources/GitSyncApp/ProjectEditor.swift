@@ -282,6 +282,7 @@ struct ProjectEditorView: View {
                 if presentation != "Edit", let repository = editor.repository {
                     WorkingFileDiff(repository: repository, path: path, staged: presentation == "Staged",
                                     revision: editor.revision)
+                        .environment(\.diffOpenFile, { _ in presentation = "Edit" })
                 } else if editor.canEdit {
                     SourceEditor($editor.text,
                                  language: CodeLanguage.detectLanguageFrom(url: URL(fileURLWithPath: path)),

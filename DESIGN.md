@@ -153,6 +153,9 @@ viewport and updates as the user scrolls or resizes the window.
 The diff header groups author, date, and source on one line, with abbreviated
 commit and parent hashes beside references below. These rows stack when needed;
 hash controls copy the full value and expose it in help and accessibility text.
+Short hashes reserve only their own width. Hover expands a copy bubble over
+neighboring items without moving them; clicking anywhere in it copies the full
+SHA and changes COPY to COPIED until the pointer leaves.
 
 The UI uses no custom palette or typography. Semantic system colors carry state,
 SF Symbols accompany every status label, and monospaced system text is reserved

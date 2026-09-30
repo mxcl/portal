@@ -2007,41 +2007,52 @@ private struct CommitRow: View {
     }
 }
 
-private struct CopyableCommitSHA: View {
+struct CopyableCommitSHA: View {
     let sha: String
-    @State private var isHovered = false
+    @State var isHovered = false
+    @State var isCopied = false
 
     var body: some View {
-        HStack(spacing: 3) {
-            Text(sha.prefix(8))
-                .monospaced()
-            Button("Copy commit SHA", systemImage: "doc.on.doc", action: copy)
-                .labelStyle(.iconOnly)
-                .buttonStyle(CopyButtonStyle())
-                .font(.caption2)
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-        }
-        .padding(.horizontal, 5)
-        .padding(.vertical, 1)
-        .background(isHovered ? Color.secondary.opacity(0.18) : .clear, in: Capsule())
-        .contentShape(Capsule())
-        .onHover { isHovered = $0 }
-        .help("Copy full commit SHA: \(sha)")
-        .accessibilityValue(sha)
-        .accessibilityAction(named: "Copy commit SHA", copy)
+        Text(sha.prefix(8))
+            .monospaced()
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .hidden()
+            .overlay(alignment: .leading) {
+                Button(action: copy) {
+                    HStack(spacing: 5) {
+                        Text(sha.prefix(8)).monospaced()
+                        if isHovered || isCopied {
+                            Text(isCopied ? "COPIED" : "COPY")
+                                .font(.caption2.weight(.semibold))
+                        }
+                    }
+                    .fixedSize()
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background {
+                        if isHovered || isCopied {
+                            Capsule().fill(.regularMaterial)
+                        }
+                    }
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .onHover {
+                    isHovered = $0
+                    if !$0 { isCopied = false }
+                }
+                .help("Copy full commit SHA: \(sha)")
+                .accessibilityLabel(isCopied ? "Copied commit SHA" : "Copy commit SHA")
+                .accessibilityValue(sha)
+            }
+            .zIndex(isHovered || isCopied ? 1 : 0)
+            .onChange(of: sha) { _, _ in isCopied = false }
     }
 
     private func copy() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(sha, forType: .string)
-    }
-
-    private struct CopyButtonStyle: ButtonStyle {
-        func makeBody(configuration: ButtonStyleConfiguration) -> some View {
-            configuration.label
-                .opacity(configuration.isPressed ? 0.4 : 1)
-        }
+        isCopied = NSPasteboard.general.setString(sha, forType: .string)
     }
 }
 

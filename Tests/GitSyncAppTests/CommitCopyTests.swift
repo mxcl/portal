@@ -65,4 +65,17 @@ func selectedCommitCopyCommand() throws {
         #expect(pasteboard.string(forType: .string) == "selected text")
     }
 }
+@Test("SHA copy bubble reserves no action space in idle, hover, or copied states")
+@MainActor
+func commitCopyBubbleLayout() {
+    let sha = String(repeating: "a123", count: 10)
+    let reference = NSHostingView(rootView: Text(sha.prefix(8)).monospaced()
+        .padding(.horizontal, 5).padding(.vertical, 1).font(.caption))
+    let expected = reference.fittingSize
+    for (hovered, copied) in [(false, false), (true, false), (true, true)] {
+        let bubble = NSHostingView(rootView: CopyableCommitSHA(sha: sha, isHovered: hovered, isCopied: copied)
+            .font(.caption))
+        #expect(bubble.fittingSize == expected)
+    }
+}
 #endif

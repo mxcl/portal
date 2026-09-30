@@ -3304,6 +3304,7 @@ private final class TerminalTab {
     var isShellReady: Bool { commandLifecycle.state.isShellReady }
     var isReplayingHistory: Bool { commandLifecycle.state.isReplayingHistory }
     var hasExited: Bool { commandLifecycle.state.hasExited }
+    var pendingShellInitialization: String?
     var isTerminalControlActive = false
     var isAlternateScreenActive: Bool { commandLifecycle.state.isAlternateScreenActive }
     var isApplicationCursorModeActive: Bool { commandLifecycle.state.isApplicationCursorModeActive }
@@ -5763,6 +5764,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         hideSessionPicker(for: tab)
         clearCommandInput(in: tab)
+        tab.pendingShellInitialization = nil
         tab.sessionRef = candidate.sessionRef
         tab.session = PtySession(sessionRef: candidate.sessionRef)
         tab.title = candidate.title
@@ -6339,7 +6341,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             export LC_TERMINAL=Gitinuum
             export LC_TERMINAL_VERSION=\(shellQuote(appVersion))
             export __CFBundleIdentifier=\(shellQuote(bundleIdentifier))
-            \(isSSHSession ? remoteCodeFunctionScript : "")
+            \(isSSHSession ? Self.remoteCodeFunctionScript : "")
             cd \(shellQuote(workingDirectory.path))
             \(PortalCommandEnvelope.inputSetupScript)
             PROMPT=''
@@ -6349,15 +6351,17 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
             """
 
+        let initializingSessionRef = tab.sessionRef
         tab.session.onReady = { [weak self, weak tab] created in
-            guard let self, let tab else { return }
+            guard let self, let tab, tab.sessionRef == initializingSessionRef else { return }
             guard created else {
                 tab.commandLifecycle.apply(.markNeedsShellInputReset)
                 self.finishHistoryReplay(in: tab)
                 return
             }
             tab.commandLifecycle.apply(.beginShellInitialization)
-            tab.session.write(initScript, suppressEcho: true)
+            tab.pendingShellInitialization = initScript
+            tab.session.write(PortalCommandEnvelope.shellBootstrapScript, suppressEcho: true)
         }
 
         let startedSessionRef = tab.sessionRef
@@ -7031,6 +7035,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
         switch marker.kind {
         case .shellReady(let cwd):
+            if let script = tab.pendingShellInitialization {
+                tab.pendingShellInitialization = nil
+                tab.session.write(script, suppressEcho: true)
+                return
+            }
             tab.commandLifecycle.apply(.shellReady(cwd: cwd))
             updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
             refreshGitTreeIfVisible(for: tab)
@@ -7111,7 +7120,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    private var remoteCodeFunctionScript: String {
+    static var remoteCodeFunctionScript: String {
         """
         code() {
           if [ "$#" -eq 0 ]; then

@@ -13,6 +13,9 @@ public enum PortalCommandEnvelope {
         stty -echo
         """
 
+    // Acknowledge the short bootstrap before sending the longer startup script.
+    static let shellBootstrapScript = inputSetupScript + "\nprintf '\\033]133;R;\\a'\n"
+
     public static func shellScript(
         for command: String,
         exitsShellAfterCompletion: Bool = false

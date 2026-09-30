@@ -20,14 +20,17 @@ struct GitSyncApp: App {
         Window("Gitinuum", id: "projects") {
             ProjectBrowserView(model: model)
                 .focusedSceneValue(\.paletteModel, model)
-                .onAppear { appDelegate.editor = model.editor }
+                .onAppear {
+                    appDelegate.editor = model.editor
+                    appDelegate.terminalHosts = { model.terminalHosts }
+                }
                 .modifier(EditorCloseGuard(editor: model.editor))
         }
         .defaultSize(width: 1180, height: 720)
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Terminal Window") { appDelegate.terminals.newWindow() }.keyboardShortcut("n")
+                Button("New Terminal Window") { appDelegate.terminals.newWindow(hosts: model.terminalHosts) }.keyboardShortcut("n")
             }
             SidebarCommands()
             PaletteCommands()
@@ -76,6 +79,7 @@ struct GitSyncApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var editor: ProjectEditor?
     let terminals = TerminalWorkspace()
+    var terminalHosts: () -> [TerminalHost] = { [] }
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
@@ -84,14 +88,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return menu
     }
 
-    @objc private func newTerminalWindow() { terminals.newWindow() }
+    @objc private func newTerminalWindow() { terminals.newWindow(hosts: terminalHosts()) }
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls where url.isFileURL {
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { continue }
             let command = isDirectory.boolValue ? nil : "'" + url.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-            terminals.newWindow(directory: isDirectory.boolValue ? url : url.deletingLastPathComponent(), command: command)
+            terminals.newWindow(directory: isDirectory.boolValue ? url : url.deletingLastPathComponent(), command: command, hosts: terminalHosts())
         }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

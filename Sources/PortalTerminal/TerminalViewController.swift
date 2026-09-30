@@ -132,8 +132,10 @@ private final class SeparatorView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         // Match a thin NSSplitView divider over the same opaque content background.
-        TahoeGlassPalette.commandBackground.setFill()
-        bounds.fill()
+        if blockAbove?.usesPortalMaterials != true && blockBelow?.usesPortalMaterials != true {
+            TahoeGlassPalette.commandBackground.setFill()
+            bounds.fill()
+        }
         NSColor.separatorColor.setFill()
         bounds.fill()
         if hasFailedNeighbor {
@@ -721,7 +723,7 @@ private struct ContentColumnBackground: View {
     }
 }
 
-private final class TahoeGlassRootView: NSView {
+final class TahoeGlassRootView: NSView {
     private let originalMaterialView = NonHitTestingVisualEffectView()
     private let contentColumnMaterialView = NSHostingView(rootView: ContentColumnBackground())
     private let tintView = NonHitTestingView()
@@ -744,6 +746,10 @@ private final class TahoeGlassRootView: NSView {
 
     var onAppearanceChange: (() -> Void)?
     var onLayout: (() -> Void)?
+    var usesPortalMaterials = false {
+        didSet { originalMaterialView.blendingMode = usesPortalMaterials ? .behindWindow : .withinWindow }
+    }
+
     var showsTopBar = true {
         didSet {
             topBarLayer.isHidden = !showsTopBar
@@ -1586,6 +1592,17 @@ private final class FindCloseButton: NSButton {
 }
 
 private final class BlockView: NSView {
+    var usesPortalMaterials = false
+    private var runningBackground: NSColor {
+        usesPortalMaterials ? .black.withAlphaComponent(0.22) : TahoeGlassPalette.commandBackground
+    }
+    private var completedBackground: NSColor {
+        usesPortalMaterials ? .black.withAlphaComponent(0.18) : TahoeGlassPalette.commandBackground
+    }
+    private var failedBackground: NSColor {
+        usesPortalMaterials ? .systemRed.withAlphaComponent(0.22) : TahoeGlassPalette.failedCommandBackground
+    }
+
     private enum Metrics {
         static let runningMinimumHeight: CGFloat = 90
     }
@@ -1711,7 +1728,7 @@ private final class BlockView: NSView {
         wantsLayer = true
         layer?.cornerRadius = 0
         layer?.borderWidth = 0
-        layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
+        layer?.backgroundColor = runningBackground.cgColor
         findReticuleLayer.isHidden = true
         findReticuleLayer.opacity = 0
         findReticuleLayer.borderWidth = 0
@@ -1838,7 +1855,7 @@ private final class BlockView: NSView {
         ]
         switch block.state {
         case .running:
-            layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
+            layer?.backgroundColor = runningBackground.cgColor
             if !hidesLiveDuration {
                 metadata.append(MetadataSegment(
                     text: liveDurationText(startedAt: block.startedAt, now: now),
@@ -1851,8 +1868,8 @@ private final class BlockView: NSView {
             minimumHeightConstraint?.constant = 0
             contentBottomConstraint?.isActive = true
             layer?.backgroundColor = (code == 0
-                ? TahoeGlassPalette.commandBackground
-                : TahoeGlassPalette.failedCommandBackground
+                ? completedBackground
+                : failedBackground
             ).cgColor
             if let duration = durationText(for: block) {
                 metadata.append(MetadataSegment(text: duration, color: .tertiaryLabelColor))
@@ -4170,12 +4187,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     override func loadView() {
         let rootView = TahoeGlassRootView()
+        rootView.usesPortalMaterials = standalone
         rootView.backgroundBlurEffect = backgroundBlurEffect
         rootView.showsTopBar = isTabStripVisible
         rootView.onAppearanceChange = { [weak self] in
             guard let self else { return }
             for tab in tabs {
-                tab.commandBarView.layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
+                tab.commandBarView.layer?.backgroundColor = (standalone ? NSColor.black.withAlphaComponent(0.22) : TahoeGlassPalette.commandBackground).cgColor
             }
         }
         rootView.onLayout = { [weak self] in
@@ -4918,7 +4936,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.findQuery = ""
         tab.findResults = []
         tab.findResultIndex = nil
-        tab.commandBarView.layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
+        tab.commandBarView.layer?.backgroundColor = (standalone ? NSColor.black.withAlphaComponent(0.22) : TahoeGlassPalette.commandBackground).cgColor
         tab.findCloseButton.isHidden = true
         tab.inputView.setAccessibilityLabel("Terminal command input")
         setInput(tab.findCommandDraft, in: tab)
@@ -5301,6 +5319,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             lastCommandAt: lastCommandAt,
             commandHistory: commandHistory
         )
+        tab.commandBarView.layer?.backgroundColor = (standalone ? NSColor.black.withAlphaComponent(0.22) : TahoeGlassPalette.commandBackground).cgColor
         tab.commandLifecycle.apply(.cwdChanged(directoryPath))
         tab.findCloseButton.target = self
         tab.findCloseButton.action = #selector(closeFindMode(_:))
@@ -7751,6 +7770,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         separator.widthAnchor.constraint(equalTo: tab.stackView.widthAnchor).isActive = true
 
         let blockView = BlockView()
+        blockView.usesPortalMaterials = standalone
         let previousBlock = tab.commandSeparator.blockAbove
         separator.blockAbove = previousBlock
         separator.blockBelow = blockView

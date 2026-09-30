@@ -39,7 +39,8 @@ public final class TerminalWorkspace: ObservableObject {
             }
     }
 
-    public func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil) {
+    public func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hosts: [TerminalHost]? = nil) {
+        if let hosts { PtySession.configureSSHHosts(hosts) }
         let controller = TerminalViewController(restoresPersistedWindow: false, initialDirectory: directory, standalone: true, launchCommand: command)
         let window = StandaloneTerminalWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 760),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -53,6 +54,11 @@ public final class TerminalWorkspace: ObservableObject {
         window.isReleasedWhenClosed = false
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        let toolbar = NSToolbar(identifier: "dev.mxcl.git-sync.terminal.titlebar")
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
         window.titlebarSeparatorStyle = .none
         window.tabbingMode = .disallowed
         window.contentViewController = controller

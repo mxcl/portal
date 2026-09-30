@@ -13,6 +13,15 @@ struct TerminalIntegrationTests {
         #expect(portalFailedCommandDividersSelfTest())
     }
 
+    @Test @MainActor func standaloneUsesPortalBlurMaterial() {
+        let root = TahoeGlassRootView()
+        let material = root.subviews.compactMap { $0 as? NSVisualEffectView }.first!
+        #expect(material.blendingMode == .withinWindow)
+        root.usesPortalMaterials = true
+        #expect(material.blendingMode == .behindWindow)
+        #expect(material.material == .underWindowBackground)
+    }
+
     @Test @MainActor func standaloneCannotEnterTabSession() {
         let controller = TerminalViewController(standalone: true)
         controller.enterTabSession()

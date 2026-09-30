@@ -34,12 +34,14 @@ struct TerminalIntegrationTests {
         let rgb = try #require(output.attribute(.foregroundColor, at: 1, effectiveRange: nil) as? NSColor)
         var colors: [NSColor] = []
         var surfaces: [NSColor] = []
+        var emptyBackgrounds: [NSColor] = []
         var explicitColors: [NSColor] = []
         for name in [NSAppearance.Name.aqua, .darkAqua] {
             let appearance = try #require(NSAppearance(named: name))
             appearance.performAsCurrentDrawingAppearance {
                 colors.append(yellow.usingColorSpace(.sRGB)!)
                 surfaces.append(TahoeGlassPalette.commandBackground.usingColorSpace(.sRGB)!)
+                emptyBackgrounds.append(TahoeGlassPalette.emptyBackground.usingColorSpace(.sRGB)!)
                 let failure = TahoeGlassPalette.failedCommandBackground.usingColorSpace(.sRGB)!
                 #expect(failure.alphaComponent == 1)
                 #expect(failure.redComponent > failure.greenComponent)
@@ -50,6 +52,9 @@ struct TerminalIntegrationTests {
         #expect(colors[0].greenComponent < 0.5)
         #expect(colors[1].greenComponent > 0.9)
         #expect(surfaces.allSatisfy { $0.alphaComponent == 1 })
+        #expect(emptyBackgrounds[0].redComponent > 0.95)
+        #expect(emptyBackgrounds[0].alphaComponent == 1)
+        #expect(emptyBackgrounds[1].alphaComponent == 0)
         #expect(surfaces[0].redComponent > 0.95)
         #expect(surfaces[1].redComponent < 0.25)
         #expect(explicitColors[0] == explicitColors[1])

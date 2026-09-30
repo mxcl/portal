@@ -75,6 +75,10 @@ enum TahoeGlassPalette {
     static let windowTintMid = tint(light: 0.01, dark: 0.26)
     static let windowTintEnd = tint(light: 0, dark: 0.24)
     static let topBarTint = tint(light: 0.04, dark: 0.26)
+    static let emptyBackground = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? .clear : NSColor(white: 0.97, alpha: 1)
+    }
     static let commandBackground = NSColor.textBackgroundColor
     static var failedCommandBackground: NSColor {
         commandBackground.blended(withFraction: 0.08, of: .systemRed) ?? commandBackground
@@ -764,6 +768,7 @@ private final class TahoeGlassRootView: NSView {
         contentColumnMaterialView.translatesAutoresizingMaskIntoConstraints = false
 
         tintView.wantsLayer = true
+        tintView.layer?.backgroundColor = TahoeGlassPalette.emptyBackground.cgColor
         tintView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(tintView, positioned: .above, relativeTo: originalMaterialView)
 
@@ -828,6 +833,7 @@ private final class TahoeGlassRootView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         effectiveAppearance.performAsCurrentDrawingAppearance {
+            tintView.layer?.backgroundColor = TahoeGlassPalette.emptyBackground.cgColor
             originalTintLayer.colors = [
                 TahoeGlassPalette.windowTintStart.cgColor,
                 TahoeGlassPalette.windowTintMid.cgColor,

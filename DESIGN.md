@@ -529,7 +529,8 @@ older relay responses and local caches readable (unknown state shows no dot).
 The terminal follows the window’s light/dark appearance. `TahoeGlassPalette`
 owns adaptive surface tints; command blocks and the command bar use opaque
 AppKit `textBackgroundColor` (white in light mode). Only empty terminal space
-shows the darker background material. Failed commands blend 8% system red into
+uses a near-white background (97% white) in light mode and the existing background
+material in dark mode. Failed commands blend 8% system red into
 the opaque command background and retain a system-red exit status. AppKit
 semantic colors own text and separators. Terminal dividers use the native thin
 split-view treatment: one point of `separatorColor` over the opaque command

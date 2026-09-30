@@ -194,13 +194,23 @@ func auxiliaryHistory() throws {
                               input: "Snapshot-only commit\n")
     let snapshotRef = "refs/codex/snapshots/1234567890abcdef"
     _ = try git(["-C", repository.url.path, "update-ref", snapshotRef, snapshotOID])
+    let backupOID = try git(["-C", repository.url.path, "commit-tree", "HEAD^{tree}", "-p", "HEAD"],
+                            input: "Before squash\n")
+    let backupRef = "refs/backup/before-related-squash"
+    _ = try git(["-C", repository.url.path, "update-ref", backupRef, backupOID])
+    let refsBefore = try git(["-C", repository.url.path, "show-ref"])
     let hidden = try repository.snapshot()
+    #expect(!hidden.commits.contains { $0.oid == backupOID })
+    #expect(!hidden.references.contains { $0.fullName == backupRef })
     #expect(!hidden.commits.contains { $0.oid == snapshotOID })
     #expect(!hidden.references.contains { $0.fullName == snapshotRef })
     #expect(!hidden.commits.contains { $0.oid == detachedOID })
     #expect(hidden.commits.contains { $0.oid == attachedOID })
     #expect(hidden.detachedWorktrees == nil)
     let shown = try repository.snapshot(showAuxiliaryHistory: true)
+    #expect(shown.commits.contains { $0.oid == backupOID })
+    #expect(shown.references.contains { $0.fullName == backupRef && $0.oid == backupOID })
+    #expect(try git(["-C", repository.url.path, "show-ref"]) == refsBefore)
     #expect(shown.commits.contains { $0.oid == detachedOID })
     #expect(shown.commits.contains { $0.oid == snapshotOID })
     #expect(shown.references.contains { $0.fullName == snapshotRef && $0.oid == snapshotOID })
@@ -208,6 +218,10 @@ func auxiliaryHistory() throws {
     #expect(shown.detachedWorktrees == [detachedOID: [detachedPath]])
     #expect(try JSONDecoder().decode(RepositorySnapshot.self, from: JSONEncoder().encode(shown)) == shown)
     #expect(try JSONDecoder().decode(RepositorySnapshot.self, from: JSONEncoder().encode(hidden)) == hidden)
+
+    // A backup ref must not hide history also reachable through a normal branch.
+    _ = try git(["-C", repository.url.path, "branch", "retained-backup", backupOID])
+    #expect(try repository.snapshot().commits.contains { $0.oid == backupOID })
 
     // The same rule applies when browsing the detached checkout itself.
     let checkout = Repository(name: "detached", url: detached)

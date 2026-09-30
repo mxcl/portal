@@ -314,7 +314,9 @@ func auxiliaryHistoryLabels() {
     let tip = RepositoryCommit(oid: "tip", parents: ["root"], author: "", date: .distantPast, message: "detached")
     let saved = RepositoryCommit(oid: "saved", parents: ["root"], author: "", date: .distantPast, message: "snapshot")
     let ref = RepositoryReference(fullName: "refs/codex/snapshots/7d93887b2ca1", oid: "saved")
-    let snapshot = RepositorySnapshot(commits: [tip, saved, root], references: [ref], head: nil, branches: [],
+    let backup = RepositoryCommit(oid: "backup", parents: ["root"], author: "", date: .distantPast, message: "before squash")
+    let backupRef = RepositoryReference(fullName: "refs/backup/before-related-squash", oid: "backup")
+    let snapshot = RepositorySnapshot(commits: [tip, saved, backup, root], references: [ref, backupRef], head: nil, branches: [],
         detachedWorktrees: ["tip": ["/tmp/checkout", "/tmp/one/project", "/tmp/two/project"]])
     #expect(snapshot.auxiliaryHistoryLabels["tip"] == [
         "checkout (detached)", "/tmp/one/project (detached)", "/tmp/two/project (detached)"
@@ -322,7 +324,8 @@ func auxiliaryHistoryLabels() {
     let graph = CommitGraphGenerator.generate(commits: snapshot.commits, headOID: nil,
                                              branchNames: snapshot.auxiliaryHistoryLabels)
     #expect(snapshot.auxiliaryHistoryLabels["saved"] == ["Codex snapshot 7d93887b"])
-    #expect(graph.branchLabels.count == 2)
+    #expect(snapshot.auxiliaryHistoryLabels["backup"] == ["Backup before-related-squash"])
+    #expect(graph.branchLabels.count == 3)
     #expect(graph.branchLabels.allSatisfy { !$0.outline.isEmpty })
 }
 

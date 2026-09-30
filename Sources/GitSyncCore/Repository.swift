@@ -14,6 +14,9 @@ public struct RepositoryReference: Codable, Equatable, Identifiable, Sendable {
         if fullName.hasPrefix("refs/codex/snapshots/") {
             return "Codex snapshot \(fullName.dropFirst("refs/codex/snapshots/".count).prefix(8))"
         }
+        if fullName.hasPrefix("refs/backup/") {
+            return "Backup \(fullName.dropFirst("refs/backup/".count))"
+        }
         for host in hosts {
             for prefix in ["refs/remotes/\(Validator.remote(host.machine))/", "refs/sync/\(host.machine)/"] {
                 if fullName.hasPrefix(prefix) {
@@ -350,9 +353,9 @@ public struct Repository: Equatable {
     public func snapshot(limit: Int = 250, showAuxiliaryHistory: Bool = false) throws -> RepositorySnapshot {
         let references = try referenceSnapshot(includeAuxiliary: showAuxiliaryHistory)
         let head = try? Git.text(["-C", url.path, "symbolic-ref", "--quiet", "--short", "HEAD"])
-        // Auxiliary history includes detached HEADs and internal Codex snapshot refs.
+        // Auxiliary history includes detached HEADs, Codex snapshots, and backup refs.
         let revisions = showAuxiliaryHistory ? ["--all"]
-            : ["--exclude=refs/codex/snapshots/*", "--glob=refs/*"]
+            : ["--exclude=refs/codex/snapshots/*", "--exclude=refs/backup/*", "--glob=refs/*"]
         let history = try snapshot(limit: limit, references: references, revisions: revisions, head: head)
         let headOID = try? Git.text(["-C", url.path, "rev-parse", "--verify", "HEAD"])
         let mirrored = try Git.text(["-C", url.path, "rev-parse", "--is-bare-repository"]) == "true"
@@ -466,7 +469,7 @@ public struct Repository: Equatable {
         let data = try Git.run([
             "-C", url.path, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(*objectname)",
             "refs/heads", "refs/remotes", "refs/tags", "refs/sync",
-        ] + (includeAuxiliary ? ["refs/codex/snapshots"] : []))
+        ] + (includeAuxiliary ? ["refs/codex/snapshots", "refs/backup"] : []))
         return data.split(separator: 10).compactMap { line in
             let fields = line.split(separator: 0, maxSplits: 2, omittingEmptySubsequences: false)
             guard fields.count >= 2 else { return nil }

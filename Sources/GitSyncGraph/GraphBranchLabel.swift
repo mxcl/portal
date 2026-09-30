@@ -13,7 +13,7 @@ extension RepositorySnapshot {
                 return "\(counts[name]?.count == 1 ? name : path) (detached)"
             }
         }
-        for ref in references where ref.fullName.hasPrefix("refs/codex/snapshots/") {
+        for ref in references where ref.fullName.hasPrefix("refs/codex/snapshots/") || ref.fullName.hasPrefix("refs/backup/") {
             labels[ref.oid, default: []].append(ref.displayName(hosts: []))
         }
         return labels

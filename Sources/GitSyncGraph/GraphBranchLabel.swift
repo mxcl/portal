@@ -37,7 +37,7 @@ extension RepositoryReference {
                         $0.isPeerBranch(from: machine)
                 }
             } == true
-            if !expanded && matching.count > 1 && (matching.count == group.count || matchesLocal) {
+            if !expanded && (tags || matching.count > 1) && (matching.count == group.count || matchesLocal) {
                 name = ref.graphShortName
             } else if (ref.fullName.hasPrefix("refs/heads/") || ref.fullName.hasPrefix("refs/tags/")),
                       let sourceMachine {

@@ -152,7 +152,7 @@ func nearbyBranchLabels() throws {
     #expect(combined.branchLabels.count == 1)
 }
 
-@Test("Matching branch and tag copies collapse only when every copy agrees")
+@Test("Uncontested tags and matching branch copies use short names")
 func matchingReferenceNames() {
     for tags in [false, true] {
         let names = tags
@@ -170,7 +170,9 @@ func matchingReferenceNames() {
                                                   allReferences: divergentPeers, tags: tags) == [peer.name])
         }
         #expect(RepositoryReference.graphNames([matching[0]], hosts: [], sourceMachine: "Maliwan", tags: tags)
-                == ["maliwan/\(short)"])
+                == [tags ? short : "maliwan/\(short)"])
+        #expect(RepositoryReference.graphNames([matching[0]], hosts: [], sourceMachine: "Maliwan",
+                                              tags: tags, expanded: true) == ["maliwan/\(short)"])
         let divergent = Array(matching.prefix(2)) + [RepositoryReference(fullName: names[2], oid: "b")]
         let prefix = tags ? "tags/" : ""
         #expect(RepositoryReference.graphNames(Array(divergent.prefix(2)), hosts: [], sourceMachine: "Maliwan",
@@ -181,7 +183,7 @@ func matchingReferenceNames() {
                 == ["pangolin/\(prefix)\(short)"])
         let other = RepositoryReference(fullName: tags ? "refs/tags/other" : "refs/heads/other", oid: "a")
         #expect(RepositoryReference.graphNames(matching + [other], hosts: [], sourceMachine: "Maliwan", tags: tags)
-                == [short, "maliwan/other"])
+                == [short, tags ? "other" : "maliwan/other"])
     }
 }
 

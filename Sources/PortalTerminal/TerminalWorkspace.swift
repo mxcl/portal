@@ -41,7 +41,7 @@ public final class TerminalWorkspace: ObservableObject {
 
     public func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil) {
         let controller = TerminalViewController(restoresPersistedWindow: false, initialDirectory: directory, standalone: true, launchCommand: command)
-        let window = StandaloneTerminalWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+        let window = StandaloneTerminalWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 760),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.delegate = window
@@ -56,6 +56,8 @@ public final class TerminalWorkspace: ObservableObject {
         window.titlebarSeparatorStyle = .none
         window.tabbingMode = .disallowed
         window.contentViewController = controller
+        window.contentMinSize = NSSize(width: 760, height: 480)
+        window.setContentSize(NSSize(width: 1120, height: 760))
         windows.removeAll { !$0.isVisible }
         windows.append(window)
         window.center()

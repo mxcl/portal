@@ -100,9 +100,10 @@ scp -C "$linux_binary" "$atlas:$atlas_stage"
 rm -rf "$local_stage" "$local_backup"
 /usr/bin/ditto "$built_app" "$local_stage"
 
-"$installer" "$local_stage" "$local_backup"
-ssh -o BatchMode=yes "$peer" bash -s -- "$remote_stage" "$remote_backup" < "$installer"
+# Upgrade the SSH endpoint before its clients; keep the invoking Mac until last.
 ssh -o BatchMode=yes "$atlas" bash -s -- "$atlas_stage" "$atlas_backup" < "$linux_installer"
+ssh -o BatchMode=yes "$peer" bash -s -- "$remote_stage" "$remote_backup" < "$installer"
+"$installer" "$local_stage" "$local_backup"
 
 for executable in 'MacOS/GitinuumApp' 'Resources/gitinuumd' 'Resources/gitinuum' \
   'Library/LoginItems/Gitinuum Menu Helper.app/Contents/MacOS/GitSyncMenuBar'; do

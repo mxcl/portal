@@ -95,7 +95,7 @@ impl Config {
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("Encryption key must be 32 bytes"))?,
             apns_team_id: required("APPLE_TEAM_ID")?,
-            apns_topic: "dev.mxcl.git-sync.menu-helper".into(),
+            apns_topic: "dev.mxcl.portal.menu-helper".into(),
             apns_sandbox: apns_credentials("SANDBOX")?,
             apns_production: apns_credentials("PRODUCTION")?,
         })

@@ -48,13 +48,20 @@ struct TerminalIntegrationTests {
         #expect(!controller.isViewLoaded)
     }
 
-    @Test func projectSessionsAreExcludedEvenAfterClosing() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let json = #"{"visibleTabs":[{"sessionID":"project","title":"Project","cwd":"/tmp"}],"closedTabs":[{"sessionID":"closed-project","title":"Closed","cwd":"/tmp"}]}"#
-        try Data(json.utf8).write(to: directory.appendingPathComponent("project.json"))
-        #expect(TerminalViewController.projectSessionRefs(in: directory) == [.local("project"), .local("closed-project")])
+    @Test @MainActor func standalonePickerIncludesAttachedProjectSessions() {
+        let controller = TerminalViewController(standalone: true)
+        let project = SessionPickerCandidate(sessionRef: .local("project"), hostTitle: "This Mac",
+            title: "Project", cwd: "/tmp/project", isClosed: false, commandCount: 1,
+            commandHistory: [], action: .attach, attachedClientCount: 1)
+        let inventory = SessionPickerModel.Inventory()
+        inventory.local = [project]
+        let picker = SessionPickerModel(inventory: inventory)
+        var items: [SessionPickerItem] = []
+        picker.refresh(initial: [], excluding: controller.sessionPickerExclusions,
+            homeDirectory: "/tmp", loadLocal: { [project] }, loadRemote: { [] },
+            isAvailable: { _ in true }, onUpdate: { items = $0.sections.flatMap(\.items) })
+        #expect(items.map(\.candidate.sessionRef) == [.local("project")])
+        picker.invalidate()
     }
 
     @Test @MainActor func tabBarStartsHidden() {

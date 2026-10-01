@@ -10,6 +10,7 @@ let package = Package(
         .executable(name: "gitinuum", targets: ["gitinuum"]),
         .executable(name: "gitinuumd", targets: ["gitinuumd"]),
         .executable(name: "GitinuumApp", targets: ["GitSyncApp"]),
+        .executable(name: "PortalTerminalApp", targets: ["PortalTerminalApp"]),
         .executable(name: "GitSyncMenuBar", targets: ["GitSyncMenuBar"]),
     ],
     dependencies: [
@@ -35,6 +36,7 @@ let package = Package(
                            .product(name: "Textual", package: "textual", condition: .when(platforms: [.macOS]))],
             resources: [.process("Resources")]
         ),
+        .executableTarget(name: "PortalTerminalApp", dependencies: ["PortalTerminal", "GitSyncEngine"]),
         .executableTarget(name: "GitSyncMenuBar", dependencies: ["GitSyncEngine"]),
         .testTarget(name: "PortalTerminalTests", dependencies: ["PortalTerminal"]),
         .testTarget(name: "GitinuumCLITests", dependencies: ["gitinuum"]),

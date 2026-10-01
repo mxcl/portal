@@ -8,7 +8,7 @@ public enum SyncProtocol {
 }
 
 public struct Configuration: Codable, Equatable, Sendable {
-    public static let defaultRemoteExecutable = "/Applications/Gitinuum.app/Contents/Resources/gitinuumd"
+    public static let defaultRemoteExecutable = "/Applications/Portal.app/Contents/Resources/gitinuumd"
 
     public static var defaultMachine: String {
         #if canImport(SystemConfiguration)

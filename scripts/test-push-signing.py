@@ -9,7 +9,7 @@ spec = importlib.util.spec_from_file_location("push", Path(__file__).with_name("
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 profile = {"Entitlements": {
-    "com.apple.application-identifier": "TEAM.dev.mxcl.git-sync.menu-helper",
+    "com.apple.application-identifier": "TEAM.dev.mxcl.portal.menu-helper",
     "com.apple.developer.team-identifier": "TEAM",
     "com.apple.developer.aps-environment": "production",
 }, "ExpirationDate": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)}

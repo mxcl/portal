@@ -2,15 +2,15 @@
 set -eu
 
 if [ "$(uname -s)" != Darwin ]; then
-  echo "Gitinuum.app can only be installed on macOS." >&2
+  echo "Portal.app can only be installed on macOS." >&2
   exit 1
 fi
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-destination=${1:-"/Applications/Gitinuum.app"}
+destination=${1:-"/Applications/Portal.app"}
 build_dir="$repo_dir/.build/release"
 # Keep APNs enabled on ordinary local reinstalls without an environment override.
-installed_profile="/Applications/Gitinuum.app/Contents/Library/LoginItems/Gitinuum Menu Helper.app/Contents/embedded.provisionprofile"
+installed_profile="/Applications/Portal.app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/embedded.provisionprofile"
 push_profile=${GITINUUM_PUSH_PROFILE-}
 if [ "${GITINUUM_PUSH_PROFILE+x}" != x ] && [ -f "$installed_profile" ]; then
   push_profile=$installed_profile
@@ -22,8 +22,9 @@ trap 'rm -rf "$stage"' EXIT HUP INT TERM
 cd "$repo_dir"
 swift build -c release
 
-app="$stage/Gitinuum.app"
-menu="$app/Contents/Library/LoginItems/Gitinuum Menu Helper.app"
+app="$stage/Portal.app"
+terminal="$app/Contents/Helpers/Portal Terminal.app"
+menu="$app/Contents/Library/LoginItems/Portal Menu Helper.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" \
   "$menu/Contents/MacOS" "$menu/Contents/Resources" "$(dirname -- "$destination")"
 "$repo_dir/scripts/build-terminal-helpers.sh" "$app/Contents"
@@ -40,8 +41,8 @@ install -m 755 "$repo_dir/app/install-gitinuum.command" "$app/Contents/Resources
 cp "$build_dir/GitSyncMenuBar" "$menu/Contents/MacOS/GitSyncMenuBar"
 cp "$repo_dir/app/Info.plist" "$app/Contents/Info.plist"
 cp "$repo_dir/app/MenuInfo.plist" "$menu/Contents/Info.plist"
-test "$(/usr/bin/plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = "dev.mxcl.git-sync"
-test "$(/usr/bin/plutil -extract CFBundleIdentifier raw "$menu/Contents/Info.plist")" = "dev.mxcl.git-sync.menu-helper"
+test "$(/usr/bin/plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = "dev.mxcl.portal"
+test "$(/usr/bin/plutil -extract CFBundleIdentifier raw "$menu/Contents/Info.plist")" = "dev.mxcl.portal.menu-helper"
 if /usr/bin/plutil -extract LSUIElement raw "$app/Contents/Info.plist" >/dev/null 2>&1; then
   echo "The foreground app must not be an LSUIElement." >&2
   exit 1
@@ -61,6 +62,19 @@ test -f "$app/Contents/Resources/AppIcon.icns"
 for icon in AppIcon.icns Assets.car; do
   ln "$app/Contents/Resources/$icon" "$menu/Contents/Resources/$icon"
 done
+
+mkdir -p "$terminal/Contents/MacOS" "$terminal/Contents/Resources"
+cp "$build_dir/PortalTerminalApp" "$terminal/Contents/MacOS/"
+cp "$repo_dir/app/TerminalInfo.plist" "$terminal/Contents/Info.plist"
+mkdir -p "$terminal/Contents/Helpers"
+cp -R "$app/Contents/Helpers/Portal Session Helper.app" "$terminal/Contents/Helpers/"
+cp "$app/Contents/Helpers/gitinuum-session-bridge" "$terminal/Contents/Helpers/"
+cp -R "$app/Contents/Resources/git-sync_PortalTerminal.bundle" "$terminal/Contents/Resources/"
+cp -R "$app/Contents/Resources/completions" "$terminal/Contents/Resources/"
+for icon in AppIcon.icns Assets.car; do
+  cp "$app/Contents/Resources/$icon" "$terminal/Contents/Resources/$icon"
+done
+codesign --force --sign "$signing_identity" --options runtime --timestamp "$terminal"
 
 if ! security find-identity -v -p codesigning | grep -Fq "\"$signing_identity\""; then
   echo "Code-signing identity not found: $signing_identity" >&2
@@ -83,8 +97,8 @@ fi
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/MacOS/GitinuumApp"
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app"
 if [ -e "$destination" ]; then
-  /usr/bin/osascript -e 'tell application id "dev.mxcl.git-sync.menu-helper" to quit' >/dev/null 2>&1 || true
-  /usr/bin/osascript -e 'tell application id "dev.mxcl.git-sync" to quit' >/dev/null 2>&1 || true
+  /usr/bin/osascript -e 'tell application id "dev.mxcl.portal.menu-helper" to quit' >/dev/null 2>&1 || true
+  /usr/bin/osascript -e 'tell application id "dev.mxcl.portal" to quit' >/dev/null 2>&1 || true
   sleep 1
   /usr/bin/pkill -x GitSyncMenuBar 2>/dev/null || true
   /usr/bin/pkill -x GitinuumApp 2>/dev/null || true
@@ -93,9 +107,9 @@ fi
 "$repo_dir/scripts/replace-app.sh" "$app" "$destination"
 # Keep the icon files shared even when the copy tool expands hardlinks.
 for icon in AppIcon.icns Assets.car; do
-  ln -f "$destination/Contents/Resources/$icon" "$destination/Contents/Library/LoginItems/Gitinuum Menu Helper.app/Contents/Resources/$icon"
+  ln -f "$destination/Contents/Resources/$icon" "$destination/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/Resources/$icon"
 done
-codesign --verify --strict --verbose=2 "$destination/Contents/Library/LoginItems/Gitinuum Menu Helper.app"
+codesign --verify --strict --verbose=2 "$destination/Contents/Library/LoginItems/Portal Menu Helper.app"
 codesign --verify --deep --strict --verbose=2 "$destination"
 
 cli_link="$HOME/.local/bin/git-sync"
@@ -103,4 +117,6 @@ if [ -L "$cli_link" ] && [ "$(readlink "$cli_link")" = "$destination/Contents/Re
   rm "$cli_link"
 fi
 
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$destination"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$destination/Contents/Helpers/Portal Terminal.app"
 echo "Installed $destination"

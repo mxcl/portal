@@ -3,7 +3,7 @@
 set -eu
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 if [ "$(uname -s)" = Darwin ]; then
-  echo 'On macOS, build/install Gitinuum.app to include signed terminal helpers.' >&2
+  echo 'On macOS, build/install Portal.app to include signed terminal helpers.' >&2
   exit 1
 fi
 cargo build --manifest-path "$repo_dir/TerminalHelpers/Cargo.toml" --release --locked

@@ -5311,16 +5311,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         latestRunningBlock(in: tab)?.command
     }
 
-    static func projectSessionRefs(in directory: URL? = nil) -> Set<SessionRef> {
-        let directory = directory ?? sessionStateURL().deletingLastPathComponent().appendingPathComponent("projects")
-        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-        return Set(files.flatMap { url -> [SessionRef] in
-            guard let data = try? Data(contentsOf: url),
-                  let storage = try? JSONDecoder().decode(SessionCatalog.Storage.self, from: data) else { return [] }
-            return (storage.visibleTabs + storage.closedTabs).map(\.resolvedRef)
-        })
-    }
-
     private static func sessionStateURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
@@ -5386,6 +5376,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
+    var sessionPickerExclusions: Set<SessionRef> { Set(tabs.map(\.sessionRef)) }
+
     private func configureSessionPicker(for tab: TerminalTab) {
         let model = SessionPickerModel(inventory: sessionPickerInventory)
         sessionPickerModelsByTab[tab.id]?.invalidate()
@@ -5394,7 +5386,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             if case .sshHost = $0.sessionRef.location { return false }
             return true
         }
-        let excluded = Set(tabs.map(\.sessionRef)).union(standalone ? Self.projectSessionRefs() : [])
+        let excluded = sessionPickerExclusions
         let tabID = tab.id
         let localHostName = Host.current().localizedName ?? "This Mac"
         model.refresh(

@@ -30,7 +30,7 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
         "pgrep": '#!/bin/sh\n[ "$2" = GitinuumApp ]\n',
         "open": (
             f"#!{sys.executable}\nimport json, os, sys\n"
-            f"assert sys.argv[1:] == {[str(applications / 'Gitinuum.app')]!r}\n"
+            f"assert sys.argv[1:] == {[str(applications / 'Portal.app')]!r}\n"
             f"with open({str(captured)!r}, 'w') as output:\n"
             "    json.dump(dict(os.environ), output)\n"
         ),

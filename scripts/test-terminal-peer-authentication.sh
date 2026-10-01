@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_DIR="${1:?usage: test-session-peer-authentication.sh APP_DIR}"
-SESSIOND="$APP_DIR/Contents/Helpers/Gitinuum Session Helper.app/Contents/MacOS/gitinuum-sessiond"
+SESSIOND="$APP_DIR/Contents/Helpers/Portal Session Helper.app/Contents/MacOS/gitinuum-sessiond"
 BRIDGE="$APP_DIR/Contents/Helpers/gitinuum-session-bridge"
 TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/portal-peer-auth.XXXXXX")"
 DAEMON_PID=""
@@ -38,6 +38,17 @@ response="$(printf 'LIST\n' | \
   echo "signed bridge was rejected by the signed daemon" >&2
   exit 1
 }
+
+# Exercise the exact identities of both foreground apps using a signed protocol probe.
+for identifier in dev.mxcl.portal dev.mxcl.portal.terminal; do
+  probe="$TEST_DIR/$identifier"
+  cp "$BRIDGE" "$probe"
+  codesign --force --sign "${GIT_SYNC_SIGNING_IDENTITY:-Developer ID Application: Max Howell (ZU76A67LGU)}" \
+    --identifier "$identifier" --options runtime --timestamp "$probe"
+  response="$(printf 'LIST\n' | GITINUUM_SESSIOND_SOCKET="$SIGNED_SOCKET" \
+    GITINUUM_SESSIOND_REQUIRE_EXISTING=1 "$probe")"
+  [[ "$response" == "SESSIONS W10=" ]] || { echo "$identifier was rejected" >&2; exit 1; }
+done
 
 unsigned_response="$(ruby -rsocket -e '
   socket = UNIXSocket.new(ARGV.fetch(0))

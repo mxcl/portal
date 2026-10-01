@@ -8,15 +8,15 @@ if let first = arguments.first, ["help", "--help", "-h"].contains(first) {
     print("""
     Usage: gitinuum [REPOSITORY_PATH]
 
-    With no arguments, opens Gitinuum.
+    With no arguments, opens Portal.
     Pass a repository path (or a directory inside it) to select that project.
     Use `gitinuum --sync-help` to list sync commands.
     """)
     exit(0)
 }
 
-guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "dev.mxcl.git-sync") else {
-    FileHandle.standardError.write(Data("gitinuum: Install and open Gitinuum.app first.\n".utf8))
+guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "dev.mxcl.portal") else {
+    FileHandle.standardError.write(Data("gitinuum: Install and open Portal.app first.\n".utf8))
     exit(1)
 }
 
@@ -48,6 +48,6 @@ argv.withUnsafeBufferPointer { buffer in
 perror("gitinuum")
 exit(1)
 #else
-FileHandle.standardError.write(Data("gitinuum: The Gitinuum app requires macOS. Use gitinuumd on this platform.\n".utf8))
+FileHandle.standardError.write(Data("gitinuum: The Portal app requires macOS. Use gitinuumd on this platform.\n".utf8))
 exit(1)
 #endif

@@ -14,15 +14,25 @@ import gitdiff
 @main
 struct GitSyncApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var model = AppModel()
+    @StateObject private var model: AppModel
+
+    init() {
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: "migrated-gitinuum-preferences") {
+            if let previous = defaults.persistentDomain(forName: "dev.mxcl.git-sync") {
+                for (key, value) in previous { defaults.set(value, forKey: key) }
+            }
+            defaults.set(true, forKey: "migrated-gitinuum-preferences")
+        }
+        _model = StateObject(wrappedValue: AppModel())
+    }
 
     var body: some Scene {
-        Window("Gitinuum", id: "projects") {
+        Window("Portal", id: "projects") {
             ProjectBrowserView(model: model)
                 .focusedSceneValue(\.paletteModel, model)
                 .onAppear {
                     appDelegate.editor = model.editor
-                    appDelegate.terminalHosts = { model.terminalHosts }
                 }
                 .modifier(EditorCloseGuard(editor: model.editor))
         }
@@ -30,7 +40,7 @@ struct GitSyncApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Terminal Window") { appDelegate.terminals.newWindow(hosts: model.terminalHosts) }.keyboardShortcut("n")
+                Button("New Terminal Window") { TerminalApplication.open() }.keyboardShortcut("n")
             }
             SidebarCommands()
             PaletteCommands()
@@ -42,7 +52,7 @@ struct GitSyncApp: App {
                           NSWorkspace.shared.open(script) else {
                         let alert = NSAlert()
                         alert.messageText = "Could not open the command line installer"
-                        alert.informativeText = "Reinstall Gitinuum and try again."
+                        alert.informativeText = "Reinstall Portal and try again."
                         alert.runModal()
                         return
                     }
@@ -90,8 +100,6 @@ struct GitSyncApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var editor: ProjectEditor?
-    let terminals = TerminalWorkspace()
-    var terminalHosts: () -> [TerminalHost] = { [] }
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
@@ -100,15 +108,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return menu
     }
 
-    @objc private func newTerminalWindow() { terminals.newWindow(hosts: terminalHosts()) }
+    @objc private func newTerminalWindow() { TerminalApplication.open() }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls where url.isFileURL {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { continue }
-            let command = isDirectory.boolValue ? nil : "'" + url.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-            terminals.newWindow(directory: isDirectory.boolValue ? url : url.deletingLastPathComponent(), command: command, hosts: terminalHosts())
-        }
+        TerminalApplication.open(urls)
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -240,8 +243,8 @@ final class AppModel: ObservableObject {
     private var windowCacheSave: Task<Void, Never>?
 
     private let selectedProjectKey = "selected-project-v2"
-    private let loginMigrationKey = "migrated-menu-helper-login-item-v5"
-    private let loginItem = SMAppService.loginItem(identifier: "dev.mxcl.git-sync.menu-helper")
+    private let loginMigrationKey = "migrated-portal-menu-helper-login-item-v1"
+    private let loginItem = SMAppService.loginItem(identifier: "dev.mxcl.portal.menu-helper")
     private var pendingHostDraft: HostDraft?
     private var notificationObserver: NSObjectProtocol?
     private var fetchingSnapshot = false
@@ -535,7 +538,7 @@ final class AppModel: ObservableObject {
         helperAvailable = false
         helperError = nil
         guard embeddedHelperURL != nil else {
-            helperError = "The embedded Sync Helper is missing. Reinstall Gitinuum."
+            helperError = "The embedded Sync Helper is missing. Reinstall Portal."
             return
         }
         connecting = true
@@ -1465,7 +1468,7 @@ final class AppModel: ObservableObject {
 
     private var embeddedHelperURL: URL? {
         let url = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Library/LoginItems/Gitinuum Menu Helper.app", isDirectory: true)
+            .appendingPathComponent("Contents/Library/LoginItems/Portal Menu Helper.app", isDirectory: true)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
@@ -1473,7 +1476,7 @@ final class AppModel: ObservableObject {
     private func launchHelper() -> Bool {
         guard let embeddedHelperURL else { return false }
         guard NSRunningApplication.runningApplications(
-            withBundleIdentifier: "dev.mxcl.git-sync.menu-helper"
+            withBundleIdentifier: "dev.mxcl.portal.menu-helper"
         ).isEmpty else { return true }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
@@ -1485,7 +1488,7 @@ final class AppModel: ObservableObject {
     private func stopRunningHelpers() async {
         _ = try? await EngineClient.send(.prepareForTermination)
         let helpers = NSRunningApplication.runningApplications(
-            withBundleIdentifier: "dev.mxcl.git-sync.menu-helper"
+            withBundleIdentifier: "dev.mxcl.portal.menu-helper"
         )
         helpers.forEach { $0.terminate() }
         for _ in 0..<20 {
@@ -1500,10 +1503,14 @@ final class AppModel: ObservableObject {
         guard !defaults.bool(forKey: loginMigrationKey) else { return }
         let legacyEnabled = SMAppService.mainApp.status == .enabled
             || SMAppService.mainApp.status == .requiresApproval
-        let oldHelper = SMAppService.loginItem(identifier: "dev.mxcl.git-sync.menu")
-        let oldHelperEnabled = oldHelper.status == .enabled || oldHelper.status == .requiresApproval
+        let oldHelpers = ["dev.mxcl.git-sync.menu", "dev.mxcl.git-sync.menu-helper"].map {
+            SMAppService.loginItem(identifier: $0)
+        }
+        let oldHelperEnabled = oldHelpers.contains { $0.status == .enabled || $0.status == .requiresApproval }
         do {
-            if oldHelperEnabled { try oldHelper.unregister() }
+            for helper in oldHelpers where helper.status == .enabled || helper.status == .requiresApproval {
+                try helper.unregister()
+            }
             if (legacyEnabled || oldHelperEnabled || defaults.bool(forKey: "launch-at-login")) && !launchesAtLogin { try loginItem.register() }
             if legacyEnabled { try SMAppService.mainApp.unregister() }
             defaults.set(true, forKey: loginMigrationKey)
@@ -2575,13 +2582,13 @@ struct SettingsView: View {
                     Text("The projects folder and Git identity are fixed after setup.").foregroundStyle(.secondary)
                 }
                 Section("Startup") {
-                    Toggle("Launch Gitinuum at login", isOn: Binding(get: { model.launchesAtLogin }, set: model.setLaunchAtLogin))
+                    Toggle("Launch Portal at login", isOn: Binding(get: { model.launchesAtLogin }, set: model.setLaunchAtLogin))
                     if model.launchAtLoginRequiresApproval {
                         Button("Open Login Items…", action: model.openLoginItems)
                     }
                 }
                 Section("Keyboard Shortcut") {
-                    Toggle("Open Gitinuum with ⌘⌥`", isOn: Binding(
+                    Toggle("Open Portal with ⌘⌥`", isOn: Binding(
                         get: { model.globalShortcutEnabled }, set: model.setGlobalShortcutEnabled
                     ))
                     Text("Available from any app while the menu bar helper is running.")
@@ -2595,11 +2602,14 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Section("Terminal") {
+                    Button("Install Portal Terminal…") { TerminalApplication.install() }
+                    Text("Install a separate copy in Applications to make Portal Terminal easy to find in Spotlight.")
+                        .foregroundStyle(.secondary)
                     Button("Become Default Terminal App") {
                         Task { @MainActor in
                             do {
                                 for type in [UTType.unixExecutable, UTType(importedAs: "com.apple.terminal.shell-script")] {
-                                    try await NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpen: type)
+                                    try await NSWorkspace.shared.setDefaultApplication(at: TerminalApplication.url, toOpen: type)
                                 }
                             } catch { NSAlert(error: error).runModal() }
                         }
@@ -2745,7 +2755,7 @@ private struct RenameHostView: View {
         VStack(alignment: .leading) {
             Text("Rename Host").font(.title2.bold())
             TextField("Name", text: $model.hostNameDraft)
-            Text("This changes how the host appears in Gitinuum, not its Git identity.")
+            Text("This changes how the host appears in Portal, not its Git identity.")
                 .foregroundStyle(.secondary)
             if let error = model.hostError { Text(error).foregroundStyle(.red).textSelection(.enabled) }
             HStack {
@@ -2787,5 +2797,5 @@ private struct AddHostView: View {
 }
 #else
 import Foundation
-@main enum GitSyncApp { static func main() { print("Gitinuum.app is available on macOS only") } }
+@main enum GitSyncApp { static func main() { print("Portal.app is available on macOS only") } }
 #endif

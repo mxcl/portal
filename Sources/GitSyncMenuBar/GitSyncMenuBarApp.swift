@@ -43,7 +43,7 @@ private struct MenuBarIcon: View {
         return Image(nsImage: renderer.nsImage ?? NSImage())
             .renderingMode(.original)
             .accessibilityLabel(hasUnreadNotifications
-                ? "Gitinuum, unread GitHub notifications" : "Gitinuum")
+                ? "Portal, unread GitHub notifications" : "Portal")
     }
 }
 
@@ -108,7 +108,7 @@ final class MenuBarRuntime: ObservableObject {
     func quitEverything() {
         github.shutdown()
         model.shutdown()
-        for app in NSRunningApplication.runningApplications(withBundleIdentifier: "dev.mxcl.git-sync") {
+        for app in NSRunningApplication.runningApplications(withBundleIdentifier: "dev.mxcl.portal") {
             app.terminate()
         }
         server?.stop()
@@ -201,12 +201,12 @@ private struct StatusMenu: View {
         }
         .disabled(!runtime.model.isConfigured)
         Divider()
-        Button("Open Gitinuum") {
+        Button("Open Portal") {
             MenuBarRuntime.openMainApplication()
         }
         .keyboardShortcut(runtime.model.globalShortcutEnabled
                           ? KeyboardShortcut("`", modifiers: [.command, .option]) : nil)
-        if SMAppService.loginItem(identifier: "dev.mxcl.git-sync.menu-helper").status == .requiresApproval {
+        if SMAppService.loginItem(identifier: "dev.mxcl.portal.menu-helper").status == .requiresApproval {
             Button("Login Items…") { SMAppService.openSystemSettingsLoginItems() }
         }
         Divider()
@@ -215,5 +215,5 @@ private struct StatusMenu: View {
 }
 #else
 import Foundation
-@main enum GitSyncMenuBarApp { static func main() { print("Gitinuum Menu Helper is available on macOS only") } }
+@main enum GitSyncMenuBarApp { static func main() { print("Portal Menu Helper is available on macOS only") } }
 #endif

@@ -2,7 +2,7 @@
 
 ## App UI
 
-Gitinuum has a conventional foreground app and an embedded menu-bar helper. The
+Portal has a conventional foreground app and an embedded menu-bar helper. The
 app owns one project browser window, a native three-column
 `NavigationSplitView`: an alphabetical project sidebar, a commit graph, and
 contextual detail. The interface is deliberately dense and
@@ -214,7 +214,7 @@ for the user.
 
 ## Managed Git remotes
 
-After a peer identifies itself, Gitinuum adds it to each enabled local project
+After a peer identifies itself, Portal adds it to each enabled local project
 using its configured display name in lowercase kebab case (or its machine name
 when unnamed), with URL
 `<ssh-target>:<remote-root>/<project>`. The remote's
@@ -270,10 +270,10 @@ disabling either cell stops both directions. Equal names already present at
 both ends require explicit confirmation before the host is added.
 
 An optional backup selects one inspected host. The receiving host separately
-chooses a parent folder, distinct from its normal root, through Gitinuum.app.
+chooses a parent folder, distinct from its normal root, through Portal.app.
 The menu helper owns an owner-only Unix socket and a receive-only session rooted at that
 user-selected folder. The SSH-launched helper only relays the framed byte stream
-to that socket, so macOS attributes destination access to Gitinuum.app rather
+to that socket, so macOS attributes destination access to Portal.app rather
 than Remote Login. No network listener or additional credential is introduced.
 The endpoint accepts catalogs, objects, and ref snapshots but never advertises
 repositories or publishes its own refs back. Its ordering state has one writer
@@ -490,7 +490,7 @@ the proof of concept needs them. None may weaken the ownership invariant above.
 
 ## GitHub integration
 
-The optional GitHub connection uses a separate Gitinuum relay and the macOS menu
+The optional GitHub connection uses a separate Portal relay and the macOS menu
 helper. APNs is a wake-up hint, not an event log: the relay retains per-device,
 per-repository work until acknowledged. Each replacement work item has a fresh
 UUID, so acknowledging older work cannot erase a newer event, including after a
@@ -572,7 +572,7 @@ implement transport or session ownership. Portal's phone/iCloud relay, launcher
 and updater are not included. The original Portal repository remains independent.
 
 `gitinuum-sessiond` owns PTYs independently of the app. The app connects through
-`gitinuum-session-bridge`, locally or through `/usr/bin/ssh -T`. Configured Gitinuum
+`gitinuum-session-bridge`, locally or through `/usr/bin/ssh -T`. Configured Portal
 hosts provide the SSH destination and project root. SSH uses existing config,
 agent and known-hosts entries, requires verified host keys and runs noninteractively.
 An unavailable connection retries with capped backoff. Reattachment joins the
@@ -588,7 +588,7 @@ the remote host and account, not the originating application's code signature;
 another process running as that account can invoke the signed bridge. These are
 local helper identity checks, not cross-host application attestation.
 
-Runtime and per-project catalog files use Gitinuum's own Application Support
+Runtime and per-project catalog files retain the Gitinuum Application Support
 directory (Linux: `$XDG_STATE_HOME/gitinuum-terminal`). Each catalog has one
 controller writer. The terminal wire protocol negotiates versions 1 and 2 and
 rejects unsupported versions independently of the Git replication protocol.
@@ -602,8 +602,8 @@ the pair under `~/.local/lib/gitinuum/terminal`. macOS peers need the updated ap
 No helper is uploaded or installed automatically when a connection is opened.
 
 Validation: `swift test`, `cargo test --manifest-path TerminalHelpers/Cargo.toml`,
-`scripts/test-terminal-peer-authentication.sh /path/to/Gitinuum.app`, and
-`python3 scripts/test-terminal-sessions.py /path/to/Gitinuum.app` (or the Linux
+`scripts/test-terminal-peer-authentication.sh /path/to/Portal.app`, and
+`python3 scripts/test-terminal-sessions.py /path/to/Portal.app` (or the Linux
 helper directory). The session check exercises detach, continued execution,
 history replay, reattach and exit against both wire versions.
 
@@ -674,3 +674,21 @@ The terminal's optional Git tree watches its visible local checkout and common
 Git metadata, replacing its half-second refresh timer. Terminal mode follows
 output events; the former TTY timer only queried an unimplemented (`nil`) mode
 probe. Visible elapsed-time displays and failure retry deadlines remain timers.
+
+### Application identity and standalone terminals
+
+The foreground bundle is `dev.mxcl.portal` (Portal), with
+`dev.mxcl.portal.menu-helper` as its login item. `Contents/Helpers/Portal Terminal.app`
+is a separate foreground app (`dev.mxcl.portal.terminal`) with the same icon and
+version. New Terminal Window launches that app; shell scripts, Unix executables,
+and folders are registered to it. Its session picker includes project sessions,
+including sessions attached in the project app. Only sessions already in the
+current terminal window are excluded.
+
+Installation registers both bundles with Launch Services. Settings also offers
+Install Portal Terminal to copy the self-contained embedded app into Applications
+for Spotlight discovery. The copied app shares the existing terminal runtime and
+session catalogs. Application Support, engine IPC, GitHub credential keys, CLI
+names, and wire protocols retain their existing names to preserve state and peer
+compatibility. Terminal helper authentication accepts both Portal foreground app
+identities and existing Gitinuum clients from the same Developer ID team.

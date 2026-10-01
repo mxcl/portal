@@ -14,7 +14,7 @@ Copy `.env.example` to `.env`. SQLite creates the database at `DATABASE_PATH`
 GitHub, OAuth, encryption and APNs credentials. Keep the database and environment
 file private; the encryption key must survive deployments. PEM values accept
 literal `\n` separators. Both APNs environments use the fixed topic
-`dev.mxcl.git-sync.menu-helper`.
+`dev.mxcl.portal.menu-helper`.
 
 Create a GitHub App with callback `https://YOUR_RELAY_HOST/oauth/hello`, webhook
 `https://YOUR_RELAY_HOST/webhook`, and a setup URL that returns the user to
@@ -77,24 +77,24 @@ OAuth callback requests are excluded from access logging.
 - Database: `/var/lib/gitinuum-relay/gitinuum.sqlite3`.
 
 Canopy's sandbox and production APNs keys include both `dev.mxcl.canopy` and
-`dev.mxcl.git-sync.menu-helper` for this internal trial. Revoking either shared key
-would affect both apps. The helper has its own App ID and **Gitinuum Menu Helper
+`dev.mxcl.portal.menu-helper` for this internal trial. Revoking either shared key
+would affect both apps. The helper has its own App ID and **Portal Menu Helper
 Developer ID** provisioning profile. Install the GitHub App on the repositories
 to track, then connect GitHub in the signed helper. The relay endpoint is built into the app.
 
 ## Connect a Mac
 
-Enable [macOS Push Notifications](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.aps-environment) for App ID `dev.mxcl.git-sync.menu-helper`. Create a
+Enable [macOS Push Notifications](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.aps-environment) for App ID `dev.mxcl.portal.menu-helper`. Create a
 matching Developer ID provisioning profile and APNs credentials for its topic.
 Build the app with:
 
 ```sh
-GITINUUM_PUSH_PROFILE=/absolute/path/helper.provisionprofile scripts/install.sh /path/to/Gitinuum.app
+GITINUUM_PUSH_PROFILE=/absolute/path/helper.provisionprofile scripts/install.sh /path/to/Portal.app
 ```
 
 Packaging validates the profile's identity, push entitlement and expiry, embeds
 it, and signs the helper with its entitlements. Without an override, the installer
-reuses the profile from `/Applications/Gitinuum.app` when present. Set
+reuses the profile from `/Applications/Portal.app` when present. Set
 `GITINUUM_PUSH_PROFILE=` to explicitly build without push support. Builds still
 work without a profile; automatic pushes require a correctly signed helper. The profile's
 APNs environment is recorded in the helper's Info.plist, never inferred from a

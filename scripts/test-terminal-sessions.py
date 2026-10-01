@@ -60,7 +60,7 @@ class Client:
 def main():
     helpers = Path(sys.argv[1]).resolve() / 'Contents/Helpers'
     bridge = helpers / 'gitinuum-session-bridge'
-    daemon = helpers / 'Gitinuum Session Helper.app/Contents/MacOS/gitinuum-sessiond'
+    daemon = helpers / 'Portal Session Helper.app/Contents/MacOS/gitinuum-sessiond'
     # Also support the installed Linux pair.
     if not bridge.exists():
         bridge = Path(sys.argv[1]).resolve() / 'gitinuum-session-bridge'

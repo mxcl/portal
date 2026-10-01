@@ -1,18 +1,17 @@
 {
-  "color-space-for-untagged-svg-colors" : "display-p3",
   "fill" : {
     "linear-gradient" : [
-      "srgb:0.27059,0.27843,0.28627,1.00000",
-      "srgb:0.11765,0.12549,0.13333,1.00000"
+      "gray:0.15293,1.00000",
+      "extended-gray:0.00000,1.00000"
     ],
     "orientation" : {
       "start" : {
-        "x" : 0.25,
+        "x" : 0.5,
         "y" : 0
       },
       "stop" : {
-        "x" : 0.75,
-        "y" : 1
+        "x" : 0.5,
+        "y" : 0.7
       }
     }
   },
@@ -20,30 +19,33 @@
     {
       "layers" : [
         {
+          "fill" : "none",
           "glass" : false,
-          "image-name" : "GitSync.png",
-          "name" : "Gold sync ribbon",
+          "image-name" : "Portal.png",
+          "name" : "Portal",
           "position" : {
-            "scale" : 0.75,
+            "scale" : 0.95,
             "translation-in-points" : [
               0,
-              10
+              5
             ]
           }
         }
       ],
       "shadow" : {
         "kind" : "neutral",
-        "opacity" : 0.45
+        "opacity" : 0.5
       },
-      "specular" : true,
       "translucency" : {
         "enabled" : true,
-        "value" : 0.12
+        "value" : 0.35
       }
     }
   ],
   "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
     "squares" : "shared"
   }
 }

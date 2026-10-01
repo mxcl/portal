@@ -19,7 +19,10 @@ const CLIENT_REQUIREMENT: &str = concat!(
     "certificate leaf[field.1.2.840.113635.100.6.1.13] exists and ",
     "certificate leaf[subject.OU] = \"ZU76A67LGU\" and ",
     "(identifier \"dev.mxcl.git-sync\" or ",
-    "identifier \"dev.mxcl.git-sync.session-bridge\")",
+    "identifier \"dev.mxcl.git-sync.session-bridge\" or ",
+    "identifier \"dev.mxcl.portal\" or ",
+    "identifier \"dev.mxcl.portal.terminal\" or ",
+    "identifier \"dev.mxcl.portal.session-bridge\")",
 );
 
 #[cfg(target_os = "macos")]
@@ -28,7 +31,7 @@ pub(crate) const SERVER_REQUIREMENT: &str = concat!(
     "certificate 1[field.1.2.840.113635.100.6.2.6] exists and ",
     "certificate leaf[field.1.2.840.113635.100.6.1.13] exists and ",
     "certificate leaf[subject.OU] = \"ZU76A67LGU\" and ",
-    "identifier \"dev.mxcl.git-sync.sessiond\"",
+    "(identifier \"dev.mxcl.portal.sessiond\" or identifier \"dev.mxcl.git-sync.sessiond\")",
 );
 
 #[allow(dead_code)]

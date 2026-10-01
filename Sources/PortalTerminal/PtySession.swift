@@ -208,7 +208,7 @@ final class PtySession {
         certificate 1[field.1.2.840.113635.100.6.2.6] exists and \
         certificate leaf[field.1.2.840.113635.100.6.1.13] exists and \
         certificate leaf[subject.OU] = "ZU76A67LGU" and \
-        identifier "dev.mxcl.git-sync.sessiond"
+        identifier "dev.mxcl.portal.sessiond"
         """
     private static let ignoreSIGPIPEOnce: Void = {
         _ = Darwin.signal(SIGPIPE, SIG_IGN)
@@ -1131,7 +1131,7 @@ final class PtySession {
     }
 
     private static func bundledSessiondAppURL() -> URL? {
-        let name = "Gitinuum Session Helper.app"
+        let name = "Portal Session Helper.app"
         let executableDirectory = URL(fileURLWithPath: CommandLine.arguments[0])
             .standardizedFileURL
             .deletingLastPathComponent()
@@ -1167,7 +1167,7 @@ final class PtySession {
 
         let destinationDirectory = base.appendingPathComponent(codeHash, isDirectory: true)
         let destination = destinationDirectory
-            .appendingPathComponent("Gitinuum Session Helper.app", isDirectory: true)
+            .appendingPathComponent("Portal Session Helper.app", isDirectory: true)
         if fileManager.fileExists(atPath: destination.path) {
             guard try verifiedCodeHash(of: destination) == codeHash else {
                 throw stagedHelperIdentityError()
@@ -1178,7 +1178,7 @@ final class PtySession {
         let temporaryDirectory = base
             .appendingPathComponent(".\(UUID().uuidString).staging", isDirectory: true)
         let temporaryApp = temporaryDirectory
-            .appendingPathComponent("Gitinuum Session Helper.app", isDirectory: true)
+            .appendingPathComponent("Portal Session Helper.app", isDirectory: true)
         do {
             try fileManager.createDirectory(at: temporaryDirectory, withIntermediateDirectories: false)
             try fileManager.setAttributes(

@@ -240,7 +240,7 @@ extension LocalBackupTransport {
                     Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
                 }
             }
-            guard result == 0 else { throw socketError("Could not connect to Gitinuum.app") }
+            guard result == 0 else { throw socketError("Could not connect to Portal.app") }
             try writeAll([mode], count: 1, to: descriptor)
             return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         } catch {

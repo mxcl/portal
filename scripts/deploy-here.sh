@@ -10,18 +10,19 @@ local_stage="/Applications/.git-sync-app.install.$revision-$$"
 local_backup="/Applications/.git-sync-app.previous.$revision-$$"
 trap 'rm -rf "$stage" "$local_stage"' EXIT
 
-"$repo/scripts/install.sh" "$stage/Gitinuum.app"
-/usr/bin/codesign --verify --deep --strict "$stage/Gitinuum.app"
-/usr/bin/ditto "$stage/Gitinuum.app" "$local_stage"
+"$repo/scripts/install.sh" "$stage/Portal.app"
+/usr/bin/codesign --verify --deep --strict "$stage/Portal.app"
+/usr/bin/ditto "$stage/Portal.app" "$local_stage"
 "$repo/scripts/install-staged.sh" "$local_stage" "$local_backup"
 
 for executable in 'MacOS/GitinuumApp' 'Resources/gitinuumd' 'Resources/gitinuum' \
-  'Library/LoginItems/Gitinuum Menu Helper.app/Contents/MacOS/GitSyncMenuBar'; do
-  expected_hash="$(shasum -a 256 "$stage/Gitinuum.app/Contents/$executable" | awk '{print $1}')"
-  installed_hash="$(shasum -a 256 "/Applications/Gitinuum.app/Contents/$executable" | awk '{print $1}')"
+  'Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/GitSyncMenuBar' \
+  'Helpers/Portal Terminal.app/Contents/MacOS/PortalTerminalApp'; do
+  expected_hash="$(shasum -a 256 "$stage/Portal.app/Contents/$executable" | awk '{print $1}')"
+  installed_hash="$(shasum -a 256 "/Applications/Portal.app/Contents/$executable" | awk '{print $1}')"
   [[ "$expected_hash" == "$installed_hash" ]] || {
     echo "Installed executable differs from build: $executable" >&2
     exit 1
   }
 done
-echo "Deployed Gitinuum $revision ($dirty) to $(scutil --get LocalHostName); app and menu helper restarted and verified."
+echo "Deployed Portal $revision ($dirty) to $(scutil --get LocalHostName); app and menu helper restarted and verified."

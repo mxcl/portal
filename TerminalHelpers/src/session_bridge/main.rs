@@ -1175,10 +1175,10 @@ fn sessiond_path() -> io::Result<PathBuf> {
     if let Ok(current_exe) = env::current_exe()
         && let Some(dir) = current_exe.parent()
     {
-        let bundled = dir.join("Gitinuum Session Helper.app/Contents/MacOS/gitinuum-sessiond");
+        let bundled = dir.join("Portal Session Helper.app/Contents/MacOS/gitinuum-sessiond");
         if is_executable(&bundled) {
             #[cfg(target_os = "macos")]
-            return stage_sessiond_app(&dir.join("Gitinuum Session Helper.app"));
+            return stage_sessiond_app(&dir.join("Portal Session Helper.app"));
             #[cfg(not(target_os = "macos"))]
             return Ok(bundled);
         }
@@ -1232,7 +1232,7 @@ fn stage_sessiond_app(source: &Path) -> io::Result<PathBuf> {
     fs::create_dir_all(&base)?;
     fs::set_permissions(&base, fs::Permissions::from_mode(0o700))?;
     let destination = base.join(&hash);
-    let name = "Gitinuum Session Helper.app";
+    let name = "Portal Session Helper.app";
     let app = destination.join(name);
     if !app.exists() {
         let temporary = base.join(format!(

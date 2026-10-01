@@ -10,8 +10,8 @@ def entitlements(profile):
     values = profile["Entitlements"]
     app_id = values.get("com.apple.application-identifier", "")
     team = values.get("com.apple.developer.team-identifier", "")
-    if not team or app_id != team + ".dev.mxcl.git-sync.menu-helper":
-        raise ValueError("Profile must match dev.mxcl.git-sync.menu-helper and its team")
+    if not team or app_id != team + ".dev.mxcl.portal.menu-helper":
+        raise ValueError("Profile must match dev.mxcl.portal.menu-helper and its team")
     environment = values.get("com.apple.developer.aps-environment")
     if environment not in ("development", "production"):
         raise ValueError("Profile must enable macOS Push Notifications")

@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
-app=${1:?Usage: test-app-bundle.sh /path/to/Gitinuum.app}
-helper="$app/Contents/Library/LoginItems/Gitinuum Menu Helper.app"
-test "$(plutil -extract CFBundleName raw "$helper/Contents/Info.plist")" = 'Gitinuum Menu Helper'
+app=${1:?Usage: test-app-bundle.sh /path/to/Portal.app}
+helper="$app/Contents/Library/LoginItems/Portal Menu Helper.app"
+test "$(plutil -extract CFBundleName raw "$helper/Contents/Info.plist")" = 'Portal Menu Helper'
 test "$(plutil -extract CFBundleIconFile raw "$helper/Contents/Info.plist")" = AppIcon
 test "$(plutil -extract LSUIElement raw "$helper/Contents/Info.plist")" = true
 for icon in AppIcon.icns Assets.car; do
@@ -26,8 +26,25 @@ if [ -f "$helper/Contents/embedded.provisionprofile" ]; then
   case "$environment" in development|production) ;; *) exit 1 ;; esac
 fi
 test -x "$app/Contents/Helpers/gitinuum-session-bridge"
-test -x "$app/Contents/Helpers/Gitinuum Session Helper.app/Contents/MacOS/gitinuum-sessiond"
+test -x "$app/Contents/Helpers/Portal Session Helper.app/Contents/MacOS/gitinuum-sessiond"
 test -d "$app/Contents/Resources/git-sync_PortalTerminal.bundle"
 test -f "$app/Contents/Resources/completions/fig/build/git.js"
 codesign --verify --deep --strict "$app"
+terminal="$app/Contents/Helpers/Portal Terminal.app"
+test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = dev.mxcl.portal
+test "$(plutil -extract CFBundleIdentifier raw "$terminal/Contents/Info.plist")" = dev.mxcl.portal.terminal
+test "$(plutil -extract CFBundleName raw "$terminal/Contents/Info.plist")" = 'Portal Terminal'
+test "$(plutil -extract CFBundleShortVersionString raw "$terminal/Contents/Info.plist")" = "$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")"
+test "$(plutil -extract CFBundleVersion raw "$terminal/Contents/Info.plist")" = "$(plutil -extract CFBundleVersion raw "$app/Contents/Info.plist")"
+test -x "$terminal/Contents/MacOS/PortalTerminalApp"
+test -x "$terminal/Contents/Helpers/Portal Session Helper.app/Contents/MacOS/gitinuum-sessiond"
+test -f "$terminal/Contents/Resources/completions/fig/build/git.js"
+for icon in AppIcon.icns Assets.car; do
+  cmp "$app/Contents/Resources/$icon" "$terminal/Contents/Resources/$icon"
+done
+plutil -extract CFBundleDocumentTypes json -o - "$terminal/Contents/Info.plist" | grep -q com.apple.terminal.shell-script
+if plutil -extract CFBundleDocumentTypes json -o - "$app/Contents/Info.plist" >/dev/null 2>&1; then
+  echo 'Document handlers belong to Portal Terminal' >&2
+  exit 1
+fi
 echo 'App bundle checks passed'

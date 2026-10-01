@@ -71,7 +71,7 @@ fi
 suffix="$revision-$$"
 [[ "$suffix" =~ ^[0-9a-f]+-[0-9]+$ ]]
 stage="$(mktemp -d "${TMPDIR:-/tmp}/git-sync-deploy.XXXXXX")"
-built_app="$stage/Gitinuum.app"
+built_app="$stage/Portal.app"
 local_stage="/Applications/.git-sync-app.install.$suffix"
 local_backup="/Applications/.git-sync-app.previous.$suffix"
 remote_stage="/Applications/.git-sync-app.install.$suffix"
@@ -106,10 +106,11 @@ ssh -o BatchMode=yes "$peer" bash -s -- "$remote_stage" "$remote_backup" < "$ins
 "$installer" "$local_stage" "$local_backup"
 
 for executable in 'MacOS/GitinuumApp' 'Resources/gitinuumd' 'Resources/gitinuum' \
-  'Library/LoginItems/Gitinuum Menu Helper.app/Contents/MacOS/GitSyncMenuBar'; do
+  'Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/GitSyncMenuBar' \
+  'Helpers/Portal Terminal.app/Contents/MacOS/PortalTerminalApp'; do
   expected_hash="$(shasum -a 256 "$built_app/Contents/$executable" | awk '{print $1}')"
-  local_hash="$(shasum -a 256 "/Applications/Gitinuum.app/Contents/$executable" | awk '{print $1}')"
-  remote_hash="$(ssh -o BatchMode=yes "$peer" "shasum -a 256 '/Applications/Gitinuum.app/Contents/$executable'" | awk '{print $1}')"
+  local_hash="$(shasum -a 256 "/Applications/Portal.app/Contents/$executable" | awk '{print $1}')"
+  remote_hash="$(ssh -o BatchMode=yes "$peer" "shasum -a 256 '/Applications/Portal.app/Contents/$executable'" | awk '{print $1}')"
   [[ "$expected_hash" == "$local_hash" && "$expected_hash" == "$remote_hash" ]] || {
     echo "Installed executable differs from build: $executable" >&2
     exit 1
@@ -124,4 +125,4 @@ atlas_hash="$(ssh -o BatchMode=yes "$atlas" "sha256sum '$atlas_home/.local/bin/g
 
 trap - EXIT
 rm -rf "$stage"
-echo "Deployed Gitinuum $revision ($dirty) to $local_host, $peer, and $atlas; both apps restarted and the Linux endpoint verified."
+echo "Deployed Portal $revision ($dirty) to $local_host, $peer, and $atlas; both apps restarted and the Linux endpoint verified."

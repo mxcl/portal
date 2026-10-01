@@ -5,7 +5,7 @@ export PATH
 
 resources=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if [ ! -x "$resources/gitinuum" ]; then
-    echo "The bundled gitinuum executable is missing. Reinstall Gitinuum." >&2
+    echo "The bundled gitinuum executable is missing. Reinstall Portal." >&2
     exit 1
 fi
 

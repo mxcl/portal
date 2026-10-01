@@ -268,3 +268,35 @@ func sidebarRefreshAfterPush() async throws {
         head: snapshot.head, branches: snapshot.branches)
     #expect(!model.hasBranchDifferences(for: "project"))
 }
+
+@Test("Selecting a project opens its staging terminal and refresh preserves the chosen tab")
+@MainActor
+func projectSelectionOpensStagingTerminal() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let project = root.appendingPathComponent("project")
+    defer { try? FileManager.default.removeItem(at: root) }
+    _ = try Git.run(["init", "-q", project.path])
+    let model = AppModel(connectToHelper: false)
+    model.configuration = AppConfiguration(root: root.path, machine: "test",
+        folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)])
+    model.localProjects = ["project": PeerProject(name: "project", placement: .checkedOut)]
+    func finishLoading() async throws {
+        let deadline = Date().addingTimeInterval(10)
+        while (model.isLoadingProject || model.isLoadingCommitDiff) && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(!model.isLoadingProject && !model.isLoadingCommitDiff)
+        try #require(model.projectError == nil && model.commitDiffError == nil)
+    }
+    model.selectProject("project")
+    try await finishLoading()
+    #expect(model.selectedCommitID == CommitGraphGenerator.workingChangesID)
+    #expect(model.selectedTab == .terminal)
+    #expect(model.selectedProjectHostSource == .local)
+    #expect(model.selectedTerminalDirectory?.path == project.path)
+    model.selectedTab = .editor
+    model.refreshProject()
+    try await finishLoading()
+    #expect(model.selectedCommitID == CommitGraphGenerator.workingChangesID)
+    #expect(model.selectedTab == .editor)
+}

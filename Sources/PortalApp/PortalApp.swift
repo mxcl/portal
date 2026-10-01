@@ -759,7 +759,7 @@ final class AppModel: ObservableObject {
         projectLoadGeneration += 1
         isLoadingProject = false
         guard let name else { return }
-        loadProject(name, from: sources(for: name))
+        loadProject(name, from: sources(for: name), selectStaging: true)
     }
 
     func refreshProject() {
@@ -783,7 +783,7 @@ final class AppModel: ObservableObject {
         loadProject(name, from: [source])
     }
 
-    private func loadProject(_ name: String, from sources: [ProjectSource]) {
+    private func loadProject(_ name: String, from sources: [ProjectSource], selectStaging: Bool = false) {
         projectLoadGeneration += 1
         let generation = projectLoadGeneration
         guard let first = sources.first else {
@@ -820,7 +820,11 @@ final class AppModel: ObservableObject {
                     isLoadingProject = false
                     saveProjectWindow(name: name, source: source, content: content,
                                       showAuxiliaryHistory: showAuxiliaryHistory)
-                    if let oid = selectedCommitID {
+                    if selectStaging, selectedCommitID == nil, let staging = stagingRows.first {
+                        selectCommit(staging.id)
+                        terminalSource = staging.source
+                        selectedTab = .terminal
+                    } else if let oid = selectedCommitID {
                         if CommitGraphGenerator.isStaging(oid) {
                             selectCommit(stagingRows.contains { $0.id == oid } ? oid : nil)
                         } else if selectedCommitDiff == nil {

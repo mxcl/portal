@@ -44,8 +44,8 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate {
                 TerminalHost(id: host.id.uuidString, name: host.name, peer: host.peer,
                              helperPath: host.executable.hasPrefix("/Applications/")
                                 ? URL(fileURLWithPath: host.executable).deletingLastPathComponent()
-                                    .deletingLastPathComponent().appendingPathComponent("Helpers/gitinuum-session-bridge").path
-                                : "~/.local/lib/gitinuum/terminal/gitinuum-session-bridge",
+                                    .deletingLastPathComponent().appendingPathComponent(host.executable.hasSuffix("/portald") ? "Helpers/portal-session-bridge" : "Helpers/gitinuum-session-bridge").path
+                                : (host.executable.hasSuffix("/portald") ? "~/.local/lib/portal/terminal/portal-session-bridge" : "~/.local/lib/gitinuum/terminal/gitinuum-session-bridge"),
                              directory: host.root)
             } ?? []
             workspace.newWindow(directory: directory, command: command, hosts: hosts)

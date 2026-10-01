@@ -29,8 +29,8 @@ for identifier in dev.mxcl.git-sync.menu dev.mxcl.git-sync.menu-helper; do
 done
 
 # Login items can appear under their bundle identifier instead of the executable name.
-# Keep sessiond running so terminal sessions survive deployment.
-processes='GitinuumApp|PortalTerminalApp|gitinuumd|GitSync|git-sync|GitSyncMenuBar|dev[.]mxcl[.]git-sync[.]menu(-helper)?|dev[.]mxcl[.]portal[.]menu-helper'
+# Preserve the renamed portal-sessiond; retire the obsolete Gitinuum daemon once.
+processes='PortalApp|GitinuumApp|PortalTerminalApp|portald|gitinuumd|gitinuum-sessiond|GitSync|git-sync|PortalMenuBar|GitSyncMenuBar|dev[.]mxcl[.]git-sync[.]menu(-helper)?|dev[.]mxcl[.]portal[.]menu-helper'
 pkill -x "$processes" 2>/dev/null || true
 for _ in {1..50}; do
   if ! pgrep -x "$processes" >/dev/null; then
@@ -68,8 +68,8 @@ fi
   PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/open "$target_app"
 
 for _ in {1..50}; do
-  if pgrep -x GitinuumApp >/dev/null &&
-     /usr/sbin/lsof -t "$target_app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/GitSyncMenuBar" >/dev/null 2>&1; then
+  if pgrep -x PortalApp >/dev/null &&
+     /usr/sbin/lsof -t "$target_app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/PortalMenuBar" >/dev/null 2>&1; then
     exit 0
   fi
   sleep 0.1

@@ -33,22 +33,22 @@ func defaultStateURL() -> URL {
 
 let usage = """
 Usage:
-  gitinuumd run --root PATH --machine NAME --peer SSH_TARGET --remote-root PATH [--remote-machine NAME] [--remote-executable PATH] [--selective --repository NAME ...] [--sync-checkouts] [--state PATH]
-  gitinuumd run --config PATH [--state PATH]
-  gitinuumd daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--receive-only] [--sync-checkouts] [--state PATH]
-  gitinuumd list --root PATH
-  gitinuumd inspect --root PATH [--machine NAME]
-  gitinuumd watch-projects --root PATH --watch-version 1
-  gitinuumd project-content --root PATH --repository NAME
-  gitinuumd project-staging --root PATH --repository NAME
-  gitinuumd project-search --root PATH --repository NAME --query TEXT --search-version 1
-  gitinuumd project-diff --root PATH --repository NAME --oid OID
-  gitinuumd project-diff --root PATH --repository NAME --working-changes [--staged]
-  gitinuumd project-state --root PATH --repository NAME --placement checkedOut|mirrored|notPresent [--branch NAME]
-  gitinuumd check-backup
-  gitinuumd relay-backup
-  gitinuumd relay-backup-control
-  gitinuumd sync-once --source-root PATH --destination-root PATH --machine NAME [--sync-checkouts] [--state PATH]
+  portald run --root PATH --machine NAME --peer SSH_TARGET --remote-root PATH [--remote-machine NAME] [--remote-executable PATH] [--selective --repository NAME ...] [--sync-checkouts] [--state PATH]
+  portald run --config PATH [--state PATH]
+  portald daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--receive-only] [--sync-checkouts] [--state PATH]
+  portald list --root PATH
+  portald inspect --root PATH [--machine NAME]
+  portald watch-projects --root PATH --watch-version 1
+  portald project-content --root PATH --repository NAME
+  portald project-staging --root PATH --repository NAME
+  portald project-search --root PATH --repository NAME --query TEXT --search-version 1
+  portald project-diff --root PATH --repository NAME --oid OID
+  portald project-diff --root PATH --repository NAME --working-changes [--staged]
+  portald project-state --root PATH --repository NAME --placement checkedOut|mirrored|notPresent [--branch NAME]
+  portald check-backup
+  portald relay-backup
+  portald relay-backup-control
+  portald sync-once --source-root PATH --destination-root PATH --machine NAME [--sync-checkouts] [--state PATH]
 """
 
 do {
@@ -57,7 +57,7 @@ do {
     arguments.removeFirst()
     let stateURL = URL(fileURLWithPath: NSString(string: value("--state", in: arguments) ?? defaultStateURL().path).expandingTildeInPath)
     let log: (String) -> Void = { message in
-        FileHandle.standardError.write(Data("[gitinuumd] \(message)\n".utf8))
+        FileHandle.standardError.write(Data("[portald] \(message)\n".utf8))
     }
 
     switch command {
@@ -172,6 +172,6 @@ do {
     default: throw SyncError.invalidConfiguration("Unknown command: \(command)\n\(usage)")
     }
 } catch {
-    FileHandle.standardError.write(Data("gitinuumd: \(error)\n".utf8))
+    FileHandle.standardError.write(Data("portald: \(error)\n".utf8))
     exit(1)
 }

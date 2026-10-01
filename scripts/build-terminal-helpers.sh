@@ -7,14 +7,14 @@ cargo build --manifest-path "$repo_dir/TerminalHelpers/Cargo.toml" --release --l
 helpers="$contents/Helpers"
 helper_app="$helpers/Portal Session Helper.app"
 mkdir -p "$helper_app/Contents/MacOS"
-cp "$repo_dir/TerminalHelpers/target/release/gitinuum-sessiond" "$helper_app/Contents/MacOS/"
-cp "$repo_dir/TerminalHelpers/target/release/gitinuum-session-bridge" "$helpers/"
+cp "$repo_dir/TerminalHelpers/target/release/portal-sessiond" "$helper_app/Contents/MacOS/"
+cp "$repo_dir/TerminalHelpers/target/release/portal-session-bridge" "$helpers/"
 cat > "$helper_app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>dev.mxcl.portal.sessiond</string>
-<key>CFBundleExecutable</key><string>gitinuum-sessiond</string>
+<key>CFBundleExecutable</key><string>portal-sessiond</string>
 <key>CFBundleName</key><string>Portal Session Helper</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>1.0.0</string>
@@ -24,8 +24,7 @@ cat > "$helper_app/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 codesign --force --sign "$identity" --options runtime --timestamp "$helper_app"
-# Retain the bridge identity so already-running Gitinuum daemons accept it.
 codesign --force --sign "$identity" --options runtime --timestamp \
-  --identifier dev.mxcl.git-sync.session-bridge "$helpers/gitinuum-session-bridge"
+  --identifier dev.mxcl.portal.session-bridge "$helpers/portal-session-bridge"
 codesign --verify --strict "$helper_app"
-codesign --verify --strict "$helpers/gitinuum-session-bridge"
+codesign --verify --strict "$helpers/portal-session-bridge"

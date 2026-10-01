@@ -168,7 +168,7 @@ and VoiceOver behavior through native SwiftUI components.
 
 ## Product contract
 
-`gitinuumd` implements a continuous bidirectional Git fetch/push system. By
+`portald` implements a continuous bidirectional Git fetch/push system. By
 default both working repositories remain independent. Each host is authoritative
 for its own branches, tags, stash, `HEAD`, index, and working tree. It publishes
 selected local ref snapshots into a namespace owned by that host on its peer.
@@ -178,7 +178,7 @@ A refs/heads/main  ->  B refs/remotes/a/main
 B refs/heads/main  ->  A refs/remotes/b/main
 ```
 
-`gitinuumd` does not negotiate ordinary user Git operations. Commits, rebases,
+`portald` does not negotiate ordinary user Git operations. Commits, rebases,
 force pushes, branch deletion, garbage collection, and offline work remain
 local operations. The replication module observes their durable results
 through Git and publishes them. If both hosts move their local `main`, both
@@ -234,8 +234,8 @@ is an explicit Git operation and is outside the background replication contract.
 
 ## Architecture
 
-Each `gitinuumd run` owns one source parent and one long-lived
-`ssh -T <peer> gitinuumd daemon --stdio …` child process. Both endpoints run the
+Each `portald run` owns one source parent and one long-lived
+`ssh -T <peer> portald daemon --stdio …` child process. Both endpoints run the
 same session engine, so repository discovery and ref transfer are symmetric on
 that single full-duplex stream. The embedded menu helper starts one such process
 per host that has at least one enabled project. macOS uses FSEvents and Linux uses
@@ -367,7 +367,7 @@ keeps the retained commit, trees, blobs, and original history reachable indefini
 
 The foreground app registers the embedded menu helper as its per-user login item.
 The menu helper is the sole writer of configuration, starts the bundled headless
-`gitinuumd` executable, and writes one connection and ordering-state file per host.
+`portald` executable, and writes one connection and ordering-state file per host.
 The app communicates with it through a separately versioned, owner-only control
 socket; notifications only tell the app to request a fresh snapshot. The same
 headless executable is used on Linux.
@@ -571,8 +571,8 @@ Output parsing and replay live in `TerminalOutputProcessor`; rendering does not
 implement transport or session ownership. Portal's phone/iCloud relay, launcher
 and updater are not included. The original Portal repository remains independent.
 
-`gitinuum-sessiond` owns PTYs independently of the app. The app connects through
-`gitinuum-session-bridge`, locally or through `/usr/bin/ssh -T`. Configured Portal
+`portal-sessiond` owns PTYs independently of the app. The app connects through
+`portal-session-bridge`, locally or through `/usr/bin/ssh -T`. Configured Portal
 hosts provide the SSH destination and project root. SSH uses existing config,
 agent and known-hosts entries, requires verified host keys and runs noninteractively.
 An unavailable connection retries with capped backoff. Reattachment joins the
@@ -598,7 +598,7 @@ change background Git ref ownership or the replication contract.
 `scripts/install.sh` builds and signs the bundled Rust helpers and packages the
 pinned Fig completion specifications. Rust/Cargo is required in addition to Swift.
 On Linux, run `scripts/install-terminal-helpers.sh` in this checkout; it installs
-the pair under `~/.local/lib/gitinuum/terminal`. macOS peers need the updated app.
+the pair under `~/.local/lib/portal/terminal`. macOS peers need the updated app.
 No helper is uploaded or installed automatically when a connection is opened.
 
 Validation: `swift test`, `cargo test --manifest-path TerminalHelpers/Cargo.toml`,
@@ -693,8 +693,11 @@ names, and wire protocols retain their existing names to preserve state and peer
 compatibility. Terminal helper authentication accepts both Portal foreground app
 identities and existing Gitinuum clients from the same Developer ID team.
 
-Existing signed Gitinuum session daemons remain alive during the identity migration.
-The app authenticates their old daemon identity and uses its signed compatibility
-bridge (retaining `dev.mxcl.git-sync.session-bridge`) for local transport. New
-daemons accept both Portal apps directly. This preserves running PTYs and their
-complete history without broadening same-user or Developer ID trust boundaries.
+CLI executables are `portal` and `portald`; the terminal helpers are
+`portal-sessiond` and `portal-session-bridge`. Old CLI paths are executable
+forwarders that immediately exec the renamed binaries, preserving configured SSH
+peers without running an old process. The old Gitinuum session daemon is stopped
+once during this migration; later deployments preserve `portal-sessiond` and its
+live sessions. Persistent state directories and environment keys retain their
+existing names. The menu helper and both foreground apps bundle the original
+Portal `session-icon.png`; the menu icon dims when paused and retains its unread badge.

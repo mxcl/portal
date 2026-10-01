@@ -28,17 +28,35 @@ menu="$app/Contents/Library/LoginItems/Portal Menu Helper.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" \
   "$menu/Contents/MacOS" "$menu/Contents/Resources" "$(dirname -- "$destination")"
 "$repo_dir/scripts/build-terminal-helpers.sh" "$app/Contents"
+cat > "$app/Contents/Helpers/gitinuum-session-bridge" <<'SH'
+#!/bin/sh
+exec "$(dirname "$0")/portal-session-bridge" "$@"
+SH
+chmod 755 "$app/Contents/Helpers/gitinuum-session-bridge"
 "$repo_dir/scripts/bundle-terminal-completions.sh" "$app/Contents/Resources"
-cp "$build_dir/GitinuumApp" "$app/Contents/MacOS/GitinuumApp"
+cp "$build_dir/PortalApp" "$app/Contents/MacOS/PortalApp"
 for resource_bundle in "$build_dir"/*.bundle; do
   cp -R "$resource_bundle" "$app/Contents/Resources/"
 done
-cp "$build_dir/gitinuumd" "$app/Contents/Resources/gitinuumd"
-# Older installed gitinuum launchers still invoke this path.
-ln -s gitinuumd "$app/Contents/Resources/git-sync"
-cp "$build_dir/gitinuum" "$app/Contents/Resources/gitinuum"
-install -m 755 "$repo_dir/app/install-gitinuum.command" "$app/Contents/Resources/install-gitinuum.command"
-cp "$build_dir/GitSyncMenuBar" "$menu/Contents/MacOS/GitSyncMenuBar"
+cp "$build_dir/portald" "$app/Contents/Resources/portald"
+cp "$build_dir/portal" "$app/Contents/Resources/portal"
+# Old peer configurations can still request the old paths; exec the newly named binaries.
+for alias in git-sync gitinuumd; do
+  cat > "$app/Contents/Resources/$alias" <<'SH'
+#!/bin/sh
+exec "$(dirname "$0")/portald" "$@"
+SH
+  chmod 755 "$app/Contents/Resources/$alias"
+done
+cat > "$app/Contents/Resources/gitinuum" <<'SH'
+#!/bin/sh
+exec "$(dirname "$0")/portal" "$@"
+SH
+chmod 755 "$app/Contents/Resources/gitinuum"
+cp "$repo_dir/app/session-icon.png" "$app/Contents/Resources/session-icon.png"
+cp "$repo_dir/app/session-icon.png" "$menu/Contents/Resources/session-icon.png"
+install -m 755 "$repo_dir/app/install-portal.command" "$app/Contents/Resources/install-portal.command"
+cp "$build_dir/PortalMenuBar" "$menu/Contents/MacOS/PortalMenuBar"
 cp "$repo_dir/app/Info.plist" "$app/Contents/Info.plist"
 cp "$repo_dir/app/MenuInfo.plist" "$menu/Contents/Info.plist"
 test "$(/usr/bin/plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = "dev.mxcl.portal"
@@ -68,9 +86,10 @@ cp "$build_dir/PortalTerminalApp" "$terminal/Contents/MacOS/"
 cp "$repo_dir/app/TerminalInfo.plist" "$terminal/Contents/Info.plist"
 mkdir -p "$terminal/Contents/Helpers"
 cp -R "$app/Contents/Helpers/Portal Session Helper.app" "$terminal/Contents/Helpers/"
-cp "$app/Contents/Helpers/gitinuum-session-bridge" "$terminal/Contents/Helpers/"
+cp "$app/Contents/Helpers/portal-session-bridge" "$terminal/Contents/Helpers/"
 cp -R "$app/Contents/Resources/git-sync_PortalTerminal.bundle" "$terminal/Contents/Resources/"
 cp -R "$app/Contents/Resources/completions" "$terminal/Contents/Resources/"
+cp "$repo_dir/app/session-icon.png" "$terminal/Contents/Resources/session-icon.png"
 for icon in AppIcon.icns Assets.car; do
   cp "$app/Contents/Resources/$icon" "$terminal/Contents/Resources/$icon"
 done
@@ -81,9 +100,9 @@ if ! security find-identity -v -p codesigning | grep -Fq "\"$signing_identity\""
   exit 1
 fi
 
-codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/Resources/gitinuumd"
-codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/Resources/gitinuum"
-codesign --force --sign "$signing_identity" --options runtime --timestamp "$menu/Contents/MacOS/GitSyncMenuBar"
+codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/Resources/portald"
+codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/Resources/portal"
+codesign --force --sign "$signing_identity" --options runtime --timestamp "$menu/Contents/MacOS/PortalMenuBar"
 if [ -n "$push_profile" ]; then
   security cms -D -i "$push_profile" > "$stage/push-profile.plist"
   python3 "$repo_dir/scripts/prepare-push-signing.py" "$stage/push-profile.plist" \
@@ -94,15 +113,15 @@ if [ -n "$push_profile" ]; then
 else
   codesign --force --sign "$signing_identity" --options runtime --timestamp "$menu"
 fi
-codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/MacOS/GitinuumApp"
+codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/MacOS/PortalApp"
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app"
 if [ -e "$destination" ]; then
   /usr/bin/osascript -e 'tell application id "dev.mxcl.portal.menu-helper" to quit' >/dev/null 2>&1 || true
   /usr/bin/osascript -e 'tell application id "dev.mxcl.portal" to quit' >/dev/null 2>&1 || true
   sleep 1
   /usr/bin/pkill -x GitSyncMenuBar 2>/dev/null || true
-  /usr/bin/pkill -x GitinuumApp 2>/dev/null || true
-  /usr/bin/pkill -TERM -f "^$destination/Contents/Resources/(git-sync|gitinuumd) run " 2>/dev/null || true
+  /usr/bin/pkill -x PortalApp 2>/dev/null || true
+  /usr/bin/pkill -TERM -f "^$destination/Contents/Resources/(git-sync|portald) run " 2>/dev/null || true
 fi
 "$repo_dir/scripts/replace-app.sh" "$app" "$destination"
 # Keep the icon files shared even when the copy tool expands hardlinks.
@@ -113,7 +132,7 @@ codesign --verify --strict --verbose=2 "$destination/Contents/Library/LoginItems
 codesign --verify --deep --strict --verbose=2 "$destination"
 
 cli_link="$HOME/.local/bin/git-sync"
-if [ -L "$cli_link" ] && [ "$(readlink "$cli_link")" = "$destination/Contents/Resources/gitinuumd" ]; then
+if [ -L "$cli_link" ] && [ "$(readlink "$cli_link")" = "$destination/Contents/Resources/portald" ]; then
   rm "$cli_link"
 fi
 

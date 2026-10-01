@@ -89,8 +89,8 @@ trap cleanup EXIT
 
 "$repo/scripts/install.sh" "$built_app"
 /usr/bin/codesign --verify --deep --strict "$built_app"
-"$linux_swift" build --package-path "$repo" -c release --product gitinuumd --swift-sdk aarch64-swift-linux-musl
-linux_binary="$repo/.build/aarch64-swift-linux-musl/release/gitinuumd"
+"$linux_swift" build --package-path "$repo" -c release --product portald --swift-sdk aarch64-swift-linux-musl
+linux_binary="$repo/.build/aarch64-swift-linux-musl/release/portald"
 [[ -x "$linux_binary" ]] || { echo "Linux build missing: $linux_binary" >&2; exit 1; }
 
 ssh -o BatchMode=yes "$peer" "rm -rf '$remote_stage' '$remote_backup'"
@@ -105,8 +105,8 @@ ssh -o BatchMode=yes "$atlas" bash -s -- "$atlas_stage" "$atlas_backup" < "$linu
 ssh -o BatchMode=yes "$peer" bash -s -- "$remote_stage" "$remote_backup" < "$installer"
 "$installer" "$local_stage" "$local_backup"
 
-for executable in 'MacOS/GitinuumApp' 'Resources/gitinuumd' 'Resources/gitinuum' \
-  'Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/GitSyncMenuBar' \
+for executable in 'MacOS/PortalApp' 'Resources/portald' 'Resources/portal' \
+  'Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/PortalMenuBar' \
   'Helpers/Portal Terminal.app/Contents/MacOS/PortalTerminalApp'; do
   expected_hash="$(shasum -a 256 "$built_app/Contents/$executable" | awk '{print $1}')"
   local_hash="$(shasum -a 256 "/Applications/Portal.app/Contents/$executable" | awk '{print $1}')"
@@ -117,9 +117,9 @@ for executable in 'MacOS/GitinuumApp' 'Resources/gitinuumd' 'Resources/gitinuum'
   }
 done
 linux_hash="$(shasum -a 256 "$linux_binary" | awk '{print $1}')"
-atlas_hash="$(ssh -o BatchMode=yes "$atlas" "sha256sum '$atlas_home/.local/bin/git-sync'" | awk '{print $1}')"
+atlas_hash="$(ssh -o BatchMode=yes "$atlas" "sha256sum '$atlas_home/.local/bin/portald'" | awk '{print $1}')"
 [[ "$linux_hash" == "$atlas_hash" ]] || {
-  echo "Installed git-sync binary differs between $local_host and $atlas" >&2
+  echo "Installed portald binary differs between $local_host and $atlas" >&2
   exit 1
 }
 

@@ -59,12 +59,12 @@ class Client:
 
 def main():
     helpers = Path(sys.argv[1]).resolve() / 'Contents/Helpers'
-    bridge = helpers / 'gitinuum-session-bridge'
-    daemon = helpers / 'Portal Session Helper.app/Contents/MacOS/gitinuum-sessiond'
+    bridge = helpers / 'portal-session-bridge'
+    daemon = helpers / 'Portal Session Helper.app/Contents/MacOS/portal-sessiond'
     # Also support the installed Linux pair.
     if not bridge.exists():
-        bridge = Path(sys.argv[1]).resolve() / 'gitinuum-session-bridge'
-        daemon = bridge.with_name('gitinuum-sessiond')
+        bridge = Path(sys.argv[1]).resolve() / 'portal-session-bridge'
+        daemon = bridge.with_name('portal-sessiond')
     with tempfile.TemporaryDirectory(prefix='terminal-session-', dir='/tmp') as temp:
         environment = dict(os.environ, GITINUUM_SESSIOND_SOCKET=temp + '/s.sock',
                            GITINUUM_SESSIOND_REQUIRE_EXISTING='1')

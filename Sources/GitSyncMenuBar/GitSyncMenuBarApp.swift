@@ -29,8 +29,12 @@ private struct MenuBarIcon: View {
     var body: some View {
         // MenuBarExtra extracts an image from its label, so bake the colored badge into it.
         let renderer = ImageRenderer(content:
-            Image(systemName: isPaused ? "pause.circle" : "arrow.triangle.2.circlepath")
-                .font(.system(size: 16))
+            Image("session-icon")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 18, height: 18)
+                .opacity(isPaused ? 0.45 : 1)
                 .foregroundStyle(colorScheme == .dark ? .white : .black)
                 .frame(width: 22, height: 18)
                 .overlay(alignment: .topTrailing) {
@@ -131,7 +135,7 @@ final class MenuBarRuntime: ObservableObject {
     }
 
     private static var gitSyncExecutableURL: URL {
-        outerApplicationURL.appendingPathComponent("Contents/Resources/gitinuumd")
+        outerApplicationURL.appendingPathComponent("Contents/Resources/portald")
     }
 
     static func openMainApplication() {

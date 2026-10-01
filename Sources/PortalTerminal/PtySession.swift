@@ -210,8 +210,6 @@ final class PtySession {
         certificate leaf[subject.OU] = "ZU76A67LGU" and \
         identifier "dev.mxcl.portal.sessiond"
         """
-    private static let legacyDaemonRequirement = currentDaemonRequirement
-        .replacingOccurrences(of: "dev.mxcl.portal.sessiond", with: "dev.mxcl.git-sync.sessiond")
     private static let ignoreSIGPIPEOnce: Void = {
         _ = Darwin.signal(SIGPIPE, SIG_IGN)
     }()
@@ -971,10 +969,6 @@ final class PtySession {
             close(fd)
             throw error
         }
-        if identity == .legacy {
-            close(fd)
-            return try connectThroughLegacyBridge()
-        }
         return fd
     }
 
@@ -997,7 +991,6 @@ final class PtySession {
 
     private enum DaemonPeerIdentity {
         case current
-        case legacy
         case untrusted
     }
 
@@ -1029,45 +1022,7 @@ final class PtySession {
         if SecCodeCheckValidity(code, [], try codeRequirement(currentDaemonRequirement)) == errSecSuccess {
             return .current
         }
-        if SecCodeCheckValidity(code, [], try codeRequirement(legacyDaemonRequirement)) == errSecSuccess {
-            return .legacy
-        }
         return .untrusted
-    }
-
-    // Existing daemons only accept the original bridge identity. Keep their PTYs alive
-    // until they naturally exit, and let the signed bridge authenticate both endpoints.
-    private static func connectThroughLegacyBridge() throws -> Int32 {
-        let bridge = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/gitinuum-session-bridge")
-        var code: SecStaticCode?
-        let status = SecStaticCodeCreateWithPath(bridge as CFURL, [], &code)
-        guard status == errSecSuccess, let code,
-              SecStaticCodeCheckValidity(code, [], try codeRequirement(currentDaemonRequirement
-                .replacingOccurrences(of: "dev.mxcl.portal.sessiond", with: "dev.mxcl.git-sync.session-bridge"))) == errSecSuccess else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(errSecCSReqFailed))
-        }
-        var pair: [Int32] = [-1, -1]
-        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else { throw posixError("socketpair") }
-        let transport = FileHandle(fileDescriptor: pair[1], closeOnDealloc: true)
-        let process = Process()
-        process.executableURL = bridge
-        process.standardInput = transport
-        process.standardOutput = transport
-        process.standardError = FileHandle.nullDevice
-        var environment = ProcessInfo.processInfo.environment
-        environment["GITINUUM_SESSIOND_SOCKET"] = socketPath()
-        environment["GITINUUM_SESSIOND_REQUIRE_EXISTING"] = "1"
-        process.environment = environment
-        // Never let a child inherit the parent's endpoint and prevent EOF.
-        fcntl(pair[0], F_SETFD, FD_CLOEXEC)
-        do {
-            try process.run()
-            try transport.close()
-            return pair[0]
-        } catch {
-            close(pair[0])
-            throw error
-        }
     }
 
     private static func connect(fd: Int32, path: String) throws {
@@ -1158,8 +1113,8 @@ final class PtySession {
         }
 
         for candidate in [
-            "TerminalHelpers/target/debug/gitinuum-sessiond",
-            "TerminalHelpers/target/release/gitinuum-sessiond"
+            "TerminalHelpers/target/debug/portal-sessiond",
+            "TerminalHelpers/target/release/portal-sessiond"
         ] {
             let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                 .appendingPathComponent(candidate)
@@ -1172,7 +1127,7 @@ final class PtySession {
         throw NSError(
             domain: NSPOSIXErrorDomain,
             code: Int(ENOENT),
-            userInfo: [NSLocalizedDescriptionKey: "gitinuum-sessiond helper was not found"]
+            userInfo: [NSLocalizedDescriptionKey: "portal-sessiond helper was not found"]
         )
     }
 
@@ -1251,7 +1206,7 @@ final class PtySession {
     }
 
     private static func sessiondExecutable(in app: URL) -> URL {
-        app.appendingPathComponent("Contents/MacOS/gitinuum-sessiond", isDirectory: false)
+        app.appendingPathComponent("Contents/MacOS/portal-sessiond", isDirectory: false)
     }
 
     private static func verifiedCodeHash(of app: URL) throws -> String {

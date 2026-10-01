@@ -1,5 +1,5 @@
 [package]
-name = "gitinuum-terminal"
+name = "portal-terminal"
 version = "1.0.0"
 edition = "2024"
 
@@ -24,10 +24,10 @@ codegen-units = 1
 panic = "abort"
 
 [[bin]]
-name = "gitinuum-sessiond"
+name = "portal-sessiond"
 path = "src/sessiond/main.rs"
 
 [[bin]]
-name = "gitinuum-session-bridge"
+name = "portal-session-bridge"
 path = "src/session_bridge/main.rs"
 

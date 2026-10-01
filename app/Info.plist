@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>GitinuumApp</string>
+	<string>PortalApp</string>
 	<key>CFBundleIdentifier</key>
 	<string>dev.mxcl.portal</string>
 	<key>CFBundleIconFile</key>

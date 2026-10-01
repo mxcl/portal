@@ -81,7 +81,7 @@ struct SessionWireProtocolTests {
         #expect(SessionWireProtocol.localBridgeCandidates(
             forExecutable: "/Applications/Portal.app/Contents/MacOS/Portal"
         ) == [
-            "/Applications/Portal.app/Contents/Helpers/gitinuum-session-bridge",
+            "/Applications/Portal.app/Contents/Helpers/portal-session-bridge",
         ])
     }
 

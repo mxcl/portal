@@ -15,8 +15,8 @@ trap 'rm -rf "$stage" "$local_stage"' EXIT
 /usr/bin/ditto "$stage/Portal.app" "$local_stage"
 "$repo/scripts/install-staged.sh" "$local_stage" "$local_backup"
 
-for executable in 'MacOS/GitinuumApp' 'Resources/gitinuumd' 'Resources/gitinuum' \
-  'Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/GitSyncMenuBar' \
+for executable in 'MacOS/PortalApp' 'Resources/portald' 'Resources/portal' \
+  'Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/PortalMenuBar' \
   'Helpers/Portal Terminal.app/Contents/MacOS/PortalTerminalApp'; do
   expected_hash="$(shasum -a 256 "$stage/Portal.app/Contents/$executable" | awk '{print $1}')"
   installed_hash="$(shasum -a 256 "/Applications/Portal.app/Contents/$executable" | awk '{print $1}')"

@@ -8,10 +8,10 @@ trap '[[ -z "$daemon_pid" ]] || kill "$daemon_pid" 2>/dev/null || true; rm -rf "
 mkdir "$temp/source"
 ditto "$app/Contents/Helpers" "$temp/source"
 export GITINUUM_SESSIOND_SOCKET="$temp/sessiond.sock"
-printf 'PROTOCOLS\n' | "$temp/source/gitinuum-session-bridge" | grep -Fx 'PROTOCOLS 1 2'
+printf 'PROTOCOLS\n' | "$temp/source/portal-session-bridge" | grep -Fx 'PROTOCOLS 1 2'
 daemon_pid=$(/usr/sbin/lsof -t "$GITINUUM_SESSIOND_SOCKET" | head -1)
 # Keep a signed client, then simulate replacement of the original bundle.
-cp "$temp/source/gitinuum-session-bridge" "$temp/bridge"
+cp "$temp/source/portal-session-bridge" "$temp/bridge"
 rm -rf "$temp/source"
 printf 'PROTOCOLS\n' | "$temp/bridge" | grep -Fx 'PROTOCOLS 1 2'
 echo 'Terminal helper survives app replacement.'

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 APP_DIR="${1:?usage: test-session-peer-authentication.sh APP_DIR}"
-SESSIOND="$APP_DIR/Contents/Helpers/Portal Session Helper.app/Contents/MacOS/gitinuum-sessiond"
-BRIDGE="$APP_DIR/Contents/Helpers/gitinuum-session-bridge"
+SESSIOND="$APP_DIR/Contents/Helpers/Portal Session Helper.app/Contents/MacOS/portal-sessiond"
+BRIDGE="$APP_DIR/Contents/Helpers/portal-session-bridge"
 TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/portal-peer-auth.XXXXXX")"
 DAEMON_PID=""
 FAKE_PID=""
@@ -99,6 +99,6 @@ wait_for_socket "$legacy_socket"
 response="$(printf 'LIST\n' | GITINUUM_SESSIOND_SOCKET="$legacy_socket" \
   GITINUUM_SESSIOND_REQUIRE_EXISTING=1 "$BRIDGE")"
 [[ "$response" == "SESSIONS W10=" ]]
-codesign -d --verbose=2 "$BRIDGE" 2>&1 | grep -Fx 'Identifier=dev.mxcl.git-sync.session-bridge'
+codesign -d --verbose=2 "$BRIDGE" 2>&1 | grep -Fx 'Identifier=dev.mxcl.portal.session-bridge'
 
 echo "Session peer authentication checks passed."

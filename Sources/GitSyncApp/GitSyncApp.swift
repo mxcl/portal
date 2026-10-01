@@ -48,7 +48,7 @@ struct GitSyncApp: App {
             TerminalCommands(workspace: model.terminals, enabled: !model.showsCommitDiff && model.selectedTab != .editor && model.projectTerminalSources.contains(model.selectedProjectHostSource), hosts: model.terminalHosts)
             CommandGroup(after: .appSettings) {
                 Button("Install Command Line Tool…") {
-                    guard let script = Bundle.main.url(forResource: "install-gitinuum", withExtension: "command"),
+                    guard let script = Bundle.main.url(forResource: "install-portal", withExtension: "command"),
                           NSWorkspace.shared.open(script) else {
                         let alert = NSAlert()
                         alert.messageText = "Could not open the command line installer"
@@ -363,8 +363,8 @@ final class AppModel: ObservableObject {
             TerminalHost(id: host.id.uuidString, name: host.name, peer: host.peer,
                          helperPath: host.executable.hasPrefix("/Applications/")
                             ? URL(fileURLWithPath: host.executable).deletingLastPathComponent()
-                                .deletingLastPathComponent().appendingPathComponent("Helpers/gitinuum-session-bridge").path
-                            : "~/.local/lib/gitinuum/terminal/gitinuum-session-bridge",
+                                .deletingLastPathComponent().appendingPathComponent(host.executable.hasSuffix("/portald") ? "Helpers/portal-session-bridge" : "Helpers/gitinuum-session-bridge").path
+                            : (host.executable.hasSuffix("/portald") ? "~/.local/lib/portal/terminal/portal-session-bridge" : "~/.local/lib/gitinuum/terminal/gitinuum-session-bridge"),
                          directory: host.root)
         }
     }
@@ -2778,7 +2778,7 @@ private struct AddHostView: View {
             Form {
                 TextField("SSH host", text: $model.hostDraft.peer)
                 TextField("Projects folder", text: $model.hostDraft.root)
-                TextField("gitinuumd executable", text: $model.hostDraft.executable)
+                TextField("portald executable", text: $model.hostDraft.executable)
             }
             .formStyle(.grouped)
             if let error = model.hostError { Text(error).foregroundStyle(.red).textSelection(.enabled) }

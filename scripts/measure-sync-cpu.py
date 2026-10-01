@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Isolated two-daemon CPU/subprocess/latency check; never touches user repositories.
 
-Usage: python3 scripts/measure-sync-cpu.py /path/to/gitinuumd [--check]
+Usage: python3 scripts/measure-sync-cpu.py /path/to/portald [--check]
 Git's own Trace2 records subprocesses; no Git wrapper or production instrumentation.
 """
 import collections

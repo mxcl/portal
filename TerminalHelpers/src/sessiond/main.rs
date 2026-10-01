@@ -1004,7 +1004,7 @@ fn main() -> io::Result<()> {
 }
 
 fn usage() -> io::Result<()> {
-    eprintln!("usage: gitinuum-sessiond serve [--replace-socket]");
+    eprintln!("usage: portal-sessiond serve [--replace-socket]");
     std::process::exit(64);
 }
 
@@ -1025,11 +1025,11 @@ fn serve(replace_socket: bool) -> io::Result<()> {
                 let state = state.clone();
                 thread::spawn(move || {
                     if let Err(error) = handle_client(stream, state) {
-                        eprintln!("gitinuum-sessiond client error: {error}");
+                        eprintln!("portal-sessiond client error: {error}");
                     }
                 });
             }
-            Err(error) => eprintln!("gitinuum-sessiond accept error: {error}"),
+            Err(error) => eprintln!("portal-sessiond accept error: {error}"),
         }
     }
     Ok(())
@@ -1965,7 +1965,7 @@ mod tests {
             .expect("clock should be valid")
             .as_nanos();
         let directory = PathBuf::from("/tmp").join(format!(
-            "gitinuum-sessiond-ownership-{}-{unique}",
+            "portal-sessiond-ownership-{}-{unique}",
             std::process::id()
         ));
         fs::create_dir_all(&directory).expect("temporary directory should be created");

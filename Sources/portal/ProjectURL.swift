@@ -12,7 +12,7 @@ func projectURL(path: String) throws -> URL {
     let data = output.fileHandleForReading.readDataToEndOfFile()
     git.waitUntilExit()
     guard git.terminationStatus == 0 else {
-        throw NSError(domain: "gitinuum", code: 1, userInfo: [NSLocalizedDescriptionKey: "Not a Git working repository: \(path)"])
+        throw NSError(domain: "portal", code: 1, userInfo: [NSLocalizedDescriptionKey: "Not a Git working repository: \(path)"])
     }
     let root = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
     var url = URLComponents()

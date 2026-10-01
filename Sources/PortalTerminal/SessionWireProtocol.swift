@@ -248,7 +248,7 @@ enum SessionWireProtocol {
         } else {
             return []
         }
-        return [directory.appendingPathComponent("gitinuum-session-bridge").path]
+        return [directory.appendingPathComponent("portal-session-bridge").path]
     }
 
     private static func base64(_ value: String) -> String {

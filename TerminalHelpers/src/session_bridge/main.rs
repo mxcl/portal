@@ -27,7 +27,7 @@ fn main() -> io::Result<()> {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
         Some("--version") | Some("version") => {
-            println!("gitinuum-session-bridge {VERSION}");
+            println!("portal-session-bridge {VERSION}");
             Ok(())
         }
         Some("--socket-path") => {
@@ -50,7 +50,7 @@ fn main() -> io::Result<()> {
         Some("git-status") => git_status_stdio(),
         Some(arg) => {
             eprintln!(
-                "usage: gitinuum-session-bridge [--version|--socket-path|--capabilities|complete-path|complete-commands|run-generator|history-query|history-record|history-clear|git-status]"
+                "usage: portal-session-bridge [--version|--socket-path|--capabilities|complete-path|complete-commands|run-generator|history-query|history-record|history-clear|git-status]"
             );
             eprintln!("unexpected argument: {arg}");
             std::process::exit(64);
@@ -652,7 +652,7 @@ fn run_generator(request: &GeneratorRequest) -> GeneratorOutput {
         if !stderr.is_empty() {
             stderr.push('\n');
         }
-        stderr.push_str("gitinuum-session-bridge: generator timed out");
+        stderr.push_str("portal-session-bridge: generator timed out");
     }
 
     GeneratorOutput {
@@ -1061,7 +1061,7 @@ fn ensure_daemon_is_running_at(socket_path: &Path, require_existing: bool) -> io
         }
     }
 
-    Err(last_error.unwrap_or_else(|| io::Error::other("could not connect to gitinuum-sessiond")))
+    Err(last_error.unwrap_or_else(|| io::Error::other("could not connect to portal-sessiond")))
 }
 
 fn daemon_inventory_is_empty_at(socket_path: &Path) -> io::Result<bool> {
@@ -1118,7 +1118,7 @@ fn parse_supported_protocols(line: &str) -> Option<Vec<u16>> {
 }
 
 fn daemon_inventory_error() -> io::Error {
-    let base = "gitinuum-sessiond accepted a connection but did not answer LIST";
+    let base = "portal-sessiond accepted a connection but did not answer LIST";
     #[cfg(target_os = "macos")]
     if let Some(diagnostic) = bridge_signature_diagnostic() {
         return io::Error::new(
@@ -1175,26 +1175,26 @@ fn sessiond_path() -> io::Result<PathBuf> {
     if let Ok(current_exe) = env::current_exe()
         && let Some(dir) = current_exe.parent()
     {
-        let bundled = dir.join("Portal Session Helper.app/Contents/MacOS/gitinuum-sessiond");
+        let bundled = dir.join("Portal Session Helper.app/Contents/MacOS/portal-sessiond");
         if is_executable(&bundled) {
             #[cfg(target_os = "macos")]
             return stage_sessiond_app(&dir.join("Portal Session Helper.app"));
             #[cfg(not(target_os = "macos"))]
             return Ok(bundled);
         }
-        let sibling = dir.join("gitinuum-sessiond");
+        let sibling = dir.join("portal-sessiond");
         if is_executable(&sibling) {
             return Ok(sibling);
         }
     }
 
-    if let Some(path) = find_on_path("gitinuum-sessiond") {
+    if let Some(path) = find_on_path("portal-sessiond") {
         return Ok(path);
     }
 
     Err(io::Error::new(
         io::ErrorKind::NotFound,
-        "gitinuum-sessiond was not found next to the bridge or on PATH",
+        "portal-sessiond was not found next to the bridge or on PATH",
     ))
 }
 
@@ -1269,7 +1269,7 @@ fn stage_sessiond_app(source: &Path) -> io::Result<PathBuf> {
             "cached session helper identity changed",
         ));
     }
-    Ok(app.join("Contents/MacOS/gitinuum-sessiond"))
+    Ok(app.join("Contents/MacOS/portal-sessiond"))
 }
 
 fn find_on_path(name: &str) -> Option<PathBuf> {
@@ -1301,7 +1301,7 @@ mod tests {
                 .expect("clock should be valid")
                 .as_nanos();
             let path = env::temp_dir().join(format!(
-                "gitinuum-session-bridge-{name}-{}-{unique}",
+                "portal-session-bridge-{name}-{}-{unique}",
                 std::process::id()
             ));
             fs::create_dir_all(&path).expect("temp dir should be created");

@@ -1,14 +1,14 @@
 # Portal
 
 Continuously exchange Git history between your own computers over one
-persistent SSH connection. `gitinuumd` implements a bidirectional, continuous
+persistent SSH connection. `portald` implements a bidirectional, continuous
 fetch/push system. Each host publishes snapshots of its refs into the other
 host's peer namespace while both working repositories remain independent by
 default. Incoming history leaves local branches, `HEAD`, the index, and working
 files alone unless guarded checkout syncing is explicitly enabled.
 
 ```console
-$ gitinuumd run \
+$ portald run \
     --root ~/src \
     --machine macbook \
     --peer linux \
@@ -95,7 +95,7 @@ picker hidden.
 
 The embedded helper owns continuous syncing and shows live transfer logs in its
 menu, even while the project window is closed. The Launch at Login setting
-registers only `Portal Menu Helper.app`, which shares the main app’s icon files. It uses the copy of `gitinuumd` inside each peer's
+registers only `Portal Menu Helper.app`, which shares the main app’s icon files. It uses the copy of `portald` inside each peer's
 `/Applications/Portal.app`; the path can be changed while adding that host.
 
 **New Terminal Window** opens the embedded **Portal Terminal** app. It lists all
@@ -104,18 +104,18 @@ choose **Install Portal Terminal…** to put a separate copy in Applications for
 Spotlight, or **Become Default Terminal App** to use it for shell scripts and
 Unix executables.
 
-Choose **Portal → Install Command Line Tool…** to install `gitinuum` in
+Choose **Portal → Install Command Line Tool…** to install `portal` in
 `/usr/local/bin`. The bundled installer opens in Terminal and requests your
-administrator password via `sudo`. Run `gitinuum` to open the app, or
-`gitinuum /path/to/repository` to select a project. `gitinuum --sync-help` lists
+administrator password via `sudo`. Run `portal` to open the app, or
+`portal /path/to/repository` to select a project. `portal --sync-help` lists
 the daemon commands. The app must remain
 installed; run the menu installer again after an update to refresh the CLI.
 
-Existing hosts configured with `/Applications/Git Sync.app/Contents/Resources/gitinuumd`
+Existing hosts configured with `/Applications/Git Sync.app/Contents/Resources/portald`
 need their executable path updated after renaming the installed app.
 
-The bundle keeps `git-sync` as a compatibility symlink to `gitinuumd` for older
-installed launchers. New peer configurations use `gitinuumd`.
+The bundle keeps `git-sync` as a compatibility symlink to `portald` for older
+installed launchers. New peer configurations use `portald`.
 
 ## Linux / CLI install
 
@@ -123,7 +123,7 @@ Swift 5.9 or newer and Git are required.
 
 ```console
 $ swift build -c release
-$ install .build/release/gitinuumd ~/.local/bin/gitinuumd
+$ install .build/release/portald ~/.local/bin/portald
 ```
 
 The peer needs ordinary SSH authentication. No network listener, repository

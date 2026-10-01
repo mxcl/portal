@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import gitinuum
+@testable import portal
 
 @Test func opensRepositoryFromPath() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

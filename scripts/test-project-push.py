@@ -10,7 +10,7 @@ import sys
 import tempfile
 import time
 
-executable = str(Path(sys.argv[1] if len(sys.argv) > 1 else '.build/debug/gitinuumd').resolve())
+executable = str(Path(sys.argv[1] if len(sys.argv) > 1 else '.build/debug/portald').resolve())
 
 def frame(process, timeout=5):
     fd = process.stdout.fileno()

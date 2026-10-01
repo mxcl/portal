@@ -39,8 +39,8 @@ for identifier in dev.mxcl.git-sync.menu dev.mxcl.git-sync.menu-helper; do
 done
 
 # Login items can appear under their bundle identifier instead of the executable name.
-# Preserve the renamed portal-sessiond; retire the obsolete Gitinuum daemon once.
-processes='PortalApp|GitinuumApp|PortalTerminalApp|portald|gitinuumd|gitinuum-sessiond|GitSync|git-sync|GitSyncMenuBar|PortalMenuBar|dev[.]mxcl[.]git-sync[.]menu(-helper)?|dev[.]mxcl[.]portal[.]menu-helper'
+# Preserve both legacy and renamed terminal daemons and their live sessions.
+processes='PortalApp|GitinuumApp|PortalTerminalApp|portald|gitinuumd|GitSync|git-sync|GitSyncMenuBar|PortalMenuBar|dev[.]mxcl[.]git-sync[.]menu(-helper)?|dev[.]mxcl[.]portal[.]menu-helper'
 pkill -x "$processes" 2>/dev/null || true
 for _ in {1..50}; do
   if ! pgrep -x "$processes" >/dev/null; then

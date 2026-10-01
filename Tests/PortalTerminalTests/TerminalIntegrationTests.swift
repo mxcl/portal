@@ -5,6 +5,26 @@ import Testing
 
 @Suite("Embedded terminal", .serialized)
 struct TerminalIntegrationTests {
+    private actor InventoryLoads {
+        var count = 0
+        func load(succeeds: Bool) -> [SessionPickerCandidate]? {
+            count += 1
+            return succeeds ? [] : nil
+        }
+    }
+
+    @Test(arguments: [true, false]) @MainActor
+    func idleSessionPickerDoesNotPoll(succeeds: Bool) async throws {
+        let loads = InventoryLoads()
+        let picker = SessionPickerModel()
+        defer { picker.invalidate() }
+        picker.refresh(initial: [], excluding: [], homeDirectory: "/tmp",
+            loadLocal: { [] }, loadRemote: { await loads.load(succeeds: succeeds) },
+            isAvailable: { _ in true }, onUpdate: { _ in })
+        try await Task.sleep(for: .milliseconds(2300))
+        #expect(await loads.count == 1)
+    }
+
     @Test @MainActor func untouchedSessionsAreDiscardedWithoutReplacingThem() {
         #expect(TerminalViewController.untouchedSessionCleanupSelfTest())
     }

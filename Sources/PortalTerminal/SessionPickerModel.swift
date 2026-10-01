@@ -104,7 +104,6 @@ final class SessionPickerModel {
     }
 
     typealias RetryingLoader = @Sendable () async -> [SessionPickerCandidate]?
-    typealias Delay = @Sendable (UInt64) async -> Void
 
     private enum LoadResult: Sendable {
         case local([SessionPickerCandidate])
@@ -121,10 +120,7 @@ final class SessionPickerModel {
         loadLocal: @escaping RetryingLoader,
         loadRemote: @escaping RetryingLoader,
         isAvailable: @escaping @MainActor (SessionRef) -> Bool,
-        onUpdate: @escaping @MainActor (SessionPickerSnapshot) -> Void,
-        remoteSuccessDelay: UInt64 = 2_000_000_000,
-        remoteFailureDelays: [UInt64] = [500_000_000, 2_000_000_000, 5_000_000_000],
-        delay: @escaping Delay = { try? await Task.sleep(nanoseconds: $0) }
+        onUpdate: @escaping @MainActor (SessionPickerSnapshot) -> Void
     ) {
         invalidate()
         let generation = generation
@@ -157,7 +153,6 @@ final class SessionPickerModel {
                 return candidate
             }
         }
-        let failureDelays = remoteFailureDelays.isEmpty ? [5_000_000_000] : remoteFailureDelays
         let cachedLocal = preservingInitialCommandState(inventory.local ?? [])
         let cachedRemote = preservingInitialCommandState(inventory.remote ?? [])
         onUpdate(snapshot(
@@ -186,7 +181,6 @@ final class SessionPickerModel {
                 group.addTask { .remote(await loadRemote()) }
                 var localCandidates = cachedLocal
                 var remoteCandidates = cachedRemote
-                var remoteFailureAttempt = 0
                 for await result in group {
                     guard let self, generation == self.generation, !Task.isCancelled else { return }
                     switch result {
@@ -208,13 +202,10 @@ final class SessionPickerModel {
                             homeDirectory: homeDirectory
                         ))
                     case .remote(let result):
-                        let retryDelay: UInt64
                         if let result {
                             unconfirmedInitialCandidates.removeAll { if case .sshHost = $0.sessionRef.location { return true }; return false }
                             remoteCandidates = preservingInitialCommandState(result)
                             self.inventory.remote = remoteCandidates
-                            remoteFailureAttempt = 0
-                            retryDelay = remoteSuccessDelay
                             onUpdate(self.snapshot(
                                 from: self.combinedCandidates(
                                     initial: unconfirmedInitialCandidates,
@@ -225,18 +216,9 @@ final class SessionPickerModel {
                                 ),
                                 homeDirectory: homeDirectory
                             ))
-                        } else {
-                            retryDelay = failureDelays[
-                                min(remoteFailureAttempt, failureDelays.count - 1)
-                            ]
-                            remoteFailureAttempt += 1
                         }
-                        guard generation == self.generation, !Task.isCancelled else { return }
-                        group.addTask {
-                            await delay(retryDelay)
-                            guard !Task.isCancelled else { return .remote(nil) }
-                            return .remote(await loadRemote())
-                        }
+                        // Fetch once when the picker opens or a user action refreshes it.
+                        // Leaving it visible must not create a background SSH poll.
                     }
                 }
             }

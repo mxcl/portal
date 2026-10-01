@@ -5,7 +5,7 @@ import Foundation
 import GitSyncCore
 
 public enum EngineControlProtocol {
-    public static let version = 9
+    public static let version = 10
     public static let changedNotification = Notification.Name("dev.mxcl.git-sync.engine-changed")
     public static var socketURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -61,7 +61,8 @@ public struct EngineSnapshot: Codable, Equatable, Sendable {
     public let placementInProgress: String?
     public let localProjects: [String: PeerProject]
     public let remoteProjects: [UUID: [String: PeerProject]]
-    public var projectRevisions: [UUID: UUID] = [:]
+    public var observedProjects: [UUID: [String: ObservedProject]] = [:]
+    public var projectObservationErrors: [String: String] = [:]
 }
 
 public struct EngineReply: Codable, Sendable {
@@ -129,7 +130,7 @@ public final class EngineModel: ObservableObject {
     private var backupRefreshTask: Task<Void, Never>?
     private var backupRefreshPending = false
     private var backupFullRefreshPending = false
-    @Published private var projectRevisions: [UUID: UUID] = [:]
+    @Published private var observedProjects: [UUID: [String: ObservedProject]] = [:]
     private var projectObservations: [String: ProjectObservation] = [:]
     private var observingProjects = false
     @Published private var projectObservationErrors: [String: String] = [:]
@@ -200,7 +201,8 @@ public final class EngineModel: ObservableObject {
                        isChecking: isChecking, isRunning: isRunning, isPaused: isPaused,
                        logs: logs, backupItems: backupItems, backupError: backupError,
                        restoringBackup: restoringBackup, placementInProgress: placementInProgress,
-                       localProjects: localProjects, remoteProjects: remoteProjects, projectRevisions: projectRevisions)
+                       localProjects: localProjects, remoteProjects: remoteProjects, observedProjects: observedProjects,
+                       projectObservationErrors: projectObservationErrors)
     }
 
     public func handle(_ command: EngineCommand) async -> EngineReply {
@@ -844,6 +846,7 @@ public final class EngineModel: ObservableObject {
         for key in Array(projectObservations.keys) where !keys.contains(key) {
             projectObservations.removeValue(forKey: key)?.stop()
             projectObservationErrors[key] = nil
+            if let id = UUID(uuidString: key) { observedProjects[id] = nil }
         }
         let root = expandedRoot.path
         let executable = executableURL
@@ -865,29 +868,33 @@ public final class EngineModel: ObservableObject {
         guard projectObservations[key]?.identity != identity else { return }
         projectObservations.removeValue(forKey: key)?.stop()
         projectObservations[key] = ProjectObservation(identity: identity, makeProcess: makeProcess,
-            changed: { [weak self] in
+            changed: { [weak self] change in
                 if self?.projectObservationErrors[key] != nil { self?.projectObservationErrors[key] = nil }
-                try await self?.projectsChanged(hostID: hostID)
+                try await self?.projectsChanged(change, hostID: hostID)
             },
             failed: { [weak self] message in
                 if self?.projectObservationErrors[key] != message { self?.projectObservationErrors[key] = message }
             })
     }
 
-    private func projectsChanged(hostID: UUID?) async throws {
+    private func projectsChanged(_ change: ProjectChange, hostID: UUID?) async throws {
         let original = configuration
+        let projects = change.projects.values.map(\.project).sorted { $0.name < $1.name }
         if let hostID {
             guard let host = configuration.hosts.first(where: { $0.id == hostID }) else { return }
-            let probe = Configuration(root: configuration.root, machine: configuration.machine,
-                peer: host.peer, remoteRoot: host.root, remoteExecutable: host.executable, repositories: [])
-            let inspection = try await Task.detached(priority: .utility) { try Runner.inspectPeer(probe) }.value
-            guard !Task.isCancelled, configuration.hosts.contains(host) else { return }
+            let inspection = PeerInspection(version: SyncProtocol.version, machine: host.machine,
+                repositories: projects.map(\.name), projects: projects)
             recordInspection(inspection, hostID: hostID, knownProjects: configuration.folders.map(\.name))
-            projectRevisions[hostID] = UUID()
+            if observedProjects[hostID] != change.projects { observedProjects[hostID] = change.projects }
         } else {
-            try await discoverLocalProjects(priority: .utility)
+            var updated = configuration
+            try updated.discoverLocal(projects.map(\.name))
+            if configuration != updated { configuration = updated }
+            let local = change.projects.mapValues(\.project)
+            let statuses = change.projects.mapValues(\.status)
+            if localProjects != local { localProjects = local }
+            if projectStatuses != statuses { projectStatuses = statuses }
         }
-        guard !Task.isCancelled else { return }
         if configuration != original {
             try save()
             restartIfRunning()
@@ -1078,18 +1085,22 @@ private final class LocalBackup: @unchecked Sendable {
         defer { onStopped(id) }
         while !isStopped {
             do {
-                let repositories = try OneShot.sync(
-                    sourceRoot: source, destinationRoot: destination,
-                    machine: machine, stateURL: stateURL, full: true, bareDestination: true,
-                    repositoryObserver: { [index, destination] name in index.invalidate(name, in: destination) }
-                )
-                try index.replaceCatalog(machine: machine, repositories: repositories)
-                onCatalog()
-                guard !isStopped else { return }
-                logger("this Mac is up to date")
-                let watcher = Watcher(root: source, repositories: try Repository.discover(in: source))
-                let started = Date()
-                while !isStopped, !watcher.wait(), Date().timeIntervalSince(started) < 300 {}
+                let watcher = try Watcher(root: source, repositories: [])
+                var full = true
+                while !isStopped {
+                    try watcher.add(Repository.discover(in: source))
+                    let repositories = try OneShot.sync(
+                        sourceRoot: source, destinationRoot: destination,
+                        machine: machine, stateURL: stateURL, full: full, bareDestination: true,
+                        repositoryObserver: { [index, destination] name in index.invalidate(name, in: destination) }
+                    )
+                    full = false
+                    try index.replaceCatalog(machine: machine, repositories: repositories)
+                    onCatalog()
+                    guard !isStopped else { return }
+                    logger("this Mac is up to date")
+                    while !isStopped, try !watcher.wait() {}
+                }
             } catch {
                 if !isStopped { logger("retrying after: \(error)") }
                 for _ in 0..<5 where !isStopped { Thread.sleep(forTimeInterval: 1) }

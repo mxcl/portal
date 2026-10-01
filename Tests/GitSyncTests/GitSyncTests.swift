@@ -73,10 +73,10 @@ func watcherTimeoutIsIdle() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("git-sync-watch-\(UUID())")
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
-    let watcher = Watcher(root: root, repositories: [])
+    let watcher = try Watcher(root: root, repositories: [])
 
-    _ = watcher.wait(timeout: 0.1)
-    #expect(!watcher.wait(timeout: 0.05))
+    _ = try watcher.wait(timeout: 0.1)
+    #expect(try !watcher.wait(timeout: 0.05))
 }
 
 }

@@ -3,7 +3,7 @@ import Foundation
 import GitSyncCore
 
 /// One long-lived pipe per host. Blocking reads live on a utility queue; the
-/// newest invalidation is retained while the main actor refreshes the inventory.
+/// newest complete state is retained while the main actor applies the inventory.
 @MainActor
 final class ProjectObservation {
     let identity: [String]
@@ -12,7 +12,7 @@ final class ProjectObservation {
     private var input: FileHandle?
 
     init(identity: [String], makeProcess: @escaping () throws -> Process,
-         changed: @escaping () async throws -> Void, failed: @escaping (String) -> Void) {
+         changed: @escaping (ProjectChange) async throws -> Void, failed: @escaping (String) -> Void) {
         self.identity = identity
         task = Task { [weak self] in
             while !Task.isCancelled {
@@ -26,20 +26,20 @@ final class ProjectObservation {
                     try process.run()
                     self.process = process
                     self.input = input.fileHandleForWriting
-                    let events = AsyncThrowingStream<Void, Error>(bufferingPolicy: .bufferingNewest(1)) { continuation in
+                    let events = AsyncThrowingStream<ProjectChange, Error>(bufferingPolicy: .bufferingNewest(1)) { continuation in
                         DispatchQueue.global(qos: .utility).async {
                             do {
                                 while true {
-                                    _ = try BackupControlConnection.receive(ProjectChange.self,
+                                    let change = try BackupControlConnection.receive(ProjectChange.self,
                                         from: output.fileHandleForReading).checked()
-                                    continuation.yield(())
+                                    continuation.yield(change)
                                 }
                             } catch { continuation.finish(throwing: error) }
                         }
                     }
-                    for try await _ in events {
+                    for try await change in events {
                         guard !Task.isCancelled else { break }
-                        try await changed()
+                        try await changed(change)
                     }
                 } catch {
                     if !Task.isCancelled { failed("Live project updates unavailable: \(error). Check the host and update Gitinuum if needed.") }

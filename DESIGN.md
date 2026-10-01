@@ -190,8 +190,8 @@ guarded fast-forward. An update identifies the sender's current clean checkout.
 The receiver advances the same checked-out branch only if its index and working
 tree are clean and its current commit is an ancestor of the incoming commit.
 Thus staged, unstaged, untracked, committed, or divergent work prevents
-promotion. A clean checkout retries an earlier blocked fast-forward during the
-next full reconciliation, bounded to five minutes. Enabling this option is the
+promotion. A blocked fast-forward is retried on a subsequent ref update or
+connection catch-up; there is no timed retry. Enabling this option is the
 required user action and applies to both ends of that connection; it defaults
 off.
 
@@ -200,7 +200,7 @@ and the backup-gated merged-branch cleanup described below, background code neve
 writes a ref owned by a user or another host. Each
 destination ref update is atomic. A scan containing several ref changes is
 outside one repository-wide transaction, so a peer may observe part of that
-scan. The next reconciliation repairs interruption or partial progress.
+scan. Connection catch-up repairs interruption or partial progress.
 
 The design uses installed Git as the adapter for object validation, pack
 creation and installation, ref locking, and ref transactions. A sync-aware Git
@@ -239,9 +239,14 @@ inotify only to wake the engine; every wake re-reads durable state through Git.
 
 On macOS, sync watches wake for Git metadata, immediate project-folder changes,
 and repository initialization, rather than ordinary worktree/build-file writes.
-Dropped or coalesced events still request a scan. The existing five-minute full
-reconciliation repairs watcher gaps and retries opt-in checkout fast-forwards
-after a dirty checkout becomes clean. Selected sessions exclude disabled projects
+The native watcher stays installed during scans and transfers, retaining events
+instead of leaving gaps between one-shot watches. Dropped/coalesced macOS events
+request a scan; Linux overflow fails the session for reconnect and catch-up.
+There is no periodic reconciliation, including for local backups: scans require
+filesystem events or initial/reconnect inventory. Watcher timeouts only check
+cancellation and pending protocol messages; they do not scan Git. A silently lost
+event can therefore leave state stale until another relevant event or reconnect;
+this is an intentional push-only experiment. Selected sessions exclude disabled projects
 before invoking Git. Checkout-cleanliness reads never refresh the index, and are
 only needed when publishing updates; unchanged refs require no working-tree scan.
 
@@ -629,24 +634,30 @@ also requires unread state; history IDs remain available for deduplication.
 
 The helper observes project roots through a persistent `watch-projects` subprocess,
 locally and over a persistent SSH connection for each configured host. The stream
-uses bounded length-prefixed `ProjectChange` messages and its own version (1),
+uses bounded length-prefixed `ProjectChange` messages and its own version (2),
 which both ends reject when incompatible. It invalidates read-only UI data and
 does not change Git replication, ref ownership, or snapshot atomicity.
 
-Every connection emits an initial catch-up event after installing its watch.
-FSEvents on macOS and recursive inotify on Linux retain events while inventories
-are read; new directories and external common Git directories are watched too.
-Bursts are coalesced, and the client retains the newest pending invalidation while
-refreshing. Failures reconnect with backoff and a full catch-up; unsupported hosts
+Every connection emits initial inventory and staging snapshots after installing
+its watch. FSEvents on macOS and recursive inotify on Linux retain event paths
+while inventories are read; new directories and external common Git directories
+are watched too. Only affected projects are examined. Git ignore rules suppress
+build noise before scans; a fingerprint of refs, configuration, index entries,
+and Git-visible file metadata suppresses unchanged state and internal Git writes.
+File timestamps/inodes distinguish edits with identical status/line counts without
+hashing whole worktrees. Bursts are coalesced, and each message carries complete
+current state so retaining only the newest pending message cannot lose a change. Failures reconnect with backoff and a full catch-up; unsupported hosts
 show an error requiring an update rather than silently reverting to polling.
 Linux watch exhaustion/overflow fails the stream instead of losing updates.
 
-Engine control version 9 includes per-host invalidation revisions so a working-file
-edit with identical line counts still refreshes a selected remote diff. These are
-connection-local invalidations, not persistent ordering state. The app compares
-snapshot fields before publication; helper notifications are coalesced and log-only
-changes do not invalidate the project window. Git replication's existing watcher
-repair and transport retry mechanisms are unchanged.
+Engine control version 10 carries these observations with per-project revisions.
+The helper no longer opens an SSH inspection for each event, and staging rows use
+pushed snapshots instead of separate SSH reads. Only changes to the selected
+project refresh its remote content/diff; those on-demand reads still use SSH.
+Revisions are connection-local invalidations, not persistent ordering state. The
+app compares snapshot fields before publication; helper notifications are coalesced
+and log-only changes do not invalidate the project window. Ref ownership,
+per-ref atomicity, and source-epoch ordering remain unchanged.
 
 The terminal's optional Git tree watches its visible local checkout and common
 Git metadata, replacing its half-second refresh timer. Terminal mode follows

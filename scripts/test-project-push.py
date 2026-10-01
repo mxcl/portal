@@ -25,7 +25,9 @@ def frame(process, timeout=5):
         return data
     size, = struct.unpack('!I', read(4))
     assert 0 < size <= 1048576
-    assert json.loads(read(size)) == {'version': 1}
+    change = json.loads(read(size))
+    assert change['version'] == 2
+    return change['projects']
 
 def quiet(process):
     deadline = time.monotonic() + 10
@@ -45,21 +47,27 @@ with tempfile.TemporaryDirectory() as directory:
     git('-C', source, '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
         'commit', '-q', '--allow-empty', '-m', 'initial')
     git('-C', source, 'worktree', 'add', '-q', '-b', 'linked', root / 'linked')
-    args = [executable, 'watch-projects', '--root', str(root), '--watch-version', '1']
+    (root / 'linked' / '.gitignore').write_text('build/\n')
+    args = [executable, 'watch-projects', '--root', str(root), '--watch-version', '2']
     for attempt in range(2):
         process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
-            frame(process)  # Both initial connection and reconnect must catch up.
+            initial = frame(process)  # Both initial connection and reconnect must catch up.
+            assert 'linked' in initial
+            assert 'snapshot' in initial['linked']
             quiet(process)
+            ignored = root / 'linked' / 'build'
+            ignored.mkdir(exist_ok=True)
+            (ignored / 'output').write_text(str(attempt))
+            assert not select.select([process.stdout], [], [], 2)[0], 'ignored build output triggered a push'
             nested = root / 'linked' / f'nested-{attempt}' / 'child'
             nested.mkdir(parents=True)
-            frame(process)
-            quiet(process)
             (nested / 'file').write_text('first')
-            frame(process)
+            first = frame(process)
             quiet(process)
             (nested / 'file').write_text('other')  # Same length/counts, still an event.
-            frame(process)
+            second = frame(process)
+            assert first['linked']['revision'] != second['linked']['revision']
             quiet(process)
             git('-C', source, 'branch', f'external-change-{attempt}')
             frame(process)

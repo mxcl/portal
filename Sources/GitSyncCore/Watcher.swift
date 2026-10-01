@@ -1,48 +1,38 @@
 import Foundation
-import GitSyncWatch
-#if canImport(Glibc)
-import Glibc
-#elseif canImport(Musl)
-import Musl
-#elseif canImport(Darwin)
-import Darwin
-#endif
 
-public struct Watcher {
-    private let paths: [String]
+/// Persistent observation retains events while Git scans and transfers run.
+public final class Watcher {
+    private let observer: ProjectChangeWatcher
+    private let rootPath: String
+    private var metadata = Set<String>()
 
-    public init(root: URL, repositories: [Repository]) {
-        var urls = [root]
-        for repository in repositories {
-            guard let common = repository.commonDirectory else { continue }
-            urls.append(common)
-            #if !os(macOS)
-            // inotify is nonrecursive; FSEvents already covers these descendants.
-            let refs = common.appendingPathComponent("refs", isDirectory: true)
-            if let enumerator = FileManager.default.enumerator(at: refs, includingPropertiesForKeys: [.isDirectoryKey]) {
-                for case let url as URL in enumerator where (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                    urls.append(url)
-                }
-            }
-            #endif
-        }
-        // The first path is the discovery root; the remainder are Git metadata.
-        // Foundation standardizes /private/var back to /var; FSEvents uses real paths.
-        let resolved = urls.map { url -> String in
-            guard let path = realpath(url.path, nil) else { return url.path }
-            defer { free(path) }
-            return String(cString: path)
-        }
-        paths = [resolved[0]] + Set(resolved.dropFirst()).sorted()
+    public init(root: URL, repositories: [Repository]) throws {
+        rootPath = root.standardizedFileURL.path
+        observer = try ProjectChangeWatcher(root: root)
+        try add(repositories)
     }
 
-    // ponytail: the native watch is recreated to observe session state; paths stay cached between events.
-    public func wait(timeout: TimeInterval = 2) -> Bool {
-        let allocated = paths.map { strdup($0) }
-        let pointers: [UnsafePointer<CChar>?] = allocated.map { pointer in
-            pointer.map { UnsafePointer<CChar>($0) }
+    public func add(_ repositories: [Repository]) throws {
+        for repository in repositories {
+            if let common = repository.commonDirectory {
+                try observer.add(common)
+                metadata.insert(common.standardizedFileURL.path)
+            }
         }
-        defer { allocated.forEach { free($0) } }
-        return git_sync_wait_for_changes(pointers, pointers.count, Int32(timeout * 1000)) != 0
+    }
+
+    public func wait(timeout: TimeInterval = 2) throws -> Bool {
+        // Timeout only lets owners check cancellation/protocol messages; it never
+        // requests a repository scan or reconciliation.
+        guard try observer.wait(milliseconds: Int32(timeout * 1000)) else { return false }
+        return observer.takePaths().contains { path in
+            if path == "/" || path == rootPath || metadata.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) {
+                return true
+            }
+            guard path.hasPrefix(rootPath + "/") else { return true }
+            let relative = path.dropFirst(rootPath.count + 1).split(separator: "/")
+            return relative.count <= 1 || relative.dropFirst().first == ".git" ||
+                (relative.count == 2 && relative.last == "HEAD")
+        }
     }
 }

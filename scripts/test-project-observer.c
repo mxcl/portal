@@ -4,9 +4,13 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
+static void saw_file(const char *path, void *context) {
+    if (strstr(path, "/new/file")) *(int *)context = 1;
+}
 static void quiet(git_sync_observer *watch) {
     int result, count = 0;
     while ((result = git_sync_observer_wait(watch, 750)) == 1) assert(++count < 20);
@@ -30,6 +34,9 @@ int main(void) {
         assert(stream); fprintf(stream, "%d", i); assert(fclose(stream) == 0);
         // Events written while the consumer was busy remain queued.
         assert(git_sync_observer_wait(watch, 3000) == 1);
+        int found = 0;
+        git_sync_observer_paths(watch, saw_file, &found);
+        assert(found);
         quiet(watch);
     }
     git_sync_observer_destroy(watch);

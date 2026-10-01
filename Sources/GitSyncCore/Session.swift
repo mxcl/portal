@@ -50,6 +50,8 @@ public final class SyncSession {
     }
 
     public func run() throws {
+        // Install before discovery so writes during the initial scan stay queued.
+        let watcher = receiveOnly ? nil : try Watcher(root: root, repositories: [])
         if !receiveOnly { try refreshCatalog() }
         try connection.send(.hello(machine, epoch: state.sourceEpoch))
         try connection.send(.catalog(Array(repositories.keys).sorted()))
@@ -67,17 +69,14 @@ public final class SyncSession {
         }
 
         lock.lock(); let initial = Array(repositories.values); lock.unlock()
-        var watcher = Watcher(root: root, repositories: initial)
-        var lastCatalogScan = Date()
+        guard let watcher else { throw SyncError.disconnected }
+        try watcher.add(initial)
         while !isStopped {
-            let fileSystemChanged = watcher.wait()
+            let fileSystemChanged = try watcher.wait()
             guard !isStopped else { break }
             lock.lock(); let reconciliationPending = !needsFullSync.isEmpty; lock.unlock()
-            // ponytail: repair one-shot watcher gaps every five minutes; use a persistent watcher if lower latency matters.
-            let repairDue = Date().timeIntervalSince(lastCatalogScan) >= 300
-            guard fileSystemChanged || reconciliationPending || repairDue else { continue }
-            let catalogScanNeeded = fileSystemChanged || repairDue
-            if catalogScanNeeded { lastCatalogScan = Date() }
+            guard fileSystemChanged || reconciliationPending else { continue }
+            let catalogScanNeeded = fileSystemChanged
             do {
                 var changed: [String: Set<String>] = [:]
                 if catalogScanNeeded {
@@ -88,10 +87,10 @@ public final class SyncSession {
                 }
                 lock.lock(); let current = repositories.values.sorted { $0.name < $1.name }; lock.unlock()
                 if catalogScanNeeded {
-                    watcher = Watcher(root: root, repositories: current)
+                    try watcher.add(current)
                     for repository in current {
                         changed[repository.name] = try sendUpdates(
-                            for: repository, full: repairDue && syncCheckouts
+                            for: repository, full: false
                         )
                     }
                 }
@@ -103,6 +102,7 @@ public final class SyncSession {
                 }
             } catch {
                 logger("scan failed: \(error)")
+                throw error // Reconnect and reconcile after a failed event scan.
             }
         }
         receiver.wait()

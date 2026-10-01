@@ -210,7 +210,6 @@ final class AppModel: ObservableObject {
     @Published var peerSnapshots: [UUID: RepositorySnapshot] = [:]
     @Published var peerStagingErrors: [UUID: String] = [:]
     @Published private(set) var isLoadingPeerStaging = false
-    private var peerStagingRequest: UUID?
     @Published var projectReadme: RepositoryReadme?
     @Published var projectGitHubURL: URL?
     @Published var projectError: String?
@@ -242,8 +241,8 @@ final class AppModel: ObservableObject {
     private var watchedRepositoryURL: URL?
     private var watcherSetup: Task<Void, Never>?
     private var projectRefreshPending = false
-    private var projectRevisions: [UUID: UUID] = [:]
-    private var peerStagingRefreshPending = false
+    private var observedProjects: [UUID: [String: ObservedProject]] = [:]
+    private var projectObservationErrors: [String: String] = [:]
     private var pendingPlacement: String?
     private let sendCommand: (EngineCommand) async throws -> EngineReply
 
@@ -416,52 +415,25 @@ final class AppModel: ObservableObject {
 
     func refreshPeerStaging() async {
         guard let name = selectedProjectName, let source = projectSource else { return }
-        guard peerStagingRequest == nil else { peerStagingRefreshPending = true; return }
         if case .backup = source { return }
-        let request = UUID()
-        peerStagingRequest = request
-        isLoadingPeerStaging = true
-        defer {
-            if peerStagingRequest == request {
-                peerStagingRequest = nil
-                isLoadingPeerStaging = false
-                if peerStagingRefreshPending {
-                    peerStagingRefreshPending = false
-                    Task { await refreshPeerStaging() }
-                }
-            }
-        }
-        let configuration = configuration
         let hosts = configuration.hosts.filter {
             source != .host($0.id) && configuration.folders.first { $0.name == name }?.availableHosts.contains($0.id) == true
         }
-        let ids = Set(hosts.map(\.id))
-        let retained = peerSnapshots.filter { ids.contains($0.key) }
-        let errors = peerStagingErrors.filter { ids.contains($0.key) }
-        if peerSnapshots != retained { peerSnapshots = retained }
+        let snapshots = Dictionary(uniqueKeysWithValues: hosts.compactMap { host in
+            observedProjects[host.id]?[name].map { (host.id, $0.snapshot) }
+        })
+        if peerSnapshots != snapshots { peerSnapshots = snapshots }
+        var errors: [UUID: String] = [:]
+        for host in hosts {
+            errors[host.id] = projectObservationErrors[host.id.uuidString]
+            do { try Self.remoteConfiguration(host, in: configuration).validate() }
+            catch { errors[host.id] = String(describing: error) }
+        }
         if peerStagingErrors != errors { peerStagingErrors = errors }
-        await withTaskGroup(of: (UUID, Result<RepositorySnapshot, Error>).self) { group in
-            for host in hosts {
-                group.addTask {
-                    (host.id, Result { try Runner.projectStaging(name,
-                        configuration: Self.remoteConfiguration(host, in: configuration)) })
-                }
-            }
-            for await (id, result) in group {
-                guard !Task.isCancelled, peerStagingRequest == request,
-                      selectedProjectName == name, projectSource == source else { continue }
-                switch result {
-                case .success(let snapshot):
-                    if peerSnapshots[id] != snapshot { peerSnapshots[id] = snapshot }
-                    if peerStagingErrors[id] != nil { peerStagingErrors[id] = nil }
-                case .failure(let error):
-                    peerSnapshots[id] = nil
-                    peerStagingErrors[id] = String(describing: error)
-                }
-                if selectedCommitID == CommitGraphGenerator.workingChangesID + ":" + id.uuidString {
-                    selectCommit(selectedStaging != nil ? selectedCommitID : nil)
-                }
-            }
+        let loading = hosts.contains { observedProjects[$0.id] == nil && errors[$0.id] == nil }
+        if isLoadingPeerStaging != loading { isLoadingPeerStaging = loading }
+        if let id = selectedCommitID, id.hasPrefix(CommitGraphGenerator.workingChangesID + ":") {
+            selectCommit(selectedStaging != nil ? id : nil)
         }
     }
 
@@ -585,8 +557,13 @@ final class AppModel: ObservableObject {
             configuration.folders.first(where: { $0.name == name })?.availableLocally
         }
         let oldSource = projectSource
-        let changedPeers = Set(snapshot.projectRevisions.keys.filter { projectRevisions[$0] != snapshot.projectRevisions[$0] })
-        projectRevisions = snapshot.projectRevisions
+        let changedPeers = Set(snapshot.configuration.hosts.map(\.id).filter { id in
+            guard let name = selectedProjectName else { return false }
+            return observedProjects[id]?[name]?.revision != snapshot.observedProjects[id]?[name]?.revision
+                || projectObservationErrors[id.uuidString] != snapshot.projectObservationErrors[id.uuidString]
+        })
+        observedProjects = snapshot.observedProjects
+        projectObservationErrors = snapshot.projectObservationErrors
         if configuration != snapshot.configuration { configuration = snapshot.configuration }
         if github != snapshot.github { github = snapshot.github }
         if globalShortcutEnabled != snapshot.globalShortcutEnabled { globalShortcutEnabled = snapshot.globalShortcutEnabled }
@@ -705,7 +682,6 @@ final class AppModel: ObservableObject {
         else { UserDefaults.standard.removeObject(forKey: selectedProjectKey) }
         selectCommit(nil)
         projectSnapshot = nil
-        peerStagingRequest = nil
         isLoadingPeerStaging = false
         peerSnapshots = [:]
         peerStagingErrors = [:]
@@ -730,7 +706,6 @@ final class AppModel: ObservableObject {
         terminalSource = nil
         selectCommit(nil)
         projectSnapshot = nil
-        peerStagingRequest = nil
         isLoadingPeerStaging = false
         peerSnapshots = [:]
         peerStagingErrors = [:]

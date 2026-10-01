@@ -420,7 +420,7 @@ public struct Repository: Equatable {
 
     func snapshot(limit: Int, references: [RepositoryReference], revisions: [String],
                   head: String?) throws -> RepositorySnapshot {
-        guard !revisions.isEmpty else {
+        guard limit > 0, !revisions.isEmpty else {
             let branches = references.filter { $0.fullName.hasPrefix("refs/heads/") }.map(\.name).sorted()
             return RepositorySnapshot(commits: [], references: references, head: head, branches: branches)
         }

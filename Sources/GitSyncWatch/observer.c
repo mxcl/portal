@@ -3,29 +3,73 @@
 #include <string.h>
 #include <errno.h>
 
+#include <pthread.h>
+
+// Bounded event paths let consumers scan only affected projects. On overflow or
+// allocation failure a root event conservatively requests a complete scan.
+struct pending_paths { pthread_mutex_t lock; char **paths; size_t count; int all; };
+static void record_path(struct pending_paths *pending, const char *path) {
+    pthread_mutex_lock(&pending->lock);
+    if (!pending->all) {
+        if (pending->count == 4096) pending->all = 1;
+        else {
+            char **paths = realloc(pending->paths, (pending->count + 1) * sizeof(char *));
+            if (!paths) pending->all = 1;
+            else {
+                pending->paths = paths;
+                char *copy = strdup(path);
+                if (!copy) pending->all = 1;
+                else pending->paths[pending->count++] = copy;
+            }
+        }
+    }
+    pthread_mutex_unlock(&pending->lock);
+}
+static void drain_paths(struct pending_paths *pending, git_sync_path_callback callback, void *context) {
+    pthread_mutex_lock(&pending->lock);
+    if (pending->all && callback) callback("/", context);
+    for (size_t i = 0; i < pending->count; i++) {
+        if (!pending->all && callback) callback(pending->paths[i], context);
+        free(pending->paths[i]);
+    }
+    free(pending->paths); pending->paths = NULL; pending->count = 0; pending->all = 0;
+    pthread_mutex_unlock(&pending->lock);
+}
+
 #ifdef __APPLE__
 #include <CoreServices/CoreServices.h>
 struct observed_path { char *path; FSEventStreamRef stream; struct observed_path *next; };
 struct git_sync_observer {
+    struct pending_paths pending;
     dispatch_semaphore_t signal;
     dispatch_queue_t queue;
     struct observed_path *paths;
 };
 static void observed(ConstFSEventStreamRef stream, void *info, size_t count,
                      void *paths, const FSEventStreamEventFlags flags[], const FSEventStreamEventId ids[]) {
-    (void)stream; (void)count; (void)paths; (void)flags; (void)ids;
-    dispatch_semaphore_signal(((git_sync_observer *)info)->signal);
+    (void)stream; (void)flags; (void)ids;
+    git_sync_observer *watch = info;
+    const char *const *changed_paths = paths;
+    for (size_t i = 0; i < count; i++) {
+        int rescan = flags[i] & (kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagRootChanged |
+                               kFSEventStreamEventFlagMount | kFSEventStreamEventFlagUnmount);
+        record_path(&watch->pending, rescan ? "/" : changed_paths[i]);
+    }
+    dispatch_semaphore_signal(watch->signal);
 }
 git_sync_observer *git_sync_observer_create(void) {
     git_sync_observer *watch = calloc(1, sizeof(*watch));
     if (!watch) return NULL;
+    pthread_mutex_init(&watch->pending.lock, NULL);
     watch->signal = dispatch_semaphore_create(0);
     watch->queue = dispatch_queue_create("git-sync.observer", DISPATCH_QUEUE_SERIAL);
     return watch;
 }
 int git_sync_observer_add(git_sync_observer *watch, const char *path) {
-    for (struct observed_path *p = watch->paths; p; p = p->next)
-        if (!strcmp(p->path, path)) return 0;
+    for (struct observed_path *p = watch->paths; p; p = p->next) {
+        size_t length = strlen(p->path);
+        if (!strncmp(p->path, path, length) && (path[length] == '\0' || path[length] == '/')) return 0;
+    }
     struct observed_path *p = calloc(1, sizeof(*p));
     if (!p) return -1;
     p->path = strdup(path);
@@ -35,7 +79,7 @@ int git_sync_observer_add(git_sync_observer *watch, const char *path) {
     CFArrayRef paths = CFArrayCreate(NULL, (const void **)&text, 1, &kCFTypeArrayCallBacks);
     FSEventStreamContext context = {0, watch, NULL, NULL, NULL};
     p->stream = FSEventStreamCreate(NULL, observed, &context, paths,
-        kFSEventStreamEventIdSinceNow, 0.5, kFSEventStreamCreateFlagWatchRoot);
+        kFSEventStreamEventIdSinceNow, 0.5, kFSEventStreamCreateFlagWatchRoot | kFSEventStreamCreateFlagFileEvents);
     CFRelease(paths); CFRelease(text);
     if (!p->stream) { free(p->path); free(p); return -1; }
     FSEventStreamSetDispatchQueue(p->stream, watch->queue);
@@ -61,7 +105,8 @@ void git_sync_observer_destroy(git_sync_observer *watch) {
         dispatch_sync_f(watch->queue, NULL, observer_drained);
         FSEventStreamRelease(p->stream); free(p->path); free(p); p = next;
     }
-    dispatch_release(watch->queue); dispatch_release(watch->signal); free(watch);
+    dispatch_release(watch->queue); dispatch_release(watch->signal);
+    drain_paths(&watch->pending, NULL, NULL); pthread_mutex_destroy(&watch->pending.lock); free(watch);
 }
 #elif defined(__linux__)
 #include <sys/inotify.h>
@@ -71,12 +116,13 @@ void git_sync_observer_destroy(git_sync_observer *watch) {
 #include <dirent.h>
 #include <stdio.h>
 struct observed_path { int wd; char *path; struct observed_path *next; };
-struct git_sync_observer { int fd; struct observed_path *paths; };
+struct git_sync_observer { struct pending_paths pending; int fd; struct observed_path *paths; };
 git_sync_observer *git_sync_observer_create(void) {
     int fd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
     if (fd < 0) return NULL;
     git_sync_observer *watch = calloc(1, sizeof(*watch));
     if (!watch) { close(fd); return NULL; }
+    pthread_mutex_init(&watch->pending.lock, NULL);
     watch->fd = fd; return watch;
 }
 int git_sync_observer_add(git_sync_observer *watch, const char *path) {
@@ -122,11 +168,17 @@ int git_sync_observer_wait(git_sync_observer *watch, int timeout_ms) {
             if (event->mask & IN_Q_OVERFLOW) { errno = EOVERFLOW; return -1; }
             // A moved subtree invalidates descendant pathname mappings. Reconnect
             // with a fresh recursive watch rather than retain stale mappings.
-            if (event->mask & (IN_MOVE_SELF | IN_DELETE_SELF)) { errno = ESTALE; return -1; }
+            if (event->mask & IN_MOVE_SELF) { errno = ESTALE; return -1; }
             struct observed_path **link = &watch->paths;
             while (*link && (*link)->wd != event->wd) link = &(*link)->next;
             if (*link) {
                 struct observed_path *p = *link;
+                if (event->len) {
+                    char *changed = malloc(strlen(p->path) + strlen(event->name) + 2);
+                    if (!changed) return -1;
+                    sprintf(changed, "%s/%s", p->path, event->name);
+                    record_path(&watch->pending, changed); free(changed);
+                } else record_path(&watch->pending, p->path);
                 if (event->mask & (IN_IGNORED | IN_MOVE_SELF | IN_DELETE_SELF)) {
                     *link = p->next;
                     if (!(event->mask & IN_IGNORED)) inotify_rm_watch(watch->fd, p->wd);
@@ -150,6 +202,11 @@ void git_sync_observer_destroy(git_sync_observer *watch) {
     for (struct observed_path *p = watch->paths; p;) {
         struct observed_path *next = p->next; free(p->path); free(p); p = next;
     }
+    drain_paths(&watch->pending, NULL, NULL); pthread_mutex_destroy(&watch->pending.lock);
     free(watch);
 }
 #endif
+
+void git_sync_observer_paths(git_sync_observer *watch, git_sync_path_callback callback, void *context) {
+    drain_paths(&watch->pending, callback, context);
+}

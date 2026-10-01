@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import GitSyncApp
 @testable import GitSyncCore
+@testable import GitSyncEngine
 import GitSyncGraph
 
 @Test("Staging opens the editor, loads both index sides, and stays selected when clean")
@@ -142,6 +143,20 @@ func peerWorkingChangesSelection() async throws {
     #expect(model.peerStagingErrors[host.id] != nil)
     #expect(model.stagingRows.map(\.id) == [local.id])
     #expect(model.selectedCommitID == local.id)
+
+    // Even with an unusable SSH target, staging is available from pushed state.
+    let engine = EngineModel(executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+        configuration: model.configuration, support: root.appendingPathComponent("support"))
+    var snapshot = engine.snapshot()
+    let pushed = RepositorySnapshot(commits: [], references: [], head: "main", branches: ["main"],
+        headOID: "pushed-head", workingChanges: RepositoryWorkingChanges(porcelain: Data("A  pushed\0".utf8)))
+    snapshot.observedProjects = [host.id: ["project": ObservedProject(
+        project: PeerProject(name: "project", placement: .checkedOut), snapshot: pushed,
+        status: "main · 1 changed", revision: UUID())]]
+    model.apply(snapshot)
+    await model.refreshPeerStaging()
+    #expect(model.peerSnapshots[host.id] == pushed)
+    #expect(!model.isLoadingPeerStaging)
 }
 
 @Test("Auxiliary History preference reloads snapshots and worktrees and clears a hidden selection")

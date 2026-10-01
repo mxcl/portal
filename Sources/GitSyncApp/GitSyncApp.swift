@@ -1510,6 +1510,13 @@ struct ProjectBrowserView: View {
         } detail: {
             if let name = model.selectedProjectName {
                 HostControls(project: name, model: model)
+                    .toolbar {
+                        ToolbarSpacer(.flexible, placement: .primaryAction)
+                        ToolbarItem(placement: .primaryAction) {
+                            HostTabs(model: model)
+                        }
+                        ToolbarSpacer(.flexible, placement: .primaryAction)
+                    }
             } else {
                 ContentUnavailableView("Select a Project", systemImage: "sidebar.left")
             }
@@ -1576,12 +1583,6 @@ struct ProjectBrowserView: View {
             }
             ToolbarSpacer(.fixed)
         }
-        if model.selectedProjectName != nil {
-            ToolbarItem(placement: .principal) {
-                HostTabs(model: model)
-            }
-        }
-
     }
 }
 

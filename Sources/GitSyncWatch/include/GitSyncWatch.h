@@ -15,3 +15,6 @@ void git_sync_observer_destroy(git_sync_observer *);
 // Drain the paths accumulated since the last call. "/" means rescan everything.
 typedef void (*git_sync_path_callback)(const char *, void *);
 void git_sync_observer_paths(git_sync_observer *, git_sync_path_callback, void *);
+
+// Wait for client data or EOF. Zero means its lease expired.
+int git_sync_wait_for_input(int descriptor, int timeout_ms);

@@ -638,9 +638,16 @@ also requires unread state; history IDs remain available for deduplication.
 
 The helper observes project roots through a persistent `watch-projects` subprocess,
 locally and over a persistent SSH connection for each configured host. The stream
-uses bounded length-prefixed `ProjectChange` messages and its own version (2),
+uses bounded length-prefixed `ProjectChange` messages and its own version (3),
 which both ends reject when incompatible. It invalidates read-only UI data and
 does not change Git replication, ref ownership, or snapshot atomicity.
+
+The client renews a 90-second server lease with a single stdin byte every 30
+seconds over its existing SSH stream. EOF or an expired lease exits the watcher
+and releases its filesystem watches, even if a dead SSH transport leaves stdin
+open remotely. These liveness renewals do not read Git or open connections.
+Watcher failures are returned in a framed error message rather than discarded
+stderr, so the helper can show the actual failure.
 
 Every connection emits initial inventory and staging snapshots after installing
 its watch. FSEvents on macOS and recursive inotify on Linux retain event paths

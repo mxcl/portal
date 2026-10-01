@@ -98,12 +98,13 @@ do {
             throw SyncError.invalidProtocol("Invalid project watch version")
         }
         _ = try ProjectChange(version: version).checked()
-        // SSH closes stdin when its client leaves. Do not leave an orphan watcher.
-        DispatchQueue.global().async {
-            while !FileHandle.standardInput.readData(ofLength: 4096).isEmpty {}
-            exit(0)
+        Runner.watchProjectClient()
+        do {
+            try Runner.watchProjects(root: root, version: version)
+        } catch {
+            try? BackupControlConnection.send(ProjectChange(failure: String(describing: error)), to: .standardOutput)
+            throw error
         }
-        try Runner.watchProjects(root: root, version: version)
     case "inspect":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
         let repositories = try Repository.discover(in: root)

@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <poll.h>
+#include <time.h>
 
 #include <pthread.h>
 
@@ -220,4 +222,22 @@ void git_sync_observer_paths(git_sync_observer *watch, git_sync_path_callback ca
 
 int git_sync_observer_add(git_sync_observer *watch, const char *path) {
     return git_sync_observer_add_depth(watch, path, -1);
+}
+
+int git_sync_wait_for_input(int descriptor, int timeout_ms) {
+    struct pollfd fd = {descriptor, POLLIN, 0};
+    struct timespec start, now;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    int remaining = timeout_ms;
+    for (;;) {
+        int result = poll(&fd, 1, remaining);
+        if (result >= 0 || errno != EINTR) return result;
+        // Signals from child Git processes must not extend an expired lease.
+        if (timeout_ms >= 0) {
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            long elapsed = (now.tv_sec - start.tv_sec) * 1000 + (now.tv_nsec - start.tv_nsec) / 1000000;
+            if (elapsed >= timeout_ms) return 0;
+            remaining = timeout_ms - (int)elapsed;
+        }
+    }
 }

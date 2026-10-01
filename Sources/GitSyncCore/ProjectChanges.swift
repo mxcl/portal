@@ -3,17 +3,20 @@ import GitSyncWatch
 
 /// Complete read-only state, so a slow consumer may safely retain only the newest message.
 public struct ProjectChange: Codable, Sendable {
-    public static let currentVersion = 2
+    public static let currentVersion = 3
     public let version: Int
     public let projects: [String: ObservedProject]
-    public init(version: Int = currentVersion, projects: [String: ObservedProject] = [:]) {
+    public let failure: String?
+    public init(version: Int = currentVersion, projects: [String: ObservedProject] = [:], failure: String? = nil) {
         self.version = version
         self.projects = projects
+        self.failure = failure
     }
     public func checked() throws -> Self {
         guard version == Self.currentVersion else {
             throw SyncError.invalidProtocol("Unsupported project watch version: \(version)")
         }
+        if let failure { throw SyncError.invalidConfiguration(failure) }
         for (name, project) in projects {
             try Validator.project(name)
             guard name == project.project.name else {
@@ -127,6 +130,16 @@ final class ProjectChangeWatcher {
 }
 
 extension Runner {
+    /// SSH can leave a server process alive after a network loss. Requiring input
+    /// renewals bounds that process's lifetime without polling repositories.
+    public static func watchProjectClient(input: FileHandle = .standardInput) {
+        DispatchQueue.global().async {
+            while git_sync_wait_for_input(input.fileDescriptor, 90_000) == 1 {
+                guard let byte = try? input.read(upToCount: 1), byte == Data([0]) else { exit(0) }
+            }
+            exit(0)
+        }
+    }
     public static func watchProjects(root: URL, version: Int, output: FileHandle = .standardOutput) throws {
         _ = try ProjectChange(version: version).checked()
         let watcher = try ProjectChangeWatcher(root: root)

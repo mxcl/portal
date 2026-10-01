@@ -7,7 +7,34 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <signal.h>
+#include <sys/time.h>
+#include <time.h>
 
+static volatile sig_atomic_t interruptions;
+static void interrupt_wait(int signal) {
+    (void)signal;
+    if (++interruptions == 20) alarm(0);
+}
+static void check_client_lease(void) {
+    int channel[2]; assert(pipe(channel) == 0);
+    signal(SIGALRM, interrupt_wait);
+    struct itimerval timer = {{0, 20000}, {0, 20000}};
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    assert(setitimer(ITIMER_REAL, &timer, NULL) == 0);
+    assert(git_sync_wait_for_input(channel[0], 40) == 0);
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    alarm(0);
+    long elapsed = (end.tv_sec - start.tv_sec) * 1000 + (end.tv_nsec - start.tv_nsec) / 1000000;
+    assert(interruptions > 0 && elapsed < 250);
+    assert(write(channel[1], "x", 1) == 1);
+    assert(git_sync_wait_for_input(channel[0], 40) == 1);
+    char byte; assert(read(channel[0], &byte, 1) == 1);
+    close(channel[1]);
+    assert(git_sync_wait_for_input(channel[0], 40) == 1); // EOF also wakes the lease.
+    close(channel[0]);
+}
 static void saw_file(const char *path, void *context) {
     if (strstr(path, "/new/file")) *(int *)context = 1;
 }
@@ -17,6 +44,7 @@ static void quiet(git_sync_observer *watch) {
     assert(result == 0);
 }
 int main(void) {
+    check_client_lease();
     char root[] = "/tmp/gitinuum-observer-XXXXXX";
     assert(mkdtemp(root));
     git_sync_observer *watch = git_sync_observer_create();

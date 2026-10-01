@@ -26,6 +26,15 @@ final class ProjectObservation {
                     try process.run()
                     self.process = process
                     self.input = input.fileHandleForWriting
+                    // Renew the remote lease on the existing pipe, with no Git
+                    // reads or additional SSH sessions.
+                    let heartbeat = Task {
+                        while !Task.isCancelled {
+                            try input.fileHandleForWriting.write(contentsOf: Data([0]))
+                            try await Task.sleep(for: .seconds(30))
+                        }
+                    }
+                    defer { heartbeat.cancel() }
                     let events = AsyncThrowingStream<ProjectChange, Error>(bufferingPolicy: .bufferingNewest(1)) { continuation in
                         DispatchQueue.global(qos: .utility).async {
                             do {

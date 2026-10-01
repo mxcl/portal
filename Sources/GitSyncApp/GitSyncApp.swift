@@ -35,7 +35,7 @@ struct GitSyncApp: App {
             SidebarCommands()
             PaletteCommands()
             EditorCommands(editor: model.editor)
-            TerminalCommands(workspace: model.terminals, enabled: model.projectTerminalSources.contains(model.terminalSource ?? .local), hosts: model.terminalHosts)
+            TerminalCommands(workspace: model.terminals, enabled: model.projectTerminalSources.contains(model.selectedProjectHostSource), hosts: model.terminalHosts)
             CommandGroup(after: .appSettings) {
                 Button("Install Command Line Tool…") {
                     guard let script = Bundle.main.url(forResource: "install-gitinuum", withExtension: "command"),
@@ -330,6 +330,15 @@ final class AppModel: ObservableObject {
                          directory: host.root)
         }
     }
+
+    var selectedProjectHostSource: ProjectSource {
+        if let source = terminalSource,
+           source == .local || configuration.hosts.contains(where: { .host($0.id) == source }) {
+            return source
+        }
+        return .local
+    }
+
 
     var projectTerminalSources: [ProjectSource] {
         guard let name = selectedProjectName else { return [] }
@@ -1567,6 +1576,24 @@ struct ProjectBrowserView: View {
             }
             ToolbarSpacer(.fixed)
         }
+        if model.selectedProjectName != nil {
+            ToolbarItem(placement: .principal) {
+                Picker("Host", selection: Binding(get: { model.selectedProjectHostSource }, set: {
+                    model.terminalSource = $0
+                    model.selectedTab = .terminal
+                })) {
+                    Label { Text(model.configuration.machine) } icon: { HostIcon(hardware: .current) }
+                        .tag(ProjectSource.local)
+                    ForEach(model.configuration.hosts) { host in
+                        Label { Text(host.name) } icon: { HostIcon(hardware: host.hardware) }
+                            .tag(ProjectSource.host(host.id))
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel("Host")
+            }
+        }
 
     }
 }
@@ -2115,39 +2142,14 @@ private struct HostControls: View {
     let project: String
     @ObservedObject var model: AppModel
 
-    private var source: ProjectSource {
-        if let source = model.terminalSource,
-           source == .local || model.configuration.hosts.contains(where: { .host($0.id) == source }) {
-            return source
-        }
-        return .local
-    }
 
     private var hostID: UUID? {
-        if case .host(let id) = source { return id }
+        if case .host(let id) = model.selectedProjectHostSource { return id }
         return nil
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Picker("Host", selection: Binding(get: { source }, set: {
-                    model.terminalSource = $0
-                    model.selectedTab = .terminal
-                })) {
-                    Label { Text(model.configuration.machine) } icon: { HostIcon(hardware: .current) }
-                        .tag(ProjectSource.local)
-                    ForEach(model.configuration.hosts) { host in
-                        Label { Text(host.name) } icon: { HostIcon(hardware: host.hardware) }
-                            .tag(ProjectSource.host(host.id))
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .accessibilityLabel("Host")
-            }
-            .padding(8)
-            Divider()
             if let error = model.error {
                 Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled).padding(8)
             }

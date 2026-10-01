@@ -186,7 +186,7 @@ final class PtySession {
     private let sessionRef: SessionRef
     private var wireSessionID: String { sessionRef.sessionID }
     private let clientID = UUID().uuidString
-    private let queue = DispatchQueue(label: "dev.mxcl.git-sync.session-client")
+    private let queue = DispatchQueue(label: "dev.mxcl.portal.session-client")
     private var transport: (any SessionTransport)?
     var onConnectionChange: ((Bool) -> Void)?
     private var hasAttached = false
@@ -810,7 +810,7 @@ final class PtySession {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         var environment = ProcessInfo.processInfo.environment
-        environment["GITINUUM_SESSIOND"] = try sessiondHelperPath()
+        environment["PORTAL_SESSIOND"] = try sessiondHelperPath()
         process.environment = environment
         return process
     }
@@ -1074,7 +1074,7 @@ final class PtySession {
         process.executableURL = URL(fileURLWithPath: helper)
         process.arguments = ["serve"]
         var env = ProcessInfo.processInfo.environment
-        env["GITINUUM_SESSIOND_SOCKET"] = socketPath()
+        env["PORTAL_SESSIOND_SOCKET"] = socketPath()
         process.environment = env
         try process.run()
 
@@ -1162,7 +1162,7 @@ final class PtySession {
         let codeHash = try verifiedCodeHash(of: source)
         let fileManager = FileManager.default
         let base = fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Gitinuum/Terminal/helpers/sessiond", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/Portal/Terminal/helpers/sessiond", isDirectory: true)
         try fileManager.createDirectory(at: base, withIntermediateDirectories: true)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: base.path)
 
@@ -1359,11 +1359,11 @@ final class PtySession {
     }
 
     private static func socketPath() -> String {
-        if let override = ProcessInfo.processInfo.environment["GITINUUM_SESSIOND_SOCKET"],
+        if let override = (ProcessInfo.processInfo.environment["PORTAL_SESSIOND_SOCKET"] ?? ProcessInfo.processInfo.environment["GITINUUM_SESSIOND_SOCKET"]),
            !override.isEmpty {
             return override
         }
-        let applicationSupportName = "Gitinuum/Terminal"
+        let applicationSupportName = "Portal/Terminal"
         return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)

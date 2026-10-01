@@ -3,7 +3,7 @@
 set -eu
 source_app=${1:?source app required}
 destination=${2:?destination required}
-replacement=$(mktemp -d "$(dirname -- "$destination")/.gitinuum-replace.XXXXXX")
+replacement=$(mktemp -d "$(dirname -- "$destination")/.portal-replace.XXXXXX")
 cleanup() {
   if [ -e "$replacement/previous.app" ] && [ ! -e "$destination" ]; then
     mv "$replacement/previous.app" "$destination" || return

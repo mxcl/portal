@@ -47,5 +47,5 @@ enum Check {
     }
 }
 SWIFT
-swiftc -parse-as-library "$repo/Sources/GitSyncMenuBar/GlobalShortcut.swift" "$scratch/Check.swift" -o "$scratch/check"
+swiftc -parse-as-library "$repo/Sources/PortalMenuBar/GlobalShortcut.swift" "$scratch/Check.swift" -o "$scratch/check"
 "$scratch/check"

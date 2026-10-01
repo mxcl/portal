@@ -1,8 +1,8 @@
 #if os(macOS)
 import AppKit
 import SwiftUI
-import GitSyncCore
-import GitSyncEngine
+import PortalCore
+import PortalEngine
 import PortalTerminal
 
 @main
@@ -38,7 +38,7 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate {
         Task {
             let snapshot = try? await EngineClient.send(.snapshot).snapshot
             let savedURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("GitSync/config-v2.json")
+                .appendingPathComponent("Portal/Sync/config-v2.json")
             let saved = (try? Data(contentsOf: savedURL)).flatMap { try? JSONDecoder().decode(AppConfiguration.self, from: $0) }
             let hosts = (snapshot?.configuration ?? saved)?.hosts.map { host in
                 TerminalHost(id: host.id.uuidString, name: host.name, peer: host.peer,

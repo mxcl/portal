@@ -70,18 +70,18 @@ fi
 
 suffix="$revision-$$"
 [[ "$suffix" =~ ^[0-9a-f]+-[0-9]+$ ]]
-stage="$(mktemp -d "${TMPDIR:-/tmp}/git-sync-deploy.XXXXXX")"
+stage="$(mktemp -d "${TMPDIR:-/tmp}/portal-deploy.XXXXXX")"
 built_app="$stage/Portal.app"
-local_stage="/Applications/.git-sync-app.install.$suffix"
-local_backup="/Applications/.git-sync-app.previous.$suffix"
-remote_stage="/Applications/.git-sync-app.install.$suffix"
-remote_backup="/Applications/.git-sync-app.previous.$suffix"
-atlas_stage="$atlas_home/.local/bin/.git-sync.install.$suffix"
-atlas_backup="$atlas_home/.local/bin/.git-sync.previous.$suffix"
+local_stage="/Applications/.portal-app.install.$suffix"
+local_backup="/Applications/.portal-app.previous.$suffix"
+remote_stage="/Applications/.portal-app.install.$suffix"
+remote_backup="/Applications/.portal-app.previous.$suffix"
+atlas_stage="$atlas_home/.local/bin/.portald.install.$suffix"
+atlas_backup="$atlas_home/.local/bin/.portald.previous.$suffix"
 
 cleanup() {
   rm -rf "$stage"
-  [[ "$local_stage" == /Applications/.git-sync-app.install.* ]] && rm -rf "$local_stage"
+  [[ "$local_stage" == /Applications/.portal-app.install.* ]] && rm -rf "$local_stage"
   ssh -o BatchMode=yes "$peer" "rm -rf '$remote_stage'" 2>/dev/null || true
   ssh -o BatchMode=yes "$atlas" "rm -f '$atlas_stage'" 2>/dev/null || true
 }

@@ -21,7 +21,7 @@ final class TerminalOutputProcessor {
     var onEvent: ((Event) -> Void)?
     var onTerminalResponse: ((String) -> Void)?
 
-    private let queue = DispatchQueue(label: "dev.mxcl.git-sync.output-render", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "dev.mxcl.portal.output-render", qos: .userInitiated)
     private let flushDelay: DispatchTimeInterval
     private let inputFeedbackFlushDelay: DispatchTimeInterval = .milliseconds(2)
     private let terminalScreen = Ansi.TerminalScreen(rows: 30, cols: 100)

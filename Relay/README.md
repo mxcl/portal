@@ -1,6 +1,6 @@
-# Gitinuum GitHub relay
+# Portal GitHub relay
 
-GitHub events wake Gitinuum. The Mac refreshes notifications and project counts,
+GitHub events wake Portal. The Mac refreshes notifications and project counts,
 then fetches changed GitHub branches and new tags from a matching GitHub origin. There is no recurring GitHub poll.
 
 This is an independent, trimmed port of `~/src/canopy`: no Canopy
@@ -25,7 +25,7 @@ requests, actions, checks, deployments, and Dependabot alerts.
 Subscribe to pushes, branch/tag creation/deletion, stars, issues, issue comments,
 pull requests, PR reviews/comments, releases, workflow runs, check runs/suites,
 deployment statuses and Dependabot alerts. Installation lifecycle events arrive
-automatically. Install the App on the repositories Gitinuum tracks.
+automatically. Install the App on the repositories Portal tracks.
 
 Create a separate **OAuth App**, also with callback
 `https://YOUR_RELAY_HOST/oauth/hello`. Its `notifications` authorization reads the
@@ -89,25 +89,25 @@ matching Developer ID provisioning profile and APNs credentials for its topic.
 Build the app with:
 
 ```sh
-GITINUUM_PUSH_PROFILE=/absolute/path/helper.provisionprofile scripts/install.sh /path/to/Portal.app
+PORTAL_PUSH_PROFILE=/absolute/path/helper.provisionprofile scripts/install.sh /path/to/Portal.app
 ```
 
 Packaging validates the profile's identity, push entitlement and expiry, embeds
 it, and signs the helper with its entitlements. Without an override, the installer
 reuses the profile from `/Applications/Portal.app` when present. Set
-`GITINUUM_PUSH_PROFILE=` to explicitly build without push support. Builds still
+`PORTAL_PUSH_PROFILE=` to explicitly build without push support. Builds still
 work without a profile; automatic pushes require a correctly signed helper. The profile's
 APNs environment is recorded in the helper's Info.plist, never inferred from a
 debug/release compiler flag.
 
-In Gitinuum Settings → GitHub, click **Connect GitHub…**. Return
+In Portal Settings → GitHub, click **Connect GitHub…**. Return
 from the browser, grant Repository Access, and Refresh. Allow Notifications for
 banners; the menu remains usable when banners are disabled. Disconnect revokes
 this device's relay session before removing its Keychain credential.
 
 ## Delivery contract
 
-- API clients send `Gitinuum-Protocol: 1`. Unsupported versions are rejected.
+- API clients send `Portal-Protocol: 1` (legacy `Gitinuum-Protocol` is accepted). Unsupported versions are rejected.
 - APNs contains only a wake-up hint. Pending fetch/count/inbox work is stored per
   device and repository. UUID replacement IDs prevent old acknowledgments from
   deleting new work; there is no resettable ordering counter.

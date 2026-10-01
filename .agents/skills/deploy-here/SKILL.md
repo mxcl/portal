@@ -1,6 +1,6 @@
 ---
 name: deploy-here
-description: Build, sign, install, restart, and verify Gitinuum on the current Mac only. Use when asked to deploy here, install locally, or update Gitinuum on this Mac from the current git-sync checkout.
+description: Build, sign, install, restart, and verify Portal on the current Mac only. Use when asked to deploy here, install locally, or update Portal on this Mac from the current git-sync checkout.
 ---
 
 # Deploy Here
@@ -12,7 +12,7 @@ Run the repository's local deployment script:
 ```
 
 The script uses `scripts/install.sh` to build and sign a release bundle, then
-`scripts/install-staged.sh` to replace `/Applications/Gitinuum.app` and restart
+`scripts/install-staged.sh` to replace `/Applications/Portal.app` and restart
 the app and its menu helper. It verifies all four installed executables against
 the built bundle. It does not contact the other Mac or atlas, or require the
 Linux toolchain or SDK.

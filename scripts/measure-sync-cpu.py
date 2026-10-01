@@ -48,7 +48,7 @@ def git(repo, *args):
 
 def main():
     binary = str(Path(sys.argv[1]).resolve())
-    with tempfile.TemporaryDirectory(prefix="gitinuum-perf-") as directory:
+    with tempfile.TemporaryDirectory(prefix="portal-perf-") as directory:
         root = Path(directory)
         a, b = root / "a", root / "b"
         a.mkdir()

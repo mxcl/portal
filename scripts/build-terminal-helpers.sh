@@ -2,7 +2,7 @@
 set -eu
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 contents=${1:?usage: build-terminal-helpers.sh APP_CONTENTS}
-identity=${GIT_SYNC_SIGNING_IDENTITY:-"Developer ID Application: Max Howell (ZU76A67LGU)"}
+identity=${PORTAL_SIGNING_IDENTITY:-${GIT_SYNC_SIGNING_IDENTITY:-"Developer ID Application: Max Howell (ZU76A67LGU)"}}
 cargo build --manifest-path "$repo_dir/TerminalHelpers/Cargo.toml" --release --locked
 helpers="$contents/Helpers"
 helper_app="$helpers/Portal Session Helper.app"

@@ -3,7 +3,7 @@ set -eu
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 # Launch Services ignores URL handlers under /tmp; use an isolated test app.
 mkdir -p "$HOME/Applications"
-scratch=$(mktemp -d "$HOME/Applications/gitinuum-window-test.XXXXXX")
+scratch=$(mktemp -d "$HOME/Applications/portal-window-test.XXXXXX")
 app="$scratch/Probe.app"
 registry=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 trap '"$registry" -u "$app" >/dev/null 2>&1; rm -rf "$scratch"' EXIT
@@ -13,11 +13,11 @@ import pathlib, plistlib, sys
 repo, scratch = map(pathlib.Path, sys.argv[1:])
 scheme = scratch.name.lower().replace('.', '-')
 plist = dict(CFBundleIdentifier='dev.mxcl.' + scheme, CFBundleExecutable='Probe',
-             CFBundleName='Gitinuum Window Test', CFBundleVersion='1', CFBundlePackageType='APPL',
+             CFBundleName='Portal Window Test', CFBundleVersion='1', CFBundlePackageType='APPL',
              CFBundleURLTypes=[dict(CFBundleTypeRole='Viewer', CFBundleURLName='Window Test',
                                    CFBundleURLSchemes=[scheme])])
 (scratch / 'Probe.app/Contents/Info.plist').write_bytes(plistlib.dumps(plist))
-source = (repo / 'Sources/GitSyncApp/ProjectEditor.swift').read_text()
+source = (repo / 'Sources/PortalApp/ProjectEditor.swift').read_text()
 guard = source[source.index('struct EditorCloseGuard:'):source.index('\nstruct ProjectFileBrowser:')]
 (scratch / 'Guard.swift').write_text('import AppKit\nimport SwiftUI\n' + guard)
 (scratch / 'scheme').write_text(scheme)
@@ -65,7 +65,7 @@ import SwiftUI
 @main struct Probe: App {
     @NSApplicationDelegateAdaptor(Delegate.self) var delegate
     var body: some Scene {
-        Window("Gitinuum", id: "projects") {
+        Window("Portal", id: "projects") {
             Text("Project")
                 .onOpenURL { _ in Delegate.receivedURLs += 1; NSApp.activate() }
                 .modifier(EditorCloseGuard(editor: Delegate.editor))

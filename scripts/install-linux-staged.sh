@@ -5,8 +5,8 @@ staged_binary="${1:?staged binary required}"
 backup_binary="${2:?backup binary required}"
 target_binary="$HOME/.local/bin/portald"
 
-[[ "$staged_binary" == "$HOME"/.local/bin/.git-sync.install.* ]]
-[[ "$backup_binary" == "$HOME"/.local/bin/.git-sync.previous.* ]]
+[[ "$staged_binary" == "$HOME"/.local/bin/.portald.install.* ]]
+[[ "$backup_binary" == "$HOME"/.local/bin/.portald.previous.* ]]
 [[ -f "$staged_binary" && ! -e "$backup_binary" ]]
 
 restore() {
@@ -15,6 +15,18 @@ restore() {
   fi
 }
 trap restore EXIT
+
+legacy_state="$HOME/.local/state/git-sync"
+portal_state="$HOME/.local/state/portal"
+if [[ -d "$legacy_state" && ! -L "$legacy_state" ]]; then
+  [[ ! -e "$portal_state" ]] || { echo "Both legacy and Portal state exist" >&2; exit 1; }
+  # Refuse to move a live writer's state.
+  if pgrep -x 'git-sync|gitinuumd|portald' >/dev/null; then
+    echo "Stop the sync daemon before migrating state" >&2; exit 1
+  fi
+  mv "$legacy_state" "$portal_state"
+  ln -s "$portal_state" "$legacy_state"
+fi
 
 chmod 0755 "$staged_binary"
 "$staged_binary" help >/dev/null

@@ -1,4 +1,4 @@
-//! Gitinuum's event-driven relay. Authentication, encryption and APNs adapted from Canopy.
+//! Portal's event-driven relay. Authentication, encryption and APNs adapted from Canopy.
 use aes_gcm::{
     Aes256Gcm, Nonce,
     aead::{Aead, KeyInit as AeadKeyInit},
@@ -64,7 +64,9 @@ struct ApnsCredentials {
     key: EncodingKey,
 }
 fn required(name: &str) -> Result<String> {
-    env::var(name).with_context(|| format!("{name} is required"))
+    env::var(name)
+        .or_else(|_| env::var(name.replacen("PORTAL_", "GITINUUM_", 1)))
+        .with_context(|| format!("{name} is required"))
 }
 fn apns_credentials(environment: &str) -> Result<ApnsCredentials> {
     Ok(ApnsCredentials {
@@ -79,19 +81,19 @@ fn apns_credentials(environment: &str) -> Result<ApnsCredentials> {
 impl Config {
     fn from_env() -> Result<Self> {
         Ok(Self {
-            webhook_secret: required("GITINUUM_WEBHOOK_SECRET")?,
-            github_client_id: required("GITINUUM_GITHUB_CLIENT_ID")?,
-            github_client_secret: required("GITINUUM_GITHUB_CLIENT_SECRET")?,
-            github_app_slug: required("GITINUUM_GITHUB_APP_SLUG")?,
-            github_app_id: required("GITINUUM_GITHUB_APP_ID")?,
+            webhook_secret: required("PORTAL_WEBHOOK_SECRET")?,
+            github_client_id: required("PORTAL_GITHUB_CLIENT_ID")?,
+            github_client_secret: required("PORTAL_GITHUB_CLIENT_SECRET")?,
+            github_app_slug: required("PORTAL_GITHUB_APP_SLUG")?,
+            github_app_id: required("PORTAL_GITHUB_APP_ID")?,
             github_key: EncodingKey::from_rsa_pem(
-                required("GITINUUM_GITHUB_PRIVATE_KEY")?
+                required("PORTAL_GITHUB_PRIVATE_KEY")?
                     .replace("\\n", "\n")
                     .as_bytes(),
             )?,
-            github_notifications_client_id: required("GITINUUM_NOTIFICATIONS_CLIENT_ID")?,
-            github_notifications_client_secret: required("GITINUUM_NOTIFICATIONS_CLIENT_SECRET")?,
-            encryption_key: hex::decode(required("GITINUUM_ENCRYPTION_KEY")?)?
+            github_notifications_client_id: required("PORTAL_NOTIFICATIONS_CLIENT_ID")?,
+            github_notifications_client_secret: required("PORTAL_NOTIFICATIONS_CLIENT_SECRET")?,
+            encryption_key: hex::decode(required("PORTAL_ENCRYPTION_KEY")?)?
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("Encryption key must be 32 bytes"))?,
             apns_team_id: required("APPLE_TEAM_ID")?,
@@ -180,8 +182,13 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
-    let path =
-        PathBuf::from(env::var("DATABASE_PATH").unwrap_or_else(|_| "gitinuum.sqlite3".into()));
+    let path = PathBuf::from(env::var("DATABASE_PATH").unwrap_or_else(|_| {
+        if Path::new("gitinuum.sqlite3").exists() {
+            "gitinuum.sqlite3".into()
+        } else {
+            "portal.sqlite3".into()
+        }
+    }));
     let (db, _database_lock) = open_database(&path).await?;
     sqlx::query("DELETE FROM oauth_states WHERE expires_at < unixepoch()")
         .execute(&db)
@@ -202,7 +209,7 @@ async fn main() -> Result<()> {
         http: Client::builder()
             .timeout(Duration::from_secs(20))
             .redirect(reqwest::redirect::Policy::none())
-            .user_agent("Gitinuum/1")
+            .user_agent("Portal/1")
             .build()?,
     };
     let app = Router::new()
@@ -215,8 +222,10 @@ async fn main() -> Result<()> {
         .route("/disconnect", post(disconnect))
         .layer(DefaultBodyLimit::max(1_048_576))
         .with_state(state);
-    let address = env::var("GITINUUM_LISTEN").unwrap_or_else(|_| "127.0.0.1:3022".into());
-    info!(%address, "Gitinuum relay listening");
+    let address = env::var("PORTAL_LISTEN")
+        .or_else(|_| env::var("GITINUUM_LISTEN"))
+        .unwrap_or_else(|_| "127.0.0.1:3022".into());
+    info!(%address, "Portal relay listening");
     axum::serve(tokio::net::TcpListener::bind(address).await?, app)
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
@@ -298,11 +307,12 @@ async fn checked(response: reqwest::Response) -> WebResult<reqwest::Response> {
 }
 fn check_protocol(headers: &HeaderMap) -> WebResult<()> {
     if headers
-        .get("gitinuum-protocol")
+        .get("portal-protocol")
+        .or_else(|| headers.get("gitinuum-protocol"))
         .and_then(|v| v.to_str().ok())
         != Some("1")
     {
-        return Err(WebError::bad_request("Unsupported Gitinuum relay protocol"));
+        return Err(WebError::bad_request("Unsupported Portal relay protocol"));
     }
     Ok(())
 }
@@ -520,7 +530,7 @@ async fn hello(State(state): State<AppState>, Query(input): Query<Hello>) -> Web
     if kind == "app" {
         return Ok(Redirect::temporary(&oauth_url(&state, device, "inbox").await?).into_response());
     }
-    Ok(Html("<!doctype html><meta name=viewport content='width=device-width'><title>Gitinuum</title><h1>GitHub connected</h1><p><a href='gitsync://github-connected'>Return to Gitinuum</a></p>").into_response())
+    Ok(Html("<!doctype html><meta name=viewport content='width=device-width'><title>Portal</title><h1>GitHub connected</h1><p><a href='portal://github-connected'>Return to Portal</a></p>").into_response())
 }
 async fn disconnect(State(state): State<AppState>, headers: HeaderMap) -> WebResult<StatusCode> {
     let id = authenticated(&state, &headers).await?;
@@ -1326,7 +1336,7 @@ async fn webhook(
                 row.get("environment"),
                 "background",
                 Some("github-work"),
-                json!({"aps":{"content-available":1},"gitinuumWork":true}),
+                json!({"aps":{"content-available":1},"portalWork":true,"gitinuumWork":true}),
             )
             .await;
         }

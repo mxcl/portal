@@ -31,7 +31,7 @@ if [ -f "$helper/Contents/embedded.provisionprofile" ]; then
 fi
 test -x "$app/Contents/Helpers/portal-session-bridge"
 test -x "$app/Contents/Helpers/Portal Session Helper.app/Contents/MacOS/portal-sessiond"
-test -d "$app/Contents/Resources/git-sync_PortalTerminal.bundle"
+test -d "$app/Contents/Resources/portal_PortalTerminal.bundle"
 test -f "$app/Contents/Resources/completions/fig/build/git.js"
 codesign --verify --deep --strict "$app"
 terminal="$app/Contents/Helpers/Portal Terminal.app"

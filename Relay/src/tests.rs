@@ -649,3 +649,15 @@ async fn merge_queue_migrates_and_retains_independent_idempotent_work() -> Resul
     std::fs::remove_dir_all(directory)?;
     Ok(())
 }
+
+#[test]
+fn portal_protocol_supports_legacy_and_rejects_incompatible_versions() {
+    let mut headers = HeaderMap::new();
+    assert!(check_protocol(&headers).is_err());
+    headers.insert("gitinuum-protocol", "1".parse().unwrap());
+    assert!(check_protocol(&headers).is_ok());
+    headers.insert("portal-protocol", "2".parse().unwrap());
+    assert!(check_protocol(&headers).is_err());
+    headers.insert("portal-protocol", "1".parse().unwrap());
+    assert!(check_protocol(&headers).is_ok());
+}

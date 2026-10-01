@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 import Foundation
-import GitSyncCore
+import PortalCore
 import QuartzCore
 import SwiftUI
 
@@ -4075,10 +4075,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let gitTreeView = GitTreeView(frame: .zero)
     private let resizeTooltipView = ResizeMetricsTooltipView()
     private let completionEngine = PortalCompletionEngine()
-    private let completionQueue = DispatchQueue(label: "dev.mxcl.git-sync.completion", qos: .userInitiated)
+    private let completionQueue = DispatchQueue(label: "dev.mxcl.portal.completion", qos: .userInitiated)
     private let gitStateProvider = GitDirectoryStateProvider()
-    private let gitStateQueue = DispatchQueue(label: "dev.mxcl.git-sync.git-state", qos: .utility)
-    private let sessionCleanupQueue = DispatchQueue(label: "dev.mxcl.git-sync.session-cleanup", qos: .utility)
+    private let gitStateQueue = DispatchQueue(label: "dev.mxcl.portal.git-state", qos: .utility)
+    private let sessionCleanupQueue = DispatchQueue(label: "dev.mxcl.portal.session-cleanup", qos: .utility)
     private let completionPopup = CompletionPopupController()
     private var completionRequestSerial = 0
     private var completionCancellation: CompletionCancellation?
@@ -5315,7 +5315,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("Gitinuum/Terminal", isDirectory: true)
+            .appendingPathComponent("Portal/Terminal", isDirectory: true)
             .appendingPathComponent("sessions.json", isDirectory: false)
     }
 
@@ -6346,7 +6346,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         var env: [String: String] = isRemoteSession
             ? [:]
             : Self.inheritedShellEnvironment(ProcessInfo.processInfo.environment)
-        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "dev.mxcl.git-sync"
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "dev.mxcl.portal"
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         env["TERM"] = "xterm-256color"
         env["TERM_PROGRAM"] = "Portal"

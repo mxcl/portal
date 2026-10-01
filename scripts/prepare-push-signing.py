@@ -29,5 +29,5 @@ if __name__ == "__main__":
     values = entitlements(plistlib.loads(profile.read_bytes()))
     output.write_bytes(plistlib.dumps(values))
     info = plistlib.loads(info_path.read_bytes())
-    info["GitinuumAPNSEnvironment"] = "sandbox" if values["com.apple.developer.aps-environment"] == "development" else "production"
+    info["PortalAPNSEnvironment"] = "sandbox" if values["com.apple.developer.aps-environment"] == "development" else "production"
     info_path.write_bytes(plistlib.dumps(info))

@@ -3,15 +3,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "git-sync",
+    name: "portal",
     platforms: [.macOS("26.0")],
     products: [
-        .library(name: "GitSyncCore", targets: ["GitSyncCore"]),
+        .library(name: "PortalCore", targets: ["PortalCore"]),
         .executable(name: "portal", targets: ["portal"]),
         .executable(name: "portald", targets: ["portald"]),
-        .executable(name: "PortalApp", targets: ["GitSyncApp"]),
+        .executable(name: "PortalApp", targets: ["PortalApp"]),
         .executable(name: "PortalTerminalApp", targets: ["PortalTerminalApp"]),
-        .executable(name: "PortalMenuBar", targets: ["GitSyncMenuBar"]),
+        .executable(name: "PortalMenuBar", targets: ["PortalMenuBar"]),
     ],
     dependencies: [
         .package(path: "vendor/gitdiff"),
@@ -20,29 +20,29 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "GitSyncWatch",
+            name: "PortalWatch",
             linkerSettings: [.linkedFramework("CoreServices", .when(platforms: [.macOS]))]
         ),
-        .target(name: "PortalTerminal", dependencies: ["GitSyncCore"], exclude: ["PROVENANCE.md"], resources: [.copy("Resources/completions")]),
-        .target(name: "GitSyncCore", dependencies: ["GitSyncWatch"]),
-        .target(name: "GitSyncEngine", dependencies: ["GitSyncCore"]),
-        .target(name: "GitSyncGraph", dependencies: ["GitSyncCore"]),
+        .target(name: "PortalTerminal", dependencies: ["PortalCore"], exclude: ["PROVENANCE.md"], resources: [.copy("Resources/completions")]),
+        .target(name: "PortalCore", dependencies: ["PortalWatch"]),
+        .target(name: "PortalEngine", dependencies: ["PortalCore"]),
+        .target(name: "PortalGraph", dependencies: ["PortalCore"]),
         .executableTarget(name: "portal"),
-        .executableTarget(name: "portald", dependencies: ["GitSyncCore"]),
+        .executableTarget(name: "portald", dependencies: ["PortalCore"]),
         .executableTarget(
-            name: "GitSyncApp",
-            dependencies: [.target(name: "PortalTerminal", condition: .when(platforms: [.macOS])), "GitSyncCore", "GitSyncEngine", "GitSyncGraph", .product(name: "gitdiff", package: "gitdiff"),
+            name: "PortalApp",
+            dependencies: [.target(name: "PortalTerminal", condition: .when(platforms: [.macOS])), "PortalCore", "PortalEngine", "PortalGraph", .product(name: "gitdiff", package: "gitdiff"),
                            .product(name: "CodeEditSourceEditor", package: "CodeEditSourceEditor", condition: .when(platforms: [.macOS])),
                            .product(name: "Textual", package: "textual", condition: .when(platforms: [.macOS]))],
             resources: [.process("Resources")]
         ),
-        .executableTarget(name: "PortalTerminalApp", dependencies: ["PortalTerminal", "GitSyncEngine"]),
-        .executableTarget(name: "GitSyncMenuBar", dependencies: ["GitSyncEngine"]),
+        .executableTarget(name: "PortalTerminalApp", dependencies: ["PortalTerminal", "PortalEngine"]),
+        .executableTarget(name: "PortalMenuBar", dependencies: ["PortalEngine"]),
         .testTarget(name: "PortalTerminalTests", dependencies: ["PortalTerminal"]),
         .testTarget(name: "PortalCLITests", dependencies: ["portal"]),
-        .testTarget(name: "GitSyncTests", dependencies: ["GitSyncCore"]),
-        .testTarget(name: "GitSyncGraphTests", dependencies: ["GitSyncGraph", "GitSyncCore"]),
-        .testTarget(name: "GitSyncEngineTests", dependencies: ["GitSyncEngine"]),
-        .testTarget(name: "GitSyncAppTests", dependencies: ["GitSyncApp"]),
+        .testTarget(name: "PortalTests", dependencies: ["PortalCore"]),
+        .testTarget(name: "PortalGraphTests", dependencies: ["PortalGraph", "PortalCore"]),
+        .testTarget(name: "PortalEngineTests", dependencies: ["PortalEngine"]),
+        .testTarget(name: "PortalAppTests", dependencies: ["PortalApp"]),
     ]
 )

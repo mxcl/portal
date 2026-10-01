@@ -54,7 +54,7 @@ public final class TerminalWorkspace: ObservableObject {
         window.isReleasedWhenClosed = false
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        let toolbar = NSToolbar(identifier: "dev.mxcl.git-sync.terminal.titlebar")
+        let toolbar = NSToolbar(identifier: "dev.mxcl.portal.terminal.titlebar")
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
         window.toolbar = toolbar

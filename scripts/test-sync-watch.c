@@ -1,7 +1,7 @@
-// macOS: clang -I Sources/GitSyncWatch/include scripts/test-sync-watch.c \
+// macOS: clang -I Sources/PortalWatch/include scripts/test-sync-watch.c \
 //   -framework CoreServices -o /tmp/test-sync-watch && /tmp/test-sync-watch
 #include <assert.h>
-#include "../Sources/GitSyncWatch/watch.c"
+#include "../Sources/PortalWatch/watch.c"
 
 int main(void) {
     const char *paths[] = { "/src", "/src/project/.git", "/bare/repo.git", "/external/common" };

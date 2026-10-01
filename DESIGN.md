@@ -588,8 +588,8 @@ the remote host and account, not the originating application's code signature;
 another process running as that account can invoke the signed bridge. These are
 local helper identity checks, not cross-host application attestation.
 
-Runtime and per-project catalog files retain the Gitinuum Application Support
-directory (Linux: `$XDG_STATE_HOME/gitinuum-terminal`). Each catalog has one
+Runtime and per-project catalog files use `Portal/Terminal` under Application
+Support (Linux: `$XDG_STATE_HOME/portal-terminal`). Each catalog has one
 controller writer. The terminal wire protocol negotiates versions 1 and 2 and
 rejects unsupported versions independently of the Git replication protocol.
 Terminal commands are explicit user actions; importing this module does not
@@ -691,13 +691,20 @@ for Spotlight discovery. The copied app shares the existing terminal runtime and
 session catalogs. Application Support, engine IPC, GitHub credential keys, CLI
 names, and wire protocols retain their existing names to preserve state and peer
 compatibility. Terminal helper authentication accepts both Portal foreground app
-identities and existing Gitinuum clients from the same Developer ID team.
+identities and existing Portal clients from the same Developer ID team.
 
 CLI executables are `portal` and `portald`; the terminal helpers are
 `portal-sessiond` and `portal-session-bridge`. Old CLI paths are executable
 forwarders that immediately exec the renamed binaries, preserving configured SSH
-peers without running an old process. The old Gitinuum session daemon is stopped
+peers without running an old process. The old Portal session daemon is stopped
 once during this migration; later deployments preserve `portal-sessiond` and its
 live sessions. Persistent state directories and environment keys retain their
 existing names. The menu helper and both foreground apps bundle the original
 Portal `session-icon.png`; the menu icon dims when paused and retains its unread badge.
+
+Portal migrates legacy Application Support, cache, and CLI state directories by
+renaming them in place and retaining forwarding symlinks for saved paths and older
+peers. Existing Portal state causes installation to fail rather than merge stores.
+Source epochs, ordering metadata, and session histories are retained unchanged.
+The GitHub Keychain service is renamed in place to `dev.mxcl.portal.github` using
+SecItemUpdate; its secret and access control are preserved.

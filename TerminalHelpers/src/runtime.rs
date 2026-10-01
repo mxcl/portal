@@ -2,7 +2,9 @@ use std::path::PathBuf;
 use std::{env, io};
 
 pub fn socket_path() -> io::Result<PathBuf> {
-    if let Some(path) = env::var_os("GITINUUM_SESSIOND_SOCKET") {
+    if let Some(path) =
+        env::var_os("PORTAL_SESSIOND_SOCKET").or_else(|| env::var_os("GITINUUM_SESSIOND_SOCKET"))
+    {
         return Ok(PathBuf::from(path));
     }
 
@@ -16,7 +18,7 @@ pub fn socket_path() -> io::Result<PathBuf> {
         return Ok(home
             .join("Library")
             .join("Application Support")
-            .join("Gitinuum/Terminal")
+            .join("Portal/Terminal")
             .join("runtime")
             .join("sessiond.sock"));
     }
@@ -26,6 +28,6 @@ pub fn socket_path() -> io::Result<PathBuf> {
         let state_home = env::var_os("XDG_STATE_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".local").join("state"));
-        Ok(state_home.join("gitinuum-terminal").join("sessiond.sock"))
+        Ok(state_home.join("portal-terminal").join("sessiond.sock"))
     }
 }

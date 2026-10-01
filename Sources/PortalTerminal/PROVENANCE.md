@@ -5,4 +5,4 @@ The original license is in `TerminalHelpers/LICENSE`.
 
 The macOS ANSI renderer, command blocks, completions, session catalog, wire protocol,
 and Rust PTY daemon/SSH bridge are retained. iOS, iCloud relay, remote agent, launcher,
-and updater are excluded. Gitinuum owns its own runtime directories and signing identities.
+and updater are excluded. Portal owns its own runtime directories and signing identities.

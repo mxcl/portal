@@ -367,7 +367,9 @@ fn abbreviate_home(path: &str) -> String {
 }
 
 fn history_path() -> io::Result<PathBuf> {
-    if let Some(path) = env::var_os("GITINUUM_TERMINAL_HISTORY_PATH") {
+    if let Some(path) = env::var_os("PORTAL_TERMINAL_HISTORY_PATH")
+        .or_else(|| env::var_os("GITINUUM_TERMINAL_HISTORY_PATH"))
+    {
         return Ok(PathBuf::from(path));
     }
     let home = env::var_os("HOME")
@@ -378,7 +380,7 @@ fn history_path() -> io::Result<PathBuf> {
         return Ok(home
             .join("Library")
             .join("Application Support")
-            .join("Gitinuum/Terminal")
+            .join("Portal/Terminal")
             .join("history.json"));
     }
     #[cfg(not(target_os = "macos"))]
@@ -386,7 +388,7 @@ fn history_path() -> io::Result<PathBuf> {
         let state_home = env::var_os("XDG_STATE_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".local").join("state"));
-        Ok(state_home.join("gitinuum-terminal").join("history.json"))
+        Ok(state_home.join("portal-terminal").join("history.json"))
     }
 }
 
@@ -1016,7 +1018,9 @@ fn tolerate_broken_pipe(result: io::Result<()>) -> io::Result<()> {
 
 fn ensure_daemon_is_running() -> io::Result<()> {
     let socket_path = socket_path()?;
-    let require_existing = env::var_os("GITINUUM_SESSIOND_REQUIRE_EXISTING").is_some();
+    let require_existing = env::var_os("PORTAL_SESSIOND_REQUIRE_EXISTING")
+        .or_else(|| env::var_os("GITINUUM_SESSIOND_REQUIRE_EXISTING"))
+        .is_some();
     ensure_daemon_is_running_at(&socket_path, require_existing)
 }
 
@@ -1041,7 +1045,7 @@ fn ensure_daemon_is_running_at(socket_path: &Path, require_existing: bool) -> io
     }
     Command::new(daemon)
         .arg("serve")
-        .env("GITINUUM_SESSIOND_SOCKET", socket_path)
+        .env("PORTAL_SESSIOND_SOCKET", socket_path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -1165,7 +1169,8 @@ fn connect_to_daemon_at(socket_path: &Path) -> io::Result<UnixStream> {
 }
 
 fn sessiond_path() -> io::Result<PathBuf> {
-    if let Some(path) = env::var_os("GITINUUM_SESSIOND") {
+    if let Some(path) = env::var_os("PORTAL_SESSIOND").or_else(|| env::var_os("GITINUUM_SESSIOND"))
+    {
         let path = PathBuf::from(path);
         if is_executable(&path) {
             return Ok(path);

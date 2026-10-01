@@ -15,7 +15,7 @@ import Testing
     git.waitUntilExit()
     #expect(git.terminationStatus == 0)
     let url = try projectURL(path: nested.path)
-    #expect(url.scheme == "gitsync")
+    #expect(url.scheme == "portal")
     #expect(url.host == "project")
     #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems == [URLQueryItem(name: "name", value: "space & café")])
     #expect(throws: (any Error).self) { try projectURL(path: root.path) }

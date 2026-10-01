@@ -24,9 +24,9 @@ struct PortalCommandEnvelopeTests {
         let setup = """
         export PORTAL=1
         export TERM=xterm-256color
-        export TERM_PROGRAM=Gitinuum
+        export TERM_PROGRAM=Portal
         export TERM_PROGRAM_VERSION='0.1.0'
-        export LC_TERMINAL=Gitinuum
+        export LC_TERMINAL=Portal
         export LC_TERMINAL_VERSION='0.1.0'
         export __CFBundleIdentifier='dev.mxcl.git-sync'
         \(TerminalViewController.remoteCodeFunctionScript)

@@ -31,7 +31,8 @@
 			<string>Portal Settings</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>gitsync</string>
+				<string>portal</string>
+                <string>gitsync</string>
 			</array>
 		</dict>
 	</array>

@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 
 repo = Path(__file__).resolve().parent.parent
-source = (repo / 'Sources/GitSyncMenuBar/GitSyncMenuBarApp.swift').read_text()
+source = (repo / 'Sources/PortalMenuBar/PortalMenuBarApp.swift').read_text()
 bridge = source.split('        observation = model.objectWillChange.sink', 1)[1].split('        terminationObservation =', 1)[0]
 program = '''
 import AppKit

@@ -6,6 +6,17 @@ if [ "$(uname -s)" = Darwin ]; then
   echo 'On macOS, build/install Portal.app to include signed terminal helpers.' >&2
   exit 1
 fi
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+legacy_state="$state_home/gitinuum-terminal"
+portal_state="$state_home/portal-terminal"
+if [ -d "$legacy_state" ] && [ ! -L "$legacy_state" ]; then
+  [ ! -e "$portal_state" ] || { echo 'Both legacy and Portal terminal state exist' >&2; exit 1; }
+  if pgrep -x 'gitinuum-sessiond|portal-sessiond' >/dev/null; then
+    echo 'Stop the terminal daemon before migrating state' >&2; exit 1
+  fi
+  mv "$legacy_state" "$portal_state"
+  ln -s "$portal_state" "$legacy_state"
+fi
 cargo build --manifest-path "$repo_dir/TerminalHelpers/Cargo.toml" --release --locked
 output="$HOME/.local/lib/portal/terminal"
 mkdir -p "$output"

@@ -52,7 +52,10 @@ pub fn validate_server(stream: &UnixStream) -> io::Result<()> {
 
 fn validate_same_user(stream: &UnixStream) -> io::Result<()> {
     #[cfg(feature = "test-peer-validation-bypass")]
-    if std::env::var_os("GITINUUM_SESSIOND_DISABLE_PEER_VALIDATION").is_some() {
+    if std::env::var_os("PORTAL_SESSIOND_DISABLE_PEER_VALIDATION")
+        .or_else(|| std::env::var_os("GITINUUM_SESSIOND_DISABLE_PEER_VALIDATION"))
+        .is_some()
+    {
         return Ok(());
     }
 
@@ -105,7 +108,10 @@ fn validate_same_user(stream: &UnixStream) -> io::Result<()> {
 #[cfg(target_os = "macos")]
 fn validate_code(stream: &UnixStream, requirements: &[&str]) -> io::Result<()> {
     #[cfg(feature = "test-peer-validation-bypass")]
-    if std::env::var_os("GITINUUM_SESSIOND_DISABLE_PEER_VALIDATION").is_some() {
+    if std::env::var_os("PORTAL_SESSIOND_DISABLE_PEER_VALIDATION")
+        .or_else(|| std::env::var_os("GITINUUM_SESSIOND_DISABLE_PEER_VALIDATION"))
+        .is_some()
+    {
         return Ok(());
     }
 

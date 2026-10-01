@@ -5,9 +5,9 @@ repo="$(git -C "${1:-$PWD}" rev-parse --show-toplevel)"
 [[ "$(uname -s)" == Darwin ]] || { echo 'Deploy Here requires macOS.' >&2; exit 1; }
 revision="$(git -C "$repo" rev-parse --short=12 HEAD)"
 if [[ -n "$(git -C "$repo" status --porcelain)" ]]; then dirty=dirty; else dirty=clean; fi
-stage="$(mktemp -d "${TMPDIR:-/tmp}/git-sync-deploy-here.XXXXXX")"
-local_stage="/Applications/.git-sync-app.install.$revision-$$"
-local_backup="/Applications/.git-sync-app.previous.$revision-$$"
+stage="$(mktemp -d "${TMPDIR:-/tmp}/portal-deploy-here.XXXXXX")"
+local_stage="/Applications/.portal-app.install.$revision-$$"
+local_backup="/Applications/.portal-app.previous.$revision-$$"
 trap 'rm -rf "$stage" "$local_stage"' EXIT
 
 "$repo/scripts/install.sh" "$stage/Portal.app"

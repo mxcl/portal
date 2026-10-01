@@ -8,4 +8,4 @@ in `TextLayoutManager.layoutLine`. The caller must receive the measured width so
 unwrapped documents grow and allow horizontal scrolling.
 
 The manifest includes runtime dependencies only; upstream lint plugins and test
-infrastructure are omitted. The regression test is in `GitSyncAppTests`.
+infrastructure are omitted. The regression test is in `PortalAppTests`.

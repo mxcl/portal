@@ -1,5 +1,5 @@
 import Foundation
-import GitSyncCore
+import PortalCore
 #if canImport(Glibc)
 import Glibc
 #elseif canImport(Musl)
@@ -28,7 +28,7 @@ func required(_ name: String, in arguments: [String]) throws -> String {
 
 func defaultStateURL() -> URL {
     FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".local/state/git-sync/state.json")
+        .appendingPathComponent(".local/state/portal/state.json")
 }
 
 let usage = """

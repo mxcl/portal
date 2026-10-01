@@ -12,7 +12,7 @@ import tempfile
 with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
     root = Path(temporary)
     applications = root / "Applications"
-    staged = applications / ".git-sync-app.install.test"
+    staged = applications / ".portal-app.install.test"
     staged.mkdir(parents=True)
     captured = root / "environment.json"
     stopped = root / "stopped.json"
@@ -65,8 +65,14 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
         "TERM": "dumb", "PAGER": "cat", "GIT_PAGER": "cat", "RUST_LOG": "debug",
     }
     environment.update(pollution)
+    legacy = root / "Library/Application Support/GitSync"
+    legacy.mkdir(parents=True)
+    (legacy / "state.json").write_text('{"epoch":"preserve-me"}')
     subprocess.run(["/bin/bash", str(installer), str(staged),
-                    str(applications / ".git-sync-app.previous.test")], env=environment, check=True)
+                    str(applications / ".portal-app.previous.test")], env=environment, check=True)
+    migrated = root / "Library/Application Support/Portal/Sync"
+    assert legacy.is_symlink()
+    assert (migrated / "state.json").read_text() == '{"epoch":"preserve-me"}'
     legacy_service = f"gui/{os.getuid()}/dev.mxcl.git-sync.menu-helper"
     assert [json.loads(line) for line in retired.read_text().splitlines()] == [
         ["disable", legacy_service], ["bootout", legacy_service]
@@ -83,4 +89,17 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
         assert launched[name] == environment[name], (name, launched)
     assert launched["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin", launched
 
-print("Deployment launch environment regression passed")
+    # A collision must leave both stores untouched and the staged app uninstalled.
+    legacy.unlink()
+    legacy.mkdir()
+    (legacy / "state.json").write_text('legacy-conflict')
+    staged.mkdir()
+    result = subprocess.run(["/bin/bash", str(installer), str(staged),
+                             str(applications / ".portal-app.previous.test")],
+                            env=environment, capture_output=True)
+    assert result.returncode != 0
+    assert (legacy / "state.json").read_text() == 'legacy-conflict'
+    assert (migrated / "state.json").read_text() == '{"epoch":"preserve-me"}'
+    assert staged.is_dir()
+
+print("Deployment environment and state migration regressions passed")

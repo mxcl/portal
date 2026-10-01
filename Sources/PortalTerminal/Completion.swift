@@ -2110,7 +2110,7 @@ private final class FigSpecLoader {
     private var cache: [String: LoadedFigSpec] = [:]
 
     init() {
-        if let override = ProcessInfo.processInfo.environment["GITINUUM_COMPLETIONS_DIR"], !override.isEmpty {
+        if let override = (ProcessInfo.processInfo.environment["PORTAL_COMPLETIONS_DIR"] ?? ProcessInfo.processInfo.environment["GITINUUM_COMPLETIONS_DIR"]), !override.isEmpty {
             specsRoot = URL(fileURLWithPath: override, isDirectory: true)
         } else {
             specsRoot = Bundle.main.resourceURL?

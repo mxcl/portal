@@ -46,7 +46,7 @@ Reproduce from this checkout:
 swift build -c release --product gitinuumd
 python3 scripts/measure-sync-cpu.py .build/release/gitinuumd --check
 clang -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -I Sources/GitSyncWatch/include scripts/test-sync-watch.c \
+  -I Sources/PortalWatch/include scripts/test-sync-watch.c \
   -framework CoreServices -o /tmp/test-sync-watch
 /tmp/test-sync-watch
 swift test

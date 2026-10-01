@@ -16,7 +16,7 @@ func projectURL(path: String) throws -> URL {
     }
     let root = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
     var url = URLComponents()
-    url.scheme = "gitsync"
+    url.scheme = "portal"
     url.host = "project"
     url.queryItems = [URLQueryItem(name: "name", value: URL(fileURLWithPath: root).lastPathComponent)]
     return url.url!

@@ -5,8 +5,8 @@ staged_app="${1:?staged app required}"
 backup_app="${2:?backup app required}"
 target_app="/Applications/Portal.app"
 
-[[ "$staged_app" == /Applications/.git-sync-app.install.* ]]
-[[ "$backup_app" == /Applications/.git-sync-app.previous.* ]]
+[[ "$staged_app" == /Applications/.portal-app.install.* ]]
+[[ "$backup_app" == /Applications/.portal-app.previous.* ]]
 [[ -d "$staged_app" && ! -e "$backup_app" ]]
 
 /usr/bin/codesign --verify --deep --strict "$staged_app"
@@ -19,6 +19,16 @@ restore() {
 }
 trap restore EXIT
 
+# Preflight every migration before stopping anything; never merge two state stores.
+legacy_paths=("$HOME/Library/Application Support/GitSync" "$HOME/Library/Application Support/Gitinuum/Terminal" "$HOME/.local/state/git-sync" "$HOME/Library/Caches/dev.mxcl.git-sync/project-window-v1.json")
+portal_paths=("$HOME/Library/Application Support/Portal/Sync" "$HOME/Library/Application Support/Portal/Terminal" "$HOME/.local/state/portal" "$HOME/Library/Caches/dev.mxcl.portal/project-window-v1.json")
+for i in "${!legacy_paths[@]}"; do
+  if [[ -e "${legacy_paths[$i]}" && ! -L "${legacy_paths[$i]}" && -e "${portal_paths[$i]}" ]]; then
+    echo "Both legacy and Portal state exist: ${portal_paths[$i]}" >&2
+    exit 1
+  fi
+done
+
 # Retired login services can respawn after pkill and compete for the shortcut/engine socket.
 for identifier in dev.mxcl.git-sync.menu dev.mxcl.git-sync.menu-helper; do
   service="gui/$(id -u)/$identifier"
@@ -30,7 +40,7 @@ done
 
 # Login items can appear under their bundle identifier instead of the executable name.
 # Preserve the renamed portal-sessiond; retire the obsolete Gitinuum daemon once.
-processes='PortalApp|GitinuumApp|PortalTerminalApp|portald|gitinuumd|gitinuum-sessiond|GitSync|git-sync|PortalMenuBar|GitSyncMenuBar|dev[.]mxcl[.]git-sync[.]menu(-helper)?|dev[.]mxcl[.]portal[.]menu-helper'
+processes='PortalApp|GitinuumApp|PortalTerminalApp|portald|gitinuumd|gitinuum-sessiond|GitSync|git-sync|GitSyncMenuBar|PortalMenuBar|dev[.]mxcl[.]git-sync[.]menu(-helper)?|dev[.]mxcl[.]portal[.]menu-helper'
 pkill -x "$processes" 2>/dev/null || true
 for _ in {1..50}; do
   if ! pgrep -x "$processes" >/dev/null; then
@@ -39,6 +49,16 @@ for _ in {1..50}; do
   sleep 0.1
 done
 pgrep -x "$processes" >/dev/null && pkill -9 -x "$processes"
+
+# Keep old paths as forwarding links for saved configurations and older peers.
+for i in "${!legacy_paths[@]}"; do
+  old="${legacy_paths[$i]}"; new="${portal_paths[$i]}"
+  if [[ -e "$old" && ! -L "$old" ]]; then
+    mkdir -p "$(dirname "$new")"
+    mv "$old" "$new"
+    ln -s "$new" "$old"
+  fi
+done
 
 if [[ -d "$target_app" ]]; then
   mv "$target_app" "$backup_app"

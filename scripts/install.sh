@@ -11,12 +11,12 @@ destination=${1:-"/Applications/Portal.app"}
 build_dir="$repo_dir/.build/release"
 # Keep APNs enabled on ordinary local reinstalls without an environment override.
 installed_profile="/Applications/Portal.app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/embedded.provisionprofile"
-push_profile=${GITINUUM_PUSH_PROFILE-}
-if [ "${GITINUUM_PUSH_PROFILE+x}" != x ] && [ -f "$installed_profile" ]; then
+push_profile=${PORTAL_PUSH_PROFILE-${GITINUUM_PUSH_PROFILE-}}
+if [ "${PORTAL_PUSH_PROFILE+x}" != x ] && [ "${GITINUUM_PUSH_PROFILE+x}" != x ] && [ -f "$installed_profile" ]; then
   push_profile=$installed_profile
 fi
-signing_identity=${GIT_SYNC_SIGNING_IDENTITY:-"Developer ID Application: Max Howell (ZU76A67LGU)"}
-stage=$(mktemp -d "${TMPDIR:-/tmp}/git-sync-install.XXXXXX")
+signing_identity=${PORTAL_SIGNING_IDENTITY:-${GIT_SYNC_SIGNING_IDENTITY:-"Developer ID Application: Max Howell (ZU76A67LGU)"}}
+stage=$(mktemp -d "${TMPDIR:-/tmp}/portal-install.XXXXXX")
 trap 'rm -rf "$stage"' EXIT HUP INT TERM
 
 cd "$repo_dir"
@@ -37,6 +37,7 @@ ln -s ../Resources/legacy-terminal-bridge "$app/Contents/Helpers/gitinuum-sessio
 "$repo_dir/scripts/bundle-terminal-completions.sh" "$app/Contents/Resources"
 cp "$build_dir/PortalApp" "$app/Contents/MacOS/PortalApp"
 for resource_bundle in "$build_dir"/*.bundle; do
+  case "$(basename "$resource_bundle")" in git-sync_*) continue ;; esac
   cp -R "$resource_bundle" "$app/Contents/Resources/"
 done
 cp "$build_dir/portald" "$app/Contents/Resources/portald"
@@ -88,7 +89,7 @@ cp "$repo_dir/app/TerminalInfo.plist" "$terminal/Contents/Info.plist"
 mkdir -p "$terminal/Contents/Helpers"
 cp -R "$app/Contents/Helpers/Portal Session Helper.app" "$terminal/Contents/Helpers/"
 cp "$app/Contents/Helpers/portal-session-bridge" "$terminal/Contents/Helpers/"
-cp -R "$app/Contents/Resources/git-sync_PortalTerminal.bundle" "$terminal/Contents/Resources/"
+cp -R "$app/Contents/Resources/portal_PortalTerminal.bundle" "$terminal/Contents/Resources/"
 cp -R "$app/Contents/Resources/completions" "$terminal/Contents/Resources/"
 cp "$repo_dir/app/session-icon.png" "$terminal/Contents/Resources/session-icon.png"
 for icon in AppIcon.icns Assets.car; do
@@ -120,7 +121,7 @@ if [ -e "$destination" ]; then
   /usr/bin/osascript -e 'tell application id "dev.mxcl.portal.menu-helper" to quit' >/dev/null 2>&1 || true
   /usr/bin/osascript -e 'tell application id "dev.mxcl.portal" to quit' >/dev/null 2>&1 || true
   sleep 1
-  /usr/bin/pkill -x GitSyncMenuBar 2>/dev/null || true
+  /usr/bin/pkill -x PortalMenuBar 2>/dev/null || true
   /usr/bin/pkill -x PortalApp 2>/dev/null || true
   /usr/bin/pkill -TERM -f "^$destination/Contents/Resources/(git-sync|portald) run " 2>/dev/null || true
 fi

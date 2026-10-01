@@ -139,8 +139,12 @@ func githubKnownBranchStatus() throws {
     _ = try git(["checkout", "--detach", "--quiet", base])
     #expect(try repository.snapshot().githubBranchStatus == nil)
     #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".git/FETCH_HEAD").path))
-    _ = try git(["config", "git-sync.mirrored", "true"])
-    #expect(try repository.branchTips() == nil)
+    for key in ["portal.mirrored", "git-sync.mirrored"] {
+        _ = try git(["config", key, "true"])
+        #expect(repository.placement == .mirrored)
+        #expect(try repository.branchTips() == nil)
+        _ = try git(["config", "--unset", key])
+    }
 }
 
 @Test("Optional hardware and branch status preserve older inventory and content decoding")

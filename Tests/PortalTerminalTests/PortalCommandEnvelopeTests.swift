@@ -28,7 +28,7 @@ struct PortalCommandEnvelopeTests {
         export TERM_PROGRAM_VERSION='0.1.0'
         export LC_TERMINAL=Portal
         export LC_TERMINAL_VERSION='0.1.0'
-        export __CFBundleIdentifier='dev.mxcl.git-sync'
+        export __CFBundleIdentifier='dev.mxcl.portal'
         \(TerminalViewController.remoteCodeFunctionScript)
         \(PortalCommandEnvelope.inputSetupScript)
         PROMPT=''

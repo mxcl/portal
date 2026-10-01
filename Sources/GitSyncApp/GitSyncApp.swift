@@ -1448,6 +1448,7 @@ struct ProjectBrowserView: View {
     @State private var search = ""
     @State private var visibility: NavigationSplitViewVisibility = .all
     @State private var projectSelection: String?
+    @State private var hostPaneWidth: CGFloat = 600
     @AppStorage("git-tree-column-width") private var gitTreeColumnWidth = 440.0
     @State private var initialGitTreeColumnWidth: Double
 
@@ -1510,12 +1511,17 @@ struct ProjectBrowserView: View {
         } detail: {
             if let name = model.selectedProjectName {
                 HostControls(project: name, model: model)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { hostPaneWidth = $0 }
                     .toolbar {
-                        ToolbarSpacer(.flexible, placement: .primaryAction)
                         ToolbarItem(placement: .primaryAction) {
-                            HostTabs(model: model)
+                            HStack {
+                                Spacer(minLength: 0)
+                                HostTabs(model: model).fixedSize()
+                                Spacer(minLength: 0)
+                            }
+                            .frame(width: max(0, hostPaneWidth - 24))
                         }
-                        ToolbarSpacer(.flexible, placement: .primaryAction)
+                        .sharedBackgroundVisibility(.hidden)
                     }
             } else {
                 ContentUnavailableView("Select a Project", systemImage: "sidebar.left")

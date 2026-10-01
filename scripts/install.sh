@@ -28,11 +28,12 @@ menu="$app/Contents/Library/LoginItems/Portal Menu Helper.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" \
   "$menu/Contents/MacOS" "$menu/Contents/Resources" "$(dirname -- "$destination")"
 "$repo_dir/scripts/build-terminal-helpers.sh" "$app/Contents"
-cat > "$app/Contents/Helpers/gitinuum-session-bridge" <<'SH'
+cat > "$app/Contents/Resources/legacy-terminal-bridge" <<'SH'
 #!/bin/sh
-exec "$(dirname "$0")/portal-session-bridge" "$@"
+exec "$(dirname "$0")/../Helpers/portal-session-bridge" "$@"
 SH
-chmod 755 "$app/Contents/Helpers/gitinuum-session-bridge"
+chmod 755 "$app/Contents/Resources/legacy-terminal-bridge"
+ln -s ../Resources/legacy-terminal-bridge "$app/Contents/Helpers/gitinuum-session-bridge"
 "$repo_dir/scripts/bundle-terminal-completions.sh" "$app/Contents/Resources"
 cp "$build_dir/PortalApp" "$app/Contents/MacOS/PortalApp"
 for resource_bundle in "$build_dir"/*.bundle; do

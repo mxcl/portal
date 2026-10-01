@@ -129,7 +129,7 @@ struct CheckoutRequest: Identifiable {
     let branches: [String]
 }
 
-enum ProjectSource: Hashable, Identifiable, Sendable {
+enum ProjectSource: Codable, Hashable, Identifiable, Sendable {
     case local
     case host(UUID)
     case backup(String)
@@ -159,6 +159,14 @@ struct ProjectStaging: Identifiable {
         RepositoryCommit(oid: id, parents: headOID.map { [$0] } ?? [],
                          author: "", date: .distantPast, message: "Staging")
     }
+}
+
+struct ProjectWindowCache: Codable, Sendable {
+    let engine: EngineSnapshot
+    let name: String
+    let source: ProjectSource
+    let showAuxiliaryHistory: Bool
+    let content: RepositoryContent
 }
 
 @MainActor
@@ -227,6 +235,10 @@ final class AppModel: ObservableObject {
     fileprivate var hostDraft = HostDraft()
     fileprivate var hostNameDraft = ""
 
+    private let windowCacheURL: URL?
+    private var lastEngineSnapshot: EngineSnapshot?
+    private var windowCacheSave: Task<Void, Never>?
+
     private let selectedProjectKey = "selected-project-v2"
     private let loginMigrationKey = "migrated-menu-helper-login-item-v5"
     private let loginItem = SMAppService.loginItem(identifier: "dev.mxcl.git-sync.menu-helper")
@@ -247,8 +259,31 @@ final class AppModel: ObservableObject {
     private let sendCommand: (EngineCommand) async throws -> EngineReply
 
     init(connectToHelper: Bool = true,
+         windowCacheURL: URL? = nil,
          sendCommand: @escaping (EngineCommand) async throws -> EngineReply = EngineClient.send) {
         self.sendCommand = sendCommand
+        self.windowCacheURL = windowCacheURL ?? (connectToHelper
+            ? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("dev.mxcl.git-sync/project-window-v1.json") : nil)
+        if let url = self.windowCacheURL,
+           let data = try? Data(contentsOf: url),
+           let cache = try? JSONDecoder().decode(ProjectWindowCache.self, from: data),
+           cache.showAuxiliaryHistory == showAuxiliaryHistory {
+            configuration = cache.engine.configuration
+            github = cache.engine.github
+            backupItems = cache.engine.backupItems
+            localProjects = cache.engine.localProjects
+            remoteProjects = cache.engine.remoteProjects
+            observedProjects = cache.engine.observedProjects
+            lastEngineSnapshot = cache.engine
+            selectedProjectName = cache.name
+            projectSnapshot = cache.content.snapshot
+            projectReadme = cache.content.readme
+            projectGitHubURL = cache.content.githubURL
+            projectSource = cache.source
+            editor.connect(selectedEditorRepositoryURL)
+            refreshProject()
+        }
         guard connectToHelper else { return }
         if embeddedHelperURL != nil { migrateLegacyLoginItem() }
         notificationObserver = DistributedNotificationCenter.default().addObserver(
@@ -566,10 +601,15 @@ final class AppModel: ObservableObject {
     }
 
     func apply(_ snapshot: EngineSnapshot) {
+        lastEngineSnapshot = snapshot
         let oldLocal = selectedProjectName.flatMap { name in
             configuration.folders.first(where: { $0.name == name })?.availableLocally
         }
         let oldSource = projectSource
+        let sourceConfigurationChanged = configuration.root != snapshot.configuration.root
+            || configuration.hosts != snapshot.configuration.hosts
+            || configuration.backup != snapshot.configuration.backup
+            || configuration.backupDestination != snapshot.configuration.backupDestination
         let changedPeers = Set(snapshot.configuration.hosts.map(\.id).filter { id in
             guard let name = selectedProjectName else { return false }
             return observedProjects[id]?[name]?.revision != snapshot.observedProjects[id]?[name]?.revision
@@ -601,8 +641,13 @@ final class AppModel: ObservableObject {
             selectProject(selection)
         } else if let name = selectedProjectName {
             let newLocal = configuration.folders.first(where: { $0.name == name })?.availableLocally
-            if oldLocal != newLocal || oldSource.map({ !sources(for: name).contains($0) }) == true
+            if sourceConfigurationChanged || oldLocal != newLocal || oldSource.map({ !sources(for: name).contains($0) }) == true
                 || oldSource == nil && !sources(for: name).isEmpty {
+                if sourceConfigurationChanged {
+                    projectSnapshot = nil
+                    projectReadme = nil
+                    projectGitHubURL = nil
+                }
                 loadProject(name, from: sources(for: name))
             }
         }
@@ -749,6 +794,7 @@ final class AppModel: ObservableObject {
                     refreshProject()
                 }
             }
+            await refreshPeerStaging()
             var lastError: Error?
             for source in sources {
                 do {
@@ -763,6 +809,8 @@ final class AppModel: ObservableObject {
                     if projectReadme != content.readme { projectReadme = content.readme }
                     if projectGitHubURL != content.githubURL { projectGitHubURL = content.githubURL }
                     isLoadingProject = false
+                    saveProjectWindow(name: name, source: source, content: content,
+                                      showAuxiliaryHistory: showAuxiliaryHistory)
                     if let oid = selectedCommitID {
                         if CommitGraphGenerator.isStaging(oid) {
                             selectCommit(stagingRows.contains { $0.id == oid } ? oid : nil)
@@ -779,6 +827,25 @@ final class AppModel: ObservableObject {
             guard generation == projectLoadGeneration, selectedProjectName == name else { return }
             isLoadingProject = false
             projectError = lastError.map(String.init(describing:)) ?? "No project source is available."
+        }
+    }
+
+    private func saveProjectWindow(name: String, source: ProjectSource, content: RepositoryContent,
+                                   showAuxiliaryHistory: Bool) {
+        guard let url = windowCacheURL, let engine = lastEngineSnapshot,
+              engine.configuration == configuration else { return }
+        let cache = ProjectWindowCache(engine: engine, name: name, source: source,
+                                       showAuxiliaryHistory: showAuxiliaryHistory, content: content)
+        let previous = windowCacheSave
+        windowCacheSave = Task {
+            await previous?.value
+            await Task.detached(priority: .utility) {
+                // Disposable presentation data: a failed write falls back to normal loading.
+                do {
+                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try JSONEncoder().encode(cache).write(to: url, options: .atomic)
+                } catch { }
+            }.value
         }
     }
 

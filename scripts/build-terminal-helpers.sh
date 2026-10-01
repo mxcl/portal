@@ -24,7 +24,8 @@ cat > "$helper_app/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 codesign --force --sign "$identity" --options runtime --timestamp "$helper_app"
+# Retain the bridge identity so already-running Gitinuum daemons accept it.
 codesign --force --sign "$identity" --options runtime --timestamp \
-  --identifier dev.mxcl.portal.session-bridge "$helpers/gitinuum-session-bridge"
+  --identifier dev.mxcl.git-sync.session-bridge "$helpers/gitinuum-session-bridge"
 codesign --verify --strict "$helper_app"
 codesign --verify --strict "$helpers/gitinuum-session-bridge"

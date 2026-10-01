@@ -692,3 +692,9 @@ session catalogs. Application Support, engine IPC, GitHub credential keys, CLI
 names, and wire protocols retain their existing names to preserve state and peer
 compatibility. Terminal helper authentication accepts both Portal foreground app
 identities and existing Gitinuum clients from the same Developer ID team.
+
+Existing signed Gitinuum session daemons remain alive during the identity migration.
+The app authenticates their old daemon identity and uses its signed compatibility
+bridge (retaining `dev.mxcl.git-sync.session-bridge`) for local transport. New
+daemons accept both Portal apps directly. This preserves running PTYs and their
+complete history without broadening same-user or Developer ID trust boundaries.

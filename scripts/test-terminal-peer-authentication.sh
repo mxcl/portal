@@ -87,4 +87,18 @@ FAKE_PID=""
   exit 1
 }
 
+# Old daemon identities remain trusted during migration, using the original bridge identity.
+legacy="$TEST_DIR/legacy-sessiond"
+cp "$SESSIOND" "$legacy"
+codesign --force --sign "${GIT_SYNC_SIGNING_IDENTITY:-Developer ID Application: Max Howell (ZU76A67LGU)}" \
+  --identifier dev.mxcl.git-sync.sessiond --options runtime --timestamp "$legacy"
+legacy_socket="$TEST_DIR/legacy.sock"
+GITINUUM_SESSIOND_SOCKET="$legacy_socket" "$legacy" serve >/dev/null 2>&1 &
+DAEMON_PID=$!
+wait_for_socket "$legacy_socket"
+response="$(printf 'LIST\n' | GITINUUM_SESSIOND_SOCKET="$legacy_socket" \
+  GITINUUM_SESSIOND_REQUIRE_EXISTING=1 "$BRIDGE")"
+[[ "$response" == "SESSIONS W10=" ]]
+codesign -d --verbose=2 "$BRIDGE" 2>&1 | grep -Fx 'Identifier=dev.mxcl.git-sync.session-bridge'
+
 echo "Session peer authentication checks passed."

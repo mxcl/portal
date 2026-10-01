@@ -355,7 +355,8 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
     }
     static func readCredential(
         copy: (CFDictionary, UnsafeMutablePointer<CFTypeRef?>?) -> OSStatus = SecItemCopyMatching,
-        update: (CFDictionary, CFDictionary) -> OSStatus = SecItemUpdate
+        update: (CFDictionary, CFDictionary) -> OSStatus = SecItemUpdate,
+        repairAccess: () throws -> Void = repairCredentialAccess
     ) throws -> Data? {
         var query = keychainQuery
         query[kSecReturnData as String] = true
@@ -377,8 +378,73 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
             status = copy(query as CFDictionary, &value)
         }
         guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+        try repairAccess()
         return value as? Data
     }
+    private static func repairCredentialAccess() throws {
+        var query = keychainQuery
+        query[kSecReturnRef as String] = true
+        var result: CFTypeRef?
+        var status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let result else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
+        let item = unsafeBitCast(result, to: SecKeychainItem.self)
+        var access: SecAccess?
+        status = SecKeychainItemCopyAccess(item, &access)
+        guard status == errSecSuccess, let access else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
+        if try migrateCredentialAccess(access) {
+            status = SecKeychainItemSetAccess(item, access)
+            guard status == errSecSuccess else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+            }
+        }
+    }
+
+    static func migrateCredentialAccess(_ access: SecAccess) throws -> Bool {
+        var status: OSStatus
+        var list: CFArray?
+        status = SecAccessCopyACLList(access, &list)
+        guard status == errSecSuccess, let acls = list as? [SecACL] else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
+        var changed = false
+        for acl in acls {
+            var applications: CFArray?
+            var description: CFString?
+            var selector = SecKeychainPromptSelector()
+            status = SecACLCopyContents(acl, &applications, &description, &selector)
+            guard status == errSecSuccess else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+            }
+            guard description as String? == "dev.mxcl.git-sync.github" else { continue }
+            // Preserve unrelated trusted applications, owner rules, and partition ACLs.
+            if var trusted = applications as? [SecTrustedApplication], !trusted.isEmpty {
+                trusted = trusted.filter { application in
+                    var data: CFData?
+                    guard SecTrustedApplicationCopyData(application, &data) == errSecSuccess,
+                          let data else { return true }
+                    return !String(decoding: data as Data, as: UTF8.self).contains("/Gitinuum.app/")
+                }
+                var current: SecTrustedApplication?
+                status = SecTrustedApplicationCreateFromPath(nil, &current)
+                guard status == errSecSuccess, let current else {
+                    throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+                }
+                trusted.append(current)
+                applications = trusted as CFArray
+            }
+            status = SecACLSetContents(acl, applications, "Portal GitHub" as CFString, selector)
+            guard status == errSecSuccess else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+            }
+            changed = true
+        }
+        return changed
+    }
+
     private static func saveCredential(_ data: Data) throws {
         let update: [String: Any] = [kSecValueData as String: data, kSecAttrLabel as String: "Portal GitHub"]
         var status = SecItemUpdate(keychainQuery as CFDictionary, update as CFDictionary)

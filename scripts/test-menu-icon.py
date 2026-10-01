@@ -19,8 +19,9 @@ MainActor.assumeIsolated {
         renderer.scale = 2
         guard let data = renderer.nsImage?.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: data) else { fatalError("Missing menu icon") }
+        assert(bitmap.pixelsWide == 32 && bitmap.pixelsHigh == 40, "Unexpected menu icon spacing")
         // Check the icon's center, excluding the unread badge in the top-right corner.
-        let visible = (8..<28).contains { x in (8..<28).contains { y in
+        let visible = (8..<24).contains { x in (8..<28).contains { y in
             (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0
         }}
         assert(visible, "Portal menu icon is blank")

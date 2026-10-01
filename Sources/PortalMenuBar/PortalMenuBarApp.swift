@@ -41,10 +41,12 @@ private struct MenuBarIcon: View {
                 .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 18, height: 18)
-                .opacity(isPaused ? 0.45 : 1)
+                .frame(width: 20, height: 20)
                 .foregroundStyle(colorScheme == .dark ? .white : .black)
-                .frame(width: 22, height: 18)
+                .shadow(color: colorScheme == .dark ? .white : .black, radius: 0, x: 0.3)
+                .shadow(color: colorScheme == .dark ? .white : .black, radius: 0, x: -0.3)
+                .opacity(isPaused ? 0.45 : 1)
+                .frame(width: 16, height: 20)
                 .overlay(alignment: .topTrailing) {
                     if hasUnreadNotifications {
                         Circle().fill(.blue).frame(width: 6, height: 6)

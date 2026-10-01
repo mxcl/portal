@@ -706,5 +706,4 @@ Portal migrates legacy Application Support, cache, and CLI state directories by
 renaming them in place and retaining forwarding symlinks for saved paths and older
 peers. Existing Portal state causes installation to fail rather than merge stores.
 Source epochs, ordering metadata, and session histories are retained unchanged.
-The GitHub Keychain service is renamed in place to `dev.mxcl.portal.github` using
-SecItemUpdate; its secret and access control are preserved.
+GitHub credentials use the Keychain service `dev.mxcl.portal.github`.

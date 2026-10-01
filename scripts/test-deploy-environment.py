@@ -16,6 +16,7 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
     staged.mkdir(parents=True)
     captured = root / "environment.json"
     stopped = root / "stopped.json"
+    retired = root / "retired.jsonl"
     commands = root / "bin"
     commands.mkdir()
     stubs = {
@@ -27,7 +28,15 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
             f"with open({str(stopped)!r}, 'w') as output:\n"
             "    json.dump(sys.argv[1:], output)\n"
         ),
-        "launchctl": "#!/bin/sh\nexit 1\n",
+        "launchctl": (
+            f"#!{sys.executable}\nimport json, sys\n"
+            "action, service = sys.argv[1:]\n"
+            "if service.endswith('/dev.mxcl.git-sync.menu-helper'):\n"
+            "    if action in ('disable', 'bootout'):\n"
+            f"        with open({str(retired)!r}, 'a') as output: output.write(json.dumps([action, service]) + '\\n')\n"
+            "    sys.exit(0)\n"
+            "sys.exit(1)\n"
+        ),
         "pgrep": '#!/bin/sh\n[ "$2" = GitinuumApp ]\n',
         "open": (
             f"#!{sys.executable}\nimport json, os, sys\n"
@@ -58,6 +67,10 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
     environment.update(pollution)
     subprocess.run(["/bin/bash", str(installer), str(staged),
                     str(applications / ".git-sync-app.previous.test")], env=environment, check=True)
+    legacy_service = f"gui/{os.getuid()}/dev.mxcl.git-sync.menu-helper"
+    assert [json.loads(line) for line in retired.read_text().splitlines()] == [
+        ["disable", legacy_service], ["bootout", legacy_service]
+    ]
     launched = json.loads(captured.read_text())
     stop_args = json.loads(stopped.read_text())
     assert stop_args[0] == "-x", stop_args

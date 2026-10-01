@@ -105,3 +105,22 @@ func hostPlacementStatus() throws {
     #expect(model.placementStatus(for: "project", on: nil, placement: .checkedOut) == "Checked out & backed up")
     #expect(model.placementStatus(for: "project", on: destination, placement: .checkedOut) == "Checked out")
 }
+
+@Test("Project terminals are only available for checked-out hosts")
+@MainActor
+func projectTerminalCheckoutEligibility() {
+    let host = SyncHost(machine: "Peer", peer: "peer", root: "/projects", executable: "/unused")
+    let model = AppModel(connectToHelper: false)
+    model.configuration = AppConfiguration(root: "/projects", machine: "Local", hosts: [host],
+        folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)])
+    model.selectedProjectName = "project"
+    model.localProjects = ["project": PeerProject(name: "project", placement: .mirrored)]
+    model.remoteProjects = [host.id: ["project": PeerProject(name: "project", placement: .mirrored)]]
+    #expect(model.projectTerminalSources.isEmpty)
+    model.remoteProjects[host.id]?["project"] = PeerProject(name: "project", placement: .checkedOut)
+    #expect(model.projectTerminalSources == [.host(host.id)])
+    model.localProjects["project"] = PeerProject(name: "project", placement: .checkedOut)
+    #expect(model.projectTerminalSources == [.local, .host(host.id)])
+    model.remoteProjects = [:]
+    #expect(model.projectTerminalSources == [.local])
+}

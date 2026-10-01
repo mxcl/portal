@@ -129,6 +129,7 @@ func peerWorkingChangesSelection() async throws {
     #expect(model.selectedTerminalDirectory?.path == project.path)
     #expect(model.selectedCommitDiff?.contains("+local") == true)
     model.configuration.folders[0].availableHosts.insert(host.id)
+    model.remoteProjects[host.id] = ["project": PeerProject(name: "project", placement: .checkedOut)]
     model.showNextProjectTerminal()
     #expect(model.selectedTab == .terminal)
     #expect(model.selectedTerminalHost == nil)

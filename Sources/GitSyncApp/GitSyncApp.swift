@@ -35,7 +35,7 @@ struct GitSyncApp: App {
             SidebarCommands()
             PaletteCommands()
             EditorCommands(editor: model.editor)
-            TerminalCommands(workspace: model.terminals, enabled: model.selectedTab == .terminal, hosts: model.terminalHosts)
+            TerminalCommands(workspace: model.terminals, enabled: model.projectTerminalSources.contains(model.terminalSource ?? .local), hosts: model.terminalHosts)
             CommandGroup(after: .appSettings) {
                 Button("Install Command Line Tool…") {
                     guard let script = Bundle.main.url(forResource: "install-gitinuum", withExtension: "command"),
@@ -166,7 +166,7 @@ final class AppModel: ObservableObject {
     let editor = ProjectEditor()
     let terminals = TerminalWorkspace()
     @Published var selectedTab: ProjectTab = .info
-    @Published private var terminalSource: ProjectSource?
+    @Published var terminalSource: ProjectSource?
     @Published var configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
     @Published var github = GitHubState()
     @Published var globalShortcutEnabled = true
@@ -333,9 +333,13 @@ final class AppModel: ObservableObject {
 
     var projectTerminalSources: [ProjectSource] {
         guard let name = selectedProjectName else { return [] }
-        let available = configuration.folders.first { $0.name == name }?.availableHosts ?? []
-        return (selectedLocalRepositoryURL != nil ? [.local] : []) + configuration.hosts
-            .filter { available.contains($0.id) }.map { .host($0.id) }
+        return ([ProjectSource.local] + configuration.hosts.map { .host($0.id) }).filter {
+            switch $0 {
+            case .local: placement(of: name, on: nil) == .checkedOut
+            case .host(let id): placement(of: name, on: id) == .checkedOut
+            case .backup: false
+            }
+        }
     }
 
     func showNextProjectTerminal() {
@@ -771,7 +775,6 @@ final class AppModel: ObservableObject {
 
     func selectCommit(_ oid: String?) {
         if selectedCommitID != oid { paletteNavigation = UUID() }
-        if selectedCommitID != oid { terminalSource = nil }
         let staging = stagingRows.first { $0.id == oid }
         if selectedCommitID != oid {
             paletteCommit = nil
@@ -1496,36 +1499,10 @@ struct ProjectBrowserView: View {
                 .toolbar { projectToolbar }
                 .navigationSplitViewColumnWidth(min: 280, ideal: initialGitTreeColumnWidth, max: .infinity)
         } detail: {
-            switch model.selectedTab {
-            case .info:
-                if let name = model.selectedProjectName, model.isSelectedProjectArchived {
-                    ProjectOverview(name: name, model: model)
-                } else if model.selectedProjectName != nil {
-                    ProjectDetailView(model: model)
-                        .environment(\.diffOpenFile, model.diffFileAction)
-                } else { ContentUnavailableView("Select a Project", systemImage: "sidebar.left") }
-            case .diff:
-                ProjectDetailView(model: model)
-                    .environment(\.diffOpenFile, model.diffFileAction)
-            case .editor:
-                if model.selectedEditorRepositoryURL != nil {
-                    HSplitView {
-                        ProjectFileBrowser(editor: model.editor)
-                            .frame(minWidth: 160, idealWidth: 200, maxWidth: 260)
-                        ProjectEditorView(editor: model.editor)
-                            .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                } else {
-                    ContentUnavailableView("No Local Working Copy", systemImage: "folder",
-                                           description: Text("Check out this project on this Mac to edit its files."))
-                }
-            case .terminal:
-                if let directory = model.selectedTerminalDirectory {
-                    model.terminals.view(directory: directory, hosts: model.terminalHosts, host: model.selectedTerminalHost)
-                } else {
-                    ContentUnavailableView("No Local Working Copy", systemImage: "terminal",
-                                           description: Text("Check out this project on this Mac to open its terminal."))
-                }
+            if let name = model.selectedProjectName {
+                HostControls(project: name, model: model)
+            } else {
+                ContentUnavailableView("Select a Project", systemImage: "sidebar.left")
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -1590,26 +1567,7 @@ struct ProjectBrowserView: View {
             }
             ToolbarSpacer(.fixed)
         }
-        ToolbarItem(placement: .primaryAction) {
-            if model.selectedStaging != nil || model.isSelectedProjectArchived {
-                Picker("Main view", selection: Binding<ProjectTab?>(
-                    get: { model.toolbarTabs.contains(model.selectedTab) ? model.selectedTab : nil },
-                    set: { if let tab = $0 { model.selectedTab = tab } }
-                )) {
-                    ForEach(model.toolbarTabs) { tab in
-                        Label("Show \(tab.title)", systemImage: tab.symbol).tag(Optional(tab))
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelStyle(.iconOnly)
-                .help("Choose the main view")
-            }
-        }
-        ToolbarItemGroup {
-            if let name = model.selectedProjectName, !model.isSelectedProjectArchived {
-                HostControls(project: name, model: model)
-            }
-        }
+
     }
 }
 
@@ -2157,113 +2115,83 @@ private struct HostControls: View {
     let project: String
     @ObservedObject var model: AppModel
 
-    var body: some View {
-        VStack(alignment: .leading) {
-            HStack { placements }
-                .fixedSize(horizontal: true, vertical: false)
-            if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+    private var source: ProjectSource {
+        if let source = model.terminalSource,
+           source == .local || model.configuration.hosts.contains(where: { .host($0.id) == source }) {
+            return source
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Hosts")
+        return .local
     }
 
-    private var placements: some View {
-        let canArchive = model.configuration.backup != nil || model.configuration.backupDestination != nil
-        return Group {
-            PlacementRow(project: project, name: model.configuration.machine, hardware: .current,
-                         placement: model.placement(of: project, on: nil),
-                         status: model.placementStatus(for: project, on: nil,
-                                                       placement: model.placement(of: project, on: nil)),
-                         backupDetail: model.backupStatus(for: project).detail, canArchive: canArchive, isLocal: true,
-                         progress: model.placementInProgress == "local") {
-                if $0 == .checkedOut { model.checkOut(project, hostID: nil) }
-                else { model.setPlacement($0, project: project, hostID: nil) }
-            }
-            ForEach(model.configuration.hosts) { host in
-                PlacementRow(project: project, name: host.name, hardware: host.hardware,
-                             placement: model.placement(of: project, on: host.id),
-                             status: model.placementStatus(for: project, on: host.id,
-                                                           placement: model.placement(of: project, on: host.id)),
-                             backupDetail: model.backupStatus(for: project).detail, canArchive: canArchive,
-                             progress: model.placementInProgress == host.id.uuidString) {
-                    if $0 == .checkedOut { model.checkOut(project, hostID: host.id) }
-                    else { model.setPlacement($0, project: project, hostID: host.id) }
-                }
-            }
-            Label {
-                Text("GitHub")
-            } icon: {
-                Image("GitHub", bundle: .module)
-                    .resizable().scaledToFit().frame(width: 16, height: 16)
-            }
-            .fontWeight(.medium)
-            .foregroundStyle(model.projectGitHubURL == nil ? .tertiary : .primary)
-            .help(model.projectGitHubURL == nil ? "No GitHub remote" : "\(model.projectSnapshot?.githubBranchStatus?.title ?? "Status unknown"). \(githubStatusDetail)")
-            .accessibilityValue(model.projectGitHubURL == nil ? "Not present" : model.projectSnapshot?.githubBranchStatus?.title ?? "Status unknown")
-        }
+    private var hostID: UUID? {
+        if case .host(let id) = source { return id }
+        return nil
     }
-
-    private var githubStatusDetail: String {
-        guard let status = model.projectSnapshot?.githubBranchStatus else {
-            return "No known GitHub tracking ref for the current branch. No polling is performed."
-        }
-        let source = model.projectSource.map(model.projectSourceLabel) ?? "selected host"
-        return "\(status.branch) on \(source), compared with the last known \(status.remoteBranch). Updated by existing Git fetches, including push notifications."
-    }
-
-}
-
-private struct PlacementRow: View {
-    let project: String
-    let name: String
-    let hardware: HostHardware?
-    let placement: ProjectPlacement
-    let status: String
-    let backupDetail: String
-    let canArchive: Bool
-    var isLocal = false
-    let progress: Bool
-    let change: (ProjectPlacement) -> Void
-    @State private var showingArchiveConfirmation = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(spacing: 0) {
             HStack {
-                Menu {
-                    switch placement {
-                    case .checkedOut:
-                        if canArchive {
-                            Button("Archive on \(name)…", role: .destructive) { showingArchiveConfirmation = true }
-                        }
-                    case .mirrored:
-                        Button("Check out on \(name)") { change(.checkedOut) }
-                        Button("Move repository to Trash on \(name)", role: .destructive) { change(.notPresent) }
-                    case .notPresent:
-                        Button("Mirror on \(name) (bare checkout)") { change(.mirrored) }
-                        if isLocal { Button("Check out on \(name)") { change(.checkedOut) } }
-                    case .unknown:
-                        Text("\(name) unavailable")
+                Picker("Host", selection: Binding(get: { source }, set: {
+                    model.terminalSource = $0
+                    model.selectedTab = .terminal
+                })) {
+                    Label { Text(model.configuration.machine) } icon: { HostIcon(hardware: .current) }
+                        .tag(ProjectSource.local)
+                    ForEach(model.configuration.hosts) { host in
+                        Label { Text(host.name) } icon: { HostIcon(hardware: host.hardware) }
+                            .tag(ProjectSource.host(host.id))
                     }
-                } label: {
-                    Label { Text(name) } icon: { HostIcon(hardware: hardware) }
-                        .fontWeight(.medium)
                 }
-                .menuStyle(.borderlessButton)
-                .opacity(placement == .checkedOut ? 1 : 0.45)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityLabel(name)
-                .accessibilityValue(progress ? "Updating, \(placement.title)" : (status.isEmpty ? placement.title : status))
-                .help("\(name): \(status.isEmpty ? placement.title : status). \(backupDetail)")
-                .disabled(progress || placement == .unknown || placement == .checkedOut && !canArchive)
-                .alert("Archive \(project) on \(name)?", isPresented: $showingArchiveConfirmation) {
-                    Button("Cancel", role: .cancel) {}
-                    Button("Archive on \(name)", role: .destructive) { change(.notPresent) }
-                } message: {
-                    Text("The checkout on \(name) will be moved to Trash. The backup will remain available to restore.")
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel("Host")
+            }
+            .padding(8)
+            Divider()
+            if let error = model.error {
+                Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled).padding(8)
+            }
+            if model.placement(of: project, on: hostID) == .checkedOut {
+                if let hostID, let host = model.terminalHosts.first(where: { $0.id == hostID.uuidString }) {
+                    model.terminals.view(directory: URL(fileURLWithPath: host.directory).appendingPathComponent(project),
+                                         hosts: model.terminalHosts, host: host)
+                } else if hostID == nil, let directory = model.selectedLocalRepositoryURL {
+                    model.terminals.view(directory: directory, hosts: model.terminalHosts)
                 }
-                if progress { ProgressView().controlSize(.small).accessibilityLabel("Updating \(name)") }
+            } else {
+                status
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private var status: some View {
+        let placement = model.placement(of: project, on: hostID)
+        let name = hostID.flatMap { id in model.configuration.hosts.first { $0.id == id }?.name }
+            ?? model.configuration.machine
+        let status = model.placementStatus(for: project, on: hostID, placement: placement)
+        return VStack(spacing: 12) {
+            Text(name).font(.title2)
+            Text(status.isEmpty ? placement.title : status).foregroundStyle(.secondary)
+            if model.placementInProgress == (hostID?.uuidString ?? "local") {
+                ProgressView().accessibilityLabel("Updating \(name)")
+            }
+            HStack {
+                switch placement {
+                case .notPresent:
+                    Button("Mirror") { model.setPlacement(.mirrored, project: project, hostID: hostID) }
+                    if hostID == nil { Button("Check Out") { model.checkOut(project, hostID: nil) } }
+                case .mirrored:
+                    Button("Check Out") { model.checkOut(project, hostID: hostID) }
+                    Button("Move to Trash", role: .destructive) {
+                        model.setPlacement(.notPresent, project: project, hostID: hostID)
+                    }
+                case .unknown, .checkedOut: EmptyView()
+                }
+            }
+            .disabled(model.placementInProgress != nil)
+        }
+        .padding()
     }
 }
 

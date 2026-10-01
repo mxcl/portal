@@ -2246,6 +2246,18 @@ private final class BlockView: NSView {
     }
 }
 
+@MainActor
+func portalToolbarScrollRegionSelfTest() -> Bool {
+    let delegate = TerminalViewController()
+    let tab = TerminalTab(title: "Test", delegate: delegate)
+    for inset: CGFloat in [0, 38, 0] {
+        tab.setToolbarInset(inset)
+        guard tab.documentMinimumHeightConstraint.constant + tab.scrollView.contentInsets.top == 0,
+              tab.scrollView.scrollerInsets.top == inset else { return false }
+    }
+    return withExtendedLifetime(delegate) { true }
+}
+
 func portalFailedCommandDividersSelfTest() -> Bool {
     let view = BlockView()
     let top = SeparatorView(), bottom = SeparatorView(), vertical = SeparatorView()
@@ -3287,6 +3299,7 @@ private final class TerminalTab {
     let ptyPassthroughView = PtyPassthroughView(frame: .zero)
     var title: String
 
+    var documentMinimumHeightConstraint: NSLayoutConstraint!
     var scrollBottomToCommandBarConstraint: NSLayoutConstraint?
     var scrollBottomToRootConstraint: NSLayoutConstraint?
     var sessionPickerHeightConstraint: NSLayoutConstraint?
@@ -3344,6 +3357,14 @@ private final class TerminalTab {
             commandHistory: commandHistory
         )
         buildView(delegate: delegate)
+    }
+
+    func setToolbarInset(_ inset: CGFloat) {
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets.top = inset
+        scrollView.scrollerInsets.top = inset
+        // The inset already reserves toolbar space; fill only the usable viewport.
+        documentMinimumHeightConstraint.constant = -inset
     }
 
     private func buildView(delegate: NSTextViewDelegate) {
@@ -3457,6 +3478,7 @@ private final class TerminalTab {
             equalToConstant: CommandInputTextView.minimumVisibleHeight
         )
 
+        documentMinimumHeightConstraint = documentView.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.heightAnchor)
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
@@ -3487,7 +3509,7 @@ private final class TerminalTab {
             documentView.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
             documentView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
             documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
-            documentView.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.heightAnchor),
+            documentMinimumHeightConstraint,
 
             stackView.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
@@ -4478,9 +4500,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         updateActiveTabCutoutFrame()
         titleTabBorderView.needsDisplay = true
         for tab in tabs {
-            tab.scrollView.automaticallyAdjustsContentInsets = false
-            tab.scrollView.contentInsets.top = toolbarInset
-            tab.scrollView.scrollerInsets.top = toolbarInset
+            tab.setToolbarInset(toolbarInset)
             updateScrollRegion(for: tab)
             resizePtyToViewport(for: tab)
         }

@@ -1516,7 +1516,7 @@ struct ProjectBrowserView: View {
                         ToolbarItem(placement: .primaryAction) {
                             HStack {
                                 Spacer(minLength: 0)
-                                HostTabs(model: model).fixedSize()
+                                HostTabs(model: model).fixedSize().glassEffect()
                                 Spacer(minLength: 0)
                             }
                             .frame(width: max(0, hostPaneWidth - 24))

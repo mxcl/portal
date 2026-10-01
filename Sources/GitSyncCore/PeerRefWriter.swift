@@ -26,6 +26,14 @@ public struct PeerRefWriter {
         return false
     }
 
+    /// Recovery may recreate an absent peer ref, but must never replace one that
+    /// another writer creates between inspection and the Git transaction.
+    func restoreMissing(sourceRef: String, oid: String) throws {
+        try Validator.oid(oid)
+        _ = try Git.run(["-C", repository.url.path, "update-ref", try destinationRef(sourceRef),
+                         oid, String(repeating: "0", count: oid.count)])
+    }
+
     public func destinationRef(_ sourceRef: String) throws -> String {
         try Validator.sourceRef(sourceRef)
         if sourceRef == "refs/stash" { return "refs/sync/\(peer)/stash" }

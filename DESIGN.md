@@ -200,7 +200,11 @@ and the backup-gated merged-branch cleanup described below, background code neve
 writes a ref owned by a user or another host. Each
 destination ref update is atomic. A scan containing several ref changes is
 outside one repository-wide transaction, so a peer may observe part of that
-scan. Connection catch-up repairs interruption or partial progress.
+scan. Connection catch-up repairs interruption or partial progress, including an
+absent peer ref whose generation was already accepted. That repair installs the
+supplied pack and uses Git's absent-ref compare-and-swap; it does not advance a
+local checkout or overwrite an existing peer ref. An existing conflicting peer
+ref remains an ordering error.
 
 The design uses installed Git as the adapter for object validation, pack
 creation and installation, ref locking, and ref transactions. A sync-aware Git

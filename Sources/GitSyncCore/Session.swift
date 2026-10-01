@@ -182,8 +182,16 @@ public final class SyncSession {
         let repository = try Repository.ensure(name: update.repository, in: root, bare: receiveOnly)
         try configureRemote(for: repository)
         if update.generation == accepted {
+            let writer = try PeerRefWriter(repository: repository, peer: peer)
+            if let oid = update.oid, try writer.currentOID(for: update.sourceRef) == nil {
+                guard let pack else { throw SyncError.invalidProtocol("Object update has no pack") }
+                try repository.install(pack: pack, target: oid)
+                try writer.restoreMissing(sourceRef: update.sourceRef, oid: oid)
+                repositoryObserver?(update.repository)
+                logger("restored missing peer ref \(update.repository)/\(update.sourceRef)")
+                sendControl(.ack(update)); return
+            }
             if syncCheckouts, update.cleanCheckout == true, let oid = update.oid {
-                let writer = try PeerRefWriter(repository: repository, peer: peer)
                 guard try writer.currentOID(for: update.sourceRef) == oid else {
                     throw SyncError.invalidProtocol("Generation was reused with a different object")
                 }

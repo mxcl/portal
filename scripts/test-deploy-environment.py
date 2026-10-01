@@ -21,6 +21,7 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
     stubs = {
         "codesign": "#!/bin/sh\nexit 0\n",
         "lsof": "#!/bin/sh\nexit 0\n",
+        "lsregister": "#!/bin/sh\nexit 0\n",
         "pkill": (
             f"#!{sys.executable}\nimport json, sys\n"
             f"with open({str(stopped)!r}, 'w') as output:\n"
@@ -42,7 +43,8 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
 
     script = Path(__file__).with_name("install-staged.sh").read_text()
     script = script.replace("/Applications/", f"{applications}/")
-    for command in ("/usr/bin/codesign", "/usr/sbin/lsof", "/usr/bin/open"):
+    for command in ("/usr/bin/codesign", "/usr/sbin/lsof", "/usr/bin/open",
+                    "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"):
         script = script.replace(command, str(commands / Path(command).name))
     installer = root / "installer.sh"
     installer.write_text(script)

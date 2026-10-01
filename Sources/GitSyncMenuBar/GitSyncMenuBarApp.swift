@@ -60,6 +60,13 @@ final class MenuBarRuntime: ObservableObject {
     private var shortcutObservation: AnyCancellable?
 
     init() {
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: "migrated-gitinuum-helper-preferences") {
+            if let previous = defaults.persistentDomain(forName: "dev.mxcl.git-sync.menu-helper") {
+                for (key, value) in previous { defaults.set(value, forKey: key) }
+            }
+            defaults.set(true, forKey: "migrated-gitinuum-helper-preferences")
+        }
         model = EngineModel(executableURL: Self.gitSyncExecutableURL)
         github = GitHubController(model: model)
         MenuAppDelegate.github = github

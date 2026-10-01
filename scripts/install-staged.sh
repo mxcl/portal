@@ -21,7 +21,7 @@ trap restore EXIT
 
 # Login items can appear under their bundle identifier instead of the executable name.
 # Keep sessiond running so terminal sessions survive deployment.
-processes='GitinuumApp|gitinuumd|GitSync|git-sync|GitSyncMenuBar|dev[.]mxcl[.]git-sync[.]menu(-helper)?'
+processes='GitinuumApp|PortalTerminalApp|gitinuumd|GitSync|git-sync|GitSyncMenuBar|dev[.]mxcl[.]git-sync[.]menu(-helper)?|dev[.]mxcl[.]portal[.]menu-helper'
 pkill -x "$processes" 2>/dev/null || true
 for _ in {1..50}; do
   if ! pgrep -x "$processes" >/dev/null; then
@@ -50,6 +50,8 @@ menu_service="gui/$(id -u)/dev.mxcl.portal.menu-helper"
 if launchctl print "$menu_service" >/dev/null 2>&1; then
   launchctl kickstart -k "$menu_service"
 fi
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$target_app"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$target_app/Contents/Helpers/Portal Terminal.app"
 # open forwards its environment to the app (and its terminal sessions).
 # Allow only normal login essentials, never the deploying agent's environment.
 /usr/bin/env -i HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" \

@@ -45,7 +45,7 @@ public enum Runner {
         try Validator.project(repository)
         let data = try runRemote(configuration, arguments: ["project-search", "--root", configuration.remoteRoot,
             "--repository", repository, "--query", query, "--search-version", String(RepositorySearchReply.currentVersion)],
-            failure: "Search unavailable on this host; update Gitinuum if needed")
+            failure: "Search unavailable on this host; update Portal if needed")
         return try JSONDecoder().decode(RepositorySearchReply.self, from: data).checked()
     }
 
@@ -66,7 +66,7 @@ public enum Runner {
             configuration,
             arguments: ["project-content", "--root", configuration.remoteRoot,
                         "--repository", repository] + (showAuxiliaryHistory ? ["--show-auxiliary-history"] : []),
-            failure: "Could not read \(repository) on the peer. Update Gitinuum on that host if remote browsing is unavailable"
+            failure: "Could not read \(repository) on the peer. Update Portal on that host if remote browsing is unavailable"
         )
         return try JSONDecoder().decode(RepositoryContent.self, from: data)
     }
@@ -75,7 +75,7 @@ public enum Runner {
         try configuration.validate()
         try Validator.project(repository)
         let data = try runRemote(configuration, arguments: ["project-staging", "--root", configuration.remoteRoot,
-            "--repository", repository], failure: "Could not read staging; update Gitinuum on the peer if needed")
+            "--repository", repository], failure: "Could not read staging; update Portal on the peer if needed")
         return try JSONDecoder().decode(RepositorySnapshot.self, from: data)
     }
 
@@ -89,7 +89,7 @@ public enum Runner {
             arguments: ["project-diff", "--root", configuration.remoteRoot,
                         "--repository", repository] + (oid.map { ["--oid", $0] }
                             ?? ["--working-changes"] + (staged ? ["--staged"] : [])),
-            failure: "Could not read the diff on the peer. Update Gitinuum on that host if remote browsing is unavailable"
+            failure: "Could not read the diff on the peer. Update Portal on that host if remote browsing is unavailable"
         )
         return String(decoding: data, as: UTF8.self)
     }
@@ -112,7 +112,7 @@ public enum Runner {
                     _ = try runRemote(
                         configuration,
                         arguments: ["check-backup"],
-                        failure: "Gitinuum on \(configuration.remoteMachine ?? configuration.peer) is not accepting backups. On that Mac, choose a destination in the Backup tab and start sync"
+                        failure: "Portal on \(configuration.remoteMachine ?? configuration.peer) is not accepting backups. On that Mac, choose a destination in the Backup tab and start sync"
                     )
                 }
                 var arguments = isBackup ? ["relay-backup"]
@@ -181,14 +181,14 @@ public enum Runner {
             (error.domain == NSCocoaErrorDomain &&
              [NSFileReadNoPermissionError, NSFileWriteNoPermissionError].contains(error.code)) ||
             (error.domain == NSPOSIXErrorDomain && [Int(EPERM), Int(EACCES)].contains(error.code)) {
-            var message = "Gitinuum cannot access the backup destination: \(root.path)."
+            var message = "Portal cannot access the backup destination: \(root.path)."
             #if os(macOS)
             // TCC has no API to request a previously denied Files & Folders permission again.
             message += " Open System Settings > Privacy & Security > Files & Folders, "
-                + "expand Gitinuum, and enable access to the destination "
+                + "expand Portal, and enable access to the destination "
                 + "(Removable Volumes for an external drive, or Network Volumes for a network drive). "
-                + "If that option is unavailable, allow Gitinuum in Privacy & Security > Full Disk Access. "
-                + "Then quit and reopen Gitinuum."
+                + "If that option is unavailable, allow Portal in Privacy & Security > Full Disk Access. "
+                + "Then quit and reopen Portal."
             #endif
             message += " Also check that your account has read and write permission for this folder."
             throw SyncError.invalidConfiguration(message)
@@ -242,7 +242,7 @@ public enum Runner {
             return try JSONDecoder().decode(RepositoryContent.self, from: data)
         } catch {
             throw SyncError.invalidConfiguration(
-                "Could not read \(name) from the backup host. Update Gitinuum on that host if remote browsing is unavailable: \(error)"
+                "Could not read \(name) from the backup host. Update Portal on that host if remote browsing is unavailable: \(error)"
             )
         }
     }
@@ -258,7 +258,7 @@ public enum Runner {
             ), as: UTF8.self)
         } catch {
             throw SyncError.invalidConfiguration(
-                "Could not read the commit diff from the backup host. Update Gitinuum on that host if remote browsing is unavailable: \(error)"
+                "Could not read the commit diff from the backup host. Update Portal on that host if remote browsing is unavailable: \(error)"
             )
         }
     }

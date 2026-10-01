@@ -6349,9 +6349,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? "dev.mxcl.git-sync"
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         env["TERM"] = "xterm-256color"
-        env["TERM_PROGRAM"] = "Gitinuum"
+        env["TERM_PROGRAM"] = "Portal"
         env["TERM_PROGRAM_VERSION"] = appVersion
-        env["LC_TERMINAL"] = "Gitinuum"
+        env["LC_TERMINAL"] = "Portal"
         env["LC_TERMINAL_VERSION"] = appVersion
         env["__CFBundleIdentifier"] = bundleIdentifier
         env["PORTAL"] = "1"
@@ -6361,9 +6361,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let initScript = """
             export PORTAL=1
             export TERM=xterm-256color
-            export TERM_PROGRAM=Gitinuum
+            export TERM_PROGRAM=Portal
             export TERM_PROGRAM_VERSION=\(shellQuote(appVersion))
-            export LC_TERMINAL=Gitinuum
+            export LC_TERMINAL=Portal
             export LC_TERMINAL_VERSION=\(shellQuote(appVersion))
             export __CFBundleIdentifier=\(shellQuote(bundleIdentifier))
             \(isSSHSession ? Self.remoteCodeFunctionScript : "")

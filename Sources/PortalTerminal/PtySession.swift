@@ -842,7 +842,7 @@ final class PtySession {
             throw NSError(
                 domain: NSPOSIXErrorDomain,
                 code: Int(ENOENT),
-                userInfo: [NSLocalizedDescriptionKey: "Gitinuum terminal bridge was not found"]
+                userInfo: [NSLocalizedDescriptionKey: "Portal terminal bridge was not found"]
             )
         }
         process.arguments = arguments

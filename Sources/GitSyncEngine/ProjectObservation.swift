@@ -51,7 +51,7 @@ final class ProjectObservation {
                         try await changed(change)
                     }
                 } catch {
-                    if !Task.isCancelled { failed("Live project updates unavailable: \(error). Check the host and update Gitinuum if needed.") }
+                    if !Task.isCancelled { failed("Live project updates unavailable: \(error). Check the host and update Portal if needed.") }
                 }
                 self.close()
                 guard !Task.isCancelled else { return }

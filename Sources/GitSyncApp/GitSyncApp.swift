@@ -1578,20 +1578,7 @@ struct ProjectBrowserView: View {
         }
         if model.selectedProjectName != nil {
             ToolbarItem(placement: .principal) {
-                Picker("Host", selection: Binding(get: { model.selectedProjectHostSource }, set: {
-                    model.terminalSource = $0
-                    model.selectedTab = .terminal
-                })) {
-                    Label { Text(model.configuration.machine) } icon: { HostIcon(hardware: .current) }
-                        .tag(ProjectSource.local)
-                    ForEach(model.configuration.hosts) { host in
-                        Label { Text(host.name) } icon: { HostIcon(hardware: host.hardware) }
-                            .tag(ProjectSource.host(host.id))
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .accessibilityLabel("Host")
+                HostTabs(model: model)
             }
         }
 
@@ -2135,6 +2122,66 @@ private struct ProjectOverview: View {
             .padding(20)
         }
         .navigationTitle(name)
+    }
+}
+
+@MainActor
+private struct HostTabs: NSViewRepresentable {
+    @ObservedObject var model: AppModel
+
+    private var sources: [ProjectSource] { [.local] + model.configuration.hosts.map { .host($0.id) } }
+
+    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl()
+        control.trackingMode = .selectOne
+        control.segmentStyle = .automatic
+        control.segmentDistribution = .fillEqually
+        control.target = context.coordinator
+        control.action = #selector(Coordinator.selectHost(_:))
+        control.setAccessibilityLabel("Host")
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.sources = sources
+        control.segmentCount = sources.count
+        for (index, source) in sources.enumerated() {
+            let host = model.configuration.hosts.first { .host($0.id) == source }
+            let name = host?.name ?? model.configuration.machine
+            let hardware = host?.hardware ?? (source == .local ? .current : nil)
+            let type = hardware?.operatingSystem == "Linux" ? HostIcon.macType(for: "RackMount")
+                : hardware?.model.flatMap { HostIcon.macType(for: $0) }
+            let image = type.map { NSWorkspace.shared.icon(for: $0).copy() as! NSImage }
+                ?? NSImage(systemSymbolName: "desktopcomputer", accessibilityDescription: nil)
+            image?.size = NSSize(width: 16, height: 16)
+            control.setLabel(name, forSegment: index)
+            control.setImage(image, forSegment: index)
+            control.setImageScaling(.scaleProportionallyDown, forSegment: index)
+            control.setToolTip(name, forSegment: index)
+        }
+        control.selectedSegment = sources.firstIndex(of: model.selectedProjectHostSource) ?? 0
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSSegmentedControl, context: Context) -> CGSize? {
+        let width = (0..<nsView.segmentCount).map { index in
+            (nsView.label(forSegment: index) as NSString? ?? "").size(withAttributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]).width + 48
+        }.max() ?? 100
+        return CGSize(width: width * CGFloat(nsView.segmentCount), height: nsView.intrinsicContentSize.height)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        let model: AppModel
+        var sources: [ProjectSource] = []
+        init(model: AppModel) { self.model = model }
+
+        @objc func selectHost(_ control: NSSegmentedControl) {
+            guard sources.indices.contains(control.selectedSegment) else { return }
+            model.terminalSource = sources[control.selectedSegment]
+            model.selectedTab = .terminal
+        }
     }
 }
 

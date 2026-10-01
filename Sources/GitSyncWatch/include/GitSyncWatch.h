@@ -7,6 +7,8 @@
 typedef struct git_sync_observer git_sync_observer;
 git_sync_observer *git_sync_observer_create(void);
 int git_sync_observer_add(git_sync_observer *, const char *path);
+// Linux: -1 recursively, 0 this directory, 1 this directory and immediate children.
+int git_sync_observer_add_depth(git_sync_observer *, const char *path, int depth);
 int git_sync_observer_wait(git_sync_observer *, int timeout_ms);
 void git_sync_observer_destroy(git_sync_observer *);
 

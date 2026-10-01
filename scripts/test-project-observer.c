@@ -40,6 +40,19 @@ int main(void) {
         quiet(watch);
     }
     git_sync_observer_destroy(watch);
+    // Replication must not traverse unrelated build trees, including unreadable
+    // directories. A recursive watch fails here on Linux as an ordinary user.
+    char ignored[256];
+    snprintf(ignored, sizeof(ignored), "%s/new/build", root);
+    assert(mkdir(ignored, 0000) == 0);
+    watch = git_sync_observer_create();
+    assert(watch && git_sync_observer_add_depth(watch, root, 1) == 0);
+    quiet(watch);
+    FILE *stream = fopen(file, "w");
+    assert(stream); fputs("discovery", stream); assert(fclose(stream) == 0);
+    assert(git_sync_observer_wait(watch, 3000) == 1);
+    git_sync_observer_destroy(watch);
+    chmod(ignored, 0700); rmdir(ignored);
     unlink(file); rmdir(directory); rmdir(root);
-    puts("PASS: recursive observation, queued writes and idle silence");
+    puts("PASS: recursive observation, queued writes, bounded discovery watches and idle silence");
 }

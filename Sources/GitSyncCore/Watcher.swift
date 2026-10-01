@@ -8,7 +8,9 @@ public final class Watcher {
 
     public init(root: URL, repositories: [Repository]) throws {
         rootPath = root.standardizedFileURL.path
-        observer = try ProjectChangeWatcher(root: root)
+        // Discovery needs only the root and immediate project directories.
+        // Recursing through build trees can exhaust Linux inotify limits.
+        observer = try ProjectChangeWatcher(root: root, depth: 1)
         try add(repositories)
     }
 

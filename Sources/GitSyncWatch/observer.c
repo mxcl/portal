@@ -65,7 +65,8 @@ git_sync_observer *git_sync_observer_create(void) {
     watch->queue = dispatch_queue_create("git-sync.observer", DISPATCH_QUEUE_SERIAL);
     return watch;
 }
-int git_sync_observer_add(git_sync_observer *watch, const char *path) {
+int git_sync_observer_add_depth(git_sync_observer *watch, const char *path, int depth) {
+    (void)depth; // FSEvents is recursive without allocating a watch per directory.
     for (struct observed_path *p = watch->paths; p; p = p->next) {
         size_t length = strlen(p->path);
         if (!strncmp(p->path, path, length) && (path[length] == '\0' || path[length] == '/')) return 0;
@@ -115,7 +116,7 @@ void git_sync_observer_destroy(git_sync_observer *watch) {
 #include <unistd.h>
 #include <dirent.h>
 #include <stdio.h>
-struct observed_path { int wd; char *path; struct observed_path *next; };
+struct observed_path { int wd; int depth; char *path; struct observed_path *next; };
 struct git_sync_observer { struct pending_paths pending; int fd; struct observed_path *paths; };
 git_sync_observer *git_sync_observer_create(void) {
     int fd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
@@ -125,20 +126,26 @@ git_sync_observer *git_sync_observer_create(void) {
     pthread_mutex_init(&watch->pending.lock, NULL);
     watch->fd = fd; return watch;
 }
-int git_sync_observer_add(git_sync_observer *watch, const char *path) {
+int git_sync_observer_add_depth(git_sync_observer *watch, const char *path, int depth) {
     struct stat info;
     if (lstat(path, &info)) return errno == ENOENT ? 0 : -1;
     if (!S_ISDIR(info.st_mode)) return 0;
     int wd = inotify_add_watch(watch->fd, path, IN_CLOSE_WRITE | IN_CREATE | IN_DELETE |
         IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF);
     if (wd < 0) return -1;
-    for (struct observed_path *p = watch->paths; p; p = p->next)
-        if (p->wd == wd) return 0;
-    struct observed_path *p = calloc(1, sizeof(*p));
-    if (!p) return -1;
-    p->wd = wd; p->path = strdup(path);
-    if (!p->path) { free(p); return -1; }
-    p->next = watch->paths; watch->paths = p;
+    struct observed_path *p = watch->paths;
+    while (p && p->wd != wd) p = p->next;
+    if (p) {
+        if (p->depth < 0 || (depth >= 0 && p->depth >= depth)) return 0;
+        p->depth = depth;
+    } else {
+        p = calloc(1, sizeof(*p));
+        if (!p) return -1;
+        p->wd = wd; p->depth = depth; p->path = strdup(path);
+        if (!p->path) { free(p); return -1; }
+        p->next = watch->paths; watch->paths = p;
+    }
+    if (depth == 0) return 0;
     DIR *dir = opendir(path);
     if (!dir) return -1;
     int result = 0;
@@ -148,7 +155,7 @@ int git_sync_observer_add(git_sync_observer *watch, const char *path) {
         char *child = malloc(strlen(path) + strlen(entry->d_name) + 2);
         if (!child) { result = -1; break; }
         sprintf(child, "%s/%s", path, entry->d_name);
-        result = git_sync_observer_add(watch, child);
+        result = git_sync_observer_add_depth(watch, child, depth < 0 ? -1 : depth - 1);
         free(child);
         if (result) break;
     }
@@ -183,11 +190,11 @@ int git_sync_observer_wait(git_sync_observer *watch, int timeout_ms) {
                     *link = p->next;
                     if (!(event->mask & IN_IGNORED)) inotify_rm_watch(watch->fd, p->wd);
                     free(p->path); free(p);
-                } else if (event->len && (event->mask & IN_ISDIR) && (event->mask & (IN_CREATE | IN_MOVED_TO))) {
+                } else if (p->depth != 0 && event->len && (event->mask & IN_ISDIR) && (event->mask & (IN_CREATE | IN_MOVED_TO))) {
                     char *child = malloc(strlen(p->path) + strlen(event->name) + 2);
                     if (!child) return -1;
                     sprintf(child, "%s/%s", p->path, event->name);
-                    int result = git_sync_observer_add(watch, child);
+                    int result = git_sync_observer_add_depth(watch, child, p->depth < 0 ? -1 : p->depth - 1);
                     free(child);
                     if (result) return -1;
                 }
@@ -209,4 +216,8 @@ void git_sync_observer_destroy(git_sync_observer *watch) {
 
 void git_sync_observer_paths(git_sync_observer *watch, git_sync_path_callback callback, void *context) {
     drain_paths(&watch->pending, callback, context);
+}
+
+int git_sync_observer_add(git_sync_observer *watch, const char *path) {
+    return git_sync_observer_add_depth(watch, path, -1);
 }

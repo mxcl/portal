@@ -97,16 +97,16 @@ extension Repository {
 /// Owned by the blocking watch command. The OS keeps events queued during scans.
 final class ProjectChangeWatcher {
     private let observer: OpaquePointer
-    init(root: URL) throws {
+    init(root: URL, depth: Int32 = -1) throws {
         guard let observer = git_sync_observer_create() else {
             throw SyncError.invalidConfiguration("Could not create filesystem observer")
         }
         self.observer = observer
-        try add(root)
+        try add(root, depth: depth)
     }
     deinit { git_sync_observer_destroy(observer) }
-    func add(_ url: URL) throws {
-        guard git_sync_observer_add(observer, url.resolvingSymlinksInPath().path) == 0 else {
+    func add(_ url: URL, depth: Int32 = -1) throws {
+        guard git_sync_observer_add_depth(observer, url.resolvingSymlinksInPath().path, depth) == 0 else {
             throw SyncError.invalidConfiguration("Could not watch \(url.path); check filesystem watch limits and permissions")
         }
     }

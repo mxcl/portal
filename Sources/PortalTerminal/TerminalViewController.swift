@@ -3346,6 +3346,7 @@ private final class TerminalTab {
     var findResultIndex: Int?
     var isGitTreeVisible = false
     var canReplaceFreshSession = false
+    var wasCreatedInThisController = true
     var createdAt: Date
     var commandCount: Int { commandLifecycle.state.commandCount }
     var lastCommandAt: Date? { commandLifecycle.state.lastCommandAt }
@@ -4188,7 +4189,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         initialHostID: String? = nil,
         standalone: Bool = false,
         launchCommand: String? = nil,
-        sessionHosts: [TerminalHost] = []
+        sessionHosts: [TerminalHost] = [],
+        sessionCatalog: SessionCatalog? = nil
     ) {
         _ = Self.didRunPassthroughRoutingSelfTest
         self.standalone = standalone
@@ -4197,7 +4199,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         self.selfTestCommand = selfTestCommand
         self.launchCommand = launchCommand
         self.sessionHosts = sessionHosts
-        self.sessionCatalog = SessionCatalog(url: Self.sessionStateURL().deletingLastPathComponent()
+        self.sessionCatalog = sessionCatalog ?? SessionCatalog(url: Self.sessionStateURL().deletingLastPathComponent()
             .appendingPathComponent((standalone ? "windows/" : "projects/") + windowID + ".json"), windowID: windowID)
         self.restoresPersistedWindow = restoresPersistedWindow
         self.showsTabStrip = showsTabStrip
@@ -4354,7 +4356,55 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        if tabs.isEmpty { createTab() }
         windowDidAttach()
+    }
+
+    override func viewDidDisappear() {
+        super.viewDidDisappear()
+        discardUntouchedSessions()
+    }
+
+    func discardUntouchedSessions(except retainedID: UUID? = nil) {
+        for tab in tabs where tab.id != retainedID && tab.wasCreatedInThisController && tab.commandCount == 0
+            && tab.pendingBlockID == nil && tab.activeBlockID == nil
+            && initialCommands[tab.id] == nil && tab.inputView.string.isEmpty
+            && !isSessionVisibleOutsideTab(tab) {
+            closeTab(withID: tab.id, createsReplacement: false)
+        }
+    }
+
+    static func untouchedSessionCleanupSelfTest() -> Bool {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let catalog = SessionCatalog(url: directory.appendingPathComponent("sessions.json"), windowID: "test")
+        let controller = TerminalViewController(sessionCatalog: catalog)
+        controller.loadView()
+        let empty = TerminalTab(title: "empty", delegate: controller)
+        let used = TerminalTab(title: "used", delegate: controller, commandCount: 1)
+        let draft = TerminalTab(title: "draft", delegate: controller)
+        draft.inputView.string = "echo unfinished"
+        let attached = TerminalTab(title: "attached", delegate: controller)
+        attached.wasCreatedInThisController = false
+        controller.tabs = [empty, used, draft, attached]
+        for tab in controller.tabs {
+            controller.installTabView(tab)
+            controller.installTabButton(tab)
+        }
+        controller.activeTabID = draft.id
+        controller.discardUntouchedSessions(except: empty.id)
+        guard controller.tabs.count == 4 else { return false }
+        controller.discardUntouchedSessions()
+        guard controller.tabs.map(\.id) == [used.id, draft.id, attached.id] else { return false }
+        // Leaving the final untouched terminal must not immediately spawn a replacement.
+        used.session.stop()
+        draft.session.stop()
+        attached.session.stop()
+        controller.tabs = [empty]
+        controller.activeTabID = empty.id
+        controller.installTabButton(empty)
+        controller.discardUntouchedSessions()
+        return controller.tabs.isEmpty && controller.activeTabID == nil && catalog.closedTabs.isEmpty
     }
 
     func windowDidAttach() {
@@ -4364,6 +4414,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     func windowDidBecomeActive() {
+        if isViewLoaded && tabs.isEmpty { createTab() }
         restoreCommandFocusIfNeeded()
         refreshVisibleCommandBarGitStatus()
         refreshGitTreeIfVisible()
@@ -5141,7 +5192,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     @discardableResult
-    private func closeTab(withID id: UUID) -> Bool {
+    private func closeTab(withID id: UUID, createsReplacement: Bool = true) -> Bool {
         guard let index = tabs.firstIndex(where: { $0.id == id }),
               let button = tabButtons[id]
         else {
@@ -5171,7 +5222,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             layoutTabStripBeforeMeasuringSelection()
             updateActiveTabCutoutFrame()
             persistSessionState()
-            createTab()
+            if createsReplacement { createTab() }
             return true
         }
 
@@ -5790,6 +5841,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         hideSessionPicker(for: tab)
         clearCommandInput(in: tab)
         tab.pendingShellInitialization = nil
+        tab.wasCreatedInThisController = candidate.action == .create
         tab.sessionRef = candidate.sessionRef
         tab.session = PtySession(sessionRef: candidate.sessionRef)
         tab.title = candidate.title
@@ -6155,6 +6207,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func activateTab(_ id: UUID, tabStripLayoutChanged: Bool = false, persists: Bool = true) {
         activeTabID = id
+        discardUntouchedSessions(except: id)
         for tab in tabs {
             tab.rootView.isHidden = tab.id != id
             tabButtons[tab.id]?.isSelectedTab = tab.id == id

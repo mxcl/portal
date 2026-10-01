@@ -5,6 +5,10 @@ import Testing
 
 @Suite("Embedded terminal", .serialized)
 struct TerminalIntegrationTests {
+    @Test @MainActor func untouchedSessionsAreDiscardedWithoutReplacingThem() {
+        #expect(TerminalViewController.untouchedSessionCleanupSelfTest())
+    }
+
     @Test @MainActor func commandBlocksStayCompactAfterViewportChanges() {
         #expect(portalBlockWidthReflowSelfTest())
     }

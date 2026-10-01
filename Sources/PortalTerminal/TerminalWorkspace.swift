@@ -34,7 +34,15 @@ public final class TerminalWorkspace: ObservableObject {
     public init() {
         focusObserver = NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)
             .merge(with: NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification))
-            .sink { [weak self] _ in
+            .sink { [weak self] notification in
+                if let controller = self?.activeController, controller.isViewLoaded,
+                   let window = notification.object as? NSWindow, controller.view.window === window {
+                    if notification.name == NSWindow.didResignKeyNotification {
+                        controller.discardUntouchedSessions()
+                    } else {
+                        controller.windowDidBecomeActive()
+                    }
+                }
                 self?.standaloneFocused = (NSApp.keyWindow?.contentViewController as? TerminalViewController)?.standalone == true
             }
     }
@@ -108,6 +116,10 @@ public final class TerminalWorkspace: ObservableObject {
 private final class StandaloneTerminalWindow: NSWindow, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         (contentViewController as? TerminalViewController)?.stopAllSessions()
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        (contentViewController as? TerminalViewController)?.discardUntouchedSessions()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {

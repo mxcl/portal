@@ -1702,6 +1702,18 @@ private final class BlockView: NSView {
         tab.scrollView.layoutSubtreeIfNeeded()
         tab.scrollView.documentView?.layoutSubtreeIfNeeded()
 
+        for height in [900, 500, 700] {
+            tab.rootView.isHidden = true
+            host.setFrameSize(NSSize(width: 1_000, height: CGFloat(height)))
+            host.layoutSubtreeIfNeeded()
+            tab.rootView.isHidden = false
+            host.layoutSubtreeIfNeeded()
+            tab.scrollView.documentView?.layoutSubtreeIfNeeded()
+            guard view.bounds.height < (view.outputHeightConstraint?.constant ?? 0) + 100 else {
+                return false
+            }
+        }
+
         guard let textContainer = view.outputView.textContainer,
               let layoutManager = view.outputView.layoutManager,
               let constrainedHeight = view.outputHeightConstraint?.constant
@@ -1709,6 +1721,7 @@ private final class BlockView: NSView {
         layoutManager.ensureLayout(for: textContainer)
         let usedHeight = ceil(layoutManager.usedRect(for: textContainer).height)
         return constrainedHeight >= usedHeight && view.outputView.bounds.height >= usedHeight
+            && view.bounds.height < usedHeight + 100
     }
 
     var hidesLiveDuration = false {
@@ -1800,7 +1813,7 @@ private final class BlockView: NSView {
             content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             content.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             header.widthAnchor.constraint(equalTo: content.widthAnchor),
-            header.heightAnchor.constraint(greaterThanOrEqualToConstant: 28),
+            header.heightAnchor.constraint(equalToConstant: 28),
             metaLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor),
             metaLabel.topAnchor.constraint(equalTo: header.topAnchor),
             metaLabel.trailingAnchor.constraint(lessThanOrEqualTo: copyMarkdownButton.leadingAnchor, constant: -8),

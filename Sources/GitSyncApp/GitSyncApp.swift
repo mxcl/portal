@@ -35,7 +35,7 @@ struct GitSyncApp: App {
             SidebarCommands()
             PaletteCommands()
             EditorCommands(editor: model.editor)
-            TerminalCommands(workspace: model.terminals, enabled: model.projectTerminalSources.contains(model.selectedProjectHostSource), hosts: model.terminalHosts)
+            TerminalCommands(workspace: model.terminals, enabled: !model.showsCommitDiff && model.selectedTab != .editor && model.projectTerminalSources.contains(model.selectedProjectHostSource), hosts: model.terminalHosts)
             CommandGroup(after: .appSettings) {
                 Button("Install Command Line Tool…") {
                     guard let script = Bundle.main.url(forResource: "install-gitinuum", withExtension: "command"),
@@ -364,6 +364,12 @@ final class AppModel: ObservableObject {
                             : "~/.local/lib/gitinuum/terminal/gitinuum-session-bridge",
                          directory: host.root)
         }
+    }
+
+    var showsCommitDiff: Bool { selectedCommitID != nil && selectedStaging == nil }
+
+    var canEditSelectedHost: Bool {
+        selectedProjectHostSource == .local && selectedEditorRepositoryURL != nil
     }
 
     var selectedProjectHostSource: ProjectSource {
@@ -1576,7 +1582,10 @@ struct ProjectBrowserView: View {
                 .toolbar { projectToolbar }
                 .navigationSplitViewColumnWidth(min: 280, ideal: initialGitTreeColumnWidth, max: .infinity)
         } detail: {
-            if let name = model.selectedProjectName {
+            if model.showsCommitDiff {
+                ProjectDetailView(model: model)
+                    .environment(\.diffOpenFile, model.diffFileAction)
+            } else if let name = model.selectedProjectName {
                 HostControls(project: name, model: model)
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { hostPaneWidth = $0 }
                     .toolbar {
@@ -1587,6 +1596,21 @@ struct ProjectBrowserView: View {
                                 Spacer(minLength: 0)
                             }
                             .frame(width: max(0, hostPaneWidth - 24))
+                            .overlay(alignment: .trailing) {
+                                Picker("Working copy view", selection: Binding(
+                                    get: { model.selectedTab == .editor && model.canEditSelectedHost ? ProjectTab.editor : .terminal },
+                                    set: { model.selectedTab = $0 }
+                                )) {
+                                    Label("Terminal", systemImage: "terminal").tag(ProjectTab.terminal)
+                                    Label("Editor", systemImage: "curlybraces").tag(ProjectTab.editor)
+                                        .disabled(!model.canEditSelectedHost)
+                                }
+                                .pickerStyle(.segmented)
+                                .labelStyle(.iconOnly)
+                                .labelsHidden()
+                                .fixedSize()
+                                .help(model.canEditSelectedHost ? "Terminal or editor" : "Editor requires a local checkout")
+                            }
                         }
                         .sharedBackgroundVisibility(.hidden)
                     }
@@ -2275,7 +2299,14 @@ private struct HostControls: View {
                 Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled).padding(8)
             }
             if model.placement(of: project, on: hostID) == .checkedOut {
-                if let hostID, let host = model.terminalHosts.first(where: { $0.id == hostID.uuidString }) {
+                if model.selectedTab == .editor, model.canEditSelectedHost {
+                    HSplitView {
+                        ProjectFileBrowser(editor: model.editor)
+                            .frame(minWidth: 160, idealWidth: 200, maxWidth: 260)
+                        ProjectEditorView(editor: model.editor)
+                            .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                } else if let hostID, let host = model.terminalHosts.first(where: { $0.id == hostID.uuidString }) {
                     model.terminals.view(directory: URL(fileURLWithPath: host.directory).appendingPathComponent(project),
                                          hosts: model.terminalHosts, host: host)
                 } else if hostID == nil, let directory = model.selectedLocalRepositoryURL {

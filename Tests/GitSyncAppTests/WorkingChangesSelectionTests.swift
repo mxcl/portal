@@ -60,10 +60,12 @@ func workingChangesSelection() async throws {
     #expect(model.selectedCommitID == CommitGraphGenerator.workingChangesID)
     #expect(model.selectedCommitDiff == "")
     model.selectCommit(try #require(model.projectSnapshot?.headOID))
+    #expect(model.showsCommitDiff)
     try await finishLoading()
     #expect(model.selectedTab == .diff)
     #expect(model.availableTabs == ProjectTab.allCases)
     model.selectCommit(CommitGraphGenerator.workingChangesID)
+    #expect(!model.showsCommitDiff)
     try await finishLoading()
     #expect(model.selectedTab == .editor)
 }

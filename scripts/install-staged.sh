@@ -19,6 +19,15 @@ restore() {
 }
 trap restore EXIT
 
+# Retired login services can respawn after pkill and compete for the shortcut/engine socket.
+for identifier in dev.mxcl.git-sync.menu dev.mxcl.git-sync.menu-helper; do
+  service="gui/$(id -u)/$identifier"
+  if launchctl print "$service" >/dev/null 2>&1; then
+    launchctl disable "$service"
+    launchctl bootout "$service" || true
+  fi
+done
+
 # Login items can appear under their bundle identifier instead of the executable name.
 # Keep sessiond running so terminal sessions survive deployment.
 processes='GitinuumApp|PortalTerminalApp|gitinuumd|GitSync|git-sync|GitSyncMenuBar|dev[.]mxcl[.]git-sync[.]menu(-helper)?|dev[.]mxcl[.]portal[.]menu-helper'

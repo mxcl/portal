@@ -26,10 +26,18 @@ private struct MenuBarIcon: View {
     let isPaused: Bool
     let hasUnreadNotifications: Bool
 
+    private static let sessionIcon: NSImage = {
+        guard let url = Bundle.main.url(forResource: "session-icon", withExtension: "png"),
+              let image = NSImage(contentsOf: url) else {
+            return NSImage(systemSymbolName: "terminal", accessibilityDescription: "Portal")!
+        }
+        return image
+    }()
+
     var body: some View {
         // MenuBarExtra extracts an image from its label, so bake the colored badge into it.
         let renderer = ImageRenderer(content:
-            Image("session-icon")
+            Image(nsImage: Self.sessionIcon)
                 .renderingMode(.template)
                 .resizable()
                 .scaledToFit()

@@ -204,3 +204,16 @@ func mergedBranchCleanupPreference() async throws {
     }
     #expect(!FileManager.default.fileExists(atPath: support.path))
 }
+
+@Test("daemon backup progress survives log prefixes and split pipe reads")
+@MainActor
+func daemonBackupProgress() {
+    let model = EngineModel(executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+        configuration: AppConfiguration(root: "", machine: "test"),
+        support: FileManager.default.temporaryDirectory)
+    model.appendLogs(Data("[portald] backup transferring: project\n[portald] backup cur".utf8), host: "Backup on Mac")
+    #expect(model.backupTransferring["project"] == true)
+    model.appendLogs(Data("rent: project\n".utf8), host: "Backup on Mac")
+    #expect(model.backupTransferring["project"] == false)
+    #expect(model.logs.last == "Backup on Mac: backup current: project")
+}

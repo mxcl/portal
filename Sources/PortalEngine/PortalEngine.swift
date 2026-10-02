@@ -745,14 +745,14 @@ public final class EngineModel: ObservableObject {
 
     private var logBuffers: [String: Data] = [:]
 
-    private func appendLogs(_ data: Data, host: String) {
+    func appendLogs(_ data: Data, host: String) {
         logBuffers[host, default: Data()].append(data)
         guard let boundary = logBuffers[host]?.lastIndex(of: 10) else { return }
         let complete = logBuffers[host]!.prefix(through: boundary)
         logBuffers[host] = Data(logBuffers[host]!.dropFirst(boundary + 1))
         String(decoding: complete, as: UTF8.self)
             .split(whereSeparator: \.isNewline)
-            .map { $0.hasPrefix("[portald] ") ? $0.dropFirst(12) : $0[...] }
+            .map { $0.hasPrefix("[portald] ") ? $0.dropFirst("[portald] ".count) : $0[...] }
             .forEach { line in
                 if host.hasPrefix("Backup on ") { recordBackupProgress(String(line)) }
                 appendLog(line.contains(" → ") || line.contains(" ← ") ? String(line) : "\(host): \(line)")

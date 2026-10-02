@@ -92,9 +92,15 @@ cp "$app/Contents/Helpers/portal-session-bridge" "$terminal/Contents/Helpers/"
 cp -R "$app/Contents/Resources/portal_PortalTerminal.bundle" "$terminal/Contents/Resources/"
 cp -R "$app/Contents/Resources/completions" "$terminal/Contents/Resources/"
 cp "$repo_dir/app/session-icon.png" "$terminal/Contents/Resources/session-icon.png"
-for icon in AppIcon.icns Assets.car; do
-  cp "$app/Contents/Resources/$icon" "$terminal/Contents/Resources/$icon"
-done
+xcrun actool "$repo_dir/app/terminal/AppIcon.icon" \
+  --compile "$terminal/Contents/Resources" \
+  --platform macosx \
+  --target-device mac \
+  --minimum-deployment-target 26.0 \
+  --app-icon AppIcon \
+  --include-all-app-icons \
+  --enable-on-demand-resources NO \
+  --output-partial-info-plist "$stage/TerminalIconInfo.plist" >/dev/null
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$terminal"
 
 if ! security find-identity -v -p codesigning | grep -Fq "\"$signing_identity\""; then

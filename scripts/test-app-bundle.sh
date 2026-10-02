@@ -44,7 +44,11 @@ test -x "$terminal/Contents/MacOS/PortalTerminalApp"
 test -x "$terminal/Contents/Helpers/Portal Session Helper.app/Contents/MacOS/portal-sessiond"
 test -f "$terminal/Contents/Resources/completions/fig/build/git.js"
 for icon in AppIcon.icns Assets.car; do
-  cmp "$app/Contents/Resources/$icon" "$terminal/Contents/Resources/$icon"
+  test -s "$terminal/Contents/Resources/$icon"
+  if cmp -s "$app/Contents/Resources/$icon" "$terminal/Contents/Resources/$icon"; then
+    echo "Portal Terminal must retain its separate terminal icon: $icon" >&2
+    exit 1
+  fi
 done
 plutil -extract CFBundleDocumentTypes json -o - "$terminal/Contents/Info.plist" | grep -q com.apple.terminal.shell-script
 if plutil -extract CFBundleDocumentTypes json -o - "$app/Contents/Info.plist" >/dev/null 2>&1; then

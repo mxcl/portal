@@ -139,6 +139,7 @@ public enum Runner {
                                                root: configuration.remoteRoot, displayName: configuration.remoteDisplayName)
                     },
                     isInitiator: true,
+                    tracksBackup: isBackup,
                     syncCheckouts: configuration.syncCheckouts == true,
                     logger: logger
                 )
@@ -436,7 +437,8 @@ public enum OneShot {
     public static func sync(sourceRoot: URL, destinationRoot: URL, machine: String, stateURL: URL,
                             full: Bool = false, bareDestination: Bool = false,
                             syncCheckouts: Bool = false,
-                            repositoryObserver: ((String) -> Void)? = nil) throws -> [String] {
+                            repositoryObserver: ((String) -> Void)? = nil,
+                            backupProgress: ((String, Bool) -> Void)? = nil) throws -> [String] {
         try Validator.machine(machine)
         let state = try StateStore(url: stateURL)
         let sources = try Repository.discover(in: sourceRoot)
@@ -447,6 +449,7 @@ public enum OneShot {
             var known = Set(try destination.knownOIDs())
             let updates = try state.updates(machine: machine, repository: source.name,
                                             refs: source.sourceRefs(), full: full)
+            if !updates.isEmpty { backupProgress?(source.name, true) }
             let cleanCheckout = syncCheckouts && !updates.isEmpty ? source.cleanCheckoutRef() : nil
             for stored in updates {
                 let update = RefUpdate(repository: stored.repository, sourceRef: stored.sourceRef,
@@ -461,6 +464,7 @@ public enum OneShot {
                     syncCheckout: syncCheckouts && update.cleanCheckout == true
                 )
             }
+            backupProgress?(source.name, false)
         }
         return sources.map(\.name)
     }

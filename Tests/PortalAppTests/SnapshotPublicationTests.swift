@@ -26,3 +26,22 @@ func unchangedSnapshotIsSilent() {
     #expect(model.github.status == "Changed")
     withExtendedLifetime(observation) {}
 }
+
+@Test("toolbar backup status follows project transfer state and pause")
+@MainActor
+func backupToolbarProgress() {
+    let model = AppModel(connectToHelper: false)
+    #expect(model.backupToolbarStatus == "Backup not configured")
+    model.configuration.backupDestination = BackupDestinationConfiguration(root: "/tmp/backups")
+    model.isRunning = true
+    model.selectProject("project")
+    #expect(model.backupToolbarStatus == "Checking backup…")
+    model.backupTransferring["project"] = true
+    #expect(model.backupToolbarStatus == "Transferring backup objects…")
+    model.backupTransferring["project"] = false
+    #expect(model.backupToolbarStatus == "Backup up to date")
+    model.isPaused = true
+    #expect(model.backupToolbarStatus == "Backup paused")
+    model.backupError = "Disconnected"
+    #expect(model.backupToolbarStatus == "Backup unavailable")
+}

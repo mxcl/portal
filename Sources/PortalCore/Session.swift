@@ -10,6 +10,7 @@ public final class SyncSession {
     private let logger: (String) -> Void
     private let catalogObserver: ((String, [String]) throws -> Void)?
     private let repositoryObserver: ((String) -> Void)?
+    private let tracksBackup: Bool
     private let isInitiator: Bool
     private let receiveOnly: Bool
     private let syncCheckouts: Bool
@@ -21,6 +22,7 @@ public final class SyncSession {
     private var needsFullSync = Set<String>()
     private var repositories: [String: Repository] = [:]
     private var configuredRemotes = Set<String>()
+    private var pendingBackupUpdates: [String: Int] = [:]
     private var stopped = false
 
     public init(root: URL, machine: String, input: FileHandle, output: FileHandle,
@@ -28,6 +30,7 @@ public final class SyncSession {
                 peerRepositoryLocation: PeerRepositoryLocation? = nil,
                 isInitiator: Bool = false,
                 receiveOnly: Bool = false,
+                tracksBackup: Bool = false,
                 syncCheckouts: Bool = false,
                 catalogObserver: ((String, [String]) throws -> Void)? = nil,
                 repositoryObserver: ((String) -> Void)? = nil,
@@ -41,6 +44,7 @@ public final class SyncSession {
         self.peerRepositoryLocation = peerRepositoryLocation
         connection = FramedConnection(input: input, output: output)
         state = try StateStore(url: stateURL)
+        self.tracksBackup = tracksBackup
         self.isInitiator = isInitiator
         self.receiveOnly = receiveOnly
         self.syncCheckouts = syncCheckouts
@@ -157,6 +161,16 @@ public final class SyncSession {
                 try receive(update, pack: pack)
             case "ack":
                 _ = try currentPeer()
+                if let name = message.repository {
+                    try Validator.project(name)
+                    if let oid = message.oid { try Validator.oid(oid) }
+                    lock.lock()
+                    if let pending = pendingBackupUpdates[name], pending > 0 {
+                        pendingBackupUpdates[name] = pending - 1
+                        if pending == 1 { logger("backup current: \(name)") }
+                    }
+                    lock.unlock()
+                }
                 if let name = message.repository, let oid = message.oid {
                     try Validator.project(name); try Validator.oid(oid)
                     lock.lock(); peerKnown[name, default: []].insert(oid); lock.unlock()
@@ -236,6 +250,12 @@ public final class SyncSession {
         let stored = try state.updates(machine: machine, repository: repository.name,
                                         refs: repository.sourceRefs(), full: full)
             .filter { !excluded.contains($0.sourceRef) }
+        if tracksBackup {
+            lock.lock()
+            pendingBackupUpdates[repository.name, default: 0] += stored.count
+            logger("backup \(pendingBackupUpdates[repository.name] == 0 ? "current" : "transferring"): \(repository.name)")
+            lock.unlock()
+        }
         guard !stored.isEmpty else { return [] }
         let cleanCheckout = syncCheckouts ? repository.cleanCheckoutRef() : nil
         let updates = stored.map {

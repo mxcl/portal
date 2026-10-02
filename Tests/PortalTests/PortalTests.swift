@@ -1340,9 +1340,15 @@ func framedSessionReceiveOnly() throws {
     let index = try BackupIndex(url: fixture.root.appendingPathComponent("inventory.json"))
     _ = try index.items(in: fixture.b)
     let aToB = Pipe(), bToA = Pipe()
+    let transferring = DispatchSemaphore(value: 0)
+    let current = DispatchSemaphore(value: 0)
     let source = try SyncSession(root: fixture.a, machine: "A",
                                  input: bToA.fileHandleForReading, output: aToB.fileHandleForWriting,
-                                 stateURL: fixture.root.appendingPathComponent("backup-source"))
+                                 stateURL: fixture.root.appendingPathComponent("backup-source"),
+                                 tracksBackup: true, logger: { line in
+                                     if line == "backup transferring: project" { transferring.signal() }
+                                     if line == "backup current: project" { current.signal() }
+                                 })
     let catalogLock = NSLock()
     var receivedCatalog: [String]?
     let backup = try SyncSession(root: fixture.b, machine: "B",
@@ -1366,6 +1372,8 @@ func framedSessionReceiveOnly() throws {
         received = try? git(["-C", backupRepository.path, "rev-parse", "refs/remotes/a/main"])
         if received != expected { Thread.sleep(forTimeInterval: 0.05) }
     }
+    #expect(transferring.wait(timeout: .now() + 5) == .success)
+    #expect(current.wait(timeout: .now() + 5) == .success)
     #expect(received == expected)
     // Wait for the observer following publication, without forcing a disk scan.
     while Date() < deadline,
@@ -1595,4 +1603,22 @@ func localBackupInventoryUpdates() throws {
                      repositoryObserver: { index.invalidate($0, in: fixture.b) })
     #expect(try index.items(in: fixture.b).first?.snapshots.first?.branches == ["main"])
 }
+}
+
+@Test("backup progress becomes current only after copying objects and refs")
+func backupTransferProgress() throws {
+    let fixture = try Fixture()
+    var progress: [Bool] = []
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
+                     machine: "A", stateURL: fixture.state,
+                     backupProgress: { name, transferring in
+                         #expect(name == "project")
+                         progress.append(transferring)
+                     })
+    #expect(progress == [true, false])
+    progress.removeAll()
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
+                     machine: "A", stateURL: fixture.state,
+                     backupProgress: { _, transferring in progress.append(transferring) })
+    #expect(progress == [false])
 }

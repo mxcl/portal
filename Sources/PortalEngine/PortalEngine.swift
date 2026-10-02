@@ -56,6 +56,7 @@ public struct EngineSnapshot: Codable, Equatable, Sendable {
     public let isPaused: Bool
     public var logs: [String]
     public let backupItems: [BackupItem]
+    public var backupTransferring: [String: Bool]? = nil
     public let backupError: String?
     public let restoringBackup: String?
     public let placementInProgress: String?
@@ -105,6 +106,7 @@ public final class EngineModel: ObservableObject {
     @Published public private(set) var isPaused = false
     @Published public private(set) var logs: [String] = []
     @Published public private(set) var backupItems: [BackupItem] = []
+    @Published public private(set) var backupTransferring: [String: Bool] = [:]
     @Published public private(set) var backupError: String?
     @Published public private(set) var restoringBackup: String?
     @Published public private(set) var placementInProgress: String?
@@ -199,7 +201,7 @@ public final class EngineModel: ObservableObject {
                        mergedBranchCleanupEnabled: mergedBranchCleanupEnabled,
                        status: status, error: error ?? globalShortcutError ?? projectObservationErrors.sorted(by: { $0.key < $1.key }).first?.value,
                        isChecking: isChecking, isRunning: isRunning, isPaused: isPaused,
-                       logs: logs, backupItems: backupItems, backupError: backupError,
+                       logs: logs, backupItems: backupItems, backupTransferring: backupTransferring, backupError: backupError,
                        restoringBackup: restoringBackup, placementInProgress: placementInProgress,
                        localProjects: localProjects, remoteProjects: remoteProjects, observedProjects: observedProjects,
                        projectObservationErrors: projectObservationErrors)
@@ -660,12 +662,13 @@ public final class EngineModel: ObservableObject {
                     ),
                     index: index, onCatalog: catalogChanged,
                     logger: { [weak self] message in
-                        Task { @MainActor [weak self] in self?.appendLog("Local backup: \(message)") }
+                        Task { @MainActor [weak self] in self?.recordBackupProgress(message); self?.appendLog("Local backup: \(message)") }
                     },
                     onStopped: { [weak self] id in
                         Task { @MainActor [weak self] in
                             guard let self, self.localBackup?.id == id else { return }
                             self.localBackup = nil
+                            self.backupTransferring.removeAll()
                             self.isRunning = !self.syncProcesses.isEmpty || self.backupReceiver != nil
                             if !self.isRunning { self.status = "Stopped" }
                         }
@@ -727,6 +730,7 @@ public final class EngineModel: ObservableObject {
                 guard let self, self.syncProcesses[id] === process else { return }
                 output.fileHandleForReading.readabilityHandler = nil
                 self.syncProcesses.removeValue(forKey: id)
+                if self.configuration.backup?.id == id { self.backupTransferring.removeAll() }
                 self.isRunning = !self.syncProcesses.isEmpty || self.backupReceiver != nil || self.localBackup != nil
                 if process.terminationStatus != 0 {
                     self.appendLog("\(name): portald exited with status \(process.terminationStatus)")
@@ -739,13 +743,29 @@ public final class EngineModel: ObservableObject {
         appendLog("Started \(name)")
     }
 
+    private var logBuffers: [String: Data] = [:]
+
     private func appendLogs(_ data: Data, host: String) {
-        String(decoding: data, as: UTF8.self)
+        logBuffers[host, default: Data()].append(data)
+        guard let boundary = logBuffers[host]?.lastIndex(of: 10) else { return }
+        let complete = logBuffers[host]!.prefix(through: boundary)
+        logBuffers[host] = Data(logBuffers[host]!.dropFirst(boundary + 1))
+        String(decoding: complete, as: UTF8.self)
             .split(whereSeparator: \.isNewline)
             .map { $0.hasPrefix("[portald] ") ? $0.dropFirst(12) : $0[...] }
             .forEach { line in
+                if host.hasPrefix("Backup on ") { recordBackupProgress(String(line)) }
                 appendLog(line.contains(" → ") || line.contains(" ← ") ? String(line) : "\(host): \(line)")
             }
+    }
+
+    private func recordBackupProgress(_ line: String) {
+        for (prefix, transferring) in [("backup transferring: ", true), ("backup current: ", false)] {
+            if line.hasPrefix(prefix) { backupTransferring[String(line.dropFirst(prefix.count))] = transferring }
+        }
+        if line.hasPrefix("reconnecting after:") || line.hasPrefix("retrying after:") {
+            backupTransferring.removeAll()
+        }
     }
 
     private func appendLog(_ line: String) {
@@ -754,6 +774,8 @@ public final class EngineModel: ObservableObject {
     }
 
     private func stopProcesses() {
+        backupTransferring.removeAll()
+        logBuffers.removeAll()
         localBackup?.stop()
         localBackup = nil
         backupReceiver?.stop()
@@ -1092,7 +1114,10 @@ private final class LocalBackup: @unchecked Sendable {
                     let repositories = try OneShot.sync(
                         sourceRoot: source, destinationRoot: destination,
                         machine: machine, stateURL: stateURL, full: full, bareDestination: true,
-                        repositoryObserver: { [index, destination] name in index.invalidate(name, in: destination) }
+                        repositoryObserver: { [index, destination] name in index.invalidate(name, in: destination) },
+                        backupProgress: { [logger] name, transferring in
+                            logger("backup \(transferring ? "transferring" : "current"): \(name)")
+                        }
                     )
                     full = false
                     try index.replaceCatalog(machine: machine, repositories: repositories)

@@ -179,6 +179,7 @@ final class AppModel: ObservableObject {
     @Published var isRunning = false
     @Published var isPaused = false
     @Published var backupItems: [BackupItem] = []
+    @Published var backupTransferring: [String: Bool] = [:]
     @Published var backupError: String?
     @Published var deletingBackup: String?
     @Published var restoringBackup: String?
@@ -313,6 +314,17 @@ final class AppModel: ObservableObject {
     var archivedProjects: [BackupItem] {
         backupItems.filter { $0.status == .archived }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    var backupToolbarStatus: String {
+        guard configuration.backup != nil || configuration.backupDestination != nil else { return "Backup not configured" }
+        if backupError != nil || helperError != nil || error != nil { return "Backup unavailable" }
+        if isPaused { return "Backup paused" }
+        guard isRunning else { return "Backup stopped" }
+        guard let project = selectedProjectName, let transferring = backupTransferring[project] else {
+            return "Checking backup…"
+        }
+        return transferring ? "Transferring backup objects…" : "Backup up to date"
     }
 
     func backupStatus(for project: String) -> (title: String, symbol: String, detail: String) {
@@ -653,6 +665,7 @@ final class AppModel: ObservableObject {
         if isRunning != snapshot.isRunning { isRunning = snapshot.isRunning }
         if isPaused != snapshot.isPaused { isPaused = snapshot.isPaused }
         if backupItems != snapshot.backupItems { backupItems = snapshot.backupItems }
+        if backupTransferring != (snapshot.backupTransferring ?? [:]) { backupTransferring = snapshot.backupTransferring ?? [:] }
         if backupError != snapshot.backupError { backupError = snapshot.backupError }
         if restoringBackup != snapshot.restoringBackup { restoringBackup = snapshot.restoringBackup }
         if placementInProgress != (pendingPlacement ?? snapshot.placementInProgress) { placementInProgress = pendingPlacement ?? snapshot.placementInProgress }
@@ -1701,24 +1714,14 @@ struct ProjectBrowserView: View {
         }
     }
     @ToolbarContentBuilder private var projectToolbar: some ToolbarContent {
-        if let source = model.projectSource, source != .local {
-            ToolbarItem {
-                Picker("Git tree source", selection: Binding(
-                    get: { source }, set: model.selectProjectSource
-                )) {
-                    ForEach(model.projectSources) { option in
-                        Label(model.projectSourceLabel(option),
-                              systemImage: model.projectSourceSymbol(option)).tag(option)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .disabled(model.projectSources.count < 2)
-                .accessibilityLabel("Git tree source")
-                .help("Git tree source: \(model.projectSourceLabel(source))")
-            }
-            ToolbarSpacer(.fixed)
+        ToolbarItem {
+            Text(model.backupToolbarStatus)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .help("Backup status for this project")
         }
+        .sharedBackgroundVisibility(.hidden)
     }
 }
 

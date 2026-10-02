@@ -46,18 +46,6 @@ struct PortalApp: App {
             PaletteCommands()
             EditorCommands(editor: model.editor)
             TerminalCommands(workspace: model.terminals, enabled: !model.showsCommitDiff && model.selectedTab != .editor && model.projectTerminalSources.contains(model.selectedProjectHostSource), hosts: model.terminalHosts)
-            CommandGroup(after: .appSettings) {
-                Button("Install Command Line Tool…") {
-                    guard let script = Bundle.main.url(forResource: "install-portal", withExtension: "command"),
-                          NSWorkspace.shared.open(script) else {
-                        let alert = NSAlert()
-                        alert.messageText = "Could not open the command line installer"
-                        alert.informativeText = "Reinstall Portal and try again."
-                        alert.runModal()
-                        return
-                    }
-                }
-            }
             CommandGroup(after: .toolbar) {
                 Toggle("Show Auxiliary History", isOn: $model.showAuxiliaryHistory)
                 Divider()
@@ -2665,6 +2653,18 @@ struct SettingsView: View {
                     ))
                     Text("Off by default. When enabled, only matching branches with clean working trees are advanced.")
                         .foregroundStyle(.secondary)
+                }
+                Section("Command Line") {
+                    Button("Install Command Line Tool…") {
+                        guard let script = Bundle.main.url(forResource: "install-portal", withExtension: "command"),
+                              NSWorkspace.shared.open(script) else {
+                            let alert = NSAlert()
+                            alert.messageText = "Could not open the command line installer"
+                            alert.informativeText = "Reinstall Portal and try again."
+                            alert.runModal()
+                            return
+                        }
+                    }
                 }
                 Section("Terminal") {
                     Button("Install Portal Terminal…") { TerminalApplication.install() }

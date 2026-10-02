@@ -80,7 +80,10 @@ enum TahoeGlassPalette {
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             ? .clear : NSColor(white: 0.97, alpha: 1)
     }
-    static let commandBackground = NSColor.textBackgroundColor
+    static let commandBackground = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? .windowBackgroundColor : .textBackgroundColor
+    }
     static var failedCommandBackground: NSColor {
         commandBackground.blended(withFraction: 0.08, of: .systemRed) ?? commandBackground
     }
@@ -747,7 +750,10 @@ final class TahoeGlassRootView: NSView {
     var onAppearanceChange: (() -> Void)?
     var onLayout: (() -> Void)?
     var usesPortalMaterials = false {
-        didSet { originalMaterialView.blendingMode = usesPortalMaterials ? .behindWindow : .withinWindow }
+        didSet {
+            originalMaterialView.blendingMode = usesPortalMaterials ? .behindWindow : .withinWindow
+            updateBackgroundBlurEffect()
+        }
     }
 
     var showsTopBar = true {
@@ -859,12 +865,18 @@ final class TahoeGlassRootView: NSView {
             ]
             topBarLayer.fillColor = TahoeGlassPalette.topBarTint.cgColor
             topBarSeparatorLayer.strokeColor = TahoeGlassPalette.hairline.cgColor
+            updateBackgroundBlurEffect()
             onAppearanceChange?()
         }
     }
 
     private func updateBackgroundBlurEffect() {
+        let matchesWindow = !usesPortalMaterials && effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            tintView.layer?.backgroundColor = (matchesWindow ? NSColor.windowBackgroundColor : TahoeGlassPalette.emptyBackground).cgColor
+        }
         originalTintLayer.isHidden = backgroundBlurEffect != .original
+        if matchesWindow { originalTintLayer.isHidden = true }
         switch backgroundBlurEffect {
         case .original:
             NSLayoutConstraint.deactivate(contentColumnMaterialConstraints)

@@ -68,6 +68,25 @@ struct TerminalIntegrationTests {
         #expect(material.material == .underWindowBackground)
     }
 
+    @Test @MainActor func embeddedDarkBackgroundMatchesWindow() {
+        let root = TahoeGlassRootView()
+        root.appearance = NSAppearance(named: .darkAqua)
+        for effect in BackgroundBlurEffect.allCases {
+            root.backgroundBlurEffect = effect
+            root.viewDidChangeEffectiveAppearance()
+            root.effectiveAppearance.performAsCurrentDrawingAppearance {
+                let expected = NSColor.windowBackgroundColor.cgColor
+                let tint = root.subviews.last!
+                #expect(tint.layer?.backgroundColor == expected)
+                #expect(tint.layer?.sublayers?.first?.isHidden == true)
+                #expect(TahoeGlassPalette.commandBackground.cgColor == expected)
+            }
+        }
+        root.usesPortalMaterials = true
+        root.backgroundBlurEffect = .original
+        #expect(root.subviews.last?.layer?.sublayers?.first?.isHidden == false)
+    }
+
     @Test @MainActor func standaloneCannotEnterTabSession() {
         let controller = TerminalViewController(standalone: true)
         controller.enterTabSession()

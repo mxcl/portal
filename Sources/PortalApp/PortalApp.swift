@@ -152,6 +152,8 @@ struct ProjectStaging: Identifiable {
     let host: String
     let snapshot: RepositorySnapshot
 
+    var checkouts: [ProjectStaging] = []
+
     var headOID: String? {
         snapshot.headOID ?? snapshot.head.flatMap { head in
             snapshot.references.first { $0.fullName == "refs/heads/\(head)" }?.oid
@@ -404,6 +406,7 @@ final class AppModel: ObservableObject {
         } else {
             terminalSource = current.flatMap { sources.contains($0) ? $0 : nil } ?? first
         }
+        if let terminalSource { selectProjectHost(terminalSource) }
         selectedTab = .terminal
     }
 
@@ -424,7 +427,7 @@ final class AppModel: ObservableObject {
             : (!projectTerminalSources.isEmpty ? [.info, .diff, .terminal] : [.info, .diff])
     }
 
-    var stagingRows: [ProjectStaging] {
+    var stagingCheckouts: [ProjectStaging] {
         guard let snapshot = projectSnapshot, let source = projectSource else { return [] }
         var rows: [ProjectStaging] = []
         if snapshot.workingChanges != nil, showAuxiliaryHistory || snapshot.head != nil || snapshot.headOID == nil {
@@ -442,7 +445,33 @@ final class AppModel: ObservableObject {
         return rows
     }
 
-    var selectedStaging: ProjectStaging? { stagingRows.first { $0.id == selectedCommitID } }
+    var stagingRows: [ProjectStaging] {
+        var rows: [ProjectStaging] = []
+        for checkout in stagingCheckouts {
+            if let sha = checkout.headOID, let index = rows.firstIndex(where: { $0.headOID == sha }) {
+                rows[index].checkouts.append(checkout)
+            } else {
+                var row = checkout
+                row.checkouts = [checkout]
+                rows.append(row)
+            }
+        }
+        return rows
+    }
+
+    var selectedStaging: ProjectStaging? { stagingCheckouts.first { $0.id == selectedCommitID } }
+
+    var selectedStagingRowID: String? {
+        stagingRows.first { $0.checkouts.contains { $0.id == selectedCommitID } }?.id ?? selectedCommitID
+    }
+
+    func selectProjectHost(_ source: ProjectSource) {
+        terminalSource = source
+        if selectedStaging != nil, let checkout = stagingCheckouts.first(where: { $0.source == source }) {
+            selectCommit(checkout.id)
+        }
+        selectedTab = .terminal
+    }
 
     var isSelectedProjectArchived: Bool {
         archivedProjects.contains { $0.name == selectedProjectName }
@@ -459,7 +488,7 @@ final class AppModel: ObservableObject {
     func selectNextStaging() {
         let rows = stagingRows
         guard !rows.isEmpty else { return }
-        let next = selectedCommitID.flatMap { id in rows.firstIndex { $0.id == id } }
+        let next = selectedCommitID.flatMap { id in rows.firstIndex { $0.checkouts.contains { $0.id == id } } }
             .map { ($0 + 1) % rows.count } ?? 0
         selectCommit(rows[next].id)
     }
@@ -826,7 +855,7 @@ final class AppModel: ObservableObject {
                         selectedTab = .terminal
                     } else if let oid = selectedCommitID {
                         if CommitGraphGenerator.isStaging(oid) {
-                            selectCommit(stagingRows.contains { $0.id == oid } ? oid : nil)
+                            selectCommit(stagingCheckouts.contains { $0.id == oid } ? oid : nil)
                         } else if selectedCommitDiff == nil {
                             selectCommit(oid)
                         }
@@ -863,8 +892,10 @@ final class AppModel: ObservableObject {
     }
 
     func selectCommit(_ oid: String?) {
+        let row = stagingRows.first { $0.id == oid }
+        let oid = row?.checkouts.first { $0.source == terminalSource }?.id ?? oid
         if selectedCommitID != oid { paletteNavigation = UUID() }
-        let staging = stagingRows.first { $0.id == oid }
+        let staging = stagingCheckouts.first { $0.id == oid }
         if selectedCommitID != oid {
             paletteCommit = nil
             selectedTab = staging != nil
@@ -872,6 +903,7 @@ final class AppModel: ObservableObject {
                 : (oid == nil ? .info : .diff)
         }
         if let staging, selectedCommitID != oid {
+            terminalSource = staging.source
             let changes = staging.snapshot.workingChanges
             workingDiffStaged = changes?.unstaged == 0 && changes?.untracked == 0 && changes?.conflicted == 0
         }
@@ -1900,7 +1932,7 @@ private struct ProjectHistoryView: View {
                                model.peerStagingErrors[host.id].map { (id: host.id, host: host.name, message: $0) }
                            }, hosts: model.configuration.hosts, localMachine: model.configuration.machine,
                            sourceMachine: model.projectSourceMachine, selection: Binding(
-                    get: { model.selectedCommitID }, set: model.selectCommit
+                    get: { model.selectedStagingRowID }, set: model.selectCommit
                 ))
                 .focused($isFocused)
             } else {
@@ -1998,24 +2030,36 @@ private struct CommitList: View {
 
     @ViewBuilder private func stagingRow(_ checkout: ProjectStaging, at index: Int) -> some View {
         if let changes = checkout.snapshot.workingChanges {
-            let status = changes.isEmpty ? "Clean" : changes.summary
+            let files = checkout.checkouts.flatMap { $0.snapshot.workingChanges?.files ?? [] }
+            let additions = files.reduce(0) { $0 + ($1.additions ?? 0) }
+            let deletions = files.reduce(0) { $0 + ($1.deletions ?? 0) }
+            let hosts = checkout.checkouts.map(\.host).joined(separator: ", ")
+            let status = checkout.checkouts.map { item in
+                let changes = item.snapshot.workingChanges
+                return "\(item.host): \(changes?.isEmpty == true ? "Clean" : changes?.summary ?? "Unavailable")"
+            }.joined(separator: "\n")
             HStack(alignment: .top, spacing: 8) {
                 BranchGraphRowCanvas(model: graph, rowIndex: index, commitOID: checkout.id, hoveredLabel: $hoveredLabel)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .firstTextBaseline) {
                         Text("Staging").fixedSize()
-                        Text(checkout.host).font(.caption).foregroundStyle(.secondary)
-                        if !changes.isEmpty {
+                        Text(hosts).font(.caption).foregroundStyle(.secondary)
+                        if checkout.checkouts.count > 1 {
+                            HStack(spacing: 4) {
+                                Text("+\(additions)").foregroundStyle(.green)
+                                Text("−\(deletions)").foregroundStyle(.red)
+                            }.font(.caption.monospacedDigit()).fixedSize()
+                        } else if !changes.isEmpty {
                             Text(changes.summary).font(.caption2).foregroundStyle(.secondary)
                         }
                     }.lineLimit(1)
-                    Text(stagingPaths(changes))
+                    Text(checkout.checkouts.count == 1 ? stagingPaths(changes) : AttributedString(files.isEmpty ? "Clean" : files.map(\.path).joined(separator: ", ")))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
-            .help(([checkout.host, status] + (changes.files ?? []).map { file in
+            .help(([status] + files.map { file in
                 file.path + (file.additions.map { " +\($0)" } ?? "")
                     + (file.deletions.map { " −\($0)" } ?? "")
             }).joined(separator: "\n"))
@@ -2293,8 +2337,7 @@ private struct HostTabs: NSViewRepresentable {
 
         @objc func selectHost(_ control: NSSegmentedControl) {
             guard sources.indices.contains(control.selectedSegment) else { return }
-            model.terminalSource = sources[control.selectedSegment]
-            model.selectedTab = .terminal
+            model.selectProjectHost(sources[control.selectedSegment])
         }
     }
 }

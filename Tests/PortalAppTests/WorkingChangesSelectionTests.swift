@@ -300,3 +300,45 @@ func projectSelectionOpensStagingTerminal() async throws {
     #expect(model.selectedCommitID == CommitGraphGenerator.workingChangesID)
     #expect(model.selectedTab == .editor)
 }
+
+@Test("Staging groups only matching SHAs and host tabs follow grouped and diverged checkouts")
+@MainActor
+func groupedStagingSelection() async throws {
+    let host = SyncHost(machine: "peer", peer: "", root: "/remote")
+    let model = AppModel(connectToHelper: false)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    _ = try Git.run(["init", "-q", root.appendingPathComponent("project").path])
+    model.configuration = AppConfiguration(root: root.path, machine: "local", hosts: [host],
+        folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)])
+    model.localProjects = ["project": PeerProject(name: "project", placement: .checkedOut)]
+    model.selectedProjectName = "project"
+    model.refreshProject()
+    let deadline = Date().addingTimeInterval(10)
+    while model.isLoadingProject && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+    try #require(!model.isLoadingProject && model.projectError == nil)
+    model.selectedProjectName = nil
+    func snapshot(_ sha: String?) -> RepositorySnapshot {
+        RepositorySnapshot(commits: [], references: [], head: "main", branches: ["main"],
+            headOID: sha, workingChanges: RepositoryWorkingChanges(porcelain: Data(" M file\0".utf8)))
+    }
+    model.projectSnapshot = snapshot("same")
+    model.peerSnapshots[host.id] = snapshot("same")
+    let row = try #require(model.stagingRows.first)
+    #expect(model.stagingRows.count == 1)
+    #expect(row.checkouts.map(\.source) == [.local, .host(host.id)])
+    model.selectCommit(row.id)
+    model.selectProjectHost(.host(host.id))
+    #expect(model.selectedStaging?.source == .host(host.id))
+    #expect(model.selectedStagingRowID == row.id)
+    #expect(model.selectedTab == .terminal)
+    model.peerSnapshots[host.id] = snapshot("different")
+    #expect(model.stagingRows.count == 2)
+    #expect(model.selectedStagingRowID == model.stagingRows.last?.id)
+    model.selectProjectHost(.local)
+    #expect(model.selectedStaging?.source == .local)
+    #expect(model.selectedStagingRowID == row.id)
+    model.projectSnapshot = snapshot(nil)
+    model.peerSnapshots[host.id] = snapshot(nil)
+    #expect(model.stagingRows.count == 2)
+}

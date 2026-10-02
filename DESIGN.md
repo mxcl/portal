@@ -707,3 +707,17 @@ renaming them in place and retaining forwarding symlinks for saved paths and old
 peers. Existing Portal state causes installation to fail rather than merge stores.
 Source epochs, ordering metadata, and session histories are retained unchanged.
 GitHub credentials use the Keychain service `dev.mxcl.portal.github`.
+
+### Backup progress reporting
+
+Backup status uses typed `BackupProgress` callbacks within the process and a
+versioned, length-framed JSON stream on `portald run --backup-progress-version 1`
+stdout between the local helper and engine. Stderr remains diagnostic only.
+Unsupported progress versions are rejected. Each event identifies a project and
+reports transferring or current; a connection failure clears prior progress.
+Current means all outstanding ref updates have been acknowledged, including
+ref deletions. Local backups report current after objects and refs are installed.
+Progress is transient and scoped to the running helper; restarted or replaced
+helpers cannot update the new helper's state. This reporting channel does not
+change peer protocol, persistent ordering, or the per-ref atomicity and eventual
+consistency contract.

@@ -1345,9 +1345,9 @@ func framedSessionReceiveOnly() throws {
     let source = try SyncSession(root: fixture.a, machine: "A",
                                  input: bToA.fileHandleForReading, output: aToB.fileHandleForWriting,
                                  stateURL: fixture.root.appendingPathComponent("backup-source"),
-                                 tracksBackup: true, logger: { line in
-                                     if line == "backup transferring: project" { transferring.signal() }
-                                     if line == "backup current: project" { current.signal() }
+                                 backupProgress: { event in
+                                     if event.phase == .transferring { transferring.signal() }
+                                     if event.phase == .current { current.signal() }
                                  })
     let catalogLock = NSLock()
     var receivedCatalog: [String]?
@@ -1611,14 +1611,14 @@ func backupTransferProgress() throws {
     var progress: [Bool] = []
     try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
                      machine: "A", stateURL: fixture.state,
-                     backupProgress: { name, transferring in
-                         #expect(name == "project")
-                         progress.append(transferring)
+                     backupProgress: { event in
+                         #expect(event.project == "project")
+                         progress.append(event.phase == .transferring)
                      })
     #expect(progress == [true, false])
     progress.removeAll()
     try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b,
                      machine: "A", stateURL: fixture.state,
-                     backupProgress: { _, transferring in progress.append(transferring) })
+                     backupProgress: { event in progress.append(event.phase == .transferring) })
     #expect(progress == [false])
 }

@@ -205,15 +205,24 @@ func mergedBranchCleanupPreference() async throws {
     #expect(!FileManager.default.fileExists(atPath: support.path))
 }
 
-@Test("daemon backup progress survives log prefixes and split pipe reads")
+@Test("structured backup progress updates snapshots independently of diagnostic logs")
 @MainActor
-func daemonBackupProgress() {
+func daemonBackupProgress() throws {
     let model = EngineModel(executableURL: URL(fileURLWithPath: "/usr/bin/false"),
         configuration: AppConfiguration(root: "", machine: "test"),
         support: FileManager.default.temporaryDirectory)
-    model.appendLogs(Data("[portald] backup transferring: project\n[portald] backup cur".utf8), host: "Backup on Mac")
-    #expect(model.backupTransferring["project"] == true)
-    model.appendLogs(Data("rent: project\n".utf8), host: "Backup on Mac")
-    #expect(model.backupTransferring["project"] == false)
-    #expect(model.logs.last == "Backup on Mac: backup current: project")
+    let pipe = Pipe()
+    for phase in [BackupProgress.Phase.transferring, .current] {
+        try BackupControlConnection.send(BackupProgress(project: "project", phase: phase), to: pipe.fileHandleForWriting)
+        let event = try BackupControlConnection.receive(BackupProgress.self, from: pipe.fileHandleForReading).checked()
+        model.recordBackupProgress(event)
+        model.appendLogs(Data("[portald] arbitrary diagnostic text\n".utf8), host: "Backup on Mac")
+        #expect(model.snapshot().backupTransferring?["project"] == (phase == .transferring))
+    }
+    model.recordBackupProgress(BackupProgress(phase: .failed, failure: "Disconnected"))
+    #expect(model.snapshot().backupTransferring == [:])
+    #expect(model.snapshot().backupError == "Disconnected")
+    var incompatible = BackupProgress(project: "project", phase: .current)
+    incompatible.version = 0
+    #expect(throws: SyncError.self) { try incompatible.checked() }
 }

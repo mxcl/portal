@@ -106,6 +106,7 @@ public final class EngineModel: ObservableObject {
     @Published public private(set) var isPaused = false
     @Published public private(set) var logs: [String] = []
     @Published public private(set) var backupItems: [BackupItem] = []
+    private var backupProgressError: String?
     @Published public private(set) var backupTransferring: [String: Bool] = [:]
     @Published public private(set) var backupError: String?
     @Published public private(set) var restoringBackup: String?
@@ -201,7 +202,7 @@ public final class EngineModel: ObservableObject {
                        mergedBranchCleanupEnabled: mergedBranchCleanupEnabled,
                        status: status, error: error ?? globalShortcutError ?? projectObservationErrors.sorted(by: { $0.key < $1.key }).first?.value,
                        isChecking: isChecking, isRunning: isRunning, isPaused: isPaused,
-                       logs: logs, backupItems: backupItems, backupTransferring: backupTransferring, backupError: backupError,
+                       logs: logs, backupItems: backupItems, backupTransferring: backupTransferring, backupError: backupProgressError ?? backupError,
                        restoringBackup: restoringBackup, placementInProgress: placementInProgress,
                        localProjects: localProjects, remoteProjects: remoteProjects, observedProjects: observedProjects,
                        projectObservationErrors: projectObservationErrors)
@@ -661,8 +662,11 @@ public final class EngineModel: ObservableObject {
                         "backup-source-\(destinationConfiguration.id.uuidString).json"
                     ),
                     index: index, onCatalog: catalogChanged,
+                    progress: { [weak self] event in
+                        Task { @MainActor [weak self] in self?.recordBackupProgress(event) }
+                    },
                     logger: { [weak self] message in
-                        Task { @MainActor [weak self] in self?.recordBackupProgress(message); self?.appendLog("Local backup: \(message)") }
+                        Task { @MainActor [weak self] in self?.appendLog("Local backup: \(message)") }
                     },
                     onStopped: { [weak self] id in
                         Task { @MainActor [weak self] in
@@ -718,7 +722,11 @@ public final class EngineModel: ObservableObject {
         let process = Process(), output = Pipe()
         process.executableURL = helper
         process.arguments = ["run", "--config", connectionURL.path, "--state", stateURL.path]
-        process.standardOutput = FileHandle.nullDevice
+        let progress = configuration.remoteReceiveOnly == true ? Pipe() : nil
+        if let progress {
+            process.arguments! += ["--backup-progress-version", String(BackupProgress.version)]
+            process.standardOutput = progress
+        } else { process.standardOutput = FileHandle.nullDevice }
         process.standardError = output
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
@@ -730,7 +738,10 @@ public final class EngineModel: ObservableObject {
                 guard let self, self.syncProcesses[id] === process else { return }
                 output.fileHandleForReading.readabilityHandler = nil
                 self.syncProcesses.removeValue(forKey: id)
-                if self.configuration.backup?.id == id { self.backupTransferring.removeAll() }
+                if self.configuration.backup?.id == id {
+                    self.backupTransferring.removeAll()
+                    self.backupProgressError = "Backup helper stopped"
+                }
                 self.isRunning = !self.syncProcesses.isEmpty || self.backupReceiver != nil || self.localBackup != nil
                 if process.terminationStatus != 0 {
                     self.appendLog("\(name): portald exited with status \(process.terminationStatus)")
@@ -740,6 +751,26 @@ public final class EngineModel: ObservableObject {
         }
         try process.run()
         syncProcesses[id] = process
+        if let progress {
+            try? progress.fileHandleForWriting.close()
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                do {
+                    while true {
+                        let event = try BackupControlConnection.receive(BackupProgress.self,
+                            from: progress.fileHandleForReading).checked()
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, self.syncProcesses[id] === process else { return }
+                            self.recordBackupProgress(event)
+                        }
+                    }
+                } catch {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.syncProcesses[id] === process else { return }
+                        self.recordBackupProgress(BackupProgress(phase: .failed, failure: String(describing: error)))
+                    }
+                }
+            }
+        }
         appendLog("Started \(name)")
     }
 
@@ -754,17 +785,17 @@ public final class EngineModel: ObservableObject {
             .split(whereSeparator: \.isNewline)
             .map { $0.hasPrefix("[portald] ") ? $0.dropFirst("[portald] ".count) : $0[...] }
             .forEach { line in
-                if host.hasPrefix("Backup on ") { recordBackupProgress(String(line)) }
                 appendLog(line.contains(" → ") || line.contains(" ← ") ? String(line) : "\(host): \(line)")
             }
     }
 
-    private func recordBackupProgress(_ line: String) {
-        for (prefix, transferring) in [("backup transferring: ", true), ("backup current: ", false)] {
-            if line.hasPrefix(prefix) { backupTransferring[String(line.dropFirst(prefix.count))] = transferring }
-        }
-        if line.hasPrefix("reconnecting after:") || line.hasPrefix("retrying after:") {
+    func recordBackupProgress(_ event: BackupProgress) {
+        if event.phase == .failed {
             backupTransferring.removeAll()
+            backupProgressError = event.failure
+        } else if let project = event.project {
+            backupProgressError = nil
+            backupTransferring[project] = event.phase == .transferring
         }
     }
 
@@ -774,6 +805,7 @@ public final class EngineModel: ObservableObject {
     }
 
     private func stopProcesses() {
+        backupProgressError = nil
         backupTransferring.removeAll()
         logBuffers.removeAll()
         localBackup?.stop()
@@ -1076,6 +1108,7 @@ private final class LocalBackup: @unchecked Sendable {
     private let stateURL: URL
     private let index: BackupIndex
     private let onCatalog: () -> Void
+    private let progress: (BackupProgress) -> Void
     private let logger: (String) -> Void
     private let onStopped: (UUID) -> Void
     private let queue = DispatchQueue(label: "portal.local-backup")
@@ -1084,6 +1117,7 @@ private final class LocalBackup: @unchecked Sendable {
 
     init(source: URL, destination: URL, machine: String, stateURL: URL,
          index: BackupIndex, onCatalog: @escaping () -> Void,
+         progress: @escaping (BackupProgress) -> Void,
          logger: @escaping (String) -> Void, onStopped: @escaping (UUID) -> Void) {
         self.source = source
         self.destination = destination
@@ -1091,6 +1125,7 @@ private final class LocalBackup: @unchecked Sendable {
         self.stateURL = stateURL
         self.index = index
         self.onCatalog = onCatalog
+        self.progress = progress
         self.logger = logger
         self.onStopped = onStopped
     }
@@ -1115,9 +1150,7 @@ private final class LocalBackup: @unchecked Sendable {
                         sourceRoot: source, destinationRoot: destination,
                         machine: machine, stateURL: stateURL, full: full, bareDestination: true,
                         repositoryObserver: { [index, destination] name in index.invalidate(name, in: destination) },
-                        backupProgress: { [logger] name, transferring in
-                            logger("backup \(transferring ? "transferring" : "current"): \(name)")
-                        }
+                        backupProgress: progress
                     )
                     full = false
                     try index.replaceCatalog(machine: machine, repositories: repositories)
@@ -1127,7 +1160,10 @@ private final class LocalBackup: @unchecked Sendable {
                     while !isStopped, try !watcher.wait() {}
                 }
             } catch {
-                if !isStopped { logger("retrying after: \(error)") }
+                if !isStopped {
+                    progress(BackupProgress(phase: .failed, failure: String(describing: error)))
+                    logger("retrying after: \(error)")
+                }
                 for _ in 0..<5 where !isStopped { Thread.sleep(forTimeInterval: 1) }
             }
         }

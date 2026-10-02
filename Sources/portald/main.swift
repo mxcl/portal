@@ -77,7 +77,19 @@ do {
                 syncCheckouts: arguments.contains("--sync-checkouts")
             )
         }
-        try Runner.connect(configuration, stateURL: stateURL, logger: log)
+        let progress: ((BackupProgress) -> Void)?
+        if let version = value("--backup-progress-version", in: arguments) {
+            guard Int(version) == BackupProgress.version else {
+                throw SyncError.invalidProtocol("Unsupported backup progress version")
+            }
+            let lock = NSLock()
+            progress = { event in
+                lock.lock(); defer { lock.unlock() }
+                do { try BackupControlConnection.send(event, to: .standardOutput) }
+                catch { exit(74) }
+            }
+        } else { progress = nil }
+        try Runner.connect(configuration, stateURL: stateURL, backupProgress: progress, logger: log)
     case "daemon":
         guard arguments.contains("--stdio") else { throw SyncError.invalidConfiguration("daemon requires --stdio") }
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)

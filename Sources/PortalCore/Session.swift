@@ -10,7 +10,7 @@ public final class SyncSession {
     private let logger: (String) -> Void
     private let catalogObserver: ((String, [String]) throws -> Void)?
     private let repositoryObserver: ((String) -> Void)?
-    private let tracksBackup: Bool
+    private let backupProgress: ((BackupProgress) -> Void)?
     private let isInitiator: Bool
     private let receiveOnly: Bool
     private let syncCheckouts: Bool
@@ -30,7 +30,7 @@ public final class SyncSession {
                 peerRepositoryLocation: PeerRepositoryLocation? = nil,
                 isInitiator: Bool = false,
                 receiveOnly: Bool = false,
-                tracksBackup: Bool = false,
+                backupProgress: ((BackupProgress) -> Void)? = nil,
                 syncCheckouts: Bool = false,
                 catalogObserver: ((String, [String]) throws -> Void)? = nil,
                 repositoryObserver: ((String) -> Void)? = nil,
@@ -44,7 +44,7 @@ public final class SyncSession {
         self.peerRepositoryLocation = peerRepositoryLocation
         connection = FramedConnection(input: input, output: output)
         state = try StateStore(url: stateURL)
-        self.tracksBackup = tracksBackup
+        self.backupProgress = backupProgress
         self.isInitiator = isInitiator
         self.receiveOnly = receiveOnly
         self.syncCheckouts = syncCheckouts
@@ -167,7 +167,7 @@ public final class SyncSession {
                     lock.lock()
                     if let pending = pendingBackupUpdates[name], pending > 0 {
                         pendingBackupUpdates[name] = pending - 1
-                        if pending == 1 { logger("backup current: \(name)") }
+                        if pending == 1 { backupProgress?(BackupProgress(project: name, phase: .current)) }
                     }
                     lock.unlock()
                 }
@@ -250,10 +250,11 @@ public final class SyncSession {
         let stored = try state.updates(machine: machine, repository: repository.name,
                                         refs: repository.sourceRefs(), full: full)
             .filter { !excluded.contains($0.sourceRef) }
-        if tracksBackup {
+        if let backupProgress {
             lock.lock()
             pendingBackupUpdates[repository.name, default: 0] += stored.count
-            logger("backup \(pendingBackupUpdates[repository.name] == 0 ? "current" : "transferring"): \(repository.name)")
+            backupProgress(BackupProgress(project: repository.name,
+                phase: pendingBackupUpdates[repository.name] == 0 ? .current : .transferring))
             lock.unlock()
         }
         guard !stored.isEmpty else { return [] }

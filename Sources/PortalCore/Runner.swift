@@ -101,6 +101,7 @@ public enum Runner {
     }
 
     public static func connect(_ configuration: Configuration, stateURL: URL,
+                               backupProgress: ((BackupProgress) -> Void)? = nil,
                                logger: @escaping (String) -> Void = { _ in }) throws {
         try configuration.validate()
         while true {
@@ -139,12 +140,15 @@ public enum Runner {
                                                root: configuration.remoteRoot, displayName: configuration.remoteDisplayName)
                     },
                     isInitiator: true,
-                    tracksBackup: isBackup,
+                    backupProgress: isBackup ? backupProgress : nil,
                     syncCheckouts: configuration.syncCheckouts == true,
                     logger: logger
                 )
                 try session.run()
-            } catch { logger("reconnecting after: \(error)") }
+            } catch {
+                if isBackup { backupProgress?(BackupProgress(phase: .failed, failure: String(describing: error))) }
+                logger("reconnecting after: \(error)")
+            }
             if process.isRunning { process.terminate() }
             Thread.sleep(forTimeInterval: 2)
         }
@@ -438,7 +442,7 @@ public enum OneShot {
                             full: Bool = false, bareDestination: Bool = false,
                             syncCheckouts: Bool = false,
                             repositoryObserver: ((String) -> Void)? = nil,
-                            backupProgress: ((String, Bool) -> Void)? = nil) throws -> [String] {
+                            backupProgress: ((BackupProgress) -> Void)? = nil) throws -> [String] {
         try Validator.machine(machine)
         let state = try StateStore(url: stateURL)
         let sources = try Repository.discover(in: sourceRoot)
@@ -449,7 +453,7 @@ public enum OneShot {
             var known = Set(try destination.knownOIDs())
             let updates = try state.updates(machine: machine, repository: source.name,
                                             refs: source.sourceRefs(), full: full)
-            if !updates.isEmpty { backupProgress?(source.name, true) }
+            if !updates.isEmpty { backupProgress?(BackupProgress(project: source.name, phase: .transferring)) }
             let cleanCheckout = syncCheckouts && !updates.isEmpty ? source.cleanCheckoutRef() : nil
             for stored in updates {
                 let update = RefUpdate(repository: stored.repository, sourceRef: stored.sourceRef,
@@ -464,7 +468,7 @@ public enum OneShot {
                     syncCheckout: syncCheckouts && update.cleanCheckout == true
                 )
             }
-            backupProgress?(source.name, false)
+            backupProgress?(BackupProgress(project: source.name, phase: .current))
         }
         return sources.map(\.name)
     }

@@ -1641,7 +1641,10 @@ struct ProjectBrowserView: View {
                             .frame(width: max(0, hostPaneWidth - 24))
                             .overlay(alignment: .leading) {
                                 if model.selectedTab == .editor && model.canEditSelectedHost {
-                                    EditorSaveButton(editor: model.editor)
+                                    HStack {
+                                        EditorFilesButton(editor: model.editor)
+                                        EditorSaveButton(editor: model.editor)
+                                    }
                                 }
                             }
                             .overlay(alignment: .trailing) {
@@ -2173,8 +2176,8 @@ private struct CommitRow: View {
 
 struct CopyableCommitSHA: View {
     let sha: String
-    @State var isHovered = false
-    @State var isCopied = false
+    @State private var isHovered = false
+    @State private var isCopied = false
 
     var body: some View {
         Text(sha.prefix(8))
@@ -2373,12 +2376,8 @@ private struct HostControls: View {
             }
             if model.placement(of: project, on: hostID) == .checkedOut {
                 if model.selectedTab == .editor, model.canEditSelectedHost {
-                    HSplitView {
-                        ProjectFileBrowser(editor: model.editor)
-                            .frame(minWidth: 160, idealWidth: 200, maxWidth: 260)
-                        ProjectEditorView(editor: model.editor)
-                            .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
-                    }
+                    ProjectEditorView(editor: model.editor)
+                        .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
                 } else if let hostID, let host = model.terminalHosts.first(where: { $0.id == hostID.uuidString }) {
                     model.terminals.view(project: project, directory: URL(fileURLWithPath: host.directory).appendingPathComponent(project),
                                          hosts: model.terminalHosts, host: host)

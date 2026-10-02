@@ -172,6 +172,22 @@ final class ProjectEditor: ObservableObject {
     }
 }
 
+struct EditorFilesButton: View {
+    @ObservedObject var editor: ProjectEditor
+    @State private var isPresented = false
+
+    var body: some View {
+        Button("Files", systemImage: "folder") { isPresented.toggle() }
+            .help("Choose a file to edit")
+            .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+                ProjectFileBrowser(editor: editor)
+                    .frame(width: 320, height: 450)
+            }
+            .onChange(of: editor.path) { _, _ in isPresented = false }
+            .onChange(of: editor.repository) { _, _ in isPresented = false }
+    }
+}
+
 struct EditorSaveButton: View {
     @ObservedObject var editor: ProjectEditor
 

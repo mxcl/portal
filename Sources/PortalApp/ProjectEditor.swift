@@ -52,9 +52,15 @@ final class ProjectEditor: ObservableObject {
     @Published var error: String?
     @Published private(set) var isLoading = false
     @Published private(set) var revision = 0
+    private let defaults: UserDefaults
+    private var selectionKey: String? { repository.map { "editor-selected-file:\($0.standardizedFileURL.path)" } }
     private var document: RepositoryTextFile?
     private var loadID = UUID()
     private var refreshID = UUID()
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     var isDirty: Bool { document.map { !text.utf8.elementsEqual($0.text.utf8) } ?? false }
     var canEdit: Bool { document != nil }
@@ -88,6 +94,16 @@ final class ProjectEditor: ObservableObject {
                 nodes = FileNode.tree(files.map(\.path))
                 revision += 1
                 isLoading = false
+                if path == nil {
+                    let saved = selectionKey.flatMap { defaults.string(forKey: $0) }
+                    let candidates = [saved].compactMap { $0 } + ["README.md", "README", "README.markdown", "README.txt"]
+                    if let initial = candidates.first(where: { candidate in
+                        files.contains { $0.path == candidate }
+                            && FileManager.default.fileExists(atPath: repository.appendingPathComponent(candidate).path)
+                    }) {
+                        open(initial)
+                    }
+                }
             } catch {
                 guard refreshID == id else { return }
                 self.error = error.localizedDescription
@@ -112,6 +128,7 @@ final class ProjectEditor: ObservableObject {
                 guard loadID == id else { return }
                 self.document = document
                 text = document.text
+                if let selectionKey { defaults.set(path, forKey: selectionKey) }
             } catch {
                 guard loadID == id else { return }
                 self.error = error.localizedDescription

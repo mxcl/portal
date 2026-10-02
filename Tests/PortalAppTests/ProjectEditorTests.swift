@@ -233,6 +233,52 @@ func editorDraftLifecycle() async throws {
     #expect(editor.text == "draft\n")
     #expect(try String(contentsOf: url, encoding: .utf8) == "outside\n")
 }
+@Test("Editor opens README and restores each project's last file across editor sessions")
+@MainActor
+func editorRestoresSelection() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let suite = "editor-tests-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer {
+        defaults.removePersistentDomain(forName: suite)
+        try? FileManager.default.removeItem(at: root)
+    }
+    let projects = [root.appendingPathComponent("one"), root.appendingPathComponent("two")]
+    for project in projects {
+        _ = try Git.run(["init", "-q", project.path])
+        for file in ["README.md", "other.txt"] {
+            try Data(file.utf8).write(to: project.appendingPathComponent(file))
+        }
+    }
+    func loaded(_ editor: ProjectEditor, path: String) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while (editor.path != path || !editor.canEdit) && editor.error == nil && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(editor.path == path)
+        try #require(editor.canEdit)
+    }
+    let editor = ProjectEditor(defaults: defaults)
+    editor.connect(projects[0])
+    try await loaded(editor, path: "README.md")
+    editor.open("other.txt")
+    try await loaded(editor, path: "other.txt")
+    editor.connect(projects[1])
+    try await loaded(editor, path: "README.md")
+    let reopened = ProjectEditor(defaults: defaults)
+    reopened.connect(projects[0])
+    try await loaded(reopened, path: "other.txt")
+    reopened.connect(projects[1])
+    try await loaded(reopened, path: "README.md")
+    try FileManager.default.removeItem(at: projects[0].appendingPathComponent("other.txt"))
+    reopened.connect(projects[0])
+    try await loaded(reopened, path: "README.md")
+    // An explicit diff-file open must win over the pending initial selection.
+    reopened.connect(projects[1])
+    reopened.open("other.txt")
+    try await loaded(reopened, path: "other.txt")
+}
+
 @Test("Diff filenames open the working copy and preserve history selection", arguments: ["file.txt", "", "/dev/null"])
 @MainActor
 func editorOpensDiffFile(newPath: String) async throws {

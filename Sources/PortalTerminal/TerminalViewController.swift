@@ -82,10 +82,10 @@ enum TahoeGlassPalette {
     }
     static let commandBackground = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            ? .windowBackgroundColor : .textBackgroundColor
+            ? .clear : .textBackgroundColor
     }
     static var failedCommandBackground: NSColor {
-        commandBackground.blended(withFraction: 0.08, of: .systemRed) ?? commandBackground
+        NSColor.textBackgroundColor.blended(withFraction: 0.08, of: .systemRed) ?? .textBackgroundColor
     }
     static let hairline = NSColor.separatorColor
     static let titleTopHairline = NSColor.labelColor.withAlphaComponent(0.20)
@@ -873,8 +873,10 @@ final class TahoeGlassRootView: NSView {
     private func updateBackgroundBlurEffect() {
         let matchesWindow = !usesPortalMaterials && effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            tintView.layer?.backgroundColor = (matchesWindow ? NSColor.windowBackgroundColor : TahoeGlassPalette.emptyBackground).cgColor
+            tintView.layer?.backgroundColor = TahoeGlassPalette.emptyBackground.cgColor
         }
+        originalMaterialView.isHidden = matchesWindow
+        contentColumnMaterialView.isHidden = matchesWindow
         originalTintLayer.isHidden = backgroundBlurEffect != .original
         if matchesWindow { originalTintLayer.isHidden = true }
         switch backgroundBlurEffect {

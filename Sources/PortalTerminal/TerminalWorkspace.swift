@@ -94,6 +94,7 @@ public final class TerminalWorkspace: ObservableObject {
         GeometryReader { geometry in
             EmbeddedTerminal(workspace: self, project: project, directory: directory, hosts: hosts, host: host,
                              toolbarInset: geometry.safeAreaInsets.top)
+                .background(.background)
                 .ignoresSafeArea(.container, edges: .top)
         }
         .id((host?.id ?? "local") + directory.path)

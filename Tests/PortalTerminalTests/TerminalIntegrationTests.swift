@@ -68,18 +68,19 @@ struct TerminalIntegrationTests {
         #expect(material.material == .underWindowBackground)
     }
 
-    @Test @MainActor func embeddedDarkBackgroundMatchesWindow() {
+    @Test @MainActor func embeddedDarkBackgroundInheritsSwiftUISurface() {
         let root = TahoeGlassRootView()
         root.appearance = NSAppearance(named: .darkAqua)
         for effect in BackgroundBlurEffect.allCases {
             root.backgroundBlurEffect = effect
             root.viewDidChangeEffectiveAppearance()
             root.effectiveAppearance.performAsCurrentDrawingAppearance {
-                let expected = NSColor.windowBackgroundColor.cgColor
+                let expected = NSColor.clear.cgColor
                 let tint = root.subviews.last!
                 #expect(tint.layer?.backgroundColor == expected)
                 #expect(tint.layer?.sublayers?.first?.isHidden == true)
                 #expect(TahoeGlassPalette.commandBackground.cgColor == expected)
+                #expect(root.subviews.dropLast().allSatisfy { $0.isHidden })
             }
         }
         root.usesPortalMaterials = true
@@ -157,7 +158,8 @@ struct TerminalIntegrationTests {
         }
         #expect(colors[0].greenComponent < 0.5)
         #expect(colors[1].greenComponent > 0.9)
-        #expect(surfaces.allSatisfy { $0.alphaComponent == 1 })
+        #expect(surfaces[0].alphaComponent == 1)
+        #expect(surfaces[1].alphaComponent == 0)
         #expect(emptyBackgrounds[0].redComponent > 0.95)
         #expect(emptyBackgrounds[0].alphaComponent == 1)
         #expect(emptyBackgrounds[1].alphaComponent == 0)

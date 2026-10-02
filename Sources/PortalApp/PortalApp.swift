@@ -1841,16 +1841,16 @@ private struct ProjectRow: View {
                         .foregroundStyle(Color.secondary.opacity(0.5))
                         .accessibilityHidden(true)
                 }
+                if model.hasBranchDifferences(for: name) {
+                    Circle().fill(.orange).frame(width: 5, height: 5)
+                        .help("The default branch is ahead, behind, or diverged from another checked-out host or this Mac’s last known GitHub state.")
+                        .accessibilityHidden(true)
+                }
                 if let activity = terminals.projectActivities[name] {
                     Circle().fill(activity == .running ? Color.gray : Color.blue)
                         .frame(width: 5, height: 5)
                         .help(activity == .running ? "Terminal command running" : "Finished terminal with unviewed output")
                         .accessibilityLabel(activity == .running ? "Terminal command running" : "Unviewed terminal output")
-                }
-                if model.hasBranchDifferences(for: name) {
-                    Circle().fill(.orange).frame(width: 5, height: 5)
-                        .help("The default branch is ahead, behind, or diverged from another checked-out host or this Mac’s last known GitHub state.")
-                        .accessibilityHidden(true)
                 }
             }
             Spacer(minLength: 4)

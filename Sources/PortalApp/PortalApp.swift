@@ -2052,7 +2052,7 @@ private struct CommitList: View {
                     HStack(alignment: .firstTextBaseline) {
                         Text("Staging").fixedSize()
                         Text(hosts).font(.caption).foregroundStyle(.secondary)
-                        if checkout.checkouts.count > 1 {
+                        if checkout.checkouts.count > 1 && !files.isEmpty {
                             HStack(spacing: 4) {
                                 Text("+\(additions)").foregroundStyle(.green)
                                 Text("−\(deletions)").foregroundStyle(.red)

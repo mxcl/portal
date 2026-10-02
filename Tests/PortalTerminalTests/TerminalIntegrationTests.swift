@@ -25,6 +25,10 @@ struct TerminalIntegrationTests {
         #expect(await loads.count == 1)
     }
 
+    @Test @MainActor func projectActivityTracksRunningAndUnviewedTerminals() {
+        #expect(TerminalViewController.projectActivitySelfTest())
+    }
+
     @Test @MainActor func untouchedSessionsAreDiscardedWithoutReplacingThem() {
         #expect(TerminalViewController.untouchedSessionCleanupSelfTest())
     }

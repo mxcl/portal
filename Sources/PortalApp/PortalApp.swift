@@ -1826,6 +1826,14 @@ private struct ProjectRow: View {
     let name: String
     @ObservedObject var model: AppModel
 
+    @ObservedObject private var terminals: TerminalWorkspace
+
+    init(name: String, model: AppModel) {
+        self.name = name
+        self.model = model
+        self.terminals = model.terminals
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "folder")
@@ -1838,6 +1846,12 @@ private struct ProjectRow: View {
                         .font(.caption2.weight(.light))
                         .foregroundStyle(Color.secondary.opacity(0.5))
                         .accessibilityHidden(true)
+                }
+                if let activity = terminals.projectActivities[name] {
+                    Circle().fill(activity == .running ? Color.gray : Color.blue)
+                        .frame(width: 5, height: 5)
+                        .help(activity == .running ? "Terminal command running" : "Finished terminal with unviewed output")
+                        .accessibilityLabel(activity == .running ? "Terminal command running" : "Unviewed terminal output")
                 }
                 if model.hasBranchDifferences(for: name) {
                     Circle().fill(.orange).frame(width: 5, height: 5)
@@ -2366,10 +2380,10 @@ private struct HostControls: View {
                             .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } else if let hostID, let host = model.terminalHosts.first(where: { $0.id == hostID.uuidString }) {
-                    model.terminals.view(directory: URL(fileURLWithPath: host.directory).appendingPathComponent(project),
+                    model.terminals.view(project: project, directory: URL(fileURLWithPath: host.directory).appendingPathComponent(project),
                                          hosts: model.terminalHosts, host: host)
                 } else if hostID == nil, let directory = model.selectedLocalRepositoryURL {
-                    model.terminals.view(directory: directory, hosts: model.terminalHosts)
+                    model.terminals.view(project: project, directory: directory, hosts: model.terminalHosts)
                 }
             } else {
                 status

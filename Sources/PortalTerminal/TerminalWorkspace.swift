@@ -24,6 +24,17 @@ public struct TerminalHost: Equatable, Sendable {
 /// Owns project terminals for the lifetime of the app, including while another pane is visible.
 @MainActor
 public final class TerminalWorkspace: ObservableObject {
+    public enum Activity { case running, unviewed }
+    @Published public private(set) var projectActivities: [String: Activity] = [:]
+    private var controllerProjects: [String: String] = [:]
+
+    private func refreshProjectActivity(_ project: String) {
+        let activities = controllers.compactMap { key, controller in
+            controllerProjects[key] == project ? controller.projectActivity : nil
+        }
+        projectActivities[project] = activities.contains(.running) ? .running : activities.first
+    }
+
     private var controllers: [String: TerminalViewController] = [:]
     private var activeController: TerminalViewController?
     private var windows: [NSWindow] = []
@@ -79,16 +90,16 @@ public final class TerminalWorkspace: ObservableObject {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    public func view(directory: URL, hosts: [TerminalHost], host: TerminalHost? = nil) -> some View {
+    public func view(project: String, directory: URL, hosts: [TerminalHost], host: TerminalHost? = nil) -> some View {
         GeometryReader { geometry in
-            EmbeddedTerminal(workspace: self, directory: directory, hosts: hosts, host: host,
+            EmbeddedTerminal(workspace: self, project: project, directory: directory, hosts: hosts, host: host,
                              toolbarInset: geometry.safeAreaInsets.top)
                 .ignoresSafeArea(.container, edges: .top)
         }
         .id((host?.id ?? "local") + directory.path)
     }
 
-    fileprivate func controller(directory: URL, hosts: [TerminalHost], host: TerminalHost?) -> TerminalViewController {
+    fileprivate func controller(project: String, directory: URL, hosts: [TerminalHost], host: TerminalHost?) -> TerminalViewController {
         PtySession.configureSSHHosts(hosts)
         let path = (host?.id ?? "local") + ":" + directory.standardizedFileURL.path
         if let controller = controllers[path] {
@@ -98,6 +109,8 @@ public final class TerminalWorkspace: ObservableObject {
         let key = SHA256.hash(data: Data(path.utf8)).map { String(format: "%02x", $0) }.joined()
         let controller = TerminalViewController(windowID: key, restoresPersistedWindow: false,
                                                 initialDirectory: directory, initialHostID: host?.id, sessionHosts: hosts)
+        controllerProjects[path] = project
+        controller.onActivityChange = { [weak self] in self?.refreshProjectActivity(project) }
         controllers[path] = controller
         activeController = controller
         return controller
@@ -129,13 +142,14 @@ private final class StandaloneTerminalWindow: NSWindow, NSWindowDelegate {
 
 private struct EmbeddedTerminal: NSViewControllerRepresentable {
     let workspace: TerminalWorkspace
+    let project: String
     let directory: URL
     let hosts: [TerminalHost]
     let host: TerminalHost?
     let toolbarInset: CGFloat
 
     func makeNSViewController(context: Context) -> NSViewController {
-        let controller = workspace.controller(directory: directory, hosts: hosts, host: host)
+        let controller = workspace.controller(project: project, directory: directory, hosts: hosts, host: host)
         controller.toolbarInset = toolbarInset
         return controller
     }

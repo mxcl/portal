@@ -3311,6 +3311,7 @@ private final class TerminalTab {
     let completionPendingLine = NSView()
     let ptyPassthroughView = PtyPassthroughView(frame: .zero)
     var title: String
+    var hasUnviewedCompletion = false
 
     var documentMinimumHeightConstraint: NSLayoutConstraint!
     var scrollBottomToCommandBarConstraint: NSLayoutConstraint?
@@ -4354,14 +4355,32 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         stopAllSessions()
     }
 
+    var onActivityChange: (() -> Void)?
+    private var isTerminalVisible = false
+
+    var projectActivity: TerminalWorkspace.Activity? {
+        if tabs.contains(where: { isCommandRunning(in: $0) }) { return .running }
+        return tabs.contains(where: { $0.hasUnviewedCompletion }) ? .unviewed : nil
+    }
+
+    private func markActiveTerminalViewed() {
+        if isTerminalVisible && view.window?.isKeyWindow == true {
+            activeTab?.hasUnviewedCompletion = false
+        }
+        onActivityChange?()
+    }
+
     override func viewDidAppear() {
         super.viewDidAppear()
+        isTerminalVisible = true
+        markActiveTerminalViewed()
         if tabs.isEmpty { createTab() }
         windowDidAttach()
     }
 
     override func viewDidDisappear() {
         super.viewDidDisappear()
+        isTerminalVisible = false
         discardUntouchedSessions()
     }
 
@@ -4372,6 +4391,34 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             && !isSessionVisibleOutsideTab(tab) {
             closeTab(withID: tab.id, createsReplacement: false)
         }
+    }
+
+    static func projectActivitySelfTest() -> Bool {
+        let controller = TerminalViewController(restoresPersistedWindow: false)
+        controller.loadView()
+        let finished = TerminalTab(title: "finished", delegate: controller)
+        let running = TerminalTab(title: "running", delegate: controller)
+        controller.tabs = [finished, running]
+        guard controller.projectActivity == nil else { return false }
+        finished.hasUnviewedCompletion = true
+        guard controller.projectActivity == .unviewed else { return false }
+        running.commandLifecycle.apply(.submit(command: "sleep 1", cwd: "/tmp", at: Date()))
+        guard controller.projectActivity == .running else { return false }
+        running.commandLifecycle.apply(.commandFinished(status: 0, isReplay: false, at: Date()))
+        guard controller.projectActivity == .unviewed else { return false }
+        controller.activeTabID = finished.id
+        controller.markActiveTerminalViewed()
+        guard controller.projectActivity == .unviewed else { return false }
+        final class ViewedWindow: NSWindow { override var isKeyWindow: Bool { true } }
+        let window = ViewedWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSView()
+        window.contentView?.addSubview(controller.view)
+        defer { window.close() }
+        controller.isTerminalVisible = true
+        controller.markActiveTerminalViewed()
+        return controller.projectActivity == nil
     }
 
     static func untouchedSessionCleanupSelfTest() -> Bool {
@@ -4414,6 +4461,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     func windowDidBecomeActive() {
+        markActiveTerminalViewed()
         if isViewLoaded && tabs.isEmpty { createTab() }
         restoreCommandFocusIfNeeded()
         refreshVisibleCommandBarGitStatus()
@@ -5216,6 +5264,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         button.removeFromSuperview()
         tabButtons.removeValue(forKey: tab.id)
         tabs.remove(at: index)
+        onActivityChange?()
 
         guard !tabs.isEmpty else {
             activeTabID = nil
@@ -5845,6 +5894,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.sessionRef = candidate.sessionRef
         tab.session = PtySession(sessionRef: candidate.sessionRef)
         tab.title = candidate.title
+        tab.hasUnviewedCompletion = false
         tab.createdAt = candidate.createdAt ?? Date()
         tab.commandLifecycle.apply(.replaceSession(
             cwd: candidate.cwd,
@@ -6207,6 +6257,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func activateTab(_ id: UUID, tabStripLayoutChanged: Bool = false, persists: Bool = true) {
         activeTabID = id
+        markActiveTerminalViewed()
         discardUntouchedSessions(except: id)
         for tab in tabs {
             tab.rootView.isHidden = tab.id != id
@@ -6328,6 +6379,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             guard !tab.hasExited else { return }
             tab.interruptedBlockID = nil
             let exitChange = tab.commandLifecycle.apply(.shellExited(status: status, at: Date()))
+            if !exitChange.finishedBlockIDs.isEmpty && !tab.isReplayingHistory {
+                tab.hasUnviewedCompletion = !(self.isTerminalVisible && self.activeTabID == tab.id && self.view.window?.isKeyWindow == true)
+            }
             tab.hostHistoryOptOutBlockIDs.subtract(exitChange.finishedBlockIDs)
             tab.inputView.isEditable = false
             tab.inputView.isSelectable = false
@@ -7164,6 +7218,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                     recordSuccessfulCommand(block.command, cwd: block.cwd, in: tab)
                 }
             }
+            if !isReplay && !change.finishedBlockIDs.isEmpty {
+                tab.hasUnviewedCompletion = !(isTerminalVisible && activeTabID == tab.id && view.window?.isKeyWindow == true)
+            }
             stopRunningElapsedUpdates(for: tab)
             setTerminalControl(false, in: tab)
             updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
@@ -7727,6 +7784,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func updateCommandBarVisibility(for tab: TerminalTab) {
+        onActivityChange?()
         let shouldShowCommandBar = tab.isFindMode || (!tab.isTerminalControlActive && !isCommandRunning(in: tab))
         guard tab.commandBarView.isHidden == shouldShowCommandBar else { return }
         tab.commandBarView.isHidden = !shouldShowCommandBar

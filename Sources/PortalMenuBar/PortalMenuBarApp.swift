@@ -198,15 +198,17 @@ private struct StatusMenu: View {
                 }
             }
         }
-        Section("GitHub Notifications") {
-            let notifications = runtime.model.github.unreadNotifications
-            if notifications.isEmpty { Text("No unread notifications") }
-            ForEach(notifications.prefix(20)) { note in
-                Button("\(note.repository): \(note.title)") {
-                    if let url = note.safeURL, NSWorkspace.shared.open(url) {
-                        Task { await runtime.model.githubAction?(.notificationOpened(id: note.id)) }
-                    }
-                }.help(note.body)
+        let notifications = Dictionary(grouping: runtime.model.github.unreadNotifications.prefix(20), by: \.repository)
+        if notifications.isEmpty { Text("No unread notifications") }
+        ForEach(notifications.keys.sorted(), id: \.self) { repository in
+            Section(repository) {
+                ForEach(notifications[repository] ?? []) { note in
+                    Button(note.title) {
+                        if let url = note.safeURL, NSWorkspace.shared.open(url) {
+                            Task { await runtime.model.githubAction?(.notificationOpened(id: note.id)) }
+                        }
+                    }.help(note.body)
+                }
             }
         }
         Divider()

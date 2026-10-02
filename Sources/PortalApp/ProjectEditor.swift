@@ -172,6 +172,16 @@ final class ProjectEditor: ObservableObject {
     }
 }
 
+struct EditorSaveButton: View {
+    @ObservedObject var editor: ProjectEditor
+
+    var body: some View {
+        Button("Save", systemImage: "square.and.arrow.down") { editor.save() }
+            .disabled(!editor.isDirty)
+            .help("Save changes (⌘S)")
+    }
+}
+
 struct EditorCommands: Commands {
     @ObservedObject var editor: ProjectEditor
     var body: some Commands {
@@ -269,38 +279,17 @@ struct ProjectEditorView: View {
     @ObservedObject var editor: ProjectEditor
     @AppStorage("editor-show-scroll-preview") private var showScrollPreview = false
     @State private var state = SourceEditorState()
-    @State private var presentation = "Edit"
+    @State private var diffStage: Bool?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 0) {
             if let path = editor.path {
-                HStack {
-                    Text(path).lineLimit(1).truncationMode(.middle).help(path)
-                    if editor.isDirty { Text("Edited").foregroundStyle(.secondary) }
-                    Spacer()
-                    Button("Reload") { editor.open(path, reload: true) }
-                    Button("Save") { editor.save() }.disabled(!editor.isDirty)
-                }.padding(10)
-                Picker("File view", selection: $presentation) {
-                    Text("Edit").tag("Edit")
-                    Text("Unstaged Diff").tag("Unstaged")
-                    Text("Staged Diff").tag("Staged")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize(horizontal: false, vertical: true)
-                .padding([.horizontal, .bottom], 10)
                 if let error = editor.error {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(10)
                 }
-                Divider()
-                if presentation != "Edit", let repository = editor.repository {
-                    WorkingFileDiff(repository: repository, path: path, staged: presentation == "Staged",
-                                    revision: editor.revision)
-                        .environment(\.diffOpenFile, { _ in presentation = "Edit" })
-                } else if editor.canEdit {
+                if editor.canEdit {
                     SourceEditor($editor.text,
                                  language: CodeLanguage.detectLanguageFrom(url: URL(fileURLWithPath: path)),
                                  configuration: .init(appearance: .init(theme: theme,
@@ -316,13 +305,49 @@ struct ProjectEditorView: View {
                     ContentUnavailableView("File Can’t Be Edited", systemImage: "doc.badge.ellipsis",
                                            description: Text("Select another file, or view its Git diff."))
                 }
+                Divider()
+                HStack {
+                    Text(path).lineLimit(1).truncationMode(.middle).help(path)
+                    if editor.isDirty { Text("Edited").foregroundStyle(.secondary) }
+                    Spacer()
+                    if let file = editor.files.first(where: { $0.path == path }) {
+                        if file.isConflicted {
+                            Label("Conflicted", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                        }
+                        if file.isStaged {
+                            Button { diffStage = true } label: {
+                                Label("Staged", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                            }.help("View staged changes")
+                        }
+                        if file.isUnstaged {
+                            Button { diffStage = false } label: {
+                                Label(file.isUntracked ? "Untracked" : "Unstaged",
+                                      systemImage: file.isUntracked ? "questionmark.circle" : "circle.fill")
+                                    .foregroundStyle(.orange)
+                            }.disabled(file.isUntracked).help("View saved unstaged changes")
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .padding(8)
+                .popover(isPresented: Binding(get: { diffStage != nil }, set: { if !$0 { diffStage = nil } })) {
+                    if let staged = diffStage, let repository = editor.repository {
+                        WorkingFileDiff(repository: repository, path: path, staged: staged, revision: editor.revision)
+                            .environment(\.diffOpenFile, { _ in diffStage = nil })
+                            .frame(width: 700, height: 500)
+                    }
+                }
             } else {
                 ContentUnavailableView("Select a File", systemImage: "doc.text",
                                        description: Text("Choose a file to edit its local working copy."))
                 if let error = editor.error { Text(error).textSelection(.enabled).padding() }
             }
         }
-        .onChange(of: editor.path) { _, _ in state = SourceEditorState() }
+        .onChange(of: editor.path) { _, _ in
+            state = SourceEditorState()
+            diffStage = nil
+        }
     }
 
     var theme: EditorTheme {

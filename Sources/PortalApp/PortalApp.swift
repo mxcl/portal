@@ -1607,6 +1607,11 @@ struct ProjectBrowserView: View {
                                 Spacer(minLength: 0)
                             }
                             .frame(width: max(0, hostPaneWidth - 24))
+                            .overlay(alignment: .leading) {
+                                if model.selectedTab == .editor && model.canEditSelectedHost {
+                                    EditorSaveButton(editor: model.editor)
+                                }
+                            }
                             .overlay(alignment: .trailing) {
                                 Picker("Working copy view", selection: Binding(
                                     get: { model.selectedTab == .editor && model.canEditSelectedHost ? ProjectTab.editor : .terminal },

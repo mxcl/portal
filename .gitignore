@@ -2,3 +2,4 @@
 .swiftpm/
 *.xcodeproj/
 .DS_Store
+/scripts/__pycache__/

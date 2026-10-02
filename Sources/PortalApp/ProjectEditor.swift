@@ -326,18 +326,27 @@ struct ProjectEditorView: View {
     }
 
     var theme: EditorTheme {
-        // Semantic AppKit colors resolve with the current appearance, including increased contrast.
-        let _ = colorScheme
-        return EditorTheme(text: .init(color: .textColor), insertionPoint: .textColor,
-            invisibles: .init(color: .tertiaryLabelColor),
+        let name: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
+        let current = NSApp?.effectiveAppearance
+        let appearance = current?.bestMatch(from: [.aqua, .darkAqua]) == name
+            ? current! : NSAppearance(named: name)!
+        func color(_ semantic: NSColor) -> NSColor {
+            var resolved = semantic
+            appearance.performAsCurrentDrawingAppearance {
+                resolved = semantic.usingColorSpace(.deviceRGB) ?? semantic
+            }
+            return resolved
+        }
+        return EditorTheme(text: .init(color: color(.textColor)), insertionPoint: color(.textColor),
+            invisibles: .init(color: color(.tertiaryLabelColor)),
             // CodeEdit’s minimap reads brightnessComponent, which requires an RGB color.
-            background: NSColor.textBackgroundColor.usingColorSpace(.deviceRGB) ?? .black,
-            lineHighlight: .quaternaryLabelColor, selection: .selectedTextBackgroundColor,
-            keywords: .init(color: .systemPurple), commands: .init(color: .systemBlue),
-            types: .init(color: .systemTeal), attributes: .init(color: .systemBrown),
-            variables: .init(color: .textColor), values: .init(color: .systemBlue),
-            numbers: .init(color: .systemBlue), strings: .init(color: .systemRed),
-            characters: .init(color: .systemRed), comments: .init(color: .secondaryLabelColor))
+            background: color(.textBackgroundColor),
+            lineHighlight: color(.quaternaryLabelColor), selection: color(.selectedTextBackgroundColor),
+            keywords: .init(color: color(.systemPurple)), commands: .init(color: color(.systemBlue)),
+            types: .init(color: color(.systemTeal)), attributes: .init(color: color(.systemBrown)),
+            variables: .init(color: color(.textColor)), values: .init(color: color(.systemBlue)),
+            numbers: .init(color: color(.systemBlue)), strings: .init(color: color(.systemRed)),
+            characters: .init(color: color(.systemRed)), comments: .init(color: color(.secondaryLabelColor)))
     }
 }
 

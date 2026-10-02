@@ -188,6 +188,48 @@ func editorBackgroundColor() {
     #expect((0...1).contains(background.brightnessComponent))
 }
 
+@Test("Open editor refreshes its entire palette when appearance changes")
+@MainActor
+func editorAppearanceChanges() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    _ = try Git.run(["init", "-q", root.path])
+    defer { try? FileManager.default.removeItem(at: root) }
+    try Data("plain text\n".utf8).write(to: root.appendingPathComponent("a.txt"))
+    let editor = ProjectEditor()
+    editor.connect(root)
+    editor.open("a.txt")
+    let deadline = Date().addingTimeInterval(5)
+    while !editor.canEdit && editor.error == nil && Date() < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    try #require(editor.canEdit)
+    editor.text = "unsaved draft\n"
+    let host = NSHostingController(rootView: ProjectEditorView(editor: editor).environment(\.colorScheme, .light))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    window.contentViewController = host
+    func findEditor(_ view: NSView) -> TextView? {
+        if let editor = view as? TextView { return editor }
+        return view.subviews.lazy.compactMap { findEditor($0) }.first
+    }
+    var originalTextView: TextView?
+    for scheme in [ColorScheme.light, .dark, .light] {
+        host.rootView = ProjectEditorView(editor: editor).environment(\.colorScheme, scheme)
+        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        host.view.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        let textView = try #require(findEditor(host.view))
+        if let originalTextView { #expect(textView === originalTextView) }
+        else { originalTextView = textView }
+        let background = try #require(textView.enclosingScrollView?.backgroundColor.usingColorSpace(.deviceRGB))
+        #expect((background.brightnessComponent < 0.5) == (scheme == .dark))
+        let foreground = try #require(textView.textColor.usingColorSpace(.deviceRGB))
+        #expect((foreground.brightnessComponent > 0.5) == (scheme == .dark))
+        #expect(textView.string == "unsaved draft\n")
+    }
+    #expect(editor.isDirty)
+}
+
 @Test("File outline preserves full paths, groups directories first, and keeps unusual filenames")
 func editorFileTree() {
     let tree = FileNode.tree(["z.txt", "Sources/b.swift", "Sources/Nested/a.swift", "a\nb.txt"])

@@ -316,12 +316,12 @@ final class AppModel: ObservableObject {
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
-    var backupToolbarStatus: String {
+    func backupSidebarStatus(for project: String) -> String {
         guard configuration.backup != nil || configuration.backupDestination != nil else { return "Backup not configured" }
         if backupError != nil || helperError != nil || error != nil { return "Backup unavailable" }
         if isPaused { return "Backup paused" }
         guard isRunning else { return "Backup stopped" }
-        guard let project = selectedProjectName, let transferring = backupTransferring[project] else {
+        guard let transferring = backupTransferring[project] else {
             return "Checking backup…"
         }
         return transferring ? "Transferring backup objects…" : "Backup up to date"
@@ -1158,6 +1158,13 @@ final class AppModel: ObservableObject {
                            branchTips: tips)
     }
 
+    func hasGitHubBranchDifferences(for project: String) -> Bool {
+        guard let local = sidebarProject(project), local.placement == .checkedOut,
+              let branch = local.defaultBranch, let state = local.branchTips,
+              let tip = state.local[branch], let github = state.github[branch] else { return false }
+        return tip != github
+    }
+
     func hasBranchDifferences(for project: String) -> Bool {
         let projects = [sidebarProject(project)] + configuration.hosts.map { sidebarProject(project, hostID: $0.id) }
         let checkouts = projects.compactMap { $0 }.filter { $0.placement == .checkedOut }
@@ -1623,7 +1630,6 @@ struct ProjectBrowserView: View {
                     if width >= 280 { gitTreeColumnWidth = width }
                 }
                 .background(GitTreeWidthRestorer(width: initialGitTreeColumnWidth))
-                .toolbar { projectToolbar }
                 .navigationSplitViewColumnWidth(min: 280, ideal: initialGitTreeColumnWidth, max: .infinity)
         } detail: {
             if model.showsCommitDiff {
@@ -1713,16 +1719,7 @@ struct ProjectBrowserView: View {
             }
         }
     }
-    @ToolbarContentBuilder private var projectToolbar: some ToolbarContent {
-        ToolbarItem {
-            Text(model.backupToolbarStatus)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .help("Backup status for this project")
-        }
-        .sharedBackgroundVisibility(.hidden)
-    }
+
 }
 
 private struct GitTreeWidthRestorer: NSViewRepresentable {
@@ -1831,27 +1828,31 @@ private struct ProjectRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "folder")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.gray)
+                .help("Git project")
             HStack(spacing: 3) {
                 Text(name).lineLimit(1)
                 if let folder = model.configuration.folders.first(where: { $0.name == name }),
                    !folder.availableLocally {
                     Image(systemName: "globe")
                         .font(.caption2.weight(.light))
-                        .foregroundStyle(Color.secondary.opacity(0.5))
+                        .foregroundStyle(.gray)
+                        .help("Project is available on another host")
                         .accessibilityHidden(true)
                 }
                 if model.hasBranchDifferences(for: name) {
-                    Circle().fill(.orange).frame(width: 5, height: 5)
+                    sidebarIcon("branch-difference", color: model.hasGitHubBranchDifferences(for: name) ? .orange : .gray)
                         .help("The default branch is ahead, behind, or diverged from another checked-out host or this Mac’s last known GitHub state.")
                         .accessibilityHidden(true)
                 }
                 if let activity = terminals.projectActivities[name] {
-                    Circle().fill(activity == .running ? Color.gray : Color.blue)
-                        .frame(width: 5, height: 5)
-                        .help(activity == .running ? "Terminal command running" : "Finished terminal with unviewed output")
+                    sidebarIcon("terminal", color: activity == .running ? .gray : .blue)
+                        .help(activity == .running ? "Terminal command running" : "Terminal command finished — unviewed output")
                         .accessibilityLabel(activity == .running ? "Terminal command running" : "Unviewed terminal output")
                 }
+                sidebarIcon("backup", color: .gray)
+                    .help(model.backupSidebarStatus(for: name))
+                    .accessibilityLabel(model.backupSidebarStatus(for: name))
             }
             Spacer(minLength: 4)
             if let counts = model.workingChangeCounts(for: name) {
@@ -1867,19 +1868,19 @@ private struct ProjectRow: View {
                 HStack(spacing: 6) {
                     if counts.stars > 0 {
                         HStack(spacing: 3) {
-                            Image(systemName: "star")
+                            Image(systemName: "star").help("GitHub stars")
                             Text(counts.stars.formatted(.number.notation(.compactName)))
                         }
                     }
                     if counts.pullRequests > 0 {
                         HStack(spacing: 3) {
-                            Image(systemName: "arrow.triangle.pull")
+                            Image(systemName: "arrow.triangle.pull").help("Open GitHub pull requests")
                             Text(counts.pullRequests.formatted(.number.notation(.compactName)))
                         }
                     }
                     if counts.issues > 0 {
                         HStack(spacing: 3) {
-                            Image(systemName: "exclamationmark.circle")
+                            Image(systemName: "exclamationmark.circle").help("Open GitHub issues")
                             Text(counts.issues.formatted(.number.notation(.compactName)))
                         }
                     }
@@ -1893,6 +1894,15 @@ private struct ProjectRow: View {
         .accessibilityLabel(projectSummary)
     }
 
+    private func sidebarIcon(_ name: String, color: Color) -> some View {
+        Image("sidebar-" + name, bundle: .module)
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 12, height: 12)
+            .foregroundStyle(color)
+    }
+
     private var projectSummary: String {
         guard let folder = model.configuration.folders.first(where: { $0.name == name }) else { return name }
         let count = (folder.availableLocally ? 1 : 0) + folder.availableHosts.count
@@ -1902,7 +1912,7 @@ private struct ProjectRow: View {
         } ?? ""
         let branches = model.hasBranchDifferences(for: name)
             ? " — default branch differs across checked-out hosts or from this Mac’s known GitHub state" : ""
-        return "\(name) — on \(count) host\(count == 1 ? "" : "s")\(changes)\(branches)\(github)"
+        return "\(name) — on \(count) host\(count == 1 ? "" : "s")\(changes)\(branches)\(github) — \(model.backupSidebarStatus(for: name))"
     }
 }
 

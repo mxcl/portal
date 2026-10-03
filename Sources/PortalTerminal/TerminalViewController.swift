@@ -792,7 +792,7 @@ final class TahoeGlassRootView: NSView {
         contentColumnMaterialView.translatesAutoresizingMaskIntoConstraints = false
 
         tintView.wantsLayer = true
-        tintView.layer?.backgroundColor = TahoeGlassPalette.emptyBackground.cgColor
+        tintView.layer?.backgroundColor = (usesPortalMaterials ? NSColor.clear : TahoeGlassPalette.emptyBackground).cgColor
         tintView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(tintView, positioned: .above, relativeTo: originalMaterialView)
 
@@ -857,7 +857,7 @@ final class TahoeGlassRootView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            tintView.layer?.backgroundColor = TahoeGlassPalette.emptyBackground.cgColor
+            tintView.layer?.backgroundColor = (usesPortalMaterials ? NSColor.clear : TahoeGlassPalette.emptyBackground).cgColor
             originalTintLayer.colors = [
                 TahoeGlassPalette.windowTintStart.cgColor,
                 TahoeGlassPalette.windowTintMid.cgColor,
@@ -873,7 +873,7 @@ final class TahoeGlassRootView: NSView {
     private func updateBackgroundBlurEffect() {
         let matchesWindow = !usesPortalMaterials && effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            tintView.layer?.backgroundColor = TahoeGlassPalette.emptyBackground.cgColor
+            tintView.layer?.backgroundColor = (usesPortalMaterials ? NSColor.clear : TahoeGlassPalette.emptyBackground).cgColor
         }
         originalMaterialView.isHidden = matchesWindow
         contentColumnMaterialView.isHidden = matchesWindow

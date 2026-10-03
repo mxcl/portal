@@ -68,6 +68,19 @@ struct TerminalIntegrationTests {
         #expect(material.material == .underWindowBackground)
     }
 
+    @Test @MainActor func standaloneLightBackgroundExposesBlurMaterial() {
+        let root = TahoeGlassRootView()
+        root.appearance = NSAppearance(named: .aqua)
+        root.usesPortalMaterials = true
+        for effect in BackgroundBlurEffect.allCases {
+            root.backgroundBlurEffect = effect
+            root.viewDidChangeEffectiveAppearance()
+            root.effectiveAppearance.performAsCurrentDrawingAppearance {
+                #expect(root.subviews.last?.layer?.backgroundColor == NSColor.clear.cgColor)
+            }
+        }
+    }
+
     @Test @MainActor func embeddedDarkBackgroundInheritsSwiftUISurface() {
         let root = TahoeGlassRootView()
         root.appearance = NSAppearance(named: .darkAqua)

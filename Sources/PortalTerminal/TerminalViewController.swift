@@ -68,7 +68,20 @@ enum TahoeGlassPalette {
     static func tint(light: CGFloat, dark: CGFloat) -> NSColor {
         NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            return NSColor.black.withAlphaComponent(isDark ? dark : light)
+            return (isDark ? NSColor.black : NSColor(srgbRed: 0.45, green: 0.62, blue: 0.90, alpha: 1))
+                .withAlphaComponent(isDark ? dark : light)
+        }
+    }
+
+    static let standaloneSpaceBackground = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? .clear : NSColor(srgbRed: 0.45, green: 0.62, blue: 0.90, alpha: 0.06)
+    }
+
+    static func standaloneCommandBackground(darkOpacity: CGFloat) -> NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? .black.withAlphaComponent(darkOpacity) : .textBackgroundColor
         }
     }
 
@@ -792,7 +805,7 @@ final class TahoeGlassRootView: NSView {
         contentColumnMaterialView.translatesAutoresizingMaskIntoConstraints = false
 
         tintView.wantsLayer = true
-        tintView.layer?.backgroundColor = (usesPortalMaterials ? NSColor.clear : TahoeGlassPalette.emptyBackground).cgColor
+        tintView.layer?.backgroundColor = (usesPortalMaterials ? TahoeGlassPalette.standaloneSpaceBackground : TahoeGlassPalette.emptyBackground).cgColor
         tintView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(tintView, positioned: .above, relativeTo: originalMaterialView)
 
@@ -857,7 +870,7 @@ final class TahoeGlassRootView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            tintView.layer?.backgroundColor = (usesPortalMaterials ? NSColor.clear : TahoeGlassPalette.emptyBackground).cgColor
+            tintView.layer?.backgroundColor = (usesPortalMaterials ? TahoeGlassPalette.standaloneSpaceBackground : TahoeGlassPalette.emptyBackground).cgColor
             originalTintLayer.colors = [
                 TahoeGlassPalette.windowTintStart.cgColor,
                 TahoeGlassPalette.windowTintMid.cgColor,
@@ -873,7 +886,7 @@ final class TahoeGlassRootView: NSView {
     private func updateBackgroundBlurEffect() {
         let matchesWindow = !usesPortalMaterials && effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            tintView.layer?.backgroundColor = (usesPortalMaterials ? NSColor.clear : TahoeGlassPalette.emptyBackground).cgColor
+            tintView.layer?.backgroundColor = (usesPortalMaterials ? TahoeGlassPalette.standaloneSpaceBackground : TahoeGlassPalette.emptyBackground).cgColor
         }
         originalMaterialView.isHidden = matchesWindow
         contentColumnMaterialView.isHidden = matchesWindow
@@ -1608,10 +1621,10 @@ private final class FindCloseButton: NSButton {
 private final class BlockView: NSView {
     var usesPortalMaterials = false
     private var runningBackground: NSColor {
-        usesPortalMaterials ? .black.withAlphaComponent(0.22) : TahoeGlassPalette.commandBackground
+        usesPortalMaterials ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.22) : TahoeGlassPalette.commandBackground
     }
     private var completedBackground: NSColor {
-        usesPortalMaterials ? .black.withAlphaComponent(0.18) : TahoeGlassPalette.commandBackground
+        usesPortalMaterials ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.18) : TahoeGlassPalette.commandBackground
     }
     private var failedBackground: NSColor {
         usesPortalMaterials ? .systemRed.withAlphaComponent(0.22) : TahoeGlassPalette.failedCommandBackground
@@ -4250,7 +4263,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         rootView.onAppearanceChange = { [weak self] in
             guard let self else { return }
             for tab in tabs {
-                tab.commandBarView.layer?.backgroundColor = (standalone ? NSColor.black.withAlphaComponent(0.22) : TahoeGlassPalette.commandBackground).cgColor
+                tab.commandBarView.layer?.backgroundColor = (standalone ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.22) : TahoeGlassPalette.commandBackground).cgColor
             }
         }
         rootView.onLayout = { [weak self] in
@@ -5096,7 +5109,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.findQuery = ""
         tab.findResults = []
         tab.findResultIndex = nil
-        tab.commandBarView.layer?.backgroundColor = (standalone ? NSColor.black.withAlphaComponent(0.22) : TahoeGlassPalette.commandBackground).cgColor
+        tab.commandBarView.layer?.backgroundColor = (standalone ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.22) : TahoeGlassPalette.commandBackground).cgColor
         tab.findCloseButton.isHidden = true
         tab.inputView.setAccessibilityLabel("Terminal command input")
         setInput(tab.findCommandDraft, in: tab)
@@ -5470,7 +5483,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             lastCommandAt: lastCommandAt,
             commandHistory: commandHistory
         )
-        tab.commandBarView.layer?.backgroundColor = (standalone ? NSColor.black.withAlphaComponent(0.22) : TahoeGlassPalette.commandBackground).cgColor
+        tab.commandBarView.layer?.backgroundColor = (standalone ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.22) : TahoeGlassPalette.commandBackground).cgColor
         tab.commandLifecycle.apply(.cwdChanged(directoryPath))
         tab.findCloseButton.target = self
         tab.findCloseButton.action = #selector(closeFindMode(_:))

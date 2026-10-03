@@ -76,7 +76,10 @@ struct TerminalIntegrationTests {
             root.backgroundBlurEffect = effect
             root.viewDidChangeEffectiveAppearance()
             root.effectiveAppearance.performAsCurrentDrawingAppearance {
-                #expect(root.subviews.last?.layer?.backgroundColor == NSColor.clear.cgColor)
+                #expect(root.subviews.last?.layer?.backgroundColor == TahoeGlassPalette.standaloneSpaceBackground.cgColor)
+                #expect((root.subviews.last?.layer?.backgroundColor?.alpha ?? 1) < 0.1)
+                #expect(TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.22).cgColor == NSColor.textBackgroundColor.cgColor)
+                #expect(TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.18).cgColor == NSColor.textBackgroundColor.cgColor)
             }
         }
     }

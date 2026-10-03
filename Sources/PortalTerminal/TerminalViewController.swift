@@ -81,7 +81,7 @@ enum TahoeGlassPalette {
     static func standaloneCommandBackground(darkOpacity: CGFloat) -> NSColor {
         NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                ? .black.withAlphaComponent(darkOpacity) : .textBackgroundColor
+                ? .black.withAlphaComponent(darkOpacity) : .textBackgroundColor.withAlphaComponent(0.18)
         }
     }
 

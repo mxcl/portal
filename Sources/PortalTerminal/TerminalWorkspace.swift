@@ -66,7 +66,7 @@ public final class TerminalWorkspace: ObservableObject {
                               backing: .buffered, defer: false)
         window.delegate = window
         window.title = "Terminal"
-        window.appearance = NSAppearance(named: .darkAqua)
+        window.appearance = NSAppearance(named: .aqua)
         window.backgroundColor = .clear
         window.isOpaque = false
         window.isRestorable = false

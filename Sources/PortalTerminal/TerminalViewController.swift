@@ -4453,6 +4453,15 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             controller.installTabButton(tab)
         }
         controller.activeTabID = draft.id
+        let window = StandaloneTerminalWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.delegate = window
+        window.contentViewController = controller
+        defer { window.contentViewController = nil; window.close() }
+        // Losing focus must preserve the open shell, including before its first command.
+        window.delegate?.windowDidResignKey?(Notification(name: NSWindow.didResignKeyNotification, object: window))
+        guard controller.tabs.count == 4 else { return false }
         controller.discardUntouchedSessions(except: empty.id)
         guard controller.tabs.count == 4 else { return false }
         controller.discardUntouchedSessions()

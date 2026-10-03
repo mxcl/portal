@@ -48,9 +48,7 @@ public final class TerminalWorkspace: ObservableObject {
             .sink { [weak self] notification in
                 if let controller = self?.activeController, controller.isViewLoaded,
                    let window = notification.object as? NSWindow, controller.view.window === window {
-                    if notification.name == NSWindow.didResignKeyNotification {
-                        controller.discardUntouchedSessions()
-                    } else {
+                    if notification.name == NSWindow.didBecomeKeyNotification {
                         controller.windowDidBecomeActive()
                     }
                 }
@@ -127,13 +125,9 @@ public final class TerminalWorkspace: ObservableObject {
     }
 }
 
-private final class StandaloneTerminalWindow: NSWindow, NSWindowDelegate {
+final class StandaloneTerminalWindow: NSWindow, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         (contentViewController as? TerminalViewController)?.stopAllSessions()
-    }
-
-    func windowDidResignKey(_ notification: Notification) {
-        (contentViewController as? TerminalViewController)?.discardUntouchedSessions()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {

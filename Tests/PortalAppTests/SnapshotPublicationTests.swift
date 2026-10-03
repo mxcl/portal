@@ -27,21 +27,22 @@ func unchangedSnapshotIsSilent() {
     withExtendedLifetime(observation) {}
 }
 
-@Test("toolbar backup status follows project transfer state and pause")
+@Test("sidebar backup status follows each project’s transfer state and pause")
 @MainActor
-func backupToolbarProgress() {
+func backupSidebarProgress() {
     let model = AppModel(connectToHelper: false)
-    #expect(model.backupToolbarStatus == "Backup not configured")
+    #expect(model.backupSidebarStatus(for: "project") == "Backup not configured")
     model.configuration.backupDestination = BackupDestinationConfiguration(root: "/tmp/backups")
     model.isRunning = true
     model.selectProject("project")
-    #expect(model.backupToolbarStatus == "Checking backup…")
+    #expect(model.backupSidebarStatus(for: "project") == "Checking backup…")
     model.backupTransferring["project"] = true
-    #expect(model.backupToolbarStatus == "Transferring backup objects…")
+    #expect(model.backupSidebarStatus(for: "project") == "Transferring backup objects…")
+    #expect(model.backupSidebarStatus(for: "other") == "Checking backup…")
     model.backupTransferring["project"] = false
-    #expect(model.backupToolbarStatus == "Backup up to date")
+    #expect(model.backupSidebarStatus(for: "project") == "Backup up to date")
     model.isPaused = true
-    #expect(model.backupToolbarStatus == "Backup paused")
+    #expect(model.backupSidebarStatus(for: "project") == "Backup paused")
     model.backupError = "Disconnected"
-    #expect(model.backupToolbarStatus == "Backup unavailable")
+    #expect(model.backupSidebarStatus(for: "project") == "Backup unavailable")
 }

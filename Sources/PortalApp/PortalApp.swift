@@ -1841,16 +1841,16 @@ private struct ProjectRow: View {
                         .accessibilityHidden(true)
                 }
                 if model.hasBranchDifferences(for: name) {
-                    sidebarIcon("branch-difference", color: model.hasGitHubBranchDifferences(for: name) ? .orange : .gray)
+                    SidebarStatusIcon(name: "branch-difference", color: model.hasGitHubBranchDifferences(for: name) ? .orange : .gray)
                         .help("The default branch is ahead, behind, or diverged from another checked-out host or this Mac’s last known GitHub state.")
                         .accessibilityHidden(true)
                 }
                 if let activity = terminals.projectActivities[name] {
-                    sidebarIcon("terminal", color: activity == .running ? .gray : .blue)
+                    SidebarStatusIcon(name: "terminal", color: activity == .running ? .gray : .blue)
                         .help(activity == .running ? "Terminal command running" : "Terminal command finished — unviewed output")
                         .accessibilityLabel(activity == .running ? "Terminal command running" : "Unviewed terminal output")
                 }
-                sidebarIcon("backup", color: .gray)
+                SidebarStatusIcon(name: "backup", color: .gray)
                     .help(model.backupSidebarStatus(for: name))
                     .accessibilityLabel(model.backupSidebarStatus(for: name))
             }
@@ -1892,15 +1892,6 @@ private struct ProjectRow: View {
         .help(projectSummary)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(projectSummary)
-    }
-
-    private func sidebarIcon(_ name: String, color: Color) -> some View {
-        Image("sidebar-" + name, bundle: .module)
-            .renderingMode(.template)
-            .resizable()
-            .scaledToFit()
-            .frame(width: 12, height: 12)
-            .foregroundStyle(color)
     }
 
     private var projectSummary: String {

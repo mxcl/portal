@@ -5,6 +5,26 @@ import Testing
 
 @Suite("Embedded terminal", .serialized)
 struct TerminalIntegrationTests {
+    @Test @MainActor func standaloneWindowFollowsApplicationAppearance() throws {
+        let application = NSApplication.shared
+        let originalAppearance = application.appearance
+        defer { application.appearance = originalAppearance }
+        application.appearance = NSAppearance(named: .darkAqua)
+
+        let workspace = TerminalWorkspace()
+        workspace.newWindow(directory: FileManager.default.temporaryDirectory, hosts: [])
+        let window = try #require(application.windows.first { $0 is StandaloneTerminalWindow })
+        defer { window.close() }
+
+        #expect(window.appearance == nil)
+        #expect(window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+        #expect(window.contentViewController?.view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+
+        application.appearance = NSAppearance(named: .aqua)
+        #expect(window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua)
+        #expect(window.contentViewController?.view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua)
+    }
+
     private actor InventoryLoads {
         var count = 0
         func load(succeeds: Bool) -> [SessionPickerCandidate]? {

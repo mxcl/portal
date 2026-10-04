@@ -1608,7 +1608,7 @@ struct ProjectBrowserView: View {
                 Section {
                     ForEach(projects, id: \.self) { name in
                         ProjectRow(name: name, model: model)
-                            .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
+                            .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 0))
                             .listRowSeparator(.hidden)
                             .tag(name)
                     }
@@ -1626,7 +1626,7 @@ struct ProjectBrowserView: View {
                     .foregroundStyle(Color(red: 0.61, green: 0.69, blue: 0.71))
                     // Sidebar section headers have different native margins from rows.
                     .padding(.leading, 14)
-                    .padding(.trailing, 26)
+                    .padding(.trailing, 14)
                 }
                 if !archived.isEmpty {
                     Section("Archived") {

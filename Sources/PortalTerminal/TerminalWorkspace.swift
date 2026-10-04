@@ -158,11 +158,13 @@ public struct TerminalCommands: Commands {
     @ObservedObject private var workspace: TerminalWorkspace
     let enabled: Bool
     let hosts: [TerminalHost]
+    let nextProjectTerminal: (() -> Void)?
 
-    public init(workspace: TerminalWorkspace, enabled: Bool, hosts: [TerminalHost] = []) {
+    public init(workspace: TerminalWorkspace, enabled: Bool, hosts: [TerminalHost] = [], nextProjectTerminal: (() -> Void)? = nil) {
         self.workspace = workspace
         self.enabled = enabled
         self.hosts = hosts
+        self.nextProjectTerminal = nextProjectTerminal
     }
 
     private var standalone: Bool { workspace.standaloneFocused }
@@ -170,9 +172,8 @@ public struct TerminalCommands: Commands {
     public var body: some Commands {
         CommandMenu("Terminal") {
             Button("New Terminal Tab") { workspace.perform(#selector(TerminalViewController.newTab(_:))) }
+                .keyboardShortcut("t")
                 .disabled(!enabled || standalone)
-            Button(standalone ? "Close Terminal Window" : "Close Terminal Tab") { workspace.perform(#selector(TerminalViewController.closeActiveTabOrWindow(_:))) }
-                .keyboardShortcut("w", modifiers: [.command, .shift]).disabled(!enabled && !standalone)
             Menu("New SSH Terminal") {
                 ForEach(hosts, id: \.id) { host in
                     Button(host.name) { workspace.connect(host) }
@@ -180,13 +181,21 @@ public struct TerminalCommands: Commands {
             }.disabled(!enabled || standalone || hosts.isEmpty)
             Button("Reopen Closed Terminal Tab") { workspace.perform(#selector(TerminalViewController.reopenClosedTab(_:))) }
                 .keyboardShortcut("t", modifiers: [.command, .shift]).disabled(!enabled || standalone)
-            Button("Exit Terminal Session…") { workspace.perform(#selector(TerminalViewController.exitActiveSession(_:))) }
-                .disabled(!enabled && !standalone)
+            Button(standalone ? "Close Terminal Window" : "Close Terminal Tab") { workspace.perform(#selector(TerminalViewController.closeActiveTabOrWindow(_:))) }
+                .keyboardShortcut("w", modifiers: [.command, .shift]).disabled(!enabled && !standalone)
             Divider()
-            Button("Find in Terminal History…") { workspace.perform(#selector(TerminalViewController.findInHistory(_:))) }
+            if let nextProjectTerminal {
+                Button("Next Project Terminal", action: nextProjectTerminal)
+                    .keyboardShortcut("t", modifiers: [.command, .option, .shift])
+                    .disabled(standalone)
+            }
+            Button("Find in History…") { workspace.perform(#selector(TerminalViewController.findInHistory(_:))) }
                 .keyboardShortcut("f", modifiers: [.command, .shift]).disabled(!enabled && !standalone)
             Button("Clear Terminal") { workspace.perform(#selector(TerminalViewController.clearActiveTab(_:))) }
                 .keyboardShortcut("k").disabled(!enabled && !standalone)
+            Divider()
+            Button("Exit Terminal Session…") { workspace.perform(#selector(TerminalViewController.exitActiveSession(_:))) }
+                .disabled(!enabled && !standalone)
             Button("Clear Command History…") { workspace.perform(#selector(TerminalViewController.clearCommandHistory(_:))) }
                 .disabled(!enabled && !standalone)
         }

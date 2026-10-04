@@ -15,17 +15,6 @@ extension FocusedValues {
     }
 }
 
-struct PaletteCommands: Commands {
-    @FocusedValue(\.paletteModel) private var model
-    var body: some Commands {
-        CommandGroup(after: .toolbar) {
-            Button("Command Palette…") { model?.showPalette() }
-                .keyboardShortcut("p")
-                .disabled(model == nil)
-        }
-    }
-}
-
 struct PaletteTarget: Sendable {
     let project: String
     let source: ProjectSource

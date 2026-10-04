@@ -43,33 +43,11 @@ struct PortalApp: App {
                 Button("New Terminal Window") { TerminalApplication.open() }.keyboardShortcut("n")
             }
             SidebarCommands()
-            PaletteCommands()
             ProjectCommands()
-            EditorCommands(editor: model.editor)
-            TerminalCommands(workspace: model.terminals, enabled: !model.showsCommitDiff && model.selectedTab != .editor && model.projectTerminalSources.contains(model.selectedProjectHostSource), hosts: model.terminalHosts)
-            CommandGroup(after: .toolbar) {
-                Toggle("Show Auxiliary History", isOn: $model.showAuxiliaryHistory)
-                Divider()
-                Button("Select Next Staging") { model.selectNextStaging() }
-                    .keyboardShortcut("s", modifiers: [.command, .shift])
-                    .disabled(model.stagingRows.isEmpty)
-                Button("Show Next Project Terminal") { model.showNextProjectTerminal() }
-                    .keyboardShortcut("t")
-                    .disabled(model.projectTerminalSources.isEmpty)
-                ForEach(model.availableTabs) { tab in
-                    Button("Show \(tab.title)") { model.selectedTab = tab }
-                        .keyboardShortcut(KeyEquivalent(tab.rawValue.first!), modifiers: [.command, .option])
-                }
-                Divider()
-                Button("Reveal in Finder", action: model.revealSelectedProjectInFinder)
-                    .disabled(model.selectedLocalRepositoryURL == nil)
-                Button("Open in Terminal", action: model.openSelectedProjectInTerminal)
-                    .disabled(model.selectedLocalRepositoryURL == nil)
-                Button("Open in External Editor", action: model.openSelectedProjectInEditor)
-                    .disabled(model.selectedLocalRepositoryURL == nil)
-                Button("Open on GitHub", action: model.openSelectedProjectOnGitHub)
-                    .disabled(model.projectGitHubURL == nil)
-                Divider()
+            EditorCommands()
+            ProjectViewCommands()
+            ProjectTerminalCommands(workspace: model.terminals)
+            CommandGroup(after: .appSettings) {
                 Button(model.isPaused ? "Resume Sync" : "Pause Sync") {
                     model.isPaused ? model.resume() : model.pause()
                 }
@@ -545,7 +523,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    fileprivate func projectSourceLabel(_ source: ProjectSource) -> String {
+    func projectSourceLabel(_ source: ProjectSource) -> String {
         switch source {
         case .local:
             return "This Mac"

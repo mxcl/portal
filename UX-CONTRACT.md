@@ -54,7 +54,7 @@
   mutated and are never inferred to be absent.
 - Creating a checkout uses published default-branch metadata, then `main`, then
   `master`, and otherwise asks the user to choose a branch.
-- Project → Archive… targets the selected host's checkout and is enabled only
+- Project → Archive on Host… targets the selected host's checkout and is enabled only
   when a backup destination is configured and no placement change is running. It requires
   confirmation, moves the selected host's clean checkout to recoverable Trash,
   and leaves the backup available to restore. Permanent deletion is never a fallback.
@@ -138,3 +138,13 @@
 - Pending operations keep controls stable and disable duplicate submission.
 - Native keyboard navigation, sidebar/detail commands, visible focus, accessible
   labels, semantic colors, and text alternatives are required.
+
+## App menus
+
+- Project groups project switching, external open actions, and host-specific archiving.
+- View contains sidebar/history visibility, stable view choices (disabled when unavailable),
+  and staging navigation. Pause/Resume Sync lives in the Portal app menu.
+- Project and editor commands target the focused project window.
+- Terminal groups tab/session controls, navigation/history tools, then destructive
+  session/history actions. Command-T creates a terminal tab; Command-Option-Shift-T
+  cycles project terminals.

@@ -199,11 +199,11 @@ struct EditorSaveButton: View {
 }
 
 struct EditorCommands: Commands {
-    @ObservedObject var editor: ProjectEditor
+    @FocusedValue(\.paletteModel) private var model
     var body: some Commands {
         // SwiftUI's save group also contains Close; preserve the standard commands.
         CommandGroup(after: .saveItem) {
-            Button("Save") { editor.save() }.keyboardShortcut("s").disabled(!editor.isDirty)
+            Button("Save") { model?.editor.save() }.keyboardShortcut("s").disabled(model?.editor.isDirty != true)
         }
     }
 }

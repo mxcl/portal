@@ -44,6 +44,7 @@ struct PortalApp: App {
             }
             SidebarCommands()
             PaletteCommands()
+            ProjectCommands()
             EditorCommands(editor: model.editor)
             TerminalCommands(workspace: model.terminals, enabled: !model.showsCommitDiff && model.selectedTab != .editor && model.projectTerminalSources.contains(model.selectedProjectHostSource), hosts: model.terminalHosts)
             CommandGroup(after: .toolbar) {
@@ -997,6 +998,38 @@ final class AppModel: ObservableObject {
             return
         }
         requestCheckout(project, hostID: hostID, references: projectSnapshot?.references ?? [])
+    }
+
+    var canArchiveSelectedProject: Bool {
+        guard let project = selectedProjectName, placementInProgress == nil,
+              configuration.backup != nil || configuration.backupDestination != nil else { return false }
+        let hostID: UUID?
+        switch selectedProjectHostSource {
+        case .local: hostID = nil
+        case .host(let id): hostID = id
+        case .backup: return false
+        }
+        return placement(of: project, on: hostID) == .checkedOut
+    }
+
+    func archiveSelectedProject() {
+        guard canArchiveSelectedProject, let project = selectedProjectName else { return }
+        let hostID: UUID?
+        switch selectedProjectHostSource {
+        case .local: hostID = nil
+        case .host(let id): hostID = id
+        case .backup: return
+        }
+        let hostName = hostID.flatMap { id in configuration.hosts.first { $0.id == id }?.name }
+            ?? configuration.machine
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Archive \(project)?"
+        alert.informativeText = "The checkout on \(hostName) will be moved to Trash. The backup will remain available to restore."
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Archive")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        setPlacement(.notPresent, project: project, hostID: hostID)
     }
 
     private func requestCheckout(_ project: String, hostID: UUID?, references: [RepositoryReference]) {

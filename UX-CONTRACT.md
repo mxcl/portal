@@ -54,7 +54,8 @@
   mutated and are never inferred to be absent.
 - Creating a checkout uses published default-branch metadata, then `main`, then
   `master`, and otherwise asks the user to choose a branch.
-- Archive is offered only when a backup destination is configured. It requires
+- Project → Archive… targets the selected host's checkout and is enabled only
+  when a backup destination is configured and no placement change is running. It requires
   confirmation, moves the selected host's clean checkout to recoverable Trash,
   and leaves the backup available to restore. Permanent deletion is never a fallback.
 - Remote commands accept validated project names beneath a configured root only.

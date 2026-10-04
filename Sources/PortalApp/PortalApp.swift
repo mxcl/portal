@@ -1643,7 +1643,7 @@ struct ProjectBrowserView: View {
             .environment(\.defaultMinListRowHeight, 31)
             .environment(\.colorScheme, .dark)
             .scrollContentBackground(.hidden)
-            .background(Color(red: 0.125, green: 0.153, blue: 0.169))
+            .background(.ultraThinMaterial)
             .navigationTitle("Projects")
             .focused($isSidebarFocused)
             .onChange(of: model.selectedTab, initial: true) { _, tab in

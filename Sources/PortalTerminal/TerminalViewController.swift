@@ -4383,6 +4383,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     var onActivityChange: (() -> Void)?
+    var onOutputActivity: (() -> Void)?
+
+    var projectTerminalState: TerminalWorkspace.TerminalState? {
+        let liveTabs = tabs.filter { !$0.hasExited }
+        guard !liveTabs.isEmpty else { return nil }
+        return liveTabs.contains(where: { isCommandRunning(in: $0) }) ? .active : .waiting
+    }
     private var isTerminalVisible = false
 
     var projectActivity: TerminalWorkspace.Activity? {
@@ -4426,11 +4433,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let finished = TerminalTab(title: "finished", delegate: controller)
         let running = TerminalTab(title: "running", delegate: controller)
         controller.tabs = [finished, running]
-        guard controller.projectActivity == nil else { return false }
+        guard controller.projectActivity == nil, controller.projectTerminalState == .waiting else { return false }
         finished.hasUnviewedCompletion = true
         guard controller.projectActivity == .unviewed else { return false }
         running.commandLifecycle.apply(.submit(command: "sleep 1", cwd: "/tmp", at: Date()))
-        guard controller.projectActivity == .running else { return false }
+        guard controller.projectActivity == .running, controller.projectTerminalState == .active else { return false }
         running.commandLifecycle.apply(.commandFinished(status: 0, isReplay: false, at: Date()))
         guard controller.projectActivity == .unviewed else { return false }
         controller.activeTabID = finished.id
@@ -4445,7 +4452,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         defer { window.close() }
         controller.isTerminalVisible = true
         controller.markActiveTerminalViewed()
-        return controller.projectActivity == nil
+        guard controller.projectActivity == nil, controller.projectTerminalState == .waiting else { return false }
+        finished.commandLifecycle.apply(.shellExited(status: 0, at: Date()))
+        running.commandLifecycle.apply(.shellExited(status: 0, at: Date()))
+        return controller.projectTerminalState == nil
     }
 
     static func untouchedSessionCleanupSelfTest() -> Bool {
@@ -6394,8 +6404,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 self.setCommandBarStatusText("Disconnected — reconnecting…", in: tab)
             }
         }
-        tab.session.onOutput = { [weak outputProcessor = tab.outputProcessor] text in
+        tab.session.onOutput = { [weak self, weak outputProcessor = tab.outputProcessor] text in
             outputProcessor?.enqueueShellOutput(text)
+            guard !text.isEmpty else { return }
+            DispatchQueue.main.async { [weak self] in self?.onOutputActivity?() }
         }
         tab.session.onHistoryOutput = { [weak self, weak tab] text in
             DispatchQueue.main.async { [weak self, weak tab] in

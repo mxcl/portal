@@ -1605,22 +1605,42 @@ struct ProjectBrowserView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $visibility) {
             List(selection: $projectSelection) {
-                ForEach(projects, id: \.self) { name in
-                    ProjectRow(name: name, model: model).tag(name)
+                Section {
+                    ForEach(projects, id: \.self) { name in
+                        ProjectRow(name: name, model: model)
+                            .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
+                            .listRowSeparator(.hidden)
+                            .tag(name)
+                    }
+                } header: {
+                    HStack {
+                        Text("PROJECTS")
+                        Spacer()
+                        HStack(spacing: 0) {
+                            Text("B").frame(width: 18).help("Backup activity or error")
+                            Text("Δ").frame(width: 18).help("Peer or GitHub branch differences")
+                            Text("T").frame(width: 18).help("Terminal activity")
+                        }
+                    }
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundStyle(Color(red: 0.61, green: 0.69, blue: 0.71))
                 }
                 if !archived.isEmpty {
                     Section("Archived") {
                         ForEach(archived) { item in
-                            HStack(spacing: 8) {
-                                Image(systemName: "archivebox")
-                                    .foregroundStyle(.secondary)
-                                Text(item.name).lineLimit(1)
-                            }
+                            Text(item.name)
+                                .font(.system(size: 11, design: .monospaced))
+                                .lineLimit(1)
+                                .listRowSeparator(.hidden)
                             .tag(item.name)
                         }
                     }
                 }
             }
+            .environment(\.defaultMinListRowHeight, 31)
+            .environment(\.colorScheme, .dark)
+            .scrollContentBackground(.hidden)
+            .background(Color(red: 0.125, green: 0.153, blue: 0.169))
             .navigationTitle("Projects")
             .focused($isSidebarFocused)
             .onChange(of: model.selectedTab, initial: true) { _, tab in
@@ -1824,7 +1844,7 @@ private struct BranchPicker: View {
     }
 }
 
-private struct ProjectRow: View {
+struct ProjectRow: View {
     let name: String
     @ObservedObject var model: AppModel
 
@@ -1838,71 +1858,67 @@ private struct ProjectRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "folder")
-                .foregroundStyle(.gray)
-                .help("Git project")
-            HStack(spacing: 3) {
-                Text(name).lineLimit(1)
-                if let folder = model.configuration.folders.first(where: { $0.name == name }),
-                   !folder.availableLocally {
-                    Image(systemName: "globe")
-                        .font(.caption2.weight(.light))
-                        .foregroundStyle(.gray)
-                        .help("Project is available on another host")
-                        .accessibilityHidden(true)
-                }
-                if model.hasBranchDifferences(for: name) {
-                    SidebarStatusIcon(name: "branch-difference", color: model.hasGitHubBranchDifferences(for: name) ? .orange : .gray)
-                        .help("The default branch is ahead, behind, or diverged from another checked-out host or this Mac’s last known GitHub state.")
-                        .accessibilityHidden(true)
-                }
-                if let activity = terminals.projectActivities[name] {
-                    SidebarStatusIcon(name: "terminal", color: activity == .running ? .gray : .blue)
-                        .help(activity == .running ? "Terminal command running" : "Terminal command finished — unviewed output")
-                        .accessibilityLabel(activity == .running ? "Terminal command running" : "Unviewed terminal output")
-                }
-                SidebarStatusIcon(name: "backup", color: .gray)
-                    .help(model.backupSidebarStatus(for: name))
-                    .accessibilityLabel(model.backupSidebarStatus(for: name))
-            }
-            Spacer(minLength: 4)
-            if let counts = model.workingChangeCounts(for: name) {
-                HStack(spacing: 4) {
-                    Text("+\(counts.additions)").foregroundStyle(.green)
-                    Text("−\(counts.deletions)").foregroundStyle(.red)
-                }
-                .font(.caption.monospacedDigit()).fixedSize()
-                .help("Uncommitted changes across hosts: \(counts.additions) additions, \(counts.deletions) deletions")
-            }
-            if let counts = model.githubCounts(for: name),
-               counts.stars > 0 || counts.pullRequests > 0 || counts.issues > 0 {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color(red: 0.83, green: 0.87, blue: 0.88))
+                    .lineLimit(1)
                 HStack(spacing: 6) {
-                    if counts.stars > 0 {
-                        HStack(spacing: 3) {
-                            Image(systemName: "star").help("GitHub stars")
-                            Text(counts.stars.formatted(.number.notation(.compactName)))
-                        }
+                    if let counts = model.workingChangeCounts(for: name) {
+                        Text("+\(counts.additions) −\(counts.deletions)")
+                            .help("Uncommitted changes across hosts: \(counts.additions) additions, \(counts.deletions) deletions")
                     }
-                    if counts.pullRequests > 0 {
-                        HStack(spacing: 3) {
-                            Image(systemName: "arrow.triangle.pull").help("Open GitHub pull requests")
-                            Text(counts.pullRequests.formatted(.number.notation(.compactName)))
-                        }
-                    }
-                    if counts.issues > 0 {
-                        HStack(spacing: 3) {
-                            Image(systemName: "exclamationmark.circle").help("Open GitHub issues")
-                            Text(counts.issues.formatted(.number.notation(.compactName)))
-                        }
+                    if let counts = model.githubCounts(for: name) {
+                        if counts.stars > 0 { Text("☆\(counts.stars.formatted(.number.notation(.compactName)))").help("GitHub stars") }
+                        if counts.pullRequests > 0 { Text("↟\(counts.pullRequests)").help("Open GitHub pull requests") }
+                        if counts.issues > 0 { Text("ⓘ\(counts.issues)").help("Open GitHub issues") }
                     }
                 }
-                .font(.caption).foregroundStyle(.secondary).fixedSize()
-                .help(counts.summary)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(Color(red: 0.49, green: 0.59, blue: 0.62))
+                .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 0) {
+                SidebarLED(tone: backupFailed ? .red : backupTransferring ? .white : .off,
+                           label: model.backupSidebarStatus(for: name), transferring: backupTransferring)
+                SidebarLED(tone: model.hasGitHubBranchDifferences(for: name) ? .amber
+                           : model.hasBranchDifferences(for: name) ? .white : .off,
+                           label: model.hasGitHubBranchDifferences(for: name) ? "Default branch differs from GitHub"
+                           : model.hasBranchDifferences(for: name) ? "Default branch differs across checked-out hosts"
+                           : "No known default branch differences")
+                SidebarLED(tone: terminalTone, label: terminalLabel, outputAt: terminals.projectOutputAt[name])
             }
         }
+        .frame(minHeight: 29)
         .help(projectSummary)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(projectSummary)
+        .accessibilityLabel(projectSummary + " — " + terminalLabel)
+    }
+
+    private var backupFailed: Bool {
+        model.configuration.backup != nil || model.configuration.backupDestination != nil
+            ? model.backupError != nil || model.helperError != nil || model.error != nil : false
+    }
+
+    private var backupTransferring: Bool {
+        !backupFailed && !model.isPaused && model.isRunning && model.backupTransferring[name] == true
+    }
+
+    private var terminalTone: SidebarLED.Tone {
+        switch terminals.projectTerminalStates[name] {
+        case .active: .white
+        case .waiting: .blue
+        case nil: .off
+        }
+    }
+
+    private var terminalLabel: String {
+        switch terminals.projectTerminalStates[name] {
+        case .active: "Terminal active — flashes on received output"
+        case .waiting: "Terminal waiting for input"
+        case nil: "No active terminal"
+        }
     }
 
     private var projectSummary: String {
@@ -2181,6 +2197,12 @@ struct CopyableCommitSHA: View {
     let sha: String
     @State private var isHovered = false
     @State private var isCopied = false
+
+    init(sha: String, isHovered: Bool = false, isCopied: Bool = false) {
+        self.sha = sha
+        _isHovered = State(initialValue: isHovered)
+        _isCopied = State(initialValue: isCopied)
+    }
 
     var body: some View {
         Text(sha.prefix(8))

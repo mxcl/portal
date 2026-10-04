@@ -26,6 +26,16 @@ public struct TerminalHost: Equatable, Sendable {
 public final class TerminalWorkspace: ObservableObject {
     public enum Activity { case running, unviewed }
     @Published public private(set) var projectActivities: [String: Activity] = [:]
+    public enum TerminalState { case active, waiting }
+    @Published public private(set) var projectTerminalStates: [String: TerminalState] = [:]
+    @Published public private(set) var projectOutputAt: [String: Date] = [:]
+
+    func recordProjectOutput(_ project: String, at date: Date = Date()) {
+        // Coalesce busy streams; the sidebar needs a visible pulse, not every byte.
+        if let previous = projectOutputAt[project], date.timeIntervalSince(previous) < 0.2 { return }
+        projectOutputAt[project] = date
+    }
+
     private var controllerProjects: [String: String] = [:]
 
     private func refreshProjectActivity(_ project: String) {
@@ -33,6 +43,10 @@ public final class TerminalWorkspace: ObservableObject {
             controllerProjects[key] == project ? controller.projectActivity : nil
         }
         projectActivities[project] = activities.contains(.running) ? .running : activities.first
+        let states = controllers.compactMap { key, controller in
+            controllerProjects[key] == project ? controller.projectTerminalState : nil
+        }
+        projectTerminalStates[project] = states.contains(.active) ? .active : states.first
     }
 
     private var controllers: [String: TerminalViewController] = [:]
@@ -109,6 +123,7 @@ public final class TerminalWorkspace: ObservableObject {
                                                 initialDirectory: directory, initialHostID: host?.id, sessionHosts: hosts)
         controllerProjects[path] = project
         controller.onActivityChange = { [weak self] in self?.refreshProjectActivity(project) }
+        controller.onOutputActivity = { [weak self] in self?.recordProjectOutput(project) }
         controllers[path] = controller
         activeController = controller
         return controller

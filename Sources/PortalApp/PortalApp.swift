@@ -1624,6 +1624,9 @@ struct ProjectBrowserView: View {
                     }
                     .font(.system(size: 8, design: .monospaced))
                     .foregroundStyle(Color(red: 0.61, green: 0.69, blue: 0.71))
+                    // Sidebar section headers have different native margins from rows.
+                    .padding(.leading, 14)
+                    .padding(.trailing, 26)
                 }
                 if !archived.isEmpty {
                     Section("Archived") {

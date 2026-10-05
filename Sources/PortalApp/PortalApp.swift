@@ -1642,7 +1642,7 @@ struct ProjectBrowserView: View {
             }
             .environment(\.defaultMinListRowHeight, 31)
             .scrollContentBackground(.hidden)
-            .background(DarkSidebarMaterial())
+            .background(DarkSidebarMaterial().ignoresSafeArea())
             .environment(\.colorScheme, .dark)
             .navigationTitle("Projects")
             .focused($isSidebarFocused)

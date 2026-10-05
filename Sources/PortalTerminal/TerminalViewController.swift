@@ -749,6 +749,15 @@ private struct ContentColumnBackground: View {
     }
 }
 
+/// The standalone terminal's complete material and tint stack, without its tab chrome.
+@MainActor
+public func makeTerminalBackgroundView() -> NSView {
+    let view = TahoeGlassRootView()
+    view.usesPortalMaterials = true
+    view.showsTopBar = false
+    return view
+}
+
 final class TahoeGlassRootView: NSView {
     private let originalMaterialView = NonHitTestingVisualEffectView()
     private let contentColumnMaterialView = NSHostingView(rootView: ContentColumnBackground())

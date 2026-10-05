@@ -1757,16 +1757,13 @@ struct ProjectBrowserView: View {
 }
 
 private struct DarkSidebarMaterial: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .underWindowBackground
-        view.blendingMode = .behindWindow
-        view.state = .active
+    func makeNSView(context: Context) -> NSView {
+        let view = makeTerminalBackgroundView()
         view.appearance = NSAppearance(named: .darkAqua)
         return view
     }
 
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+    func updateNSView(_ view: NSView, context: Context) {
         view.appearance = NSAppearance(named: .darkAqua)
     }
 }

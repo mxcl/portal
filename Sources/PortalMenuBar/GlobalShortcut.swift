@@ -1,6 +1,7 @@
 #if os(macOS)
 import Carbon
 import Foundation
+import PortalEngine
 
 @MainActor
 final class GlobalShortcut {
@@ -28,7 +29,12 @@ final class GlobalShortcut {
                 return OSStatus(eventNotHandledErr)
             }
             // Carbon dispatches application events on the main thread.
-            MainActor.assumeIsolated { MenuBarRuntime.openMainApplication() }
+            MainActor.assumeIsolated {
+                DistributedNotificationCenter.default().postNotificationName(
+                    EngineControlProtocol.showPaletteNotification, object: nil, deliverImmediately: true
+                )
+                MenuBarRuntime.openMainApplication()
+            }
             return noErr
         }, 1, &eventType, nil, &handler)
         guard status == noErr else { throw RegistrationError(status: status) }

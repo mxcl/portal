@@ -31,6 +31,7 @@ struct PortalApp: App {
         Window("Portal", id: "projects") {
             ProjectBrowserView(model: model)
                 .focusedSceneValue(\.paletteModel, model)
+                .background(GlobalShortcutReceiver(model: model))
                 .onAppear {
                     appDelegate.editor = model.editor
                 }

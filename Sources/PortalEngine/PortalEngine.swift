@@ -6,6 +6,7 @@ import PortalCore
 
 public enum EngineControlProtocol {
     public static let version = 10
+    public static let showPaletteNotification = Notification.Name("dev.mxcl.portal.show-palette")
     public static let changedNotification = Notification.Name("dev.mxcl.portal.engine-changed")
     public static var socketURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

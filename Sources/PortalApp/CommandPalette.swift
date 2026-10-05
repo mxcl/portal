@@ -80,7 +80,7 @@ final class PaletteSearch: ObservableObject {
                               title: command.command, rank: $0, command: command)
             }
         }
-        sort()
+        sort(recentCommandsFirst: query.isEmpty)
         failures = []
         guard !query.isEmpty else { return }
         isLoading = !targets.isEmpty
@@ -120,8 +120,20 @@ final class PaletteSearch: ObservableObject {
         }
     }
 
-    private func sort() {
+    private func sort(recentCommandsFirst: Bool = false) {
         results.sort {
+            if recentCommandsFirst {
+                switch ($0.command, $1.command) {
+                case let (lhs?, rhs?):
+                    let leftDate = lhs.lastRunAt ?? .distantPast
+                    let rightDate = rhs.lastRunAt ?? .distantPast
+                    if leftDate != rightDate { return leftDate > rightDate }
+                    if lhs.historyIndex != rhs.historyIndex { return lhs.historyIndex > rhs.historyIndex }
+                case (_?, nil): return true
+                case (nil, _?): return false
+                case (nil, nil): break
+                }
+            }
             if $0.rank != $1.rank { return $0.rank < $1.rank }
             let lhs = $0.title.lowercased(), rhs = $1.title.lowercased()
             if lhs != rhs { return lhs < rhs }

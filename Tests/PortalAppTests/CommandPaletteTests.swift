@@ -8,6 +8,30 @@ import Testing
 @testable import PortalTerminal
 
 @MainActor
+@Test func paletteOpensWithCommandsInDescendingRunOrder() {
+    let search = PaletteSearch()
+    func command(_ text: String, project: String, time: Double?, index: Int = 0) -> ProjectTerminalCommand {
+        ProjectTerminalCommand(project: project, directory: URL(fileURLWithPath: "/tmp/" + project),
+            hostID: nil, command: text, terminalLabel: "This Mac", sessionRef: .local(project),
+            lastRunAt: time.map(Date.init(timeIntervalSince1970:)), historyIndex: index)
+    }
+    let commands = [
+        command("alpha", project: "one", time: 10),
+        command("zulu", project: "two", time: 30),
+        command("middle", project: "one", time: 20),
+        command("legacy-a", project: "one", time: nil, index: 1),
+        command("legacy-z", project: "one", time: nil, index: 2)
+    ]
+    search.search("", projects: ["aaa-project"], targets: [], hosts: [], commands: commands) { _, _ in
+        Issue.record("Opening the palette must not search Git")
+        return []
+    }
+    #expect(search.results.map(\.title) == ["zulu", "middle", "alpha", "legacy-z", "legacy-a", "aaa-project"])
+    search.search("alpha", projects: [], targets: [], hosts: [], commands: commands) { _, _ in [] }
+    #expect(search.results.first?.title == "alpha")
+}
+
+@MainActor
 @Test func paletteSearchFindsCommandsWithoutMergingProjectsOrSessions() {
     let search = PaletteSearch()
     let commands = ["one", "two"].flatMap { project in

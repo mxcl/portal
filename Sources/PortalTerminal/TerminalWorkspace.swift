@@ -29,6 +29,8 @@ public struct ProjectTerminalCommand: Identifiable, Sendable {
     public let command: String
     public let terminalLabel: String
     let sessionRef: SessionRef
+    public var lastRunAt: Date? = nil
+    public var historyIndex: Int = 0
     public var id: String {
         [project, directory.path, hostID ?? "local", String(describing: sessionRef.location),
          sessionRef.sessionID, command].joined(separator: "\0")
@@ -239,11 +241,13 @@ public final class TerminalWorkspace: ObservableObject {
         let controller = controller(project: project, directory: directory, hosts: hosts, host: host, activates: false)
         return controller.paletteHistory.flatMap { record in
             var seen = Set<String>()
-            return (record.commandHistory ?? []).reversed().compactMap { command -> ProjectTerminalCommand? in
+            return (record.commandHistory ?? []).enumerated().reversed().compactMap { index, command -> ProjectTerminalCommand? in
                 guard !command.isEmpty, seen.insert(command).inserted else { return nil }
                 return ProjectTerminalCommand(project: project, directory: directory, hostID: host?.id,
                     command: command, terminalLabel: "\(record.resolvedRef.hostName ?? "This Mac") · \(record.title)",
-                    sessionRef: record.resolvedRef)
+                    sessionRef: record.resolvedRef,
+                    lastRunAt: record.commandRunDates?[command] ?? (index == (record.commandHistory?.count ?? 0) - 1 ? record.lastCommandAt : nil),
+                    historyIndex: index)
             }
         }
     }

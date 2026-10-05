@@ -30,6 +30,7 @@ final class CommandLifecycle {
         fileprivate(set) var hasExited: Bool
         fileprivate(set) var isAlternateScreenActive: Bool
         fileprivate(set) var isApplicationCursorModeActive: Bool
+        fileprivate(set) var commandRunDates: [String: Date]
         fileprivate(set) var commandHistory: [String]
         fileprivate(set) var commandHistoryIndex: Int?
         fileprivate(set) var commandHistoryDraft: String
@@ -53,7 +54,7 @@ final class CommandLifecycle {
     }
 
     enum Event {
-        case replaceSession(cwd: String, commandCount: Int, lastCommandAt: Date?, commandHistory: [String])
+        case replaceSession(cwd: String, commandCount: Int, lastCommandAt: Date?, commandHistory: [String], commandRunDates: [String: Date] = [:])
         case resetTranscript
         case clearTranscript(keeping: Set<UUID>)
         case beginShellInitialization
@@ -99,7 +100,8 @@ final class CommandLifecycle {
         cwd: String,
         commandCount: Int = 0,
         lastCommandAt: Date? = nil,
-        commandHistory: [String] = []
+        commandHistory: [String] = [],
+        commandRunDates: [String: Date] = [:]
     ) {
         state = State(
             blocks: [],
@@ -112,19 +114,23 @@ final class CommandLifecycle {
             hasExited: false,
             isAlternateScreenActive: false,
             isApplicationCursorModeActive: false,
+            commandRunDates: commandRunDates,
             commandHistory: commandHistory,
             commandHistoryIndex: nil,
             commandHistoryDraft: "",
             commandCount: commandCount,
             lastCommandAt: lastCommandAt
         )
+        if let command = commandHistory.last, let lastCommandAt, state.commandRunDates[command] == nil {
+            state.commandRunDates[command] = lastCommandAt
+        }
     }
 
     @discardableResult
     func apply(_ event: Event) -> Change {
         var change = Change()
         switch event {
-        case .replaceSession(let cwd, let commandCount, let lastCommandAt, let commandHistory):
+        case .replaceSession(let cwd, let commandCount, let lastCommandAt, let commandHistory, let commandRunDates):
             isInitializingShell = false
             let removedIDs = state.blocks.map(\.id)
             state.blocks.removeAll()
@@ -137,6 +143,10 @@ final class CommandLifecycle {
             state.hasExited = false
             state.isAlternateScreenActive = false
             state.isApplicationCursorModeActive = false
+            state.commandRunDates = commandRunDates
+            if let command = commandHistory.last, let lastCommandAt, state.commandRunDates[command] == nil {
+                state.commandRunDates[command] = lastCommandAt
+            }
             state.commandHistory = commandHistory
             state.commandHistoryIndex = nil
             state.commandHistoryDraft = ""
@@ -188,6 +198,7 @@ final class CommandLifecycle {
             state.commandCount += 1
             state.lastCommandAt = timestamp
             state.commandHistory.append(command)
+            state.commandRunDates[command] = timestamp
             state.commandHistoryIndex = nil
             state.commandHistoryDraft = ""
             state.isShellReady = false

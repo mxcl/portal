@@ -11,7 +11,8 @@ visual element. System colors, materials, typography, spacing, controls, and
 selection behavior remain canonical.
 
 The command palette searches project terminal session history alongside projects and
-Git references. Command results identify their project, host, and tab. Return opens
+Git references. With no query, commands appear first, newest run first across
+projects; older history without timestamps retains its per-session ordering. Command results identify their project, host, and tab. Return opens
 the original terminal and fills its command input; a second Return submits it.
 A busy or unavailable session beeps and leaves the palette open without changing
 its input. History comes from the existing live/saved project session catalog.

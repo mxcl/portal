@@ -5,6 +5,26 @@ import Testing
 
 @Suite("Command lifecycle")
 struct CommandLifecycleTests {
+    @Test func commandRunDatesSurviveRestorationAndUpdateOnRepeat() throws {
+        let oldDate = Date(timeIntervalSince1970: 10)
+        let newDate = Date(timeIntervalSince1970: 30)
+        let lifecycle = CommandLifecycle(cwd: "/repo", commandHistory: ["deploy"], commandRunDates: ["deploy": oldDate])
+        lifecycle.apply(.submit(command: "test", cwd: "/repo", at: Date(timeIntervalSince1970: 20)))
+        lifecycle.apply(.commandFinished(status: 0, isReplay: false, at: Date(timeIntervalSince1970: 25)))
+        lifecycle.apply(.submit(command: "deploy", cwd: "/repo", at: newDate))
+        #expect(lifecycle.state.commandHistory == ["test", "deploy"])
+        #expect(lifecycle.state.commandRunDates["deploy"] == newDate)
+        let record = SessionCatalog.Record(sessionID: "test", title: "test", cwd: "/repo",
+            commandHistory: lifecycle.state.commandHistory, commandRunDates: lifecycle.state.commandRunDates)
+        let restored = try JSONDecoder().decode(SessionCatalog.Record.self, from: JSONEncoder().encode(record))
+        #expect(restored.commandRunDates == lifecycle.state.commandRunDates)
+        lifecycle.apply(.replaceSession(cwd: "/other", commandCount: 0, lastCommandAt: nil, commandHistory: []))
+        #expect(lifecycle.state.commandRunDates.isEmpty)
+        let legacy = try JSONDecoder().decode(SessionCatalog.Record.self,
+            from: Data(#"{"sessionID":"old","title":"old","cwd":"/repo","commandHistory":["deploy"]}"#.utf8))
+        #expect(legacy.commandRunDates == nil)
+    }
+
     @Test("submission and completion share one transition path")
     func submissionAndCompletion() throws {
         let lifecycle = CommandLifecycle(cwd: "/repo")

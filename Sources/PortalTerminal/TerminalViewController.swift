@@ -2582,7 +2582,8 @@ private final class TerminalTab {
         createdAt: Date = Date(),
         commandCount: Int = 0,
         lastCommandAt: Date? = nil,
-        commandHistory: [String] = []
+        commandHistory: [String] = [],
+        commandRunDates: [String: Date] = [:]
     ) {
         self.sessionRef = sessionRef
         self.session = PtySession(sessionRef: sessionRef)
@@ -2592,7 +2593,8 @@ private final class TerminalTab {
             cwd: FileManager.default.homeDirectoryForCurrentUser.path,
             commandCount: commandCount,
             lastCommandAt: lastCommandAt,
-            commandHistory: commandHistory
+            commandHistory: commandHistory,
+            commandRunDates: commandRunDates
         )
         buildView(delegate: delegate)
     }
@@ -4522,6 +4524,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             commandCount: storedTab.commandCount ?? 0,
             lastCommandAt: storedTab.lastCommandAt,
             commandHistory: storedTab.commandHistory ?? [],
+            commandRunDates: storedTab.commandRunDates ?? [:],
             showsSessionPicker: false,
             activates: activates,
             persists: persists
@@ -4577,7 +4580,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             commandCount: tab.commandCount,
             lastCommandAt: tab.lastCommandAt,
             runningCommand: runningCommand(in: tab),
-            commandHistory: tab.commandHistory
+            commandHistory: tab.commandHistory,
+            commandRunDates: tab.commandLifecycle.state.commandRunDates
         )
     }
 
@@ -4612,6 +4616,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         commandCount: Int = 0,
         lastCommandAt: Date? = nil,
         commandHistory: [String] = [],
+        commandRunDates: [String: Date] = [:],
         initialCommand: InitialCommand? = nil,
         shellPath: String? = nil,
         showsSessionPicker: Bool = false,
@@ -4630,7 +4635,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             createdAt: createdAt,
             commandCount: commandCount,
             lastCommandAt: lastCommandAt,
-            commandHistory: commandHistory
+            commandHistory: commandHistory,
+            commandRunDates: commandRunDates
         )
         tab.commandBarView.layer?.backgroundColor = (standalone ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.22) : TahoeGlassPalette.commandBackground).cgColor
         tab.commandLifecycle.apply(.cwdChanged(directoryPath))
@@ -5089,7 +5095,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             cwd: candidate.cwd,
             commandCount: candidate.commandCount,
             lastCommandAt: candidate.lastCommandAt,
-            commandHistory: candidate.commandHistory
+            commandHistory: candidate.commandHistory,
+            commandRunDates: (sessionCatalog.visibleRecords() + closedTabs).first { $0.resolvedRef == candidate.sessionRef }?.commandRunDates ?? [:]
         ))
         resetTranscriptViews(for: tab)
         setCommandBarStatusText("Rejoining session...", in: tab)

@@ -36,6 +36,7 @@ final class SessionCatalog {
         var lastCommandAt: Date? = nil
         var runningCommand: String?
         var commandHistory: [String]?
+        var commandRunDates: [String: Date]? = nil
 
         var resolvedRef: SessionRef {
             sessionRef ?? .local(sessionID)

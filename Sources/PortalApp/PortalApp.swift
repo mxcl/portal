@@ -39,9 +39,6 @@ struct PortalApp: App {
         .defaultSize(width: 1180, height: 720)
         .windowResizability(.contentMinSize)
         .commands {
-            CommandGroup(replacing: .newItem) {
-                Button("New Terminal Window") { TerminalApplication.open() }.keyboardShortcut("n")
-            }
             SidebarCommands()
             ProjectCommands()
             EditorCommands()

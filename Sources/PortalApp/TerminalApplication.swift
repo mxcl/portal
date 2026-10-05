@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import PortalTerminal
 
 @MainActor
 enum TerminalApplication {
@@ -18,6 +19,10 @@ enum TerminalApplication {
                 if let error { Task { @MainActor in NSAlert(error: error).runModal() } }
             }
         }
+    }
+
+    static func open(hostID: String) {
+        open([TerminalLaunchRequest.url(hostID: hostID)])
     }
 
     static func install() {

@@ -64,6 +64,8 @@ struct ProjectTerminalCommands: Commands {
                          enabled: model.map { !$0.showsCommitDiff && $0.selectedTab != .editor
                              && $0.projectTerminalSources.contains($0.selectedProjectHostSource) } ?? false,
                          hosts: model?.terminalHosts ?? [],
+                         newWindow: { TerminalApplication.open() },
+                         newSSHWindow: { TerminalApplication.open(hostID: $0.id) },
                          nextProjectTerminal: model.flatMap { model in
                              model.projectTerminalSources.isEmpty ? nil : { model.showNextProjectTerminal() }
                          })

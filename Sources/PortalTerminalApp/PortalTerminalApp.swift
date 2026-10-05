@@ -11,16 +11,16 @@ struct PortalTerminalApp: App {
     var body: some Scene {
         Settings { Text("Portal Terminal uses your Portal terminal sessions.").padding() }
         .commands {
-            CommandGroup(replacing: .newItem) {
-                Button("New Terminal Window") { delegate.newWindow() }.keyboardShortcut("n")
-            }
-            TerminalCommands(workspace: delegate.workspace, enabled: true)
+            TerminalCommands(workspace: delegate.workspace, enabled: true, hosts: delegate.hosts,
+                managesTabs: true, newWindow: { delegate.newWindow() },
+                newSSHWindow: { delegate.newWindow(hostID: $0.id) })
         }
     }
 }
 
 @MainActor
-final class TerminalDelegate: NSObject, NSApplicationDelegate {
+final class TerminalDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    @Published private(set) var hosts: [TerminalHost] = []
     let workspace = TerminalWorkspace()
     private var openedWindow = false
 
@@ -33,7 +33,7 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil) {
+    func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hostID: String? = nil) {
         openedWindow = true
         Task {
             let snapshot = try? await EngineClient.send(.snapshot).snapshot
@@ -48,12 +48,29 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate {
                                 : (host.executable.hasSuffix("/portald") ? "~/.local/lib/portal/terminal/portal-session-bridge" : "~/.local/lib/gitinuum/terminal/gitinuum-session-bridge"),
                              directory: host.root)
             } ?? []
-            workspace.newWindow(directory: directory, command: command, hosts: hosts)
+            self.hosts = hosts
+            if let hostID {
+                guard let host = hosts.first(where: { $0.id == hostID }) else {
+                    let alert = NSAlert()
+                    alert.messageText = "SSH destination unavailable"
+                    alert.informativeText = "This host is no longer configured in Portal."
+                    alert.runModal()
+                    return
+                }
+                workspace.newWindow(directory: URL(fileURLWithPath: host.directory), hosts: hosts, hostID: host.id)
+            } else {
+                workspace.newWindow(directory: directory, command: command, hosts: hosts)
+            }
         }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls where url.isFileURL {
+        for url in urls {
+            if let hostID = TerminalLaunchRequest.hostID(from: url) {
+                newWindow(hostID: hostID)
+                continue
+            }
+            guard url.isFileURL else { continue }
             var directory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) else { continue }
             let command = directory.boolValue ? nil : "'" + url.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
@@ -61,7 +78,7 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }
 #else
 @main enum PortalTerminalApp { static func main() {} }

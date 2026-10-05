@@ -5,7 +5,6 @@ import PortalCore
 import QuartzCore
 import SwiftUI
 
-
 private typealias TerminalBlock = CommandLifecycle.Block
 
 enum BackgroundBlurEffect: String, CaseIterable {
@@ -45,26 +44,6 @@ private struct FindResult: Equatable {
 }
 
 enum TahoeGlassPalette {
-    static let windowCornerRadius: CGFloat = 22
-    static let titleBarHeight: CGFloat = 50
-    static let titleTabHeight: CGFloat = 34
-    static let titleTabTopInset: CGFloat = titleBarHeight - titleTabHeight
-    static let titleTabCornerRadius: CGFloat = max(0, windowCornerRadius - (titleTabTopInset * 0.535)) * 0.8
-    static let titleTabBottomInset: CGFloat = 0
-    static let titleContentTop: CGFloat = titleTabTopInset + titleTabHeight + titleTabBottomInset
-    static let titleTabLeadingInset: CGFloat = 12
-    static let titleTabMinimumWidth: CGFloat = 112
-    static let titleTabMaximumWidth: CGFloat = 240
-    static let titleTabTitleLeadingInset: CGFloat = 16
-    static let titleTabTitleTrailingInset: CGFloat = 16
-    static let titleTabTitleCloseTrailingInset: CGFloat = 34
-    static let titleTabMeasurementSlack: CGFloat = 4
-    static let titleTabCloseButtonSize: CGFloat = 16
-    static let titleTabCloseButtonCornerRadius: CGFloat = 1.5
-    static let titleTabCloseButtonTrailingInset: CGFloat = 8
-    static let titleTabCloseButtonVerticalOffset: CGFloat = 1
-    static let titleTabRunningIndicatorSize: CGFloat = 5
-    static let titleHairlineEndpointGap: CGFloat = 1
     static func tint(light: CGFloat, dark: CGFloat) -> NSColor {
         NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -101,7 +80,6 @@ enum TahoeGlassPalette {
         NSColor.textBackgroundColor.blended(withFraction: 0.08, of: .systemRed) ?? .textBackgroundColor
     }
     static let hairline = NSColor.separatorColor
-    static let titleTopHairline = NSColor.labelColor.withAlphaComponent(0.20)
     static let titleText = NSColor.secondaryLabelColor
     static let titleTextActive = NSColor.labelColor
     static let titleSegmentHoverFill = NSColor.labelColor.withAlphaComponent(0.045)
@@ -754,7 +732,6 @@ private struct ContentColumnBackground: View {
 public func makeTerminalBackgroundView() -> NSView {
     let view = TahoeGlassRootView()
     view.usesPortalMaterials = true
-    view.showsTopBar = false
     return view
 }
 
@@ -763,8 +740,6 @@ final class TahoeGlassRootView: NSView {
     private let contentColumnMaterialView = NSHostingView(rootView: ContentColumnBackground())
     private let tintView = NonHitTestingView()
     private let originalTintLayer = CAGradientLayer()
-    private let topBarLayer = CAShapeLayer()
-    private let topBarSeparatorLayer = CAShapeLayer()
     private lazy var contentColumnMaterialConstraints = [
         contentColumnMaterialView.leadingAnchor.constraint(equalTo: leadingAnchor),
         contentColumnMaterialView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -785,26 +760,6 @@ final class TahoeGlassRootView: NSView {
         didSet {
             originalMaterialView.blendingMode = usesPortalMaterials ? .behindWindow : .withinWindow
             updateBackgroundBlurEffect()
-        }
-    }
-
-    var showsTopBar = true {
-        didSet {
-            topBarLayer.isHidden = !showsTopBar
-            topBarSeparatorLayer.isHidden = !showsTopBar
-        }
-    }
-
-    var activeTabFrame: CGRect? {
-        didSet {
-            guard activeTabFrame != oldValue else { return }
-            needsLayout = true
-        }
-    }
-    var tabStripFrame: CGRect? {
-        didSet {
-            guard tabStripFrame != oldValue else { return }
-            needsLayout = true
         }
     }
 
@@ -838,15 +793,6 @@ final class TahoeGlassRootView: NSView {
         originalTintLayer.endPoint = CGPoint(x: 1, y: 1)
         tintView.layer?.addSublayer(originalTintLayer)
 
-        topBarLayer.fillColor = TahoeGlassPalette.topBarTint.cgColor
-        topBarLayer.fillRule = .evenOdd
-        tintView.layer?.addSublayer(topBarLayer)
-
-        topBarSeparatorLayer.fillColor = nil
-        topBarSeparatorLayer.strokeColor = TahoeGlassPalette.hairline.cgColor
-        topBarSeparatorLayer.lineWidth = 1
-        tintView.layer?.addSublayer(topBarSeparatorLayer)
-
         NSLayoutConstraint.activate([
             originalMaterialView.leadingAnchor.constraint(equalTo: leadingAnchor),
             originalMaterialView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -867,23 +813,10 @@ final class TahoeGlassRootView: NSView {
 
     override var mouseDownCanMoveWindow: Bool { false }
 
-
     override func layout() {
         super.layout()
         onLayout?()
         originalTintLayer.frame = bounds
-        let contentTop = TahoeGlassPalette.titleContentTop
-        topBarLayer.frame = bounds
-        topBarLayer.path = topBarPath(
-            contentTop: contentTop,
-            activeTabFrame: activeTabFrame,
-            tabStripFrame: tabStripFrame
-        )
-        topBarSeparatorLayer.frame = bounds
-        topBarSeparatorLayer.path = topBarSeparatorPath(
-            y: max(0, bounds.height - contentTop),
-            activeTabFrame: activeTabFrame
-        )
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -895,8 +828,6 @@ final class TahoeGlassRootView: NSView {
                 TahoeGlassPalette.windowTintMid.cgColor,
                 TahoeGlassPalette.windowTintEnd.cgColor
             ]
-            topBarLayer.fillColor = TahoeGlassPalette.topBarTint.cgColor
-            topBarSeparatorLayer.strokeColor = TahoeGlassPalette.hairline.cgColor
             updateBackgroundBlurEffect()
             onAppearanceChange?()
         }
@@ -922,320 +853,6 @@ final class TahoeGlassRootView: NSView {
         }
     }
 
-    private func topBarPath(
-        contentTop: CGFloat,
-        activeTabFrame: CGRect?,
-        tabStripFrame: CGRect?
-    ) -> CGPath {
-        let path = CGMutablePath()
-        let topBarFrame = CGRect(
-            x: 0,
-            y: bounds.height - contentTop,
-            width: bounds.width,
-            height: contentTop
-        )
-        path.addRect(topBarFrame)
-        if let activeTabFrame {
-            let cutoutFrame = activeTabFrame.intersection(topBarFrame)
-            if !cutoutFrame.isNull {
-                let roundsLeadingCorner = tabStripFrame.map {
-                    abs(cutoutFrame.minX - $0.minX) < 0.5
-                } ?? false
-                let roundsTrailingCorner = tabStripFrame.map {
-                    abs(cutoutFrame.maxX - $0.maxX) < 0.5
-                } ?? false
-                path.addPath(topRoundedRectPath(
-                    in: cutoutFrame,
-                    radius: TahoeGlassPalette.titleTabCornerRadius,
-                    roundsLeadingCorner: roundsLeadingCorner,
-                    roundsTrailingCorner: roundsTrailingCorner
-                ))
-            }
-        }
-
-        return path
-    }
-
-    private func topRoundedRectPath(
-        in rect: CGRect,
-        radius requestedRadius: CGFloat,
-        roundsLeadingCorner: Bool,
-        roundsTrailingCorner: Bool
-    ) -> CGPath {
-        guard roundsLeadingCorner || roundsTrailingCorner else {
-            let path = CGMutablePath()
-            path.addRect(rect)
-            return path
-        }
-
-        let radius = min(requestedRadius, rect.width / 2, rect.height)
-        let controlOffset = radius * 0.5522847498307936
-        let path = CGMutablePath()
-
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        if roundsLeadingCorner {
-            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - radius))
-            path.addCurve(
-                to: CGPoint(x: rect.minX + radius, y: rect.maxY),
-                control1: CGPoint(x: rect.minX, y: rect.maxY - radius + controlOffset),
-                control2: CGPoint(x: rect.minX + radius - controlOffset, y: rect.maxY)
-            )
-        } else {
-            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        }
-
-        if roundsTrailingCorner {
-            path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.maxY))
-            path.addCurve(
-                to: CGPoint(x: rect.maxX, y: rect.maxY - radius),
-                control1: CGPoint(x: rect.maxX - radius + controlOffset, y: rect.maxY),
-                control2: CGPoint(x: rect.maxX, y: rect.maxY - radius + controlOffset)
-            )
-        } else {
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        }
-
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        path.closeSubpath()
-        return path
-    }
-
-    private func topBarSeparatorPath(y: CGFloat, activeTabFrame: CGRect?) -> CGPath {
-        let path = CGMutablePath()
-        guard let activeTabFrame,
-              y >= activeTabFrame.minY,
-              y <= activeTabFrame.maxY
-        else {
-            path.move(to: CGPoint(x: 0, y: y))
-            path.addLine(to: CGPoint(x: bounds.width, y: y))
-            return path
-        }
-
-        let endpointGap = TahoeGlassPalette.titleHairlineEndpointGap
-        let gapStart = max(0, floor(activeTabFrame.minX) - endpointGap)
-        let gapEnd = min(bounds.width, ceil(activeTabFrame.maxX) + endpointGap)
-        if gapStart > 0 {
-            path.move(to: CGPoint(x: 0, y: y))
-            path.addLine(to: CGPoint(x: gapStart, y: y))
-        }
-        if gapEnd < bounds.width {
-            path.move(to: CGPoint(x: gapEnd, y: y))
-            path.addLine(to: CGPoint(x: bounds.width, y: y))
-        }
-        return path
-    }
-}
-
-private final class TitleTabBorderView: NSView {
-    weak var tabStack: NSStackView?
-
-    override var isFlipped: Bool { true }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        translatesAutoresizingMaskIntoConstraints = false
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        TahoeGlassPalette.titleTopHairline.setStroke()
-        let outline = topRoundedOutlinePath(
-            in: bounds.insetBy(dx: 0.5, dy: 0.5),
-            radius: TahoeGlassPalette.titleTabCornerRadius
-        )
-        outline.lineWidth = 1
-        outline.stroke()
-
-        TahoeGlassPalette.titleTopHairline.setFill()
-
-        guard let tabStack else { return }
-        let visibleSubviews = tabStack.arrangedSubviews.filter { !$0.isHidden }
-        let separatorEndpointInset = min(
-            TahoeGlassPalette.titleHairlineEndpointGap,
-            bounds.height / 2
-        )
-        for subview in visibleSubviews.dropLast() {
-            let rect = subview.convert(subview.bounds, to: self)
-            NSRect(
-                x: floor(rect.maxX) - 1,
-                y: separatorEndpointInset,
-                width: 1,
-                height: max(0, bounds.height - separatorEndpointInset)
-            ).fill()
-        }
-    }
-
-    private func topRoundedOutlinePath(in rect: NSRect, radius requestedRadius: CGFloat) -> NSBezierPath {
-        let radius = min(requestedRadius, rect.width / 2, rect.height)
-        let controlOffset = radius * 0.5522847498307936
-        let path = NSBezierPath()
-
-        path.move(to: NSPoint(x: rect.minX, y: rect.maxY))
-        path.line(to: NSPoint(x: rect.minX, y: rect.minY + radius))
-        path.curve(
-            to: NSPoint(x: rect.minX + radius, y: rect.minY),
-            controlPoint1: NSPoint(x: rect.minX, y: rect.minY + radius - controlOffset),
-            controlPoint2: NSPoint(x: rect.minX + radius - controlOffset, y: rect.minY)
-        )
-        path.line(to: NSPoint(x: rect.maxX - radius, y: rect.minY))
-        path.curve(
-            to: NSPoint(x: rect.maxX, y: rect.minY + radius),
-            controlPoint1: NSPoint(x: rect.maxX - radius + controlOffset, y: rect.minY),
-            controlPoint2: NSPoint(x: rect.maxX, y: rect.minY + radius - controlOffset)
-        )
-        path.line(to: NSPoint(x: rect.maxX, y: rect.maxY))
-
-        return path
-    }
-}
-
-private final class TitleTabStackView: NSStackView {
-    override var mouseDownCanMoveWindow: Bool { false }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
-}
-
-private final class TitleTabCloseButton: NSButton {
-    private var hoverTrackingArea: NSTrackingArea?
-    private var isHovering = false {
-        didSet { needsDisplay = true }
-    }
-
-    override var mouseDownCanMoveWindow: Bool { false }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
-
-    override var isHidden: Bool {
-        didSet {
-            if isHidden {
-                isHovering = false
-            }
-        }
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea {
-            removeTrackingArea(hoverTrackingArea)
-        }
-        let trackingArea = NSTrackingArea(
-            rect: .zero,
-            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-        hoverTrackingArea = trackingArea
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovering = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovering = false
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        if isHovering {
-            let side = min(bounds.width, bounds.height)
-            let hoverRect = NSRect(
-                x: bounds.midX - (side / 2),
-                y: bounds.midY - (side / 2),
-                width: side,
-                height: side
-            )
-            NSColor.labelColor.withAlphaComponent(0.08).setFill()
-            NSBezierPath(
-                roundedRect: hoverRect,
-                xRadius: TahoeGlassPalette.titleTabCloseButtonCornerRadius,
-                yRadius: TahoeGlassPalette.titleTabCloseButtonCornerRadius
-            ).fill()
-        }
-        super.draw(dirtyRect)
-    }
-}
-
-private func titleSegmentFillPath(
-    in rect: NSRect,
-    isFlipped: Bool,
-    roundsLeadingTopCorner: Bool,
-    roundsTrailingTopCorner: Bool
-) -> NSBezierPath {
-    let radius = min(TahoeGlassPalette.titleTabCornerRadius, rect.width / 2, rect.height)
-    let controlOffset = radius * 0.5522847498307936
-    let path = NSBezierPath()
-
-    guard roundsLeadingTopCorner || roundsTrailingTopCorner else {
-        path.appendRect(rect)
-        return path
-    }
-
-    if isFlipped {
-        path.move(to: NSPoint(x: rect.minX, y: rect.maxY))
-        if roundsLeadingTopCorner {
-            path.line(to: NSPoint(x: rect.minX, y: rect.minY + radius))
-            path.curve(
-                to: NSPoint(x: rect.minX + radius, y: rect.minY),
-                controlPoint1: NSPoint(x: rect.minX, y: rect.minY + radius - controlOffset),
-                controlPoint2: NSPoint(x: rect.minX + radius - controlOffset, y: rect.minY)
-            )
-        } else {
-            path.line(to: NSPoint(x: rect.minX, y: rect.minY))
-        }
-
-        if roundsTrailingTopCorner {
-            path.line(to: NSPoint(x: rect.maxX - radius, y: rect.minY))
-            path.curve(
-                to: NSPoint(x: rect.maxX, y: rect.minY + radius),
-                controlPoint1: NSPoint(x: rect.maxX - radius + controlOffset, y: rect.minY),
-                controlPoint2: NSPoint(x: rect.maxX, y: rect.minY + radius - controlOffset)
-            )
-        } else {
-            path.line(to: NSPoint(x: rect.maxX, y: rect.minY))
-        }
-
-        path.line(to: NSPoint(x: rect.maxX, y: rect.maxY))
-    } else {
-        path.move(to: NSPoint(x: rect.minX, y: rect.minY))
-        if roundsLeadingTopCorner {
-            path.line(to: NSPoint(x: rect.minX, y: rect.maxY - radius))
-            path.curve(
-                to: NSPoint(x: rect.minX + radius, y: rect.maxY),
-                controlPoint1: NSPoint(x: rect.minX, y: rect.maxY - radius + controlOffset),
-                controlPoint2: NSPoint(x: rect.minX + radius - controlOffset, y: rect.maxY)
-            )
-        } else {
-            path.line(to: NSPoint(x: rect.minX, y: rect.maxY))
-        }
-
-        if roundsTrailingTopCorner {
-            path.line(to: NSPoint(x: rect.maxX - radius, y: rect.maxY))
-            path.curve(
-                to: NSPoint(x: rect.maxX, y: rect.maxY - radius),
-                controlPoint1: NSPoint(x: rect.maxX - radius + controlOffset, y: rect.maxY),
-                controlPoint2: NSPoint(x: rect.maxX, y: rect.maxY - radius + controlOffset)
-            )
-        } else {
-            path.line(to: NSPoint(x: rect.maxX, y: rect.maxY))
-        }
-
-        path.line(to: NSPoint(x: rect.maxX, y: rect.minY))
-    }
-
-    path.close()
-    return path
 }
 
 private final class FlippedDocumentView: NSView {
@@ -2373,448 +1990,6 @@ func portalDetachedBlockAppearanceSelfTest() -> Bool {
     return true
 }
 
-private final class TitleTabButton: NSButton {
-    let tabID: UUID
-    private let closeButton = TitleTabCloseButton()
-    private let runningIndicatorView = TitleTabRunningIndicatorView()
-    private let titleContentView = NSView()
-    private let titleLabel = NSTextField(labelWithString: "")
-    private var titleText = ""
-    private var hostPrefix: String?
-    private var currentTitleColor = TahoeGlassPalette.titleText
-    private var toolTipText: String?
-    private var preferredWidthConstraint: NSLayoutConstraint?
-    private var minimumWidthConstraint: NSLayoutConstraint?
-    private var titleContentWidthConstraint: NSLayoutConstraint?
-    private var titleContentTrailingConstraint: NSLayoutConstraint?
-    private var fillColor = NSColor.clear {
-        didSet { needsDisplay = true }
-    }
-    var isSelectedTab = false {
-        didSet { updateAppearance() }
-    }
-    var showsRunningIndicator = false {
-        didSet { updateAppearance() }
-    }
-    var roundsLeadingTopCorner = false {
-        didSet {
-            guard roundsLeadingTopCorner != oldValue else { return }
-            needsDisplay = true
-        }
-    }
-    var roundsTrailingTopCorner = false {
-        didSet {
-            guard roundsTrailingTopCorner != oldValue else { return }
-            needsDisplay = true
-        }
-    }
-    private var hoverTrackingArea: NSTrackingArea?
-    private var isHovering = false {
-        didSet { updateAppearance() }
-    }
-
-    init(tabID: UUID, title: String) {
-        self.tabID = tabID
-        super.init(frame: .zero)
-        self.title = ""
-        isBordered = false
-        bezelStyle = .regularSquare
-        controlSize = .regular
-        font = .systemFont(ofSize: 13, weight: .semibold)
-        alignment = .center
-        lineBreakMode = .byTruncatingTail
-        imagePosition = .noImage
-        wantsLayer = true
-        layer?.cornerRadius = 0
-        layer?.backgroundColor = NSColor.clear.cgColor
-        translatesAutoresizingMaskIntoConstraints = false
-        contentTintColor = TahoeGlassPalette.titleText
-        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        titleContentView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(titleContentView)
-
-        titleLabel.stringValue = title
-        titleLabel.font = font
-        titleLabel.alignment = .left
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.maximumNumberOfLines = 1
-        titleLabel.usesSingleLineMode = true
-        titleLabel.textColor = TahoeGlassPalette.titleText
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        titleLabel.cell?.lineBreakMode = .byTruncatingTail
-        titleLabel.cell?.truncatesLastVisibleLine = true
-        titleContentView.addSubview(titleLabel)
-
-        closeButton.isBordered = false
-        closeButton.bezelStyle = .regularSquare
-        closeButton.image = NSImage(
-            systemSymbolName: "xmark",
-            accessibilityDescription: "Close Tab"
-        )
-        closeButton.imagePosition = .imageOnly
-        closeButton.imageScaling = .scaleProportionallyDown
-        closeButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
-        closeButton.contentTintColor = TahoeGlassPalette.titleText
-        closeButton.isHidden = true
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(closeButton)
-
-        runningIndicatorView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(runningIndicatorView)
-
-        let titleContentWidthConstraint = titleContentView.widthAnchor.constraint(
-            equalToConstant: titleContentWidth
-        )
-        titleContentWidthConstraint.priority = .defaultHigh
-        self.titleContentWidthConstraint = titleContentWidthConstraint
-
-        let titleContentTrailingConstraint = titleContentView.trailingAnchor.constraint(
-            lessThanOrEqualTo: trailingAnchor,
-            constant: -TahoeGlassPalette.titleTabTitleCloseTrailingInset
-        )
-        self.titleContentTrailingConstraint = titleContentTrailingConstraint
-
-        let titleContentCenterXConstraint = titleContentView.centerXAnchor.constraint(equalTo: centerXAnchor)
-        titleContentCenterXConstraint.priority = .defaultLow
-
-        NSLayoutConstraint.activate([
-            titleContentCenterXConstraint,
-            titleContentView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleContentView.leadingAnchor.constraint(
-                greaterThanOrEqualTo: leadingAnchor,
-                constant: TahoeGlassPalette.titleTabTitleLeadingInset
-            ),
-            titleContentTrailingConstraint,
-            titleContentWidthConstraint,
-            titleContentView.heightAnchor.constraint(equalTo: heightAnchor),
-
-            titleLabel.leadingAnchor.constraint(equalTo: titleContentView.leadingAnchor),
-            titleLabel.trailingAnchor.constraint(
-                equalTo: titleContentView.trailingAnchor
-            ),
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            closeButton.trailingAnchor.constraint(
-                equalTo: trailingAnchor,
-                constant: -TahoeGlassPalette.titleTabCloseButtonTrailingInset
-            ),
-            closeButton.centerYAnchor.constraint(
-                equalTo: centerYAnchor,
-                constant: TahoeGlassPalette.titleTabCloseButtonVerticalOffset
-            ),
-            closeButton.widthAnchor.constraint(equalToConstant: TahoeGlassPalette.titleTabCloseButtonSize),
-            closeButton.heightAnchor.constraint(equalToConstant: TahoeGlassPalette.titleTabCloseButtonSize),
-
-            runningIndicatorView.centerXAnchor.constraint(equalTo: closeButton.centerXAnchor),
-            runningIndicatorView.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
-            runningIndicatorView.widthAnchor.constraint(equalToConstant: TahoeGlassPalette.titleTabRunningIndicatorSize),
-            runningIndicatorView.heightAnchor.constraint(equalToConstant: TahoeGlassPalette.titleTabRunningIndicatorSize)
-        ])
-
-        updateTitle(title)
-        updateAppearance()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var mouseDownCanMoveWindow: Bool { false }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea {
-            removeTrackingArea(hoverTrackingArea)
-        }
-        let trackingArea = NSTrackingArea(
-            rect: .zero,
-            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-        hoverTrackingArea = trackingArea
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovering = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovering = false
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard bounds.contains(point) else { return nil }
-        if !closeButton.isHidden {
-            let closePoint = closeButton.convert(point, from: self)
-            if let closeHit = closeButton.hitTest(closePoint) {
-                return closeHit
-            }
-        }
-        return self
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        fillColor.setFill()
-        let fillRect = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - 1))
-        titleSegmentFillPath(
-            in: fillRect,
-            isFlipped: isFlipped,
-            roundsLeadingTopCorner: roundsLeadingTopCorner,
-            roundsTrailingTopCorner: roundsTrailingTopCorner
-        ).fill()
-        super.draw(dirtyRect)
-    }
-
-    override func layout() {
-        super.layout()
-        updateToolTipForCurrentLayout()
-    }
-
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: preferredWidth, height: TahoeGlassPalette.titleTabHeight)
-    }
-
-    var widthConstraints: [NSLayoutConstraint] {
-        let preferredWidthConstraint = widthAnchor.constraint(equalToConstant: preferredWidth)
-        preferredWidthConstraint.priority = .defaultHigh
-        self.preferredWidthConstraint = preferredWidthConstraint
-        let minimumWidthConstraint = widthAnchor.constraint(greaterThanOrEqualToConstant: minimumWidth)
-        self.minimumWidthConstraint = minimumWidthConstraint
-
-        return [
-            preferredWidthConstraint,
-            minimumWidthConstraint
-        ]
-    }
-
-    private var minimumWidth: CGFloat {
-        TahoeGlassPalette.titleTabMinimumWidth
-    }
-
-    private var preferredWidth: CGFloat {
-        let horizontalInsets = TahoeGlassPalette.titleTabTitleLeadingInset
-            + TahoeGlassPalette.titleTabTitleCloseTrailingInset
-            + TahoeGlassPalette.titleTabMeasurementSlack
-        let width = titleTextWidth + horizontalInsets
-        return min(
-            TahoeGlassPalette.titleTabMaximumWidth,
-            max(TahoeGlassPalette.titleTabMinimumWidth, width)
-        )
-    }
-
-    private var titleTextWidth: CGFloat {
-        let attributedTitle = titleLabel.attributedStringValue
-        if attributedTitle.length > 0 {
-            return ceil(attributedTitle.size().width)
-        }
-        return ceil((titleLabel.stringValue as NSString).size(withAttributes: [
-            .font: titleLabel.font ?? NSFont.systemFont(ofSize: 13, weight: .semibold)
-        ]).width)
-    }
-
-    private var titleContentWidth: CGFloat {
-        min(
-            titleTextWidth,
-            TahoeGlassPalette.titleTabMaximumWidth
-                - TahoeGlassPalette.titleTabTitleLeadingInset
-                - TahoeGlassPalette.titleTabTitleCloseTrailingInset
-                - TahoeGlassPalette.titleTabMeasurementSlack
-        )
-    }
-
-    func configureClose(target: AnyObject?, action: Selector) {
-        closeButton.target = target
-        closeButton.action = action
-    }
-
-    func containsCloseButton(at point: NSPoint) -> Bool {
-        !closeButton.isHidden && closeButton.frame.contains(point)
-    }
-
-    func updateTitle(_ title: String, hostPrefix: String? = nil, detail: String? = nil) {
-        titleText = title
-        self.hostPrefix = hostPrefix?.trimmingCharacters(in: .whitespacesAndNewlines)
-        applyTitleText()
-        let fullTitle = self.hostPrefix.map { "\($0):\(title)" } ?? title
-        toolTipText = detail ?? fullTitle
-        setAccessibilityLabel(fullTitle)
-        titleContentWidthConstraint?.constant = titleContentWidth
-        preferredWidthConstraint?.constant = preferredWidth
-        minimumWidthConstraint?.constant = minimumWidth
-        invalidateIntrinsicContentSize()
-        updateToolTipForCurrentLayout()
-    }
-
-    private func applyTitleText() {
-        let baseFont = titleLabel.font ?? NSFont.systemFont(ofSize: 13, weight: .semibold)
-        let titleAttributes: [NSAttributedString.Key: Any] = [
-            .font: baseFont,
-            .foregroundColor: currentTitleColor
-        ]
-        guard let hostPrefix,
-              !hostPrefix.isEmpty
-        else {
-            titleLabel.attributedStringValue = NSAttributedString(
-                string: titleText,
-                attributes: titleAttributes
-            )
-            return
-        }
-
-        let attributedTitle = NSMutableAttributedString(
-            attributedString: hostPrefixAttributedString(hostPrefix, color: currentTitleColor)
-        )
-        attributedTitle.append(NSAttributedString(string: "  "))
-        attributedTitle.append(NSAttributedString(
-            string: titleText,
-            attributes: titleAttributes
-        ))
-        titleLabel.attributedStringValue = attributedTitle
-    }
-
-    private func updateToolTipForCurrentLayout() {
-        guard titleLabel.bounds.width > 0,
-              titleTextWidth > titleLabel.bounds.width + 0.5,
-              let toolTipText,
-              !toolTipText.isEmpty
-        else {
-            toolTip = nil
-            return
-        }
-
-        toolTip = toolTipText
-    }
-
-    private func updateAppearance() {
-        let titleColor: NSColor
-        if isSelectedTab {
-            fillColor = .clear
-            titleColor = TahoeGlassPalette.titleTextActive
-        } else if isHovering {
-            fillColor = TahoeGlassPalette.titleSegmentHoverFill
-            titleColor = TahoeGlassPalette.titleTextActive
-        } else {
-            fillColor = .clear
-            titleColor = TahoeGlassPalette.titleText
-        }
-        currentTitleColor = titleColor
-        contentTintColor = titleColor
-        applyTitleText()
-        closeButton.isHidden = !isHovering
-        closeButton.contentTintColor = titleColor
-        runningIndicatorView.isHidden = isHovering || !showsRunningIndicator
-        runningIndicatorView.fillColor = titleColor
-    }
-}
-
-private final class TitleTabRunningIndicatorView: NSView {
-    var fillColor = TahoeGlassPalette.titleText {
-        didSet { needsDisplay = true }
-    }
-
-    override var isFlipped: Bool { true }
-
-    override func draw(_ dirtyRect: NSRect) {
-        fillColor.setFill()
-        NSBezierPath(ovalIn: bounds).fill()
-    }
-}
-
-private final class TitleAddButton: NSButton {
-    private var fillColor = NSColor.clear {
-        didSet { needsDisplay = true }
-    }
-    private var hoverTrackingArea: NSTrackingArea?
-    private var isHovering = false {
-        didSet { updateAppearance() }
-    }
-    var roundsLeadingTopCorner = false {
-        didSet {
-            guard roundsLeadingTopCorner != oldValue else { return }
-            needsDisplay = true
-        }
-    }
-    var roundsTrailingTopCorner = false {
-        didSet {
-            guard roundsTrailingTopCorner != oldValue else { return }
-            needsDisplay = true
-        }
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        title = "+"
-        isBordered = false
-        bezelStyle = .regularSquare
-        controlSize = .regular
-        font = .systemFont(ofSize: 18, weight: .medium)
-        wantsLayer = true
-        layer?.cornerRadius = 0
-        layer?.backgroundColor = NSColor.clear.cgColor
-        contentTintColor = TahoeGlassPalette.titleText
-        translatesAutoresizingMaskIntoConstraints = false
-        updateAppearance()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var mouseDownCanMoveWindow: Bool { false }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea {
-            removeTrackingArea(hoverTrackingArea)
-        }
-        let trackingArea = NSTrackingArea(
-            rect: .zero,
-            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-        hoverTrackingArea = trackingArea
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovering = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovering = false
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        fillColor.setFill()
-        let fillRect = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - 1))
-        titleSegmentFillPath(
-            in: fillRect,
-            isFlipped: isFlipped,
-            roundsLeadingTopCorner: roundsLeadingTopCorner,
-            roundsTrailingTopCorner: roundsTrailingTopCorner
-        ).fill()
-        super.draw(dirtyRect)
-    }
-
-    private func updateAppearance() {
-        fillColor = isHovering ? TahoeGlassPalette.titleSegmentHoverFill : .clear
-        contentTintColor = isHovering ? TahoeGlassPalette.titleTextActive : TahoeGlassPalette.titleText
-    }
-}
-
 private enum TerminalMouseEncoder {
     private enum Action {
         case press(Int)
@@ -3031,7 +2206,6 @@ private final class PtyPassthroughView: NSView {
         usesApplicationCursorKeys?() == true ? application : normal
     }
 }
-
 
 final class SessionCandidateButton: NSButton {
     let sessionRef: SessionRef
@@ -4088,6 +3262,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     let standalone: Bool
+    private let restoredSession: SessionCatalog.Record?
     private let initialHostID: String?
     private let initialDirectory: URL
     private let selfTestCommand: String?
@@ -4096,8 +3271,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let sessionCatalog: SessionCatalog
     private var windowID: String { sessionCatalog.windowID }
     private let restoresPersistedWindow: Bool
-    private var showsTabStrip: Bool
-    private var isTabStripVisible: Bool { showsTabStrip }
     private var didRunSelfTest = false
     private var initialCommands: [UUID: InitialCommand] = [:]
     private var tabs: [TerminalTab] = []
@@ -4105,7 +3278,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var isKillingClosedTabs = false
     private var killingSessionRefs = Set<SessionRef>()
     private var activeTabID: UUID?
-    private var tabButtons: [UUID: TitleTabButton] = [:]
     private var sessionPickerCandidatesByTab: [UUID: [SessionRef: SessionPickerCandidate]] = [:]
     private var sessionPickerModelsByTab: [UUID: SessionPickerModel] = [:]
     private let sessionPickerInventory = SessionPickerModel.Inventory()
@@ -4116,9 +3288,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    private let titleTabStack = TitleTabStackView()
-    private let titleTabBorderView = TitleTabBorderView()
-    private let newTabButton = TitleAddButton(frame: .zero)
     private let contentContainer = NSView()
     private let gitTreeView = GitTreeView(frame: .zero)
     private let resizeTooltipView = ResizeMetricsTooltipView()
@@ -4138,12 +3307,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var canInsertCommandSeparator = false
     private var isApplyingCompletion = false
     private var isShowingResizeTooltip = false
-    private var tabMouseDownMonitor: Any?
-    private var draggedTabID: UUID?
-    private var draggedTabPointerOffsetX: CGFloat = 0
     private var sessionPickerMouseDownMonitor: Any?
     private var commandFocusMonitor: Any?
-    private var contentTopConstraint: NSLayoutConstraint?
     private var contentTrailingConstraint: NSLayoutConstraint?
     private var contentTrailingToGitTreeConstraint: NSLayoutConstraint?
     private var isGitTreeVisible: Bool { activeTab?.isGitTreeVisible == true }
@@ -4195,21 +3360,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(gitTreeContent(nil, location: .local) == .message("Not a Git repository"))
         assert(gitTreeContent([], location: .local) == .message("No commits yet"))
         assert(gitTreeContent(nil, location: .sshHost("mac")) == .message("Git tree is unavailable for remote tabs"))
-        assert(TerminalViewController.tabReorderDestination(
-            sourceIndex: 0,
-            draggedCenterX: 60,
-            tabMidpoints: [50, 220]
-        ) == 0)
-        assert(TerminalViewController.tabReorderDestination(
-            sourceIndex: 0,
-            draggedCenterX: 221,
-            tabMidpoints: [50, 220]
-        ) == 1)
-        assert(TerminalViewController.tabReorderDestination(
-            sourceIndex: 1,
-            draggedCenterX: 221,
-            tabMidpoints: [120, 290]
-        ) == 1)
         let shellEnvironment = inheritedShellEnvironment([
             "PAGER": "cat",
             "GIT_PAGER": "cat",
@@ -4222,24 +3372,20 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         assert(inheritedShellEnvironment([:])["GIT_PAGER"] == "less")
     }()
 
-    private enum TabClickTarget {
-        case select(UUID)
-        case close(UUID)
-    }
-
     init(
         selfTestCommand: String? = nil,
         windowID: String = UUID().uuidString,
         restoresPersistedWindow: Bool = true,
-        showsTabStrip: Bool = false,
         initialDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         initialHostID: String? = nil,
         standalone: Bool = false,
         launchCommand: String? = nil,
         sessionHosts: [TerminalHost] = [],
+        restoredSession: SessionCatalog.Record? = nil,
         sessionCatalog: SessionCatalog? = nil
     ) {
         _ = Self.didRunPassthroughRoutingSelfTest
+        self.restoredSession = restoredSession
         self.standalone = standalone
         self.initialHostID = initialHostID
         self.initialDirectory = initialDirectory
@@ -4249,12 +3395,12 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         self.sessionCatalog = sessionCatalog ?? SessionCatalog(url: Self.sessionStateURL().deletingLastPathComponent()
             .appendingPathComponent((standalone ? "windows/" : "projects/") + windowID + ".json"), windowID: windowID)
         self.restoresPersistedWindow = restoresPersistedWindow
-        self.showsTabStrip = showsTabStrip
         super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) {
         _ = Self.didRunPassthroughRoutingSelfTest
+        self.restoredSession = nil
         self.standalone = false
         self.initialHostID = nil
         self.initialDirectory = FileManager.default.homeDirectoryForCurrentUser
@@ -4263,7 +3409,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         self.sessionHosts = []
         self.sessionCatalog = SessionCatalog(url: Self.sessionStateURL(), windowID: UUID().uuidString)
         self.restoresPersistedWindow = true
-        self.showsTabStrip = false
         super.init(coder: coder)
     }
 
@@ -4278,7 +3423,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let rootView = TahoeGlassRootView()
         rootView.usesPortalMaterials = standalone
         rootView.backgroundBlurEffect = backgroundBlurEffect
-        rootView.showsTopBar = isTabStripVisible
         rootView.onAppearanceChange = { [weak self] in
             guard let self else { return }
             for tab in tabs {
@@ -4293,36 +3437,18 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         view = rootView
 
-        titleTabStack.orientation = .horizontal
-        titleTabStack.spacing = 0
-        titleTabStack.alignment = .centerY
-        titleTabStack.distribution = .fill
-        titleTabStack.translatesAutoresizingMaskIntoConstraints = false
-
-        newTabButton.target = self
-        newTabButton.action = #selector(newTab(_:))
-        titleTabBorderView.tabStack = titleTabStack
-        titleTabStack.isHidden = !isTabStripVisible
-        titleTabBorderView.isHidden = !isTabStripVisible
-        newTabButton.isHidden = !isTabStripVisible
-
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
         gitTreeView.isHidden = true
         resizeTooltipView.isHidden = true
 
-        view.addSubview(titleTabStack)
-        view.addSubview(titleTabBorderView)
         view.addSubview(contentContainer)
         view.addSubview(gitTreeView)
         view.addSubview(resizeTooltipView)
-        titleTabStack.addArrangedSubview(newTabButton)
-        updateTitleSegmentCornerMasks()
 
         let contentTopConstraint = contentContainer.topAnchor.constraint(
             equalTo: view.topAnchor,
-            constant: isTabStripVisible ? TahoeGlassPalette.titleContentTop : 0
+            constant: 0
         )
-        self.contentTopConstraint = contentTopConstraint
 
         let contentTrailingConstraint = contentContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         let contentTrailingToGitTreeConstraint = contentContainer.trailingAnchor.constraint(
@@ -4332,28 +3458,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         self.contentTrailingToGitTreeConstraint = contentTrailingToGitTreeConstraint
 
         NSLayoutConstraint.activate([
-            titleTabStack.leadingAnchor.constraint(
-                equalTo: view.leadingAnchor,
-                constant: TahoeGlassPalette.titleTabLeadingInset
-            ),
-            titleTabStack.trailingAnchor.constraint(
-                lessThanOrEqualTo: view.trailingAnchor,
-                constant: -12
-            ),
-            titleTabStack.topAnchor.constraint(
-                equalTo: view.topAnchor,
-                constant: TahoeGlassPalette.titleTabTopInset
-            ),
-            titleTabStack.heightAnchor.constraint(equalToConstant: TahoeGlassPalette.titleTabHeight),
-
-            titleTabBorderView.leadingAnchor.constraint(equalTo: titleTabStack.leadingAnchor),
-            titleTabBorderView.trailingAnchor.constraint(equalTo: titleTabStack.trailingAnchor),
-            titleTabBorderView.topAnchor.constraint(equalTo: titleTabStack.topAnchor),
-            titleTabBorderView.bottomAnchor.constraint(equalTo: titleTabStack.bottomAnchor),
-
-            newTabButton.heightAnchor.constraint(equalToConstant: TahoeGlassPalette.titleTabHeight),
-            newTabButton.widthAnchor.constraint(equalTo: newTabButton.heightAnchor),
-
             contentContainer.leadingAnchor.constraint(
                 equalTo: view.leadingAnchor
             ),
@@ -4382,17 +3486,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             self?.acceptCompletionSelection(suggestion)
         }
         restoreSessionState()
-        if showsTabStrip {
-            installTabMouseDownMonitor()
-        }
         installSessionPickerMouseDownMonitor()
         installCommandFocusMonitor()
     }
 
     deinit {
-        if let tabMouseDownMonitor {
-            NSEvent.removeMonitor(tabMouseDownMonitor)
-        }
         if let sessionPickerMouseDownMonitor {
             NSEvent.removeMonitor(sessionPickerMouseDownMonitor)
         }
@@ -4494,7 +3592,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         controller.tabs = [empty, used, draft, attached]
         for tab in controller.tabs {
             controller.installTabView(tab)
-            controller.installTabButton(tab)
         }
         controller.activeTabID = draft.id
         let window = StandaloneTerminalWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
@@ -4516,7 +3613,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         attached.session.stop()
         controller.tabs = [empty]
         controller.activeTabID = empty.id
-        controller.installTabButton(empty)
         controller.discardUntouchedSessions()
         return controller.tabs.isEmpty && controller.activeTabID == nil && catalog.closedTabs.isEmpty
     }
@@ -4528,6 +3624,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     func windowDidBecomeActive() {
+        if standalone, let tab = activeTab { view.window?.title = tab.title }
         markActiveTerminalViewed()
         if isViewLoaded && tabs.isEmpty { createTab() }
         restoreCommandFocusIfNeeded()
@@ -4584,6 +3681,17 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
+    var windowSessionRecord: SessionCatalog.Record? {
+        activeTab.flatMap { shouldPersistSession($0) ? storedTab(from: $0) : nil }
+    }
+    var windowDirectory: URL { activeTab.map { URL(fileURLWithPath: $0.currentCwd) } ?? initialDirectory }
+    var windowHostID: String? {
+        guard let location = activeTab?.sessionRef.location else { return initialHostID }
+        if case .sshHost(let id) = location { return id }
+        return nil
+    }
+    var windowHosts: [TerminalHost] { sessionHosts }
+
     var activeSessionRef: SessionRef? { activeTab?.sessionRef }
 
     var openSessionRecords: [SessionCatalog.Record] {
@@ -4597,17 +3705,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
         activateTab(tab.id)
         return true
-    }
-
-    var isTabSession: Bool { showsTabStrip }
-
-    func enterTabSession() {
-        guard !standalone, !showsTabStrip else { return }
-        showsTabStrip = true
-        guard isViewLoaded else { return }
-        installTabMouseDownMonitor()
-        layoutTabStripBeforeMeasuringSelection()
-        updateActiveTabCutoutFrame()
     }
 
     @objc func clearCommandHistory(_ sender: Any?) {
@@ -4675,9 +3772,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func handleRootLayout() {
-        updateTitleSegmentCornerMasks()
-        updateActiveTabCutoutFrame()
-        titleTabBorderView.needsDisplay = true
         for tab in tabs {
             tab.setToolbarInset(toolbarInset)
             updateScrollRegion(for: tab)
@@ -4922,19 +4016,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return false
     }
 
-    @objc func newTab(_ sender: Any?) {
-        guard !standalone else { return }
-        enterTabSession()
-        createTab()
-    }
-
-    func newSSHSession(_ host: TerminalHost) {
-        guard !standalone else { return }
-        createTab(workingDirectory: URL(fileURLWithPath: host.directory),
-                  sessionRef: SessionRef(location: .sshHost(host.id), sessionID: UUID().uuidString, hostName: host.name),
-                  showsSessionPicker: false)
-    }
-
     func newTab(at directoryURL: URL) {
         createTab(workingDirectory: directoryURL)
     }
@@ -4988,46 +4069,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     @objc private func closeFindMode(_ sender: Any?) {
         guard let tab = activeTab else { return }
         exitFindMode(in: tab)
-    }
-
-    @objc func selectPreviousTab(_ sender: Any?) {
-        activateAdjacentTab(offset: -1)
-    }
-
-    @objc func selectNextTab(_ sender: Any?) {
-        activateAdjacentTab(offset: 1)
-    }
-
-    @objc private func selectTab(_ sender: TitleTabButton) {
-        activateTab(sender.tabID)
-    }
-
-    @objc func closeActiveTabOrWindow(_ sender: Any?) {
-        if standalone { view.window?.performClose(sender); return }
-        guard let activeTabID else {
-            createTab()
-            return
-        }
-        closeTab(withID: activeTabID)
-    }
-
-    @objc func reopenClosedTab(_ sender: Any?) {
-        guard !standalone else { return }
-        guard let stored = sessionCatalog.popLastClosed() else {
-            NSSound.beep()
-            return
-        }
-        createTab(
-            workingDirectory: URL(fileURLWithPath: stored.cwd),
-            sessionRef: sessionRef(from: stored),
-            title: stored.title,
-            createdAt: stored.createdAt ?? Date(),
-            commandCount: stored.commandCount ?? 0,
-            lastCommandAt: stored.lastCommandAt,
-            commandHistory: stored.commandHistory ?? [],
-            showsSessionPicker: false
-        )
-        persistSessionState()
     }
 
     @objc func exitActiveSession(_ sender: Any?) {
@@ -5301,15 +4342,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         focusInput(for: tab)
     }
 
-    @objc private func closeTab(_ sender: NSButton) {
-        guard let button = sender.superview as? TitleTabButton else { return }
-        closeTab(withID: button.tabID)
-    }
-
     @discardableResult
     private func closeTab(withID id: UUID, createsReplacement: Bool = true) -> Bool {
-        guard let index = tabs.firstIndex(where: { $0.id == id }),
-              let button = tabButtons[id]
+        guard let index = tabs.firstIndex(where: { $0.id == id })
         else {
             return false
         }
@@ -5327,28 +4362,21 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
         let wasActive = activeTabID == tab.id
         tab.rootView.removeFromSuperview()
-        titleTabStack.removeArrangedSubview(button)
-        button.removeFromSuperview()
-        tabButtons.removeValue(forKey: tab.id)
         tabs.remove(at: index)
         onActivityChange?()
 
         guard !tabs.isEmpty else {
             activeTabID = nil
-            layoutTabStripBeforeMeasuringSelection()
-            updateActiveTabCutoutFrame()
-            persistSessionState()
+                persistSessionState()
             if createsReplacement { createTab() }
             return true
         }
 
         if wasActive {
             let nextIndex = min(index, tabs.count - 1)
-            activateTab(tabs[nextIndex].id, tabStripLayoutChanged: true)
+            activateTab(tabs[nextIndex].id)
         } else {
-            layoutTabStripBeforeMeasuringSelection()
-            updateActiveTabCutoutFrame()
-        }
+            }
         persistSessionState()
         configureSessionPickerIfPossible()
         return true
@@ -5360,12 +4388,16 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func restoreSessionState() {
+        if let restoredSession {
+            createTab(from: restoredSession, activates: true, persists: true)
+            return
+        }
         let restoration = sessionCatalog.restore(restoresPersistedWindow: restoresPersistedWindow)
         let tabsToRestore = restoration.tabs
 
         if tabsToRestore.isEmpty {
             createTab(initialCommand: launchCommand.map { InitialCommand(command: $0, exitsShellAfterCompletion: false) },
-                      showsSessionPicker: standalone && launchCommand == nil)
+                      showsSessionPicker: standalone && launchCommand == nil && initialHostID == nil)
             return
         }
 
@@ -5521,18 +4553,14 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         setCommandBarStatusText("Starting shell...", in: tab)
         tab.rootView.isHidden = !activates
         tabs.append(tab)
-        if tabs.count > 1 { enterTabSession() }
         if let initialCommand {
             initialCommands[tab.id] = initialCommand
         }
         configureSession(for: tab)
         configureInterruptHandling(for: tab)
         installTabView(tab)
-        installTabButton(tab)
         if activates {
-            activateTab(tab.id, tabStripLayoutChanged: true, persists: persists)
-        } else {
-            layoutTabStripBeforeMeasuringSelection()
+            activateTab(tab.id, persists: persists)
         }
         startShell(for: tab, workingDirectory: directoryURL, shellPath: shellPath)
         if showsSessionPicker {
@@ -5602,7 +4630,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             tab.sessionPickerStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-
 
         var rowCount = 0
         var emptyRowCount = 0
@@ -6015,111 +5042,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         ])
     }
 
-    private func installTabButton(_ tab: TerminalTab) {
-        let standardTitle = standardTabTitle(tab.title, in: tab)
-        tab.title = displayTabTitle(standardTitle, in: tab)
-        let button = TitleTabButton(tabID: tab.id, title: standardTitle)
-        button.updateTitle(
-            standardTitle,
-            hostPrefix: hostname(for: tab.sessionRef),
-            detail: detailForDirectory(tab.currentCwd)
-        )
-        button.target = self
-        button.action = #selector(selectTab(_:))
-        button.configureClose(target: self, action: #selector(closeTab(_:)))
-        updateRunningIndicator(for: tab, button: button)
-        tabButtons[tab.id] = button
-        titleTabStack.insertArrangedSubview(button, at: max(0, titleTabStack.arrangedSubviews.count - 1))
-        updateTitleSegmentCornerMasks()
-        NSLayoutConstraint.activate(button.widthConstraints + [
-            button.heightAnchor.constraint(equalToConstant: TahoeGlassPalette.titleTabHeight)
-        ])
-    }
-
-    private func installTabMouseDownMonitor() {
-        guard tabMouseDownMonitor == nil else { return }
-        tabMouseDownMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
-        ) { [weak self] event in
-            guard let self,
-                  event.window === self.view.window,
-                  (event.type != .keyDown || self.shouldRestoreCommandFocus)
-            else {
-                return event
-            }
-
-            switch event.type {
-            case .leftMouseDown:
-                self.draggedTabID = nil
-                guard let clickedTarget = self.tabClickTarget(atWindowPoint: event.locationInWindow) else {
-                    return event
-                }
-                switch clickedTarget {
-                case .select(let id):
-                    self.draggedTabID = id
-                    if let button = self.tabButtons[id] {
-                        let pointerX = self.titleTabStack.convert(event.locationInWindow, from: nil).x
-                        self.draggedTabPointerOffsetX = pointerX - button.frame.midX
-                    }
-                    self.activateTab(id)
-                case .close(let id):
-                    _ = self.closeTab(withID: id)
-                }
-                return nil
-            case .leftMouseDragged:
-                guard let draggedTabID = self.draggedTabID else { return event }
-                self.reorderTab(draggedTabID, atWindowPoint: event.locationInWindow)
-                return nil
-            case .leftMouseUp:
-                guard self.draggedTabID != nil else { return event }
-                self.draggedTabID = nil
-                return nil
-            default:
-                return event
-            }
-        }
-    }
-
-    private func reorderTab(_ id: UUID, atWindowPoint windowPoint: NSPoint) {
-        guard tabs.count > 1,
-              let sourceIndex = tabs.firstIndex(where: { $0.id == id })
-        else {
-            return
-        }
-        let draggedCenterX = titleTabStack.convert(windowPoint, from: nil).x - draggedTabPointerOffsetX
-        let midpoints = tabs.compactMap { tabButtons[$0.id]?.frame.midX }
-        guard midpoints.count == tabs.count,
-              let destinationIndex = Self.tabReorderDestination(
-                sourceIndex: sourceIndex,
-                draggedCenterX: draggedCenterX,
-                tabMidpoints: midpoints
-              ),
-              destinationIndex != sourceIndex,
-              let button = tabButtons[id]
-        else {
-            return
-        }
-
-        tabs.insert(tabs.remove(at: sourceIndex), at: destinationIndex)
-        titleTabStack.removeArrangedSubview(button)
-        button.removeFromSuperview()
-        titleTabStack.insertArrangedSubview(button, at: destinationIndex)
-        layoutTabStripBeforeMeasuringSelection()
-        updateActiveTabCutoutFrame()
-        persistSessionState()
-    }
-
-    private static func tabReorderDestination(
-        sourceIndex: Int,
-        draggedCenterX: CGFloat,
-        tabMidpoints: [CGFloat]
-    ) -> Int? {
-        guard tabMidpoints.indices.contains(sourceIndex) else { return nil }
-        return tabMidpoints.indices.filter {
-            $0 != sourceIndex && draggedCenterX > tabMidpoints[$0]
-        }.count
-    }
-
     private func installSessionPickerMouseDownMonitor() {
         sessionPickerMouseDownMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
@@ -6310,30 +5232,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return false
     }
 
-    private func tabClickTarget(atWindowPoint windowPoint: NSPoint) -> TabClickTarget? {
-        guard isTabStripVisible else { return nil }
-        for (id, button) in tabButtons {
-            guard !button.isHidden, button.window != nil else { continue }
-            let point = button.convert(windowPoint, from: nil)
-            if button.bounds.contains(point) {
-                return button.containsCloseButton(at: point) ? .close(id) : .select(id)
-            }
-        }
-        return nil
-    }
-
-    private func activateTab(_ id: UUID, tabStripLayoutChanged: Bool = false, persists: Bool = true) {
+    private func activateTab(_ id: UUID, persists: Bool = true) {
         activeTabID = id
         markActiveTerminalViewed()
         discardUntouchedSessions(except: id)
         for tab in tabs {
             tab.rootView.isHidden = tab.id != id
-            tabButtons[tab.id]?.isSelectedTab = tab.id == id
         }
-        if tabStripLayoutChanged {
-            layoutTabStripBeforeMeasuringSelection()
-        }
-        updateActiveTabCutoutFrame()
         if let tab = activeTab {
             applyGitTreeVisibility(for: tab)
             focusInput(for: tab)
@@ -6342,67 +5247,6 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         if persists {
             persistSessionState()
         }
-    }
-
-    private func activateAdjacentTab(offset: Int) {
-        guard tabs.count > 1,
-              let activeTabID,
-              let currentIndex = tabs.firstIndex(where: { $0.id == activeTabID })
-        else {
-            return
-        }
-
-        let nextIndex = (currentIndex + offset + tabs.count) % tabs.count
-        activateTab(tabs[nextIndex].id)
-    }
-
-    private func layoutTabStripBeforeMeasuringSelection() {
-        let isVisible = isTabStripVisible
-        (view as? TahoeGlassRootView)?.showsTopBar = isVisible
-        titleTabStack.isHidden = !isVisible
-        titleTabBorderView.isHidden = !isVisible
-        newTabButton.isHidden = !isVisible
-        contentTopConstraint?.constant = isVisible ? TahoeGlassPalette.titleContentTop : 0
-        guard view.window != nil else { return }
-        updateTitleSegmentCornerMasks()
-        titleTabStack.needsLayout = true
-        titleTabBorderView.needsDisplay = true
-        view.needsLayout = true
-        view.layoutSubtreeIfNeeded()
-    }
-
-    private func updateTitleSegmentCornerMasks() {
-        let visibleSegments = titleTabStack.arrangedSubviews.filter { !$0.isHidden }
-        for segment in visibleSegments {
-            let roundsLeading = segment === visibleSegments.first
-            let roundsTrailing = segment === visibleSegments.last
-
-            if let tabButton = segment as? TitleTabButton {
-                tabButton.roundsLeadingTopCorner = roundsLeading
-                tabButton.roundsTrailingTopCorner = roundsTrailing
-            } else if let addButton = segment as? TitleAddButton {
-                addButton.roundsLeadingTopCorner = roundsLeading
-                addButton.roundsTrailingTopCorner = roundsTrailing
-            }
-        }
-    }
-
-    private func updateActiveTabCutoutFrame() {
-        guard let rootView = view as? TahoeGlassRootView else { return }
-        guard isTabStripVisible else {
-            rootView.tabStripFrame = nil
-            rootView.activeTabFrame = nil
-            return
-        }
-        rootView.tabStripFrame = titleTabStack.convert(titleTabStack.bounds, to: rootView)
-        guard let activeTabID,
-              let button = tabButtons[activeTabID],
-              button.superview != nil
-        else {
-            rootView.activeTabFrame = nil
-            return
-        }
-        rootView.activeTabFrame = button.convert(button.bounds, to: rootView)
     }
 
     private func configureSession(for tab: TerminalTab) {
@@ -7428,14 +6272,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         let standardTitle = normalizedTitle.isEmpty ? fallback : normalizedTitle
         let displayTitle = displayTabTitle(standardTitle, in: tab)
         tab.title = displayTitle
-        if let button = tabButtons[tab.id] {
-            button.updateTitle(
-                standardTitle,
-                hostPrefix: hostname(for: tab.sessionRef),
-                detail: detail
-            )
-            layoutTabStripBeforeMeasuringSelection()
-            updateActiveTabCutoutFrame()
+        if standalone {
+            view.window?.title = displayTitle
+            view.window?.tab.toolTip = detail ?? tab.currentCwd
         }
     }
 
@@ -7860,22 +6699,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.commandSeparator.isHidden = !shouldShowCommandBar
         tab.scrollBottomToCommandBarConstraint?.isActive = shouldShowCommandBar
         tab.scrollBottomToRootConstraint?.isActive = !shouldShowCommandBar
-        updateRunningIndicator(for: tab, showsRunningIndicator: !shouldShowCommandBar)
         tab.rootView.needsLayout = true
         tab.rootView.layoutSubtreeIfNeeded()
-    }
-
-    private func updateRunningIndicator(for tab: TerminalTab, showsRunningIndicator: Bool? = nil) {
-        guard let button = tabButtons[tab.id] else { return }
-        updateRunningIndicator(for: tab, button: button, showsRunningIndicator: showsRunningIndicator)
-    }
-
-    private func updateRunningIndicator(
-        for tab: TerminalTab,
-        button: TitleTabButton,
-        showsRunningIndicator: Bool? = nil
-    ) {
-        button.showsRunningIndicator = showsRunningIndicator ?? tab.commandBarView.isHidden
     }
 
     private func focusInput(for tab: TerminalTab) {

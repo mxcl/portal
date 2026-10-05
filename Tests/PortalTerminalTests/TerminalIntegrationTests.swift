@@ -124,14 +124,6 @@ struct TerminalIntegrationTests {
         #expect(root.subviews.last?.layer?.sublayers?.first?.isHidden == false)
     }
 
-    @Test @MainActor func standaloneCannotEnterTabSession() {
-        let controller = TerminalViewController(standalone: true)
-        controller.enterTabSession()
-        #expect(!controller.isTabSession)
-        controller.newTab(nil)
-        #expect(!controller.isViewLoaded)
-    }
-
     @Test @MainActor func standalonePickerIncludesAttachedProjectSessions() {
         let controller = TerminalViewController(standalone: true)
         let project = SessionPickerCandidate(sessionRef: .local("project"), hostTitle: "This Mac",
@@ -148,12 +140,36 @@ struct TerminalIntegrationTests {
         picker.invalidate()
     }
 
-    @Test @MainActor func tabBarStartsHidden() {
-        let controller = TerminalViewController()
-        #expect(!controller.isTabSession)
-        controller.enterTabSession()
-        #expect(controller.isTabSession)
-        #expect(!controller.isViewLoaded)
+    @Test func sshWindowLaunchRoundTripsHostIdentity() {
+        let id = "host with spaces & symbols/東京"
+        #expect(TerminalLaunchRequest.hostID(from: TerminalLaunchRequest.url(hostID: id)) == id)
+        #expect(TerminalLaunchRequest.hostID(from: URL(string: "https://new-window?host=elsewhere")!) == nil)
+        #expect(TerminalLaunchRequest.hostID(from: URL(string: "portal-terminal://new-window?host=")!) == nil)
+    }
+
+    @Test @MainActor func nativeTabsStartHiddenAndCanBeReopened() throws {
+        let application = NSApplication.shared
+        let workspace = TerminalWorkspace()
+        workspace.newWindow(directory: FileManager.default.temporaryDirectory)
+        let first = try #require(application.windows.first { $0 is StandaloneTerminalWindow })
+        defer {
+            for window in application.windows where window is StandaloneTerminalWindow { window.close() }
+        }
+        #expect(first.tabGroup?.isTabBarVisible != true)
+        first.makeKeyAndOrderFront(nil)
+        workspace.newTab(in: first)
+        let group = try #require(first.tabGroup)
+        #expect(group.windows.count == 2)
+        #expect(group.isTabBarVisible)
+        let second = try #require(group.windows.first { $0 !== first })
+        second.close()
+        #expect(workspace.canReopenClosedTab)
+        first.makeKeyAndOrderFront(nil)
+        workspace.reopenClosedTab(in: first)
+        #expect(first.tabGroup?.windows.count == 2)
+        #expect(!workspace.canReopenClosedTab)
+        workspace.newWindow()
+        #expect(first.tabGroup?.windows.count == 2)
     }
 
     @Test @MainActor func rendererAndCompletions() {

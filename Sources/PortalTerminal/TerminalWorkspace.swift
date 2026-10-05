@@ -52,6 +52,16 @@ public final class TerminalWorkspace: ObservableObject {
     private var controllers: [String: TerminalViewController] = [:]
     private var activeController: TerminalViewController?
     private var windows: [NSWindow] = []
+    private struct ClosedWindow {
+        let session: SessionCatalog.Record?
+        let directory: URL
+        let hostID: String?
+        let hosts: [TerminalHost]
+    }
+    private var closedWindows: [ClosedWindow] = []
+    @Published public private(set) var canReopenClosedTab = false
+    public var focusedWindow: NSWindow? { NSApp.keyWindow as? StandaloneTerminalWindow }
+
 
     @Published fileprivate var standaloneFocused = false
     private var focusObserver: AnyCancellable?
@@ -70,34 +80,70 @@ public final class TerminalWorkspace: ObservableObject {
             }
     }
 
-    public func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hosts: [TerminalHost]? = nil) {
-        if let hosts { PtySession.configureSSHHosts(hosts) }
-        let controller = TerminalViewController(restoresPersistedWindow: false, initialDirectory: directory, standalone: true, launchCommand: command, sessionHosts: hosts ?? [])
+    public func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hosts: [TerminalHost] = [], hostID: String? = nil) {
+        openWindow(directory: directory, command: command, hosts: hosts, hostID: hostID)
+    }
+
+    public func newTab() {
+        guard let parent = focusedWindow else { return }
+        newTab(in: parent)
+    }
+
+    func newTab(in parent: NSWindow) {
+        guard let controller = parent.contentViewController as? TerminalViewController else { return }
+        openWindow(directory: controller.windowDirectory, hosts: controller.windowHosts,
+                   hostID: controller.windowHostID, tabbedWith: parent)
+    }
+
+    public func reopenClosedTab() { reopenClosedTab(in: focusedWindow) }
+
+    func reopenClosedTab(in parent: NSWindow?) {
+        guard let closed = closedWindows.popLast() else { return }
+        canReopenClosedTab = !closedWindows.isEmpty
+        openWindow(directory: closed.directory, hosts: closed.hosts, hostID: closed.hostID,
+                   restoredSession: closed.session, tabbedWith: parent)
+    }
+
+    private func openWindow(directory: URL, command: String? = nil, hosts: [TerminalHost], hostID: String?,
+                            restoredSession: SessionCatalog.Record? = nil, tabbedWith parent: NSWindow? = nil) {
+        PtySession.configureSSHHosts(hosts)
+        let controller = TerminalViewController(restoresPersistedWindow: false, initialDirectory: directory,
+            initialHostID: hostID, standalone: true, launchCommand: command, sessionHosts: hosts,
+            restoredSession: restoredSession)
         let window = StandaloneTerminalWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 760),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
         window.delegate = window
+        window.workspace = self
+        window.onClose = { [weak self, weak controller, weak window] in
+            guard let self, let controller else { return }
+            closedWindows.append(ClosedWindow(session: controller.windowSessionRecord,
+                directory: controller.windowDirectory, hostID: controller.windowHostID, hosts: controller.windowHosts))
+            canReopenClosedTab = true
+            windows.removeAll { $0 === window }
+        }
         window.title = "Terminal"
         window.backgroundColor = .clear
         window.isOpaque = false
         window.isRestorable = false
         window.isReleasedWhenClosed = false
-        window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        let toolbar = NSToolbar(identifier: "dev.mxcl.portal.terminal.titlebar")
-        toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = false
-        window.toolbar = toolbar
-        window.toolbarStyle = .unified
-        window.titlebarSeparatorStyle = .none
+        // New Window must remain separate even when the system prefers tabs.
+        // Explicit New Tab below opts into AppKit's native tab group.
+        window.tabbingIdentifier = "dev.mxcl.portal.terminal"
         window.tabbingMode = .disallowed
         window.contentViewController = controller
         window.contentMinSize = NSSize(width: 760, height: 480)
-        window.setContentSize(NSSize(width: 1120, height: 760))
-        windows.removeAll { !$0.isVisible }
         windows.append(window)
-        window.center()
+        if let parent {
+            parent.tabbingMode = .preferred
+            window.tabbingMode = .preferred
+            parent.addTabbedWindow(window, ordered: .above)
+        } else {
+            window.center()
+        }
         window.makeKeyAndOrderFront(nil)
+        window.tabbingMode = .automatic
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -129,10 +175,6 @@ public final class TerminalWorkspace: ObservableObject {
         return controller
     }
 
-    fileprivate func connect(_ host: TerminalHost) {
-        activeController?.newSSHSession(host)
-    }
-
     fileprivate func perform(_ action: Selector) {
         guard let controller = (NSApp.keyWindow?.contentViewController as? TerminalViewController) ?? activeController else { return }
         NSApp.sendAction(action, to: controller, from: nil)
@@ -140,7 +182,13 @@ public final class TerminalWorkspace: ObservableObject {
 }
 
 final class StandaloneTerminalWindow: NSWindow, NSWindowDelegate {
+    weak var workspace: TerminalWorkspace?
+    var onClose: (() -> Void)?
+
+    override func newWindowForTab(_ sender: Any?) { workspace?.newTab(in: self) }
+
     func windowWillClose(_ notification: Notification) {
+        onClose?()
         (contentViewController as? TerminalViewController)?.stopAllSessions()
     }
 
@@ -174,45 +222,59 @@ public struct TerminalCommands: Commands {
     let enabled: Bool
     let hosts: [TerminalHost]
     let nextProjectTerminal: (() -> Void)?
+    let newWindow: () -> Void
+    let newSSHWindow: (TerminalHost) -> Void
+    let managesTabs: Bool
 
-    public init(workspace: TerminalWorkspace, enabled: Bool, hosts: [TerminalHost] = [], nextProjectTerminal: (() -> Void)? = nil) {
+    public init(workspace: TerminalWorkspace, enabled: Bool, hosts: [TerminalHost] = [],
+                managesTabs: Bool = false, newWindow: @escaping () -> Void,
+                newSSHWindow: @escaping (TerminalHost) -> Void,
+                nextProjectTerminal: (() -> Void)? = nil) {
         self.workspace = workspace
         self.enabled = enabled
         self.hosts = hosts
+        self.managesTabs = managesTabs
+        self.newWindow = newWindow
+        self.newSSHWindow = newSSHWindow
         self.nextProjectTerminal = nextProjectTerminal
     }
 
-    private var standalone: Bool { workspace.standaloneFocused }
-
     public var body: some Commands {
         CommandMenu("Terminal") {
-            Button("New Terminal Tab") { workspace.perform(#selector(TerminalViewController.newTab(_:))) }
-                .keyboardShortcut("t")
-                .disabled(!enabled || standalone)
-            Menu("New SSH Terminal") {
+            Button("New Terminal Window", action: newWindow).keyboardShortcut("n")
+            Menu("New Terminal Session") {
                 ForEach(hosts, id: \.id) { host in
-                    Button(host.name) { workspace.connect(host) }
+                    Button(host.name) { newSSHWindow(host) }
                 }
-            }.disabled(!enabled || standalone || hosts.isEmpty)
-            Button("Reopen Closed Terminal Tab") { workspace.perform(#selector(TerminalViewController.reopenClosedTab(_:))) }
-                .keyboardShortcut("t", modifiers: [.command, .shift]).disabled(!enabled || standalone)
-            Button(standalone ? "Close Terminal Window" : "Close Terminal Tab") { workspace.perform(#selector(TerminalViewController.closeActiveTabOrWindow(_:))) }
-                .keyboardShortcut("w", modifiers: [.command, .shift]).disabled(!enabled && !standalone)
+            }.disabled(hosts.isEmpty)
+            if managesTabs {
+                Button("New Tab") { workspace.newTab() }
+                    .keyboardShortcut("t").disabled(!workspace.standaloneFocused)
+                Button("Reopen Closed Tab") { workspace.reopenClosedTab() }
+                    .keyboardShortcut("t", modifiers: [.command, .shift])
+                    .disabled(!workspace.canReopenClosedTab)
+                Button("Close Tab") { workspace.focusedWindow?.performClose(nil) }
+                    .keyboardShortcut("w").disabled(!workspace.standaloneFocused)
+                Button("Show Previous Tab") { workspace.focusedWindow?.selectPreviousTab(nil) }
+                    .keyboardShortcut("[", modifiers: [.command, .shift]).disabled(!workspace.standaloneFocused)
+                Button("Show Next Tab") { workspace.focusedWindow?.selectNextTab(nil) }
+                    .keyboardShortcut("]", modifiers: [.command, .shift]).disabled(!workspace.standaloneFocused)
+                Button("Move Tab to New Window") { workspace.focusedWindow?.moveTabToNewWindow(nil) }
+                    .disabled(!workspace.standaloneFocused)
+            }
             Divider()
             if let nextProjectTerminal {
                 Button("Next Project Terminal", action: nextProjectTerminal)
                     .keyboardShortcut("t", modifiers: [.command, .option, .shift])
-                    .disabled(standalone)
+
             }
             Button("Find in History…") { workspace.perform(#selector(TerminalViewController.findInHistory(_:))) }
-                .keyboardShortcut("f", modifiers: [.command, .shift]).disabled(!enabled && !standalone)
+                .keyboardShortcut("f", modifiers: [.command, .shift]).disabled(!enabled)
             Button("Clear Terminal") { workspace.perform(#selector(TerminalViewController.clearActiveTab(_:))) }
-                .keyboardShortcut("k").disabled(!enabled && !standalone)
+                .keyboardShortcut("k").disabled(!enabled)
             Divider()
-            Button("Exit Terminal Session…") { workspace.perform(#selector(TerminalViewController.exitActiveSession(_:))) }
-                .disabled(!enabled && !standalone)
             Button("Clear Command History…") { workspace.perform(#selector(TerminalViewController.clearCommandHistory(_:))) }
-                .disabled(!enabled && !standalone)
+                .disabled(!enabled)
         }
     }
 }

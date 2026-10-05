@@ -22,6 +22,11 @@
 	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
 	<string>2</string>
+	<key>CFBundleURLTypes</key>
+	<array><dict>
+		<key>CFBundleURLName</key><string>Portal Terminal Destination</string>
+		<key>CFBundleURLSchemes</key><array><string>portal-terminal</string></array>
+	</dict></array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

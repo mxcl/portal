@@ -1642,7 +1642,7 @@ struct ProjectBrowserView: View {
             }
             .environment(\.defaultMinListRowHeight, 31)
             .scrollContentBackground(.hidden)
-            .background(.ultraThinMaterial)
+            .background(DarkSidebarMaterial())
             .environment(\.colorScheme, .dark)
             .navigationTitle("Projects")
             .focused($isSidebarFocused)
@@ -1754,6 +1754,21 @@ struct ProjectBrowserView: View {
         }
     }
 
+}
+
+private struct DarkSidebarMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .sidebar
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.appearance = NSAppearance(named: .darkAqua)
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.appearance = NSAppearance(named: .darkAqua)
+    }
 }
 
 private struct GitTreeWidthRestorer: NSViewRepresentable {

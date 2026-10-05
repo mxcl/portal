@@ -112,6 +112,16 @@ private func mutedGitStatusColor(_ color: NSColor) -> NSColor {
         ?? color.withAlphaComponent(0.75)
 }
 
+func appearanceAlpha(_ color: NSColor, _ alpha: CGFloat) -> NSColor {
+    NSColor(name: nil) { appearance in
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = color.withAlphaComponent(alpha)
+        }
+        return resolved
+    }
+}
+
 private func hostPrefixAttributedString(
     _ hostPrefix: String,
     color: NSColor
@@ -120,7 +130,7 @@ private func hostPrefixAttributedString(
         string: hostPrefix.uppercased(),
         attributes: [
             .font: NSFont.systemFont(ofSize: 8, weight: .semibold),
-            .foregroundColor: color.withAlphaComponent(0.34)
+            .foregroundColor: appearanceAlpha(color, 0.34)
         ]
     )
 }
@@ -3254,7 +3264,7 @@ final class SessionHeaderAddButton: NSButton {
         layer?.borderColor = NSColor.keyboardFocusIndicatorColor.cgColor
         contentTintColor = isHovering || isKeyboardSelected
             ? TahoeGlassPalette.titleTextActive
-            : TahoeGlassPalette.titleTextActive.withAlphaComponent(0.5)
+            : appearanceAlpha(TahoeGlassPalette.titleTextActive, 0.5)
         needsDisplay = true
     }
 }
@@ -4264,6 +4274,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             guard let self else { return }
             for tab in tabs {
                 tab.commandBarView.layer?.backgroundColor = (standalone ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.22) : TahoeGlassPalette.commandBackground).cgColor
+                updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
+                tab.inputView.resetPlainTextAttributes()
             }
         }
         rootView.onLayout = { [weak self] in
@@ -5601,7 +5613,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 let icon = NSImageView()
                 icon.image = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
                 icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 8, weight: .semibold)
-                icon.contentTintColor = TahoeGlassPalette.titleTextActive.withAlphaComponent(0.34)
+                icon.contentTintColor = appearanceAlpha(TahoeGlassPalette.titleTextActive, 0.34)
                 headerStack.addArrangedSubview(icon)
             }
             headerStack.addArrangedSubview(header)
@@ -5621,7 +5633,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 emptyRow.translatesAutoresizingMaskIntoConstraints = false
                 let emptyLabel = NSTextField(labelWithString: "No active sessions")
                 emptyLabel.font = .systemFont(ofSize: 11, weight: .regular)
-                emptyLabel.textColor = TahoeGlassPalette.titleTextActive.withAlphaComponent(0.22)
+                emptyLabel.textColor = appearanceAlpha(TahoeGlassPalette.titleTextActive, 0.22)
                 emptyLabel.translatesAutoresizingMaskIntoConstraints = false
                 emptyRow.addSubview(emptyLabel)
                 NSLayoutConstraint.activate([

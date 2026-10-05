@@ -16,6 +16,17 @@ struct TerminalIntegrationTests {
         let size = try #require(window.contentView?.bounds.size)
         #expect(size.width >= 760)
         #expect(size.height >= 480)
+
+        let root = try #require(window.contentViewController?.view)
+        let material = try #require(root.subviews.first { $0 is NSVisualEffectView })
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            view.subviews.flatMap { child in
+                (child as? NSScrollView).map { [$0] } ?? scrollViews(in: child)
+            }
+        }
+        let scroll = try #require(scrollViews(in: root).max { $0.frame.height < $1.frame.height })
+        #expect(material.convert(material.bounds, to: nil).maxY == window.frame.height)
+        #expect(scroll.convert(scroll.bounds, to: nil).maxY == window.frame.height)
     }
 
     @Test @MainActor func standaloneWindowFollowsApplicationAppearance() throws {

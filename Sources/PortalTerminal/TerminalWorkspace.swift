@@ -111,7 +111,7 @@ public final class TerminalWorkspace: ObservableObject {
             initialHostID: hostID, standalone: true, launchCommand: command, sessionHosts: hosts,
             restoredSession: restoredSession)
         let window = StandaloneTerminalWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 760),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.delegate = window
         window.workspace = self

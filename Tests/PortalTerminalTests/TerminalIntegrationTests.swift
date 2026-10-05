@@ -5,6 +5,19 @@ import Testing
 
 @Suite("Embedded terminal", .serialized)
 struct TerminalIntegrationTests {
+    @Test @MainActor func standaloneWindowOpensAtUsableSize() throws {
+        let application = NSApplication.shared
+        let workspace = TerminalWorkspace()
+        workspace.newWindow(directory: FileManager.default.temporaryDirectory, hosts: [])
+        let window = try #require(application.windows.first { $0 is StandaloneTerminalWindow })
+        defer { window.close() }
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        let size = try #require(window.contentView?.bounds.size)
+        #expect(size.width >= 760)
+        #expect(size.height >= 480)
+    }
+
     @Test @MainActor func standaloneWindowFollowsApplicationAppearance() throws {
         let application = NSApplication.shared
         let originalAppearance = application.appearance

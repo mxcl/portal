@@ -134,6 +134,9 @@ public final class TerminalWorkspace: ObservableObject {
         window.tabbingMode = .disallowed
         window.contentViewController = controller
         window.contentMinSize = NSSize(width: 760, height: 480)
+        // Installing the controller sizes the window to its initially unsized view.
+        // Apply the launch size after attachment, before centering or native tabbing.
+        window.setContentSize(NSSize(width: 1120, height: 760))
         windows.append(window)
         if let parent {
             parent.tabbingMode = .preferred

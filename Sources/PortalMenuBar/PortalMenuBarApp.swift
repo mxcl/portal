@@ -203,11 +203,14 @@ private struct StatusMenu: View {
         ForEach(notifications.keys.sorted(), id: \.self) { repository in
             Section(repository) {
                 ForEach(notifications[repository] ?? []) { note in
-                    Button(note.title) {
+                    Button {
                         if let url = note.safeURL, NSWorkspace.shared.open(url) {
                             Task { await runtime.model.githubAction?(.notificationOpened(id: note.id)) }
                         }
-                    }.help(note.body)
+                    } label: {
+                        Label(note.title, systemImage: note.menuSymbol)
+                    }
+                    .help(note.body)
                 }
             }
         }
@@ -234,6 +237,22 @@ private struct StatusMenu: View {
         }
         Divider()
         Button("Quit", action: runtime.quitEverything)
+    }
+}
+
+private extension GitHubNotification {
+    var menuSymbol: String {
+        // GitHub browser URLs start with /owner/repository/subject-kind.
+        switch safeURL?.pathComponents.dropFirst(3).first {
+        case "issues": "exclamationmark.circle"
+        case "pull": "arrow.triangle.pull"
+        case "discussions": "bubble.left.and.bubble.right"
+        case "releases": "tag"
+        case "commit": "point.3.connected.trianglepath.dotted"
+        case "actions": "play.circle"
+        case "security": "shield.lefthalf.filled"
+        default: "bell"
+        }
     }
 }
 #else

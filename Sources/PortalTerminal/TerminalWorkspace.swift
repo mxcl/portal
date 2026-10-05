@@ -128,6 +128,7 @@ public final class TerminalWorkspace: ObservableObject {
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.delegate = window
+        window.workspace = self
         window.onClose = { [weak self, weak controller, weak window] in
             guard let self, let controller else { return }
             closedWindows.append(ClosedWindow(session: controller.windowSessionRecord,
@@ -234,6 +235,7 @@ public final class TerminalWorkspace: ObservableObject {
 }
 
 final class StandaloneTerminalWindow: NSWindow, NSWindowDelegate {
+    weak var workspace: TerminalWorkspace?
     var onClose: (() -> Void)?
     private weak var nativeTabAccessory: NSTitlebarAccessoryViewController?
     private let tabSpacer = NSTitlebarAccessoryViewController()
@@ -250,6 +252,17 @@ final class StandaloneTerminalWindow: NSWindow, NSWindowDelegate {
         }
         sizeNativeTabs()
         super.addTitlebarAccessoryViewController(accessory)
+        if !accessory.view.subviews.contains(where: { $0 is TerminalTabMaterialView }) {
+            let material = TerminalTabMaterialView(frame: accessory.view.bounds.insetBy(dx: 8, dy: 4))
+            material.autoresizingMask = [.width, .height]
+            material.material = .hudWindow
+            material.blendingMode = .withinWindow
+            material.state = .active
+            material.wantsLayer = true
+            material.layer?.cornerRadius = material.frame.height / 2
+            material.layer?.masksToBounds = true
+            accessory.view.addSubview(material, positioned: .below, relativeTo: nil)
+        }
     }
 
     override func removeTitlebarAccessoryViewController(at index: Int) {
@@ -292,7 +305,18 @@ final class StandaloneTerminalWindow: NSWindow, NSWindowDelegate {
     }
 
 
-    // Cmd-T calls the workspace directly. Advertising newWindowForTab adds AppKit’s + button.
+    // A Settings-only SwiftUI scene does not reliably dispatch its menu shortcut
+    // for an AppKit-owned window. Keep this in the window's key-equivalent path;
+    // implementing newWindowForTab would also restore AppKit's unwanted + button.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.type == .keyDown,
+           event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "t", let workspace {
+            workspace.newTab(in: self)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 
     func windowWillClose(_ notification: Notification) {
         onClose?()
@@ -302,6 +326,10 @@ final class StandaloneTerminalWindow: NSWindow, NSWindowDelegate {
     func windowDidBecomeKey(_ notification: Notification) {
         (contentViewController as? TerminalViewController)?.windowDidBecomeActive()
     }
+}
+
+private final class TerminalTabMaterialView: NSVisualEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 private struct EmbeddedTerminal: NSViewControllerRepresentable {

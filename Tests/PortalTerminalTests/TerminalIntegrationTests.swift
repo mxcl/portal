@@ -192,7 +192,10 @@ struct TerminalIntegrationTests {
         #expect(first.titleVisibility == .hidden)
         #expect(first.tabGroup?.isTabBarVisible != true)
         first.makeKeyAndOrderFront(nil)
-        workspace.newTab(in: first)
+        let newTabKey = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: .command, timestamp: 0, windowNumber: first.windowNumber,
+            context: nil, characters: "t", charactersIgnoringModifiers: "t", isARepeat: false, keyCode: 17))
+        #expect(first.performKeyEquivalent(with: newTabKey))
         let group = try #require(first.tabGroup)
         #expect(group.windows.count == 2)
         #expect(group.isTabBarVisible)
@@ -202,6 +205,11 @@ struct TerminalIntegrationTests {
         selected.contentView?.superview?.layoutSubtreeIfNeeded()
         let strip = try #require(selected.titlebarAccessoryViewControllers.last)
         #expect(strip.layoutAttribute == .right)
+        let material = try #require(strip.view.subviews.compactMap { $0 as? NSVisualEffectView }.first)
+        #expect(material.material == .hudWindow)
+        #expect(material.blendingMode == .withinWindow)
+        #expect(material.hitTest(.zero) == nil)
+
         #expect(strip.view.frame.width < selected.frame.width / 2)
         let rect = strip.view.convert(strip.view.bounds, to: nil)
         #expect(abs(rect.midX - selected.frame.width / 2) < 1)

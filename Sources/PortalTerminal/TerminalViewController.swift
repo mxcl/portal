@@ -1263,7 +1263,7 @@ private final class BlockView: NSView {
         usesPortalMaterials ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.18) : TahoeGlassPalette.commandBackground
     }
     private var failedBackground: NSColor {
-        usesPortalMaterials ? .systemRed.withAlphaComponent(0.22) : TahoeGlassPalette.failedCommandBackground
+        TahoeGlassPalette.failedCommandBackground
     }
 
     private enum Metrics {
@@ -1968,7 +1968,8 @@ func portalDetachedBlockAppearanceSelfTest() -> Bool {
         finishedAt: Date(), output: "", attributedOutput: NSAttributedString(string: ""),
         outputRevision: 0, state: .completed(127)
     )
-    for name in [NSAppearance.Name.darkAqua, .aqua] {
+    for (name, standalone) in [NSAppearance.Name.darkAqua, .aqua].flatMap({ name in [false, true].map { (name, $0) } }) {
+        view.usesPortalMaterials = standalone
         view.appearance = NSAppearance(named: name)
         let otherAppearance = NSAppearance(named: name == .aqua ? .darkAqua : .aqua)!
         for state: TerminalBlock.State in [.running, .completed(0), .completed(127)] {
@@ -1978,7 +1979,9 @@ func portalDetachedBlockAppearanceSelfTest() -> Bool {
                 if case .completed(127) = state {
                     expected = TahoeGlassPalette.failedCommandBackground.cgColor
                 } else {
-                    expected = TahoeGlassPalette.commandBackground.cgColor
+                    let opacity: CGFloat
+                    if case .running = state { opacity = 0.22 } else { opacity = 0.18 }
+                    expected = (standalone ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: opacity) : TahoeGlassPalette.commandBackground).cgColor
                 }
             }
             otherAppearance.performAsCurrentDrawingAppearance {

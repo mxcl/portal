@@ -36,6 +36,13 @@ struct ProjectViewCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {
+            Button("Back") { model?.goBack() }
+                .keyboardShortcut("[")
+                .disabled(model?.canGoBack != true)
+            Button("Forward") { model?.goForward() }
+                .keyboardShortcut("]")
+                .disabled(model?.canGoForward != true)
+            Divider()
             Toggle("Show Auxiliary History", isOn: Binding(
                 get: { model?.showAuxiliaryHistory ?? false },
                 set: { model?.showAuxiliaryHistory = $0 }

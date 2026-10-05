@@ -172,6 +172,59 @@ final class AppModel: ObservableObject {
     private var paletteView: NSView?
     private var paletteNavigation = UUID()
     private var paletteCommandTask: Task<Void, Never>?
+    private struct NavigationLocation {
+        let project: String
+        let commit: String?
+        let tab: ProjectTab
+        let terminal: ProjectSource?
+    }
+    @Published private var backHistory: [NavigationLocation] = []
+    @Published private var forwardHistory: [NavigationLocation] = []
+    private var restoringNavigation = false
+    private var pendingNavigation: NavigationLocation?
+
+    var canGoBack: Bool { !backHistory.isEmpty }
+    var canGoForward: Bool { !forwardHistory.isEmpty }
+
+    private var navigationLocation: NavigationLocation? {
+        selectedProjectName.map {
+            NavigationLocation(project: $0, commit: selectedCommitID,
+                               tab: selectedTab, terminal: terminalSource)
+        }
+    }
+
+    private func recordNavigation() {
+        guard !restoringNavigation else { return }
+        pendingNavigation = nil
+        if let location = navigationLocation { backHistory.append(location) }
+        forwardHistory.removeAll()
+    }
+
+    func goBack() { navigateHistory(backward: true) }
+    func goForward() { navigateHistory(backward: false) }
+
+    private func navigateHistory(backward: Bool) {
+        guard let destination = backward ? backHistory.last : forwardHistory.last else { return }
+        if destination.project != selectedProjectName, !editor.confirmDiscard() { return }
+        if let current = navigationLocation {
+            if backward { forwardHistory.append(current) } else { backHistory.append(current) }
+        }
+        if backward { backHistory.removeLast() } else { forwardHistory.removeLast() }
+        restoringNavigation = true
+        defer { restoringNavigation = false }
+        pendingNavigation = nil
+        selectProject(destination.project)
+        restoreNavigation(destination)
+        // Staging destinations need the new repository snapshot before resolving their host.
+        if isLoadingProject { pendingNavigation = destination }
+    }
+
+    private func restoreNavigation(_ location: NavigationLocation) {
+        terminalSource = location.terminal
+        selectCommit(location.commit, recordingHistory: false)
+        selectedTab = location.tab
+    }
+
     @Published var selectedProjectName: String?
     @Published var selectedCommitID: String?
     @Published var selectedCommitDiff: String?
@@ -497,7 +550,7 @@ final class AppModel: ObservableObject {
         let loading = hosts.contains { observedProjects[$0.id] == nil && errors[$0.id] == nil }
         if isLoadingPeerStaging != loading { isLoadingPeerStaging = loading }
         if let id = selectedCommitID, id.hasPrefix(CommitGraphGenerator.workingChangesID + ":") {
-            selectCommit(selectedStaging != nil ? id : nil)
+            selectCommit(selectedStaging != nil ? id : nil, recordingHistory: false)
         }
     }
 
@@ -749,13 +802,14 @@ final class AppModel: ObservableObject {
     func selectProject(_ name: String?) {
         guard name != selectedProjectName else { return }
         guard editor.confirmDiscard() else { return }
+        recordNavigation()
         paletteNavigation = UUID()
         terminalSource = nil
         selectedProjectName = name
         editor.connect(selectedEditorRepositoryURL)
         if let name { UserDefaults.standard.set(name, forKey: selectedProjectKey) }
         else { UserDefaults.standard.removeObject(forKey: selectedProjectKey) }
-        selectCommit(nil)
+        selectCommit(nil, recordingHistory: false)
         projectSnapshot = nil
         isLoadingPeerStaging = false
         peerSnapshots = [:]
@@ -767,7 +821,7 @@ final class AppModel: ObservableObject {
         projectLoadGeneration += 1
         isLoadingProject = false
         guard let name else { return }
-        loadProject(name, from: sources(for: name), selectStaging: true)
+        loadProject(name, from: sources(for: name), selectStaging: !restoringNavigation)
     }
 
     func refreshProject() {
@@ -779,7 +833,7 @@ final class AppModel: ObservableObject {
         guard source != projectSource, let name = selectedProjectName else { return }
         paletteNavigation = UUID()
         terminalSource = nil
-        selectCommit(nil)
+        selectCommit(nil, recordingHistory: false)
         projectSnapshot = nil
         isLoadingPeerStaging = false
         peerSnapshots = [:]
@@ -828,15 +882,18 @@ final class AppModel: ObservableObject {
                     isLoadingProject = false
                     saveProjectWindow(name: name, source: source, content: content,
                                       showAuxiliaryHistory: showAuxiliaryHistory)
-                    if selectStaging, terminalSource == nil, selectedCommitID == nil, let staging = stagingRows.first {
-                        selectCommit(staging.id)
+                    if let location = pendingNavigation {
+                        pendingNavigation = nil
+                        restoreNavigation(location)
+                    } else if selectStaging, terminalSource == nil, selectedCommitID == nil, let staging = stagingRows.first {
+                        selectCommit(staging.id, recordingHistory: false)
                         terminalSource = staging.source
                         selectedTab = .terminal
                     } else if let oid = selectedCommitID {
                         if CommitGraphGenerator.isStaging(oid) {
-                            selectCommit(stagingCheckouts.contains { $0.id == oid } ? oid : nil)
+                            selectCommit(stagingCheckouts.contains { $0.id == oid } ? oid : nil, recordingHistory: false)
                         } else if selectedCommitDiff == nil {
-                            selectCommit(oid)
+                            selectCommit(oid, recordingHistory: false)
                         }
                     }
                     await refreshPeerStaging()
@@ -871,9 +928,16 @@ final class AppModel: ObservableObject {
     }
 
     func selectCommit(_ oid: String?) {
+        selectCommit(oid, recordingHistory: true)
+    }
+
+    private func selectCommit(_ oid: String?, recordingHistory: Bool) {
         let row = stagingRows.first { $0.id == oid }
         let oid = row?.checkouts.first { $0.source == terminalSource }?.id ?? oid
-        if selectedCommitID != oid { paletteNavigation = UUID() }
+        if selectedCommitID != oid {
+            if recordingHistory { recordNavigation() }
+            paletteNavigation = UUID()
+        }
         let staging = stagingCheckouts.first { $0.id == oid }
         if selectedCommitID != oid {
             paletteCommit = nil
@@ -1714,6 +1778,17 @@ struct ProjectBrowserView: View {
                 }
                 .background(GitTreeWidthRestorer(width: initialGitTreeColumnWidth))
                 .navigationSplitViewColumnWidth(min: 280, ideal: initialGitTreeColumnWidth, max: .infinity)
+                .toolbar {
+                    // .navigation moves ahead of the floating sidebar on newer macOS.
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Button("Back", systemImage: "chevron.left", action: model.goBack)
+                            .disabled(!model.canGoBack)
+                            .help("Back (⌘[)")
+                        Button("Forward", systemImage: "chevron.right", action: model.goForward)
+                            .disabled(!model.canGoForward)
+                            .help("Forward (⌘])")
+                    }
+                }
         } detail: {
             if model.showsCommitDiff {
                 ProjectDetailView(model: model)

@@ -10,6 +10,12 @@ quiet, like Finder or Xcode; the colored commit lanes are its only expressive
 visual element. System colors, materials, typography, spacing, controls, and
 selection behavior remain canonical.
 
+Back and Forward live in the Git-tree column toolbar immediately after the
+sidebar. They revisit project and commit selections, preserving the content tab,
+and use Command-[ and Command-]. New selections discard forward history;
+background refreshes do not create navigation entries. The detail toolbar stays
+focused on its current content.
+
 The command palette searches project terminal session history alongside projects and
 Git references. With no query, commands appear first, newest run first across
 projects; older history without timestamps retains its per-session ordering. Command results identify their project, host, and tab. Return opens

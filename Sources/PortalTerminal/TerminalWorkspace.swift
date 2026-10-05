@@ -51,7 +51,7 @@ public final class TerminalWorkspace: ObservableObject {
 
     private var controllers: [String: TerminalViewController] = [:]
     private var activeController: TerminalViewController?
-    private var windows: [NSWindow] = []
+    private var windows: [StandaloneTerminalWindow] = []
     private struct ClosedWindow {
         let session: SessionCatalog.Record?
         let directory: URL
@@ -120,34 +120,70 @@ public final class TerminalWorkspace: ObservableObject {
             closedWindows.append(ClosedWindow(session: controller.windowSessionRecord,
                 directory: controller.windowDirectory, hostID: controller.windowHostID, hosts: controller.windowHosts))
             canReopenClosedTab = true
+            let siblings = window.map { self.tabs(in: $0).filter { $0 !== window } } ?? []
             windows.removeAll { $0 === window }
+            if let window, window.isVisible, let next = siblings.first {
+                select(next, replacing: window)
+            }
+            refreshTabs()
         }
         window.title = "Terminal"
         window.backgroundColor = .clear
         window.isOpaque = false
         window.isRestorable = false
         window.isReleasedWhenClosed = false
+        window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        // New Window must remain separate even when the system prefers tabs.
-        // Explicit New Tab below opts into AppKit's native tab group.
-        window.tabbingIdentifier = "dev.mxcl.portal.terminal"
+        // Compact title-bar tabs own grouping; AppKit's tab strip uses a separate, full-width row.
+        window.groupID = (parent as? StandaloneTerminalWindow)?.groupID ?? UUID()
         window.tabbingMode = .disallowed
         window.contentViewController = controller
         window.contentMinSize = NSSize(width: 760, height: 480)
         // Installing the controller sizes the window to its initially unsized view.
-        // Apply the launch size after attachment, before centering or native tabbing.
+        // Apply the launch size after attachment, before centering or grouping tabs.
         window.setContentSize(NSSize(width: 1120, height: 760))
         windows.append(window)
+        window.installTabStrip()
         if let parent {
-            parent.tabbingMode = .preferred
-            window.tabbingMode = .preferred
-            parent.addTabbedWindow(window, ordered: .above)
+            select(window, replacing: parent)
         } else {
             window.center()
+            window.makeKeyAndOrderFront(nil)
         }
-        window.makeKeyAndOrderFront(nil)
-        window.tabbingMode = .automatic
+        refreshTabs()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func tabs(in window: StandaloneTerminalWindow) -> [StandaloneTerminalWindow] {
+        windows.filter { $0.groupID == window.groupID }
+    }
+
+    func refreshTabs() {
+        for window in windows { window.updateTabStrip(tabs(in: window)) }
+    }
+
+    func select(_ window: StandaloneTerminalWindow, replacing previous: NSWindow) {
+        guard window !== previous else { return }
+        window.setFrame(previous.frame, display: false)
+        previous.orderOut(nil)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    func selectTab(in window: StandaloneTerminalWindow, offset: Int) {
+        let siblings = tabs(in: window)
+        guard let index = siblings.firstIndex(of: window), siblings.count > 1 else { return }
+        select(siblings[(index + offset + siblings.count) % siblings.count], replacing: window)
+    }
+
+    func detach(_ window: StandaloneTerminalWindow) {
+        let siblings = tabs(in: window).filter { $0 !== window }
+        guard let next = siblings.first else { return }
+        window.groupID = UUID()
+        next.setFrame(window.frame, display: false)
+        next.orderFront(nil)
+        window.setFrameOrigin(NSPoint(x: window.frame.minX + 24, y: window.frame.minY - 24))
+        window.makeKeyAndOrderFront(nil)
+        refreshTabs()
     }
 
     public func view(project: String, directory: URL, hosts: [TerminalHost], host: TerminalHost? = nil) -> some View {
@@ -187,6 +223,25 @@ public final class TerminalWorkspace: ObservableObject {
 final class StandaloneTerminalWindow: NSWindow, NSWindowDelegate {
     weak var workspace: TerminalWorkspace?
     var onClose: (() -> Void)?
+    var groupID = UUID()
+    private let tabStrip = TerminalTitlebarTabs()
+
+    override var title: String {
+        didSet { workspace?.refreshTabs() }
+    }
+
+    func installTabStrip() {
+        tabStrip.owner = self
+        addTitlebarAccessoryViewController(tabStrip)
+    }
+
+    func updateTabStrip(_ windows: [StandaloneTerminalWindow]) { tabStrip.update(windows) }
+
+    override func selectNextTab(_ sender: Any?) { workspace?.selectTab(in: self, offset: 1) }
+    override func selectPreviousTab(_ sender: Any?) { workspace?.selectTab(in: self, offset: -1) }
+    override func moveTabToNewWindow(_ sender: Any?) { workspace?.detach(self) }
+
+    func windowDidResize(_ notification: Notification) { workspace?.refreshTabs() }
 
     override func newWindowForTab(_ sender: Any?) { workspace?.newTab(in: self) }
 

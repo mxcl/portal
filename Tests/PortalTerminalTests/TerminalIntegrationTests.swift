@@ -171,29 +171,50 @@ struct TerminalIntegrationTests {
         #expect(TerminalLaunchRequest.hostID(from: URL(string: "portal-terminal://new-window?host=")!) == nil)
     }
 
-    @Test @MainActor func nativeTabsStartHiddenAndCanBeReopened() throws {
+    @Test @MainActor func titlebarTabsCanSwitchDetachCloseAndReopen() throws {
         let application = NSApplication.shared
         let workspace = TerminalWorkspace()
         workspace.newWindow(directory: FileManager.default.temporaryDirectory)
-        let first = try #require(application.windows.first { $0 is StandaloneTerminalWindow })
+        let first = try #require(application.windows.compactMap { $0 as? StandaloneTerminalWindow }.first)
         defer {
             for window in application.windows where window is StandaloneTerminalWindow { window.close() }
         }
+        #expect(first.titleVisibility == .hidden)
         #expect(first.tabGroup?.isTabBarVisible != true)
-        first.makeKeyAndOrderFront(nil)
+        let strip = try #require(first.titlebarAccessoryViewControllers.first)
+        #expect(strip.layoutAttribute == .left)
+        #expect(strip.view.frame.width < first.frame.width / 2)
         workspace.newTab(in: first)
-        let group = try #require(first.tabGroup)
-        #expect(group.windows.count == 2)
-        #expect(group.isTabBarVisible)
-        let second = try #require(group.windows.first { $0 !== first })
+        let second = try #require(workspace.tabs(in: first).first { $0 !== first })
+        #expect(!first.isVisible)
+        #expect(second.isVisible)
+        #expect(second.tabGroup?.isTabBarVisible != true)
+        let secondStrip = try #require(second.titlebarAccessoryViewControllers.first)
+        let scroll = try #require(secondStrip.view as? NSScrollView)
+        let stack = try #require(scroll.documentView as? NSStackView)
+        first.title = "a"
+        second.title = "a much longer terminal title"
+        stack.layoutSubtreeIfNeeded()
+        #expect(stack.arrangedSubviews[0].frame.width < stack.arrangedSubviews[1].frame.width)
+        #expect(secondStrip.view.convert(secondStrip.view.bounds, to: nil).minY >= second.contentLayoutRect.maxY)
+        second.selectPreviousTab(nil)
+        #expect(first.isVisible)
+        #expect(!second.isVisible)
+        first.selectNextTab(nil)
+        #expect(second.isVisible)
         second.close()
+        #expect(first.isVisible)
         #expect(workspace.canReopenClosedTab)
-        first.makeKeyAndOrderFront(nil)
         workspace.reopenClosedTab(in: first)
-        #expect(first.tabGroup?.windows.count == 2)
+        #expect(workspace.tabs(in: first).count == 2)
         #expect(!workspace.canReopenClosedTab)
+        let reopened = try #require(workspace.tabs(in: first).first { $0 !== first })
+        reopened.moveTabToNewWindow(nil)
+        #expect(workspace.tabs(in: first).count == 1)
+        #expect(workspace.tabs(in: reopened).count == 1)
+        #expect(first.isVisible && reopened.isVisible)
         workspace.newWindow()
-        #expect(first.tabGroup?.windows.count == 2)
+        #expect(workspace.tabs(in: first).count == 1)
     }
 
     @Test @MainActor func rendererAndCompletions() {

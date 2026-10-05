@@ -41,6 +41,7 @@ struct SessionPickerSection: Equatable, Sendable {
 
 struct SessionPickerSnapshot: Equatable, Sendable {
     var sections: [SessionPickerSection]
+    var loadingLocations: Set<SessionLocation> = []
 
     func offeringNewSessions(on hosts: [TerminalHost]) -> Self {
         var snapshot = self
@@ -58,6 +59,14 @@ struct SessionPickerSnapshot: Equatable, Sendable {
                     location: location, title: host.name, newSession: candidate, items: []
                 ))
             }
+        }
+        if !snapshot.sections.contains(where: { $0.location == .local }) {
+            snapshot.sections.append(SessionPickerSection(location: .local,
+                title: Host.current().localizedName ?? "This Mac", newSession: nil, items: []))
+        }
+        let order = hosts.reversed().map { SessionLocation.sshHost($0.id) } + [.local]
+        snapshot.sections.sort {
+            (order.firstIndex(of: $0.location) ?? -1) < (order.firstIndex(of: $1.location) ?? -1)
         }
         return snapshot
     }
@@ -107,7 +116,7 @@ final class SessionPickerModel {
 
     private enum LoadResult: Sendable {
         case local([SessionPickerCandidate])
-        case remote([SessionPickerCandidate]?)
+        case remote(SessionLocation?, [SessionPickerCandidate]?)
     }
 
     private var generation = 0
@@ -118,7 +127,8 @@ final class SessionPickerModel {
         excluding: Set<SessionRef>,
         homeDirectory: String,
         loadLocal: @escaping RetryingLoader,
-        loadRemote: @escaping RetryingLoader,
+        loadRemote: @escaping RetryingLoader = { [] },
+        remoteLoaders: [SessionLocation: RetryingLoader] = [:],
         isAvailable: @escaping @MainActor (SessionRef) -> Bool,
         onUpdate: @escaping @MainActor (SessionPickerSnapshot) -> Void
     ) {
@@ -155,7 +165,13 @@ final class SessionPickerModel {
         }
         let cachedLocal = preservingInitialCommandState(inventory.local ?? [])
         let cachedRemote = preservingInitialCommandState(inventory.remote ?? [])
-        onUpdate(snapshot(
+        var loading: Set<SessionLocation> = Set(remoteLoaders.keys).union([.local])
+        func publish(_ snapshot: SessionPickerSnapshot) {
+            var snapshot = snapshot
+            snapshot.loadingLocations = loading
+            onUpdate(snapshot)
+        }
+        publish(snapshot(
             from: combinedCandidates(
                 initial: unconfirmedInitialCandidates,
                 local: cachedLocal,
@@ -178,20 +194,27 @@ final class SessionPickerModel {
                     }
                     return .local([])
                 }
-                group.addTask { .remote(await loadRemote()) }
+                if remoteLoaders.isEmpty {
+                    group.addTask { .remote(nil, await loadRemote()) }
+                } else {
+                    for (location, loader) in remoteLoaders {
+                        group.addTask { .remote(location, await loader()) }
+                    }
+                }
                 var localCandidates = cachedLocal
                 var remoteCandidates = cachedRemote
                 for await result in group {
                     guard let self, generation == self.generation, !Task.isCancelled else { return }
                     switch result {
                     case .local(let additions):
+                        loading.remove(.local)
                         unconfirmedInitialCandidates.removeAll {
                             if case .local = $0.sessionRef.location { return true }
                             return false
                         }
                         localCandidates = preservingInitialCommandState(additions)
                         self.inventory.local = localCandidates
-                        onUpdate(self.snapshot(
+                        publish(self.snapshot(
                             from: self.combinedCandidates(
                                 initial: unconfirmedInitialCandidates,
                                 local: localCandidates,
@@ -201,22 +224,32 @@ final class SessionPickerModel {
                             ),
                             homeDirectory: homeDirectory
                         ))
-                    case .remote(let result):
+                    case .remote(let location, let result):
+                        if let location { loading.remove(location) }
                         if let result {
-                            unconfirmedInitialCandidates.removeAll { if case .sshHost = $0.sessionRef.location { return true }; return false }
-                            remoteCandidates = preservingInitialCommandState(result)
+                            unconfirmedInitialCandidates.removeAll {
+                                if let location { return $0.sessionRef.location == location }
+                                if case .sshHost = $0.sessionRef.location { return true }
+                                return false
+                            }
+                            if let location {
+                                remoteCandidates.removeAll { $0.sessionRef.location == location }
+                                remoteCandidates += preservingInitialCommandState(result)
+                            } else {
+                                remoteCandidates = preservingInitialCommandState(result)
+                            }
                             self.inventory.remote = remoteCandidates
-                            onUpdate(self.snapshot(
-                                from: self.combinedCandidates(
-                                    initial: unconfirmedInitialCandidates,
-                                    local: localCandidates,
-                                    remote: remoteCandidates,
-                                    excluding: excluding,
-                                    isAvailable: isAvailable
-                                ),
-                                homeDirectory: homeDirectory
-                            ))
                         }
+                        publish(self.snapshot(
+                            from: self.combinedCandidates(
+                                initial: unconfirmedInitialCandidates,
+                                local: localCandidates,
+                                remote: remoteCandidates,
+                                excluding: excluding,
+                                isAvailable: isAvailable
+                            ),
+                            homeDirectory: homeDirectory
+                        ))
                         // Fetch once when the picker opens or a user action refreshes it.
                         // Leaving it visible must not create a background SSH poll.
                     }
@@ -275,7 +308,7 @@ final class SessionPickerModel {
                 ? $0.sessionRef.sessionID < $1.sessionRef.sessionID
                 : lhsDate > rhsDate
         }
-        let sections = Dictionary(grouping: ordered) { $0.hostTitle.lowercased() }
+        let sections = Dictionary(grouping: ordered) { $0.sessionRef.location }
             .map { _, candidates in
                 SessionPickerSection(
                     location: candidates[0].sessionRef.location,

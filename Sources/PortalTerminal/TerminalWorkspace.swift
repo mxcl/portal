@@ -94,6 +94,73 @@ public final class TerminalWorkspace: ObservableObject {
             }
     }
 
+    struct SavedWindow: Codable {
+        var tabs: [SavedTab]
+        var selectedIndex: Int
+        var frame: String
+    }
+
+    struct SavedTab: Codable {
+        var session: SessionCatalog.Record?
+        var directory: URL
+        var hostID: String?
+    }
+
+    // The standalone app owns this snapshot; embedded terminals keep their own catalog.
+    public func saveWindows(defaults: UserDefaults = .standard) {
+        var seen = Set<ObjectIdentifier>()
+        let saved = windows.compactMap { window -> SavedWindow? in
+            guard !seen.contains(ObjectIdentifier(window)) else { return nil }
+            let group = (window.tabGroup?.windows ?? [window]).filter { candidate in
+                windows.contains { $0 === candidate }
+            }
+            group.forEach { seen.insert(ObjectIdentifier($0)) }
+            let tabs = group.compactMap { window -> SavedTab? in
+                guard let controller = window.contentViewController as? TerminalViewController else { return nil }
+                return SavedTab(session: controller.windowSessionRecord, directory: controller.windowDirectory,
+                                hostID: controller.windowHostID)
+            }
+            return SavedWindow(tabs: tabs,
+                selectedIndex: group.firstIndex { $0 === window.tabGroup?.selectedWindow } ?? 0,
+                frame: NSStringFromRect(window.frame))
+        }
+        do {
+            defaults.set(try JSONEncoder().encode(saved), forKey: "standaloneTerminalWindows")
+        } catch {
+            NSLog("Failed to save terminal windows: \(error)")
+        }
+    }
+
+    @discardableResult
+    public func restoreWindows(hosts: [TerminalHost], defaults: UserDefaults = .standard) -> Bool {
+        guard let data = defaults.data(forKey: "standaloneTerminalWindows") else { return false }
+        do {
+            let saved = try JSONDecoder().decode([SavedWindow].self, from: data)
+            var restored = false
+            for group in saved {
+                var parent: NSWindow?
+                var selected: NSWindow?
+                for (index, tab) in group.tabs.enumerated() {
+                    openWindow(directory: tab.directory, hosts: hosts, hostID: tab.hostID,
+                               restoredSession: tab.session, tabbedWith: parent)
+                    guard let window = windows.last else { continue }
+                    if parent == nil {
+                        parent = window
+                        window.setFrame(NSRectFromString(group.frame), display: true)
+                    }
+                    parent = window
+                    if index == group.selectedIndex { selected = window }
+                    restored = true
+                }
+                selected?.makeKeyAndOrderFront(nil)
+            }
+            return restored
+        } catch {
+            NSLog("Failed to restore terminal windows: \(error)")
+            return false
+        }
+    }
+
     public func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hosts: [TerminalHost] = [], hostID: String? = nil) {
         openWindow(directory: directory, command: command, hosts: hosts, hostID: hostID)
     }

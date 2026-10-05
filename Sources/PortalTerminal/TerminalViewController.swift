@@ -4683,10 +4683,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                     }
                 }
             },
-            loadRemote: { [weak self] in
-                guard let self else { return nil }
-                return await self.sshSessionCandidates()
-            },
+            remoteLoaders: Dictionary(uniqueKeysWithValues: sessionHosts.map { host in
+                (SessionLocation.sshHost(host.id), { @Sendable in
+                    await Self.sshSessionCandidates(host: host)
+                })
+            }),
             isAvailable: { [weak self] sessionRef in
                 guard let self else { return false }
                 return !self.killingSessionRefs.contains(sessionRef)
@@ -4739,6 +4740,14 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 headerStack.addArrangedSubview(icon)
             }
             headerStack.addArrangedSubview(header)
+            if snapshot.loadingLocations.contains(section.location) {
+                let spinner = NSProgressIndicator()
+                spinner.style = .spinning
+                spinner.controlSize = .small
+                spinner.setAccessibilityLabel("Loading sessions on \(hostTitle)")
+                spinner.startAnimation(nil)
+                headerStack.addArrangedSubview(spinner)
+            }
             if let candidate = section.newSession {
                 let button = SessionHeaderAddButton(
                     sessionRef: candidate.sessionRef,
@@ -4753,7 +4762,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             if section.items.isEmpty {
                 let emptyRow = NSView()
                 emptyRow.translatesAutoresizingMaskIntoConstraints = false
-                let emptyLabel = NSTextField(labelWithString: "No active sessions")
+                let emptyLabel = NSTextField(labelWithString: snapshot.loadingLocations.contains(section.location) ? "Loading sessions…" : "No active sessions")
                 emptyLabel.font = .systemFont(ofSize: 11, weight: .regular)
                 emptyLabel.textColor = appearanceAlpha(TahoeGlassPalette.titleTextActive, 0.22)
                 emptyLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -4889,22 +4898,22 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    private func sshSessionCandidates() async -> [SessionPickerCandidate]? {
+    private static func sshSessionCandidates(host: TerminalHost) async -> [SessionPickerCandidate]? {
         await Task.detached(priority: .utility) {
             var candidates: [SessionPickerCandidate] = []
-            for host in PtySession.loadSSHHosts().hosts where host.enrolled {
+            do {
                 let location = SessionLocation.sshHost(host.id)
-                guard let sessions = try? PtySession.listSessions(location: location) else { continue }
+                guard let sessions = try? PtySession.listSessions(location: location) else { return nil }
                 candidates.append(SessionPickerCandidate(
-                    sessionRef: SessionRef(location: location, sessionID: "new", hostName: host.alias),
-                    hostTitle: host.alias, title: "New session", cwd: host.directory,
+                    sessionRef: SessionRef(location: location, sessionID: "new", hostName: host.name),
+                    hostTitle: host.name, title: "New session", cwd: host.directory,
                     isClosed: false, commandCount: 0, runningCommand: nil,
                     commandHistory: [], action: .create
                 ))
                 candidates += sessions.map {
                     SessionPickerCandidate(
-                        sessionRef: SessionRef(location: location, sessionID: $0.sessionID, hostName: host.alias),
-                        hostTitle: host.alias, title: $0.title, cwd: $0.cwd,
+                        sessionRef: SessionRef(location: location, sessionID: $0.sessionID, hostName: host.name),
+                        hostTitle: host.name, title: $0.title, cwd: $0.cwd,
                         isClosed: false, createdAt: $0.createdAt, commandCount: $0.commandCount,
                         lastCommandAt: $0.lastCommandAt, runningCommand: $0.runningCommand,
                         commandHistory: $0.commandHistory, action: .attach,

@@ -25,7 +25,7 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate, ObservableObject 
     private var openedWindow = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        DispatchQueue.main.async { if !self.openedWindow { self.newWindow() } }
+        DispatchQueue.main.async { if !self.openedWindow { self.newWindow(restoringWindows: true) } }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
@@ -33,7 +33,7 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate, ObservableObject 
         return false
     }
 
-    func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hostID: String? = nil) {
+    func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hostID: String? = nil, restoringWindows: Bool = false) {
         openedWindow = true
         Task {
             let snapshot = try? await EngineClient.send(.snapshot).snapshot
@@ -49,6 +49,7 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate, ObservableObject 
                              directory: host.root)
             } ?? []
             self.hosts = hosts
+            if restoringWindows, workspace.restoreWindows(hosts: hosts) { return }
             if let hostID {
                 guard let host = hosts.first(where: { $0.id == hostID }) else {
                     let alert = NSAlert()
@@ -76,6 +77,11 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate, ObservableObject 
             let command = directory.boolValue ? nil : "'" + url.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
             newWindow(directory: directory.boolValue ? url : url.deletingLastPathComponent(), command: command)
         }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        workspace.saveWindows()
+        return .terminateNow
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

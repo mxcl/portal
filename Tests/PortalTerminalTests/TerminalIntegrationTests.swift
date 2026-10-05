@@ -108,9 +108,70 @@ struct TerminalIntegrationTests {
             TerminalHost(id: $0, name: $0, peer: $0, helperPath: "/helper", directory: "/projects")
         }
         let snapshot = SessionPickerSnapshot(sections: []).offeringNewSessions(on: hosts)
-        #expect(Set(snapshot.sections.map(\.title)) == ["pangolin", "atlas"])
-        #expect(snapshot.sections.allSatisfy { $0.newSession?.action == .create && $0.items.isEmpty })
+        #expect(snapshot.sections.map(\.location) == [.sshHost("atlas"), .sshHost("pangolin"), .local])
+        #expect(snapshot.sections.filter { $0.location != .local }.allSatisfy { $0.newSession?.action == .create && $0.items.isEmpty })
         #expect(snapshot.offeringNewSessions(on: hosts) == snapshot)
+    }
+
+    @Test @MainActor func hostLoadingCompletesIndependentlyWithoutReordering() async throws {
+        let hosts = ["zebra", "alpha"].map {
+            TerminalHost(id: $0, name: $0, peer: $0, helperPath: "/helper", directory: "/tmp")
+        }
+        let picker = SessionPickerModel()
+        defer { picker.invalidate() }
+        var updates: [SessionPickerSnapshot] = []
+        picker.refresh(initial: [], excluding: [], homeDirectory: "/tmp",
+            loadLocal: { [] }, remoteLoaders: [
+                .sshHost("zebra"): { [] },
+                .sshHost("alpha"): {
+                    try? await Task.sleep(for: .milliseconds(150))
+                    return nil
+                }
+            ], isAvailable: { _ in true }, onUpdate: {
+                updates.append($0.offeringNewSessions(on: hosts))
+            })
+        for _ in 0..<100 where updates.last?.loadingLocations.isEmpty != true {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(updates.first?.loadingLocations == [.local, .sshHost("zebra"), .sshHost("alpha")])
+        #expect(updates.contains { $0.loadingLocations == [.sshHost("alpha")] })
+        #expect(updates.last?.loadingLocations.isEmpty == true)
+        #expect(updates.allSatisfy { $0.sections.map(\.location) == [.sshHost("alpha"), .sshHost("zebra"), .local] })
+    }
+
+    @Test @MainActor func standaloneRestoresTabGroupsAndOmitsClosedTabs() throws {
+        let application = NSApplication.shared
+        let suite = "PortalTerminalTests." + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let workspace = TerminalWorkspace()
+        workspace.newWindow(directory: URL(fileURLWithPath: "/tmp"))
+        defer {
+            for window in application.windows where window is StandaloneTerminalWindow { window.close() }
+        }
+        let first = try #require(application.windows.first { $0 is StandaloneTerminalWindow })
+        workspace.newTab(in: first)
+        let second = try #require(first.tabGroup?.windows.first { $0 !== first })
+        workspace.newTab(in: second)
+        let closed = try #require(first.tabGroup?.windows.first { $0 !== first && $0 !== second })
+        closed.close()
+        first.tabGroup?.selectedWindow = first
+        workspace.saveWindows(defaults: defaults)
+        let data = try #require(defaults.data(forKey: "standaloneTerminalWindows"))
+        let saved = try JSONDecoder().decode([TerminalWorkspace.SavedWindow].self, from: data)
+        #expect(saved.count == 1)
+        #expect(saved.first?.tabs.count == 2)
+        #expect(saved.first?.selectedIndex == 0)
+        first.close()
+        second.close()
+        let restored = TerminalWorkspace()
+        #expect(restored.restoreWindows(hosts: [], defaults: defaults))
+        let restoredWindow = try #require(application.windows.first { $0 is StandaloneTerminalWindow && $0 !== first && $0 !== second && $0 !== closed })
+        #expect(restoredWindow.tabGroup?.windows.count == 2)
+        #expect(restoredWindow.tabGroup?.selectedWindow === restoredWindow.tabGroup?.windows.first)
+        for window in application.windows where window is StandaloneTerminalWindow { window.close() }
+        restored.saveWindows(defaults: defaults)
+        #expect(!TerminalWorkspace().restoreWindows(hosts: [], defaults: defaults))
     }
 
     @Test @MainActor func standaloneUsesPortalBlurMaterial() {

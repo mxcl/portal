@@ -192,6 +192,35 @@ struct TerminalIntegrationTests {
         let group = try #require(first.tabGroup)
         #expect(group.windows.count == 2)
         #expect(group.isTabBarVisible)
+        let selected = try #require(group.selectedWindow)
+        selected.title = "~"
+        first.title = "git-sync"
+        selected.contentView?.superview?.layoutSubtreeIfNeeded()
+        let strip = try #require(selected.titlebarAccessoryViewControllers.last)
+        #expect(strip.layoutAttribute == .right)
+        #expect(strip.view.frame.width < selected.frame.width / 2)
+        let rect = strip.view.convert(strip.view.bounds, to: nil)
+        #expect(abs(rect.midX - selected.frame.width / 2) < 1)
+        let close = try #require(selected.standardWindowButton(.closeButton))
+        let closeRect = close.convert(close.bounds, to: nil)
+        #expect(abs(rect.midY - closeRect.midY) < 4)
+        let originalSize = selected.frame.size
+        for width in [760.0, 1440.0] {
+            selected.setFrame(NSRect(origin: selected.frame.origin, size: NSSize(width: width, height: originalSize.height)), display: true)
+            selected.contentView?.superview?.layoutSubtreeIfNeeded()
+            let resized = strip.view.convert(strip.view.bounds, to: nil)
+            #expect(abs(resized.midX - width / 2) < 1)
+            #expect(resized.width < width - 200)
+        }
+        selected.setFrame(NSRect(origin: selected.frame.origin, size: originalSize), display: true)
+        group.selectedWindow = first
+        first.makeKeyAndOrderFront(nil)
+        first.contentView?.superview?.layoutSubtreeIfNeeded()
+        let switchedStrip = try #require(first.titlebarAccessoryViewControllers.last)
+        #expect(switchedStrip.layoutAttribute == .right)
+        #expect(abs(switchedStrip.view.convert(switchedStrip.view.bounds, to: nil).midX - first.frame.width / 2) < 1)
+        group.selectedWindow = selected
+
         let second = try #require(group.windows.first { $0 !== first })
         #expect((second.contentViewController as? TerminalViewController)?.windowDirectory == FileManager.default.homeDirectoryForCurrentUser)
         second.close()

@@ -128,6 +128,9 @@ public final class TerminalWorkspace: ObservableObject {
         window.isReleasedWhenClosed = false
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        window.toolbar = NSToolbar(identifier: "dev.mxcl.portal.terminal.titlebar")
+        window.toolbarStyle = .unifiedCompact
+        window.titlebarSeparatorStyle = .none
         // New Window must remain separate even when the system prefers tabs.
         // Explicit New Tab below opts into AppKit's native tab group.
         window.tabbingIdentifier = "dev.mxcl.portal.terminal"
@@ -186,6 +189,62 @@ public final class TerminalWorkspace: ObservableObject {
 
 final class StandaloneTerminalWindow: NSWindow, NSWindowDelegate {
     var onClose: (() -> Void)?
+    private weak var nativeTabAccessory: NSTitlebarAccessoryViewController?
+    private let tabSpacer = NSTitlebarAccessoryViewController()
+
+    // This window has no app-supplied accessories: incoming accessories belong to
+    // AppKit's native tab bar. Change its supported placement and size before attachment.
+    override func addTitlebarAccessoryViewController(_ accessory: NSTitlebarAccessoryViewController) {
+        accessory.layoutAttribute = .right
+        nativeTabAccessory = accessory
+        if !titlebarAccessoryViewControllers.contains(tabSpacer) {
+            tabSpacer.layoutAttribute = .right
+            tabSpacer.view = NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 28))
+            super.addTitlebarAccessoryViewController(tabSpacer)
+        }
+        sizeNativeTabs()
+        super.addTitlebarAccessoryViewController(accessory)
+    }
+
+    override func removeTitlebarAccessoryViewController(at index: Int) {
+        let removingTabs = titlebarAccessoryViewControllers[index] === nativeTabAccessory
+        super.removeTitlebarAccessoryViewController(at: index)
+        if removingTabs {
+            nativeTabAccessory = nil
+            if let spacerIndex = titlebarAccessoryViewControllers.firstIndex(of: tabSpacer) {
+                super.removeTitlebarAccessoryViewController(at: spacerIndex)
+            }
+        }
+    }
+
+    override var title: String {
+        didSet {
+            for case let window as StandaloneTerminalWindow in tabGroup?.windows ?? [self] {
+                window.sizeNativeTabs()
+            }
+        }
+    }
+
+    override func becomeMain() {
+        super.becomeMain()
+        sizeNativeTabs()
+    }
+
+    func windowDidResize(_ notification: Notification) { sizeNativeTabs() }
+
+    private func sizeNativeTabs() {
+        guard let accessory = nativeTabAccessory else { return }
+        let windows = tabGroup?.windows ?? [self]
+        let titleWidth = windows.map {
+            ($0.title as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13)]).width
+        }.max() ?? 0
+        // AppKit divides this strip among the tabs and handles overflow itself.
+        // Equal margins leave room for the traffic lights even in a narrow window.
+        let width = min(max(0, frame.width - 200), CGFloat(windows.count) * min(200, max(140, titleWidth + 44)))
+        accessory.view.setFrameSize(NSSize(width: width, height: accessory.view.frame.height))
+        tabSpacer.view.setFrameSize(NSSize(width: max(0, (frame.width - width) / 2), height: tabSpacer.view.frame.height))
+    }
+
 
     // Cmd-T calls the workspace directly. Advertising newWindowForTab adds AppKit’s + button.
 

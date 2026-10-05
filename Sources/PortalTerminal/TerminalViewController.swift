@@ -3412,6 +3412,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         super.init(coder: coder)
     }
 
+    private let trafficLightBorderView = TrafficLightBorderView()
+
     var toolbarInset: CGFloat = 0 {
         didSet {
             guard toolbarInset != oldValue, isViewLoaded else { return }
@@ -3444,6 +3446,20 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         view.addSubview(contentContainer)
         view.addSubview(gitTreeView)
         view.addSubview(resizeTooltipView)
+        if standalone {
+            trafficLightBorderView.material = .hudWindow
+            trafficLightBorderView.blendingMode = .withinWindow
+            trafficLightBorderView.state = .active
+            trafficLightBorderView.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(trafficLightBorderView)
+            NSLayoutConstraint.activate([
+                trafficLightBorderView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                trafficLightBorderView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                trafficLightBorderView.topAnchor.constraint(equalTo: view.topAnchor),
+                trafficLightBorderView.heightAnchor.constraint(equalToConstant: 50)
+            ])
+        }
+
 
         let contentTopConstraint = contentContainer.topAnchor.constraint(
             equalTo: view.topAnchor,
@@ -3772,6 +3788,13 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func handleRootLayout() {
+        if standalone {
+            trafficLightBorderView.buttonFrames = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+                .compactMap { type in
+                    guard let button = view.window?.standardWindowButton(type), !button.isHidden else { return nil }
+                    return trafficLightBorderView.convert(button.convert(button.bounds, to: nil), from: nil)
+                }
+        }
         for tab in tabs {
             tab.setToolbarInset(toolbarInset)
             updateScrollRegion(for: tab)

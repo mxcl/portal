@@ -16,6 +16,12 @@ struct TerminalIntegrationTests {
         let size = try #require(window.contentView?.bounds.size)
         #expect(size.width >= 760)
         #expect(size.height >= 480)
+        let borders = try #require(window.contentViewController?.view.subviews.compactMap { $0 as? TrafficLightBorderView }.first)
+        #expect(borders.buttonFrames.count == 3)
+        #expect(borders.material == .hudWindow)
+        #expect(borders.maskImage != nil)
+        #expect(borders.hitTest(.zero) == nil)
+
 
         let root = try #require(window.contentViewController?.view)
         let material = try #require(root.subviews.first { $0 is NSVisualEffectView })
@@ -171,50 +177,32 @@ struct TerminalIntegrationTests {
         #expect(TerminalLaunchRequest.hostID(from: URL(string: "portal-terminal://new-window?host=")!) == nil)
     }
 
-    @Test @MainActor func titlebarTabsCanSwitchDetachCloseAndReopen() throws {
+    @Test @MainActor func nativeTabsStartHiddenAndCanBeReopened() throws {
         let application = NSApplication.shared
         let workspace = TerminalWorkspace()
         workspace.newWindow(directory: FileManager.default.temporaryDirectory)
-        let first = try #require(application.windows.compactMap { $0 as? StandaloneTerminalWindow }.first)
+        let first = try #require(application.windows.first { $0 is StandaloneTerminalWindow })
         defer {
             for window in application.windows where window is StandaloneTerminalWindow { window.close() }
         }
         #expect(first.titleVisibility == .hidden)
         #expect(first.tabGroup?.isTabBarVisible != true)
-        let strip = try #require(first.titlebarAccessoryViewControllers.first)
-        #expect(strip.layoutAttribute == .left)
-        #expect(strip.view.frame.width < first.frame.width / 2)
+        first.makeKeyAndOrderFront(nil)
         workspace.newTab(in: first)
-        let second = try #require(workspace.tabs(in: first).first { $0 !== first })
-        #expect(!first.isVisible)
-        #expect(second.isVisible)
-        #expect(second.tabGroup?.isTabBarVisible != true)
-        let secondStrip = try #require(second.titlebarAccessoryViewControllers.first)
-        let scroll = try #require(secondStrip.view as? NSScrollView)
-        let stack = try #require(scroll.documentView as? NSStackView)
-        first.title = "a"
-        second.title = "a much longer terminal title"
-        stack.layoutSubtreeIfNeeded()
-        #expect(stack.arrangedSubviews[0].frame.width < stack.arrangedSubviews[1].frame.width)
-        #expect(secondStrip.view.convert(secondStrip.view.bounds, to: nil).minY >= second.contentLayoutRect.maxY)
-        second.selectPreviousTab(nil)
-        #expect(first.isVisible)
-        #expect(!second.isVisible)
-        first.selectNextTab(nil)
-        #expect(second.isVisible)
+        let group = try #require(first.tabGroup)
+        #expect(group.windows.count == 2)
+        #expect(group.isTabBarVisible)
+        let second = try #require(group.windows.first { $0 !== first })
+        #expect((second.contentViewController as? TerminalViewController)?.windowDirectory == FileManager.default.homeDirectoryForCurrentUser)
         second.close()
-        #expect(first.isVisible)
+        #expect(first.tabGroup?.isTabBarVisible != true)
         #expect(workspace.canReopenClosedTab)
+        first.makeKeyAndOrderFront(nil)
         workspace.reopenClosedTab(in: first)
-        #expect(workspace.tabs(in: first).count == 2)
+        #expect(first.tabGroup?.windows.count == 2)
         #expect(!workspace.canReopenClosedTab)
-        let reopened = try #require(workspace.tabs(in: first).first { $0 !== first })
-        reopened.moveTabToNewWindow(nil)
-        #expect(workspace.tabs(in: first).count == 1)
-        #expect(workspace.tabs(in: reopened).count == 1)
-        #expect(first.isVisible && reopened.isVisible)
         workspace.newWindow()
-        #expect(workspace.tabs(in: first).count == 1)
+        #expect(first.tabGroup?.windows.count == 2)
     }
 
     @Test @MainActor func rendererAndCompletions() {

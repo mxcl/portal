@@ -5,6 +5,24 @@ import SwiftUI
 import Testing
 @testable import PortalApp
 @testable import PortalCore
+@testable import PortalTerminal
+
+@MainActor
+@Test func paletteSearchFindsCommandsWithoutMergingProjectsOrSessions() {
+    let search = PaletteSearch()
+    let commands = ["one", "two"].flatMap { project in
+        ["a", "b"].map { session in
+            ProjectTerminalCommand(project: project, directory: URL(fileURLWithPath: "/tmp/" + project),
+                hostID: nil, command: "./scripts/deploy here", terminalLabel: "This Mac", sessionRef: .local(session))
+        }
+    }
+    search.search("./scripts/deploy", projects: ["other"], targets: [], hosts: [], commands: commands) { _, _ in [] }
+    #expect(search.results.count == 4)
+    #expect(Set(search.results.map(\.id)).count == 4)
+    #expect(search.results.allSatisfy { $0.symbol == "terminal" && $0.command != nil })
+    search.search("unmatched", projects: [], targets: [], hosts: [], commands: commands) { _, _ in [] }
+    #expect(search.results.isEmpty)
+}
 
 @MainActor
 @Test func paletteStaysAboveHostedContentWhenWindowResizes() throws {

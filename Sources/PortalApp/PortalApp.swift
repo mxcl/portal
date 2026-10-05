@@ -171,6 +171,7 @@ final class AppModel: ObservableObject {
     private weak var paletteWindow: NSWindow?
     private var paletteView: NSView?
     private var paletteNavigation = UUID()
+    private var paletteCommandTask: Task<Void, Never>?
     @Published var selectedProjectName: String?
     @Published var selectedCommitID: String?
     @Published var selectedCommitDiff: String?
@@ -827,7 +828,7 @@ final class AppModel: ObservableObject {
                     isLoadingProject = false
                     saveProjectWindow(name: name, source: source, content: content,
                                       showAuxiliaryHistory: showAuxiliaryHistory)
-                    if selectStaging, selectedCommitID == nil, let staging = stagingRows.first {
+                    if selectStaging, terminalSource == nil, selectedCommitID == nil, let staging = stagingRows.first {
                         selectCommit(staging.id)
                         terminalSource = staging.source
                         selectedTab = .terminal
@@ -1345,6 +1346,32 @@ final class AppModel: ObservableObject {
         Set(configuration.folders.map(\.name) + backupItems.map(\.name)).sorted()
     }
 
+    var paletteCommands: [ProjectTerminalCommand] {
+        paletteTargets.flatMap { target -> [ProjectTerminalCommand] in
+            let host: TerminalHost?
+            let directory: URL
+            switch target.source {
+            case .local:
+                guard placement(of: target.project, on: nil) == .checkedOut,
+                      let local = repositoryURL(for: target.project) else { return [] }
+                host = nil
+                directory = local
+            case .host(let id):
+                guard placement(of: target.project, on: id) == .checkedOut,
+                      let remote = terminalHosts.first(where: { $0.id == id.uuidString }) else { return [] }
+                host = remote
+                directory = URL(fileURLWithPath: remote.directory).appendingPathComponent(target.project)
+            case .backup: return []
+            }
+            return terminals.commandHistory(project: target.project, directory: directory, hosts: terminalHosts, host: host)
+        }
+    }
+
+    func cancelPaletteCommand() {
+        paletteCommandTask?.cancel()
+        paletteCommandTask = nil
+    }
+
     var paletteTargets: [PaletteTarget] {
         paletteProjects.flatMap { name -> [PaletteTarget] in
             var targets: [PaletteTarget] = []
@@ -1388,10 +1415,16 @@ final class AppModel: ObservableObject {
     }
 
     func dismissPalette() {
+        closePalette(restoringFocus: true)
+    }
+
+    private func closePalette(restoringFocus: Bool) {
+        cancelPaletteCommand()
         paletteView?.removeFromSuperview()
         paletteView = nil
         showingPalette = false
         paletteNavigation = UUID()
+        guard restoringFocus else { return }
         let window = paletteWindow, responder = palettePreviousResponder
         Task { @MainActor in
             await Task.yield()
@@ -1400,7 +1433,25 @@ final class AppModel: ObservableObject {
     }
 
     func openPaletteResult(_ result: PaletteResult) {
+        cancelPaletteCommand()
         guard editor.confirmDiscard() else { return }
+        if let command = result.command {
+            paletteCommandTask = Task {
+                let prepared = await terminals.prepareCommand(command, hosts: terminalHosts)
+                guard !Task.isCancelled else { return }
+                guard prepared else { NSSound.beep(); return }
+                selectProject(command.project)
+                let source: ProjectSource = command.hostID.flatMap(UUID.init(uuidString:)).map(ProjectSource.host) ?? .local
+                selectProjectHost(source)
+                selectedTab = .terminal
+                closePalette(restoringFocus: false)
+                await Task.yield()
+                guard !showingPalette, selectedProjectName == command.project,
+                      selectedTab == .terminal, terminalSource == source else { return }
+                terminals.focusPreparedCommand(command)
+            }
+            return
+        }
         selectProject(result.project)
         guard selectedProjectName == result.project else { return }
         guard let match = result.match, let target = result.target else {

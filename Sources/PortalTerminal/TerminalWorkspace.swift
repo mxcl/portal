@@ -21,6 +21,20 @@ public struct TerminalHost: Equatable, Sendable {
     }
 }
 
+/// A command belongs to an exact project terminal session, even when tabs share a cwd.
+public struct ProjectTerminalCommand: Identifiable, Sendable {
+    public let project: String
+    public let directory: URL
+    public let hostID: String?
+    public let command: String
+    public let terminalLabel: String
+    let sessionRef: SessionRef
+    public var id: String {
+        [project, directory.path, hostID ?? "local", String(describing: sessionRef.location),
+         sessionRef.sessionID, command].joined(separator: "\0")
+    }
+}
+
 /// Owns project terminals for the lifetime of the app, including while another pane is visible.
 @MainActor
 public final class TerminalWorkspace: ObservableObject {
@@ -153,6 +167,38 @@ public final class TerminalWorkspace: ObservableObject {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    public func commandHistory(project: String, directory: URL, hosts: [TerminalHost], host: TerminalHost? = nil) -> [ProjectTerminalCommand] {
+        let controller = controller(project: project, directory: directory, hosts: hosts, host: host, activates: false)
+        return controller.paletteHistory.flatMap { record in
+            var seen = Set<String>()
+            return (record.commandHistory ?? []).reversed().compactMap { command -> ProjectTerminalCommand? in
+                guard !command.isEmpty, seen.insert(command).inserted else { return nil }
+                return ProjectTerminalCommand(project: project, directory: directory, hostID: host?.id,
+                    command: command, terminalLabel: "\(record.resolvedRef.hostName ?? "This Mac") · \(record.title)",
+                    sessionRef: record.resolvedRef)
+            }
+        }
+    }
+
+    public func prepareCommand(_ command: ProjectTerminalCommand, hosts: [TerminalHost]) async -> Bool {
+        let host = command.hostID.flatMap { id in hosts.first { $0.id == id } }
+        guard command.hostID == nil || host != nil else { return false }
+        let controller = controller(project: command.project, directory: command.directory, hosts: hosts, host: host, activates: false)
+        _ = controller.view
+        // A restored session must finish reconnecting/replaying before deciding whether it is idle.
+        let deadline = Date().addingTimeInterval(5)
+        while controller.paletteCommandIsConnecting(command.sessionRef), Date() < deadline {
+            do { try await Task.sleep(for: .milliseconds(20)) } catch { return false }
+        }
+        guard !Task.isCancelled else { return false }
+        return controller.prefillPaletteCommand(command.command, sessionRef: command.sessionRef)
+    }
+
+    public func focusPreparedCommand(_ command: ProjectTerminalCommand) {
+        let path = (command.hostID ?? "local") + ":" + command.directory.standardizedFileURL.path
+        controllers[path]?.windowDidAttach()
+    }
+
     public func view(project: String, directory: URL, hosts: [TerminalHost], host: TerminalHost? = nil) -> some View {
         GeometryReader { geometry in
             EmbeddedTerminal(workspace: self, project: project, directory: directory, hosts: hosts, host: host,
@@ -163,11 +209,11 @@ public final class TerminalWorkspace: ObservableObject {
         .id((host?.id ?? "local") + directory.path)
     }
 
-    fileprivate func controller(project: String, directory: URL, hosts: [TerminalHost], host: TerminalHost?) -> TerminalViewController {
+    fileprivate func controller(project: String, directory: URL, hosts: [TerminalHost], host: TerminalHost?, activates: Bool = true) -> TerminalViewController {
         PtySession.configureSSHHosts(hosts)
         let path = (host?.id ?? "local") + ":" + directory.standardizedFileURL.path
         if let controller = controllers[path] {
-            activeController = controller
+            if activates { activeController = controller }
             return controller
         }
         let key = SHA256.hash(data: Data(path.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -177,7 +223,7 @@ public final class TerminalWorkspace: ObservableObject {
         controller.onActivityChange = { [weak self] in self?.refreshProjectActivity(project) }
         controller.onOutputActivity = { [weak self] in self?.recordProjectOutput(project) }
         controllers[path] = controller
-        activeController = controller
+        if activates { activeController = controller }
         return controller
     }
 

@@ -10,6 +10,12 @@ quiet, like Finder or Xcode; the colored commit lanes are its only expressive
 visual element. System colors, materials, typography, spacing, controls, and
 selection behavior remain canonical.
 
+The command palette searches project terminal session history alongside projects and
+Git references. Command results identify their project, host, and tab. Return opens
+the original terminal and fills its command input; a second Return submits it.
+A busy or unavailable session beeps and leaves the palette open without changing
+its input. History comes from the existing live/saved project session catalog.
+
 Branch and tag copies with the same name collapse to that name when all known
 copies point to the same commit. Lane labels also consolidate branch copies matching this Mac’s copy even when
 another destination differs; differing copies retain their host or remote qualifier.

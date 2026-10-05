@@ -5,6 +5,10 @@ import Testing
 
 @Suite("Embedded terminal", .serialized)
 struct TerminalIntegrationTests {
+    @Test @MainActor func palettePrefillsExactSessionWithoutSubmittingAndRejectsBusySessions() {
+        #expect(TerminalViewController.paletteCommandPrefillSelfTest())
+    }
+
     @Test @MainActor func standaloneWindowOpensAtUsableSize() throws {
         let application = NSApplication.shared
         let workspace = TerminalWorkspace()

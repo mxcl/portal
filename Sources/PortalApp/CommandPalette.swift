@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import PortalCore
 import PortalEngine
+import PortalTerminal
 
 private struct PaletteModelKey: FocusedValueKey {
     typealias Value = AppModel
@@ -28,8 +29,13 @@ struct PaletteResult: Identifiable, Sendable {
     let match: RepositorySearchMatch?
     let title: String
     let rank: Int
-    var id: String { project + "\0" + (match?.reference?.fullName ?? "") + "\0" + (match?.commit.oid ?? "") }
+    var command: ProjectTerminalCommand? = nil
+    var id: String {
+        if let command { return "command\0" + command.id }
+        return project + "\0" + (match?.reference?.fullName ?? "") + "\0" + (match?.commit.oid ?? "")
+    }
     var symbol: String {
+        if command != nil { return "terminal" }
         guard let match else { return "folder" }
         guard let reference = match.reference else { return "number" }
         return reference.fullName.contains("/tags/") ? "tag" : "arrow.triangle.branch"
@@ -58,7 +64,7 @@ final class PaletteSearch: ObservableObject {
         isLoading = false
     }
 
-    func search(_ query: String, projects: [String], targets: [PaletteTarget], hosts: [SyncHost],
+    func search(_ query: String, projects: [String], targets: [PaletteTarget], hosts: [SyncHost], commands: [ProjectTerminalCommand] = [],
                 read: @escaping @Sendable (PaletteTarget, String) throws -> [RepositorySearchMatch]) {
         stop()
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -66,6 +72,12 @@ final class PaletteSearch: ObservableObject {
         results = projects.compactMap { name in
             PaletteMatch.rank(name, query: query).map {
                 PaletteResult(project: name, target: nil, match: nil, title: name, rank: $0)
+            }
+        }
+        results += commands.compactMap { command in
+            PaletteMatch.rank(command.command, query: query).map {
+                PaletteResult(project: command.project, target: nil, match: nil,
+                              title: command.command, rank: $0, command: command)
             }
         }
         sort()
@@ -148,14 +160,16 @@ struct PaletteOverlay: View {
 struct CommandPalette: View {
     @ObservedObject var model: AppModel
     @StateObject private var search = PaletteSearch()
+    @State private var commands: [ProjectTerminalCommand] = []
     @State private var query = ""
     @State private var selection: String?
     @State private var movedSelection = false
 
     private func refresh() {
+        model.cancelPaletteCommand()
         let configuration = model.configuration
         search.search(query, projects: model.paletteProjects, targets: model.paletteTargets,
-                      hosts: configuration.hosts) { target, query in
+                      hosts: configuration.hosts, commands: commands) { target, query in
             try AppModel.search(target, query: query, configuration: configuration)
         }
     }
@@ -187,6 +201,10 @@ struct CommandPalette: View {
                             Image(systemName: result.symbol).frame(width: 18).foregroundStyle(.secondary)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(result.title).lineLimit(1)
+                                if let command = result.command {
+                                    Text("\(command.project) · \(command.terminalLabel)")
+                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
                                 if let match = result.match {
                                     Text("\(result.project) · \(result.target?.label ?? "") · \(match.commit.subject)")
                                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -216,7 +234,8 @@ struct CommandPalette: View {
                     Label("Some sources unavailable", systemImage: "exclamationmark.triangle")
                         .help(search.failures.joined(separator: "\n"))
                     Button("Retry", action: refresh).buttonStyle(.link)
-                } else { Text("↑↓ Select    ↵ Open    Esc Close") }
+                } else { Text(search.results.first(where: { $0.id == selection })?.command == nil
+                    ? "↑↓ Select    ↵ Open    Esc Close" : "↑↓ Select    ↵ Fill command    Esc Close") }
                 Spacer()
             }.font(.caption).foregroundStyle(.secondary).padding(10)
         }
@@ -224,7 +243,7 @@ struct CommandPalette: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(.separator))
         .shadow(radius: 20, y: 8)
-        .onAppear(perform: refresh)
+        .onAppear { commands = model.paletteCommands; refresh() }
         .onDisappear { search.stop() }
         .onChange(of: query) { _, _ in movedSelection = false; selection = nil; refresh() }
         .onChange(of: search.results.map(\.id)) { _, ids in
@@ -253,8 +272,8 @@ private struct PaletteSearchField: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> Field {
         let field = Field()
-        field.placeholderString = "Search projects, branches, tags, or SHA"
-        field.setAccessibilityLabel("Search projects, branches, tags, or SHA")
+        field.placeholderString = "Search commands, projects, branches, tags, or SHA"
+        field.setAccessibilityLabel("Search commands, projects, branches, tags, or SHA")
         field.font = .systemFont(ofSize: 16)
         field.focusRingType = .none
         field.sendsSearchStringImmediately = true

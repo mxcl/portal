@@ -3517,6 +3517,31 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         stopAllSessions()
     }
 
+    var paletteHistory: [SessionCatalog.Record] {
+        isViewLoaded ? tabs.filter { !$0.hasExited }.map { storedTab(from: $0) }
+            : sessionCatalog.visibleRecords()
+    }
+
+    func paletteCommandIsConnecting(_ sessionRef: SessionRef) -> Bool {
+        guard let tab = tabs.first(where: { $0.sessionRef == sessionRef }), !tab.hasExited else { return false }
+        return tab.isReplayingHistory || (!tab.isShellReady && !isCommandRunning(in: tab))
+    }
+
+    @discardableResult
+    func prefillPaletteCommand(_ command: String, sessionRef: SessionRef) -> Bool {
+        guard let tab = tabs.first(where: { $0.sessionRef == sessionRef }),
+              tab.isShellReady, !tab.hasExited, !tab.isReplayingHistory,
+              !tab.isTerminalControlActive, !isCommandRunning(in: tab) else { return false }
+        dismissCompletion()
+        hideSessionPicker(for: tab)
+        exitFindMode(in: tab)
+        activateTab(tab.id)
+        tab.commandLifecycle.apply(.resetHistorySelection)
+        setInput(command, in: tab)
+        focusInput(for: tab)
+        return true
+    }
+
     var onActivityChange: (() -> Void)?
     var onOutputActivity: (() -> Void)?
 
@@ -3560,6 +3585,41 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             && !isSessionVisibleOutsideTab(tab) {
             closeTab(withID: tab.id, createsReplacement: false)
         }
+    }
+
+    static func paletteCommandPrefillSelfTest() -> Bool {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let catalog = SessionCatalog(url: directory.appendingPathComponent("sessions.json"), windowID: "test")
+        let saved = SessionCatalog.Record(sessionRef: .local("saved"), sessionID: "saved", title: "deploy",
+            cwd: "/tmp", commandCount: 1, commandHistory: ["./scripts/deploy"])
+        do { try catalog.persist(visibleTabs: [saved], activeSessionRef: saved.resolvedRef) }
+        catch { return false }
+        let controller = TerminalViewController(sessionCatalog: catalog)
+        guard controller.paletteHistory.first?.commandHistory == ["./scripts/deploy"],
+              !controller.isViewLoaded else { return false }
+        controller.loadView()
+        let first = TerminalTab(title: "first", delegate: controller)
+        let target = TerminalTab(title: "target", delegate: controller, commandHistory: ["./scripts/deploy here"])
+        controller.tabs = [first, target]
+        controller.activeTabID = first.id
+        target.commandLifecycle.apply(.shellReady(cwd: "/tmp"))
+        let command = "./scripts/deploy here\necho done"
+        guard controller.prefillPaletteCommand(command, sessionRef: target.sessionRef),
+              controller.activeTabID == target.id, target.inputView.string == command,
+              target.commandCount == 0, target.blocks.isEmpty else { return false }
+        target.commandLifecycle.apply(.submit(command: "sleep 10", cwd: "/tmp", at: Date()))
+        controller.activeTabID = first.id
+        guard !controller.prefillPaletteCommand("must not run", sessionRef: target.sessionRef),
+              controller.activeTabID == first.id, target.inputView.string == command,
+              target.commandCount == 1 else { return false }
+        target.commandLifecycle.apply(.commandFinished(status: 0, isReplay: false, at: Date()))
+        target.commandLifecycle.apply(.beginHistoryReplay)
+        guard !controller.prefillPaletteCommand("must not run", sessionRef: target.sessionRef) else { return false }
+        target.commandLifecycle.apply(.finishHistoryReplay)
+        target.commandLifecycle.apply(.shellExited(status: 0, at: Date()))
+        return !controller.prefillPaletteCommand("must not run", sessionRef: target.sessionRef)
+            && !controller.prefillPaletteCommand("must not run", sessionRef: .local("missing"))
     }
 
     static func projectActivitySelfTest() -> Bool {

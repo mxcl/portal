@@ -5,6 +5,17 @@ import Testing
 
 @Suite("Embedded terminal", .serialized)
 struct TerminalIntegrationTests {
+    @Test @MainActor func startupStatusMatchesSessionIntent() {
+        let statuses = TerminalViewController.sessionStartupStatusesSelfTest()
+        #expect(statuses.count == 5)
+        for (actual, expected) in zip(statuses, [
+            "Starting shell...", "Rejoining session...", "Starting shell...",
+            "Starting shell...", "Rejoining session..."
+        ]) {
+            #expect(actual.hasSuffix(expected))
+        }
+    }
+
     @Test @MainActor func palettePrefillsExactSessionWithoutSubmittingAndRejectsBusySessions() {
         #expect(TerminalViewController.paletteCommandPrefillSelfTest())
     }

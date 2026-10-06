@@ -3592,6 +3592,36 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
+    static func sessionStartupStatusesSelfTest() -> [String] {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let catalog = SessionCatalog(url: directory.appendingPathComponent("sessions.json"), windowID: "test")
+        // An unconfigured host exercises the UI paths without launching a shell.
+        let hostID = UUID().uuidString
+        let controller = TerminalViewController(restoresPersistedWindow: false,
+            initialHostID: hostID, sessionCatalog: catalog)
+        controller.loadView()
+        defer { controller.tabs.forEach { $0.session.stop() } }
+        controller.createTab(activates: false, persists: false)
+        guard let fresh = controller.tabs.last else { return [] }
+        var statuses = [fresh.statusLabel.stringValue]
+        let ref = SessionRef(location: .sshHost(hostID), sessionID: UUID().uuidString)
+        controller.createTab(from: StoredTab(sessionRef: ref, sessionID: ref.sessionID,
+            title: "Saved", cwd: directory.path, commandCount: 1), activates: false, persists: false)
+        guard let restored = controller.tabs.last else { return [] }
+        statuses.append(restored.statusLabel.stringValue)
+        // A saved session may have disappeared; the daemon can create a replacement.
+        restored.session.onReady?(true)
+        statuses.append(restored.statusLabel.stringValue)
+        for action in [SessionPickerCandidate.Action.create, .attach] {
+            controller.attachSessionFromPicker(SessionPickerCandidate(
+                sessionRef: ref, hostTitle: "Test", title: "Session", cwd: directory.path,
+                isClosed: false, commandCount: 0, commandHistory: [], action: action), in: fresh)
+            statuses.append(fresh.statusLabel.stringValue)
+        }
+        return statuses
+    }
+
     static func paletteCommandPrefillSelfTest() -> Bool {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -4624,6 +4654,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         persists: Bool = true
     ) {
         guard !standalone || tabs.isEmpty else { return }
+        let isExistingSession = sessionRef != nil
         let sessionRef = sessionRef ?? SessionRef(location: initialHostID.map(SessionLocation.sshHost) ?? .local,
                                                  sessionID: UUID().uuidString)
         let directoryURL = (workingDirectory ?? initialDirectory).standardizedFileURL
@@ -4642,7 +4673,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.commandLifecycle.apply(.cwdChanged(directoryPath))
         tab.findCloseButton.target = self
         tab.findCloseButton.action = #selector(closeFindMode(_:))
-        setCommandBarStatusText("Starting shell...", in: tab)
+        setCommandBarStatusText(isExistingSession ? "Rejoining session..." : "Starting shell...", in: tab)
         tab.rootView.isHidden = !activates
         tabs.append(tab)
         if let initialCommand {
@@ -5099,7 +5130,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             commandRunDates: (sessionCatalog.visibleRecords() + closedTabs).first { $0.resolvedRef == candidate.sessionRef }?.commandRunDates ?? [:]
         ))
         resetTranscriptViews(for: tab)
-        setCommandBarStatusText("Rejoining session...", in: tab)
+        setCommandBarStatusText(candidate.action == .attach ? "Rejoining session..." : "Starting shell...", in: tab)
         tab.isTerminalControlActive = false
         tab.outputProcessor.resetForReplay(
             fallbackCommand: candidate.runningCommand ?? candidate.commandHistory.last
@@ -5506,6 +5537,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 self.finishHistoryReplay(in: tab)
                 return
             }
+            self.setCommandBarStatusText("Starting shell...", in: tab)
             tab.commandLifecycle.apply(.beginShellInitialization)
             tab.pendingShellInitialization = initScript
             tab.session.write(PortalCommandEnvelope.shellBootstrapScript, suppressEcho: true)

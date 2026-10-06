@@ -22,7 +22,6 @@ struct PortalMenuBarApp: App {
 }
 
 private struct MenuBarIcon: View {
-    @Environment(\.colorScheme) private var colorScheme
     let isPaused: Bool
     let hasUnreadNotifications: Bool
 
@@ -35,27 +34,28 @@ private struct MenuBarIcon: View {
     }()
 
     var body: some View {
-        // MenuBarExtra extracts an image from its label, so bake the colored badge into it.
+        // MenuBarExtra extracts an image from its label. Keep the complete image a
+        // template so macOS can tint it, including on an inactive display's menu bar.
         let renderer = ImageRenderer(content:
             Image(nsImage: Self.sessionIcon)
                 .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
                 .frame(width: 20, height: 20)
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
-                .shadow(color: colorScheme == .dark ? .white : .black, radius: 0, x: 0.3)
-                .shadow(color: colorScheme == .dark ? .white : .black, radius: 0, x: -0.3)
+                .foregroundStyle(.black)
+                .shadow(color: .black, radius: 0, x: 0.3)
+                .shadow(color: .black, radius: 0, x: -0.3)
                 .opacity(isPaused ? 0.45 : 1)
                 .frame(width: 16, height: 20)
                 .overlay(alignment: .topTrailing) {
                     if hasUnreadNotifications {
-                        Circle().fill(.blue).frame(width: 6, height: 6)
+                        Circle().fill(.black).frame(width: 6, height: 6)
                     }
                 }
         )
         renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
         return Image(nsImage: renderer.nsImage ?? NSImage())
-            .renderingMode(.original)
+            .renderingMode(.template)
             .accessibilityLabel(hasUnreadNotifications
                 ? "Portal, unread GitHub notifications" : "Portal")
     }

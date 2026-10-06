@@ -54,7 +54,10 @@ private struct MenuBarIcon: View {
                 }
         )
         renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
-        return Image(nsImage: renderer.nsImage ?? NSImage())
+        let image = renderer.nsImage ?? NSImage()
+        // The SwiftUI rendering mode alone does not reach the native status button.
+        image.isTemplate = true
+        return Image(nsImage: image)
             .renderingMode(.template)
             .accessibilityLabel(hasUnreadNotifications
                 ? "Portal, unread GitHub notifications" : "Portal")

@@ -33,3 +33,43 @@ with tempfile.TemporaryDirectory(prefix='portal-icon-test-') as temporary:
     script = Path(temporary) / 'check.swift'
     script.write_text(program)
     subprocess.run(['swift', str(script)], check=True)
+
+    # Exercise MenuBarExtra's native bridge: ImageRenderer alone cannot detect
+    # template metadata being lost before the image reaches NSStatusBarButton.
+    native = 'import AppKit\nimport SwiftUI\nlet bundle = Bundle(path: ' + json.dumps(helper) + ')!\n'
+    native += view.replace('Bundle.main', 'bundle')
+    native += '''
+@main struct MenuIconProbe: App {
+    init() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            var images: [NSImage] = []
+            func inspect(_ view: NSView) {
+                if let button = view as? NSStatusBarButton, let image = button.image {
+                    images.append(image)
+                }
+                for child in view.subviews { inspect(child) }
+            }
+            for window in NSApp.windows {
+                if let content = window.contentView { inspect(content) }
+            }
+            guard images.count == 4, images.allSatisfy({ $0.isTemplate }) else {
+                fputs("MenuBarExtra must deliver template images to every status button\\n", stderr)
+                exit(1)
+            }
+            print("Native menu icons retain template tinting for paused and unread states")
+            NSApp.terminate(nil)
+        }
+    }
+    var body: some Scene {
+'''
+    for paused in ['false', 'true']:
+        for unread in ['false', 'true']:
+            native += f'''        MenuBarExtra {{ Text("Icon test") }} label: {{
+            MenuBarIcon(isPaused: {paused}, hasUnreadNotifications: {unread})
+        }}
+'''
+    native += '    }\n}\n'
+    script.write_text(native)
+    executable = Path(temporary) / 'check'
+    subprocess.run(['swiftc', '-parse-as-library', str(script), '-o', str(executable)], check=True)
+    subprocess.run([str(executable)], check=True, timeout=15)

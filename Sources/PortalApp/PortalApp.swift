@@ -1766,6 +1766,7 @@ struct ProjectBrowserView: View {
                                 Text("Archived")
                                 Spacer()
                                 Image(systemName: isArchivedExpanded ? "chevron.down" : "chevron.right")
+                                    .padding(.trailing, 12)
                                     .accessibilityHidden(true)
                             }
                             .contentShape(Rectangle())

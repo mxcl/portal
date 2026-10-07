@@ -2053,15 +2053,17 @@ struct ProjectRow: View {
     }
 
     private var terminalTone: SidebarLED.Tone {
-        switch terminals.projectTerminalStates[name] {
-        case .active: .white
-        case .waiting: .blue
-        case nil: .off
-        }
+        Self.terminalTone(state: terminals.projectTerminalStates[name], activity: terminals.projectActivities[name])
+    }
+
+    static func terminalTone(state: TerminalWorkspace.TerminalState?, activity: TerminalWorkspace.Activity?) -> SidebarLED.Tone {
+        if state == .active { return .white }
+        return activity == .unviewed ? .blue : .off
     }
 
     private var terminalLabel: String {
-        switch terminals.projectTerminalStates[name] {
+        if terminalTone == .blue { return "Terminal command finished while away — view its terminal to clear" }
+        return switch terminals.projectTerminalStates[name] {
         case .active: "Terminal active — flashes on received output"
         case .waiting: "Terminal waiting for input"
         case nil: "No active terminal"

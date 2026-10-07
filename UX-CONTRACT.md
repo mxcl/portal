@@ -133,6 +133,10 @@
 
 ## Feedback and accessibility
 
+- The terminal LED is white while a command runs and blue for an unseen completion.
+  Viewing that terminal in the active window clears blue; an idle shell alone
+  does not light it. Other terminals’ unseen completions remain until viewed.
+
 - After a successful GitHub push-triggered or catch-up fetch, the matching local
   project’s delta LED flashes white briefly, then returns to its delta color
   (amber when its default branch differs from GitHub). Failed fetches do not flash.

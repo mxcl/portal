@@ -2,9 +2,20 @@
 import AppKit
 import SwiftUI
 import Testing
+import PortalTerminal
 @testable import PortalCore
 @testable import PortalEngine
 @testable import PortalApp
+
+@Test("Viewing an idle terminal clears its blue completion lamp")
+@MainActor
+func terminalCompletionLamp() {
+    #expect(ProjectRow.terminalTone(state: .waiting, activity: .unviewed) == .blue)
+    #expect(ProjectRow.terminalTone(state: .waiting, activity: nil) == .off)
+    #expect(ProjectRow.terminalTone(state: .active, activity: .running) == .white)
+    #expect(ProjectRow.terminalTone(state: nil, activity: .unviewed) == .blue)
+    #expect(ProjectRow.terminalTone(state: nil, activity: nil) == .off)
+}
 
 @Test("LED sidebar retains both populated and sparse project readouts at narrow widths")
 @MainActor

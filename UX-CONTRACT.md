@@ -133,6 +133,11 @@
 
 ## Feedback and accessibility
 
+- After a successful GitHub push-triggered or catch-up fetch, the matching local
+  project’s delta LED flashes white briefly, then returns to its delta color
+  (amber when its default branch differs from GitHub). Failed fetches do not flash.
+  Reduce Motion suppresses the flash; stale activity older than five seconds is ignored.
+
 - Project and host failures appear on their owning row. App-wide failures appear
   in the toolbar status control and menu-bar menu.
 - Pending operations keep controls stable and disable duplicate submission.

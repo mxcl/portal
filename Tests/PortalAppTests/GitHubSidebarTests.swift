@@ -22,6 +22,26 @@ func githubSidebarCounts() throws {
     #expect(model.githubCounts(for: "unknown") == nil)
     #expect(model.githubCounts(for: "remote")?.summary == "4 stars, 0 open pull requests, 1 open issues")
 }
+@Test("GitHub fetch pulses survive helper snapshots and stay scoped to matching local projects")
+@MainActor
+func githubSidebarFetchPulse() throws {
+    let model = AppModel(connectToHelper: false)
+    model.localProjects = [
+        "one": PeerProject(name: "one", placement: .checkedOut, githubRepositories: ["owner/one", "owner/other"]),
+        "two": PeerProject(name: "two", placement: .checkedOut, githubRepositories: ["owner/two"])
+    ]
+    let now = Date()
+    var state = GitHubState()
+    state.fetchedAt = ["owner/one": now.addingTimeInterval(-1), "owner/other": now]
+    model.github = try JSONDecoder().decode(GitHubState.self, from: JSONEncoder().encode(state))
+    #expect(model.githubFetchedAt(for: "one") == now)
+    #expect(model.githubFetchedAt(for: "two") == nil)
+    #expect(model.githubFetchedAt(for: "unknown") == nil)
+    state.fetchedAt = nil
+    model.github = try JSONDecoder().decode(GitHubState.self, from: JSONEncoder().encode(state))
+    #expect(model.githubFetchedAt(for: "one") == nil)
+}
+
 @Test("Sidebar sums dirty hosts, omits clean trees, and retains binary-only indicators")
 @MainActor
 func workingTreeSidebarCounts() throws {

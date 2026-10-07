@@ -8,6 +8,7 @@ struct SidebarLED: View {
     let label: String
     var transferring = false
     var outputAt: Date? = nil
+    var outputMaxAge: TimeInterval = 0.3
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var outputPulse = false
 
@@ -37,7 +38,7 @@ struct SidebarLED: View {
         .accessibilityLabel(label)
         .task(id: outputAt) {
             outputPulse = false
-            guard let outputAt, Date().timeIntervalSince(outputAt) < 0.3, !reduceMotion else { return }
+            guard let outputAt, Date().timeIntervalSince(outputAt) < outputMaxAge, !reduceMotion else { return }
             outputPulse = true
             do { try await Task.sleep(for: .milliseconds(120)) }
             catch { return }

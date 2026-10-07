@@ -243,7 +243,13 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                                 try repository.fetchGitHub(work.repository, peerMachines: peers)
                             }.value
                         }
-                        if finished { completed.append(work.id) }
+                        if finished {
+                            completed.append(work.id)
+                            if !candidates.isEmpty {
+                                model.github.fetchedAt = (model.github.fetchedAt ?? [:])
+                                    .merging([work.repository: Date()]) { _, new in new }
+                            }
+                        }
                     } catch {
                         try Task.checkCancellation()
                         model.github.error = "GitHub fetch (\(work.repository)): \(error.localizedDescription)"

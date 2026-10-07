@@ -32,6 +32,8 @@ public struct GitHubState: Codable, Equatable, Sendable {
     public var notificationPermission = "Not requested"
     public var installationURL: URL?
     public var counts: [String: GitHubCounts] = [:]
+    // Optional so older helper snapshots and caches remain readable.
+    public var fetchedAt: [String: Date]?
     public var notifications: [GitHubNotification] = [] {
         didSet {
             openedNotificationIDs?.formIntersection(notifications.filter { $0.unread == true }.map(\.id))

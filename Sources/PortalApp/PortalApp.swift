@@ -1266,6 +1266,11 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func githubFetchedAt(for project: String) -> Date? {
+        let identities = localProjects[project]?.githubRepositories ?? []
+        return identities.compactMap { github.fetchedAt?[$0] }.max()
+    }
+
     func githubCounts(for project: String) -> GitHubCounts? {
         let identities = localProjects[project]?.githubRepositories
             ?? configuration.hosts.compactMap { remoteProjects[$0.id]?[project]?.githubRepositories }.first ?? []
@@ -2027,7 +2032,8 @@ struct ProjectRow: View {
                            : model.hasBranchDifferences(for: name) ? .white : .off,
                            label: model.hasGitHubBranchDifferences(for: name) ? "Default branch differs from GitHub"
                            : model.hasBranchDifferences(for: name) ? "Default branch differs across checked-out hosts"
-                           : "No known default branch differences")
+                           : "No known default branch differences",
+                           outputAt: model.githubFetchedAt(for: name), outputMaxAge: 5)
                 SidebarLED(tone: terminalTone, label: terminalLabel, outputAt: terminals.projectOutputAt[name])
             }
         }

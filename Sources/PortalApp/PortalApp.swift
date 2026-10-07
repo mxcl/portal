@@ -1694,6 +1694,7 @@ struct ProjectBrowserView: View {
     @FocusState private var isSidebarFocused: Bool
     @Environment(\.openSettings) private var openSettings
     @State private var search = ""
+    @State private var isArchivedExpanded = false
     @State private var visibility: NavigationSplitViewVisibility = .all
     @State private var projectSelection: String?
     @State private var hostPaneWidth: CGFloat = 600
@@ -1742,7 +1743,7 @@ struct ProjectBrowserView: View {
                     .padding(.trailing, 2)
                 }
                 if !archived.isEmpty {
-                    Section("Archived") {
+                    Section("Archived", isExpanded: $isArchivedExpanded) {
                         ForEach(archived) { item in
                             Text(item.name)
                                 .font(.system(size: 11, design: .monospaced))

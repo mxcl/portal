@@ -101,7 +101,8 @@ for discovery. Content snapshots carry optional `branchTips`; older snapshots fa
 back to inventory. The indicator performs no fetch or GitHub API requests and
 leaves the existing relay-triggered fetch/catch-up behavior unchanged.
 
-The sidebar groups active and archived projects. A project is the shared name
+The sidebar groups active and archived projects. Archived uses a native collapsible
+section that starts closed. A project is the shared name
 of repositories observed across configured hosts and backup inventory. Rows
 show host presence and operational state without treating normal Git divergence
 as an error. The graph renders this Mac's local branches, received peer branches,

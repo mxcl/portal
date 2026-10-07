@@ -1748,14 +1748,31 @@ struct ProjectBrowserView: View {
                     .padding(.trailing, 2)
                 }
                 if !archived.isEmpty {
-                    Section("Archived", isExpanded: $isArchivedExpanded) {
-                        ForEach(archived) { item in
-                            Text(item.name)
-                                .font(.system(size: 11, design: .monospaced))
-                                .lineLimit(1)
-                                .listRowSeparator(.hidden)
-                            .tag(item.name)
+                    Section {
+                        if isArchivedExpanded {
+                            ForEach(archived) { item in
+                                Text(item.name)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .lineLimit(1)
+                                    .listRowSeparator(.hidden)
+                                    .tag(item.name)
+                            }
                         }
+                    } header: {
+                        Button {
+                            isArchivedExpanded.toggle()
+                        } label: {
+                            HStack {
+                                Text("Archived")
+                                Spacer()
+                                Image(systemName: isArchivedExpanded ? "chevron.down" : "chevron.right")
+                                    .accessibilityHidden(true)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityValue(isArchivedExpanded ? "Expanded" : "Collapsed")
+                        .accessibilityHint("Toggle archived projects")
                     }
                 }
             }

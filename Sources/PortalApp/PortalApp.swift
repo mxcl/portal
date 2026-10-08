@@ -1727,7 +1727,7 @@ struct ProjectBrowserView: View {
                 Section {
                     ForEach(projects, id: \.self) { name in
                         ProjectRow(name: name, model: model)
-                            .listRowInsets(EdgeInsets(top: 2, leading: -8, bottom: 2, trailing: -12))
+                            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: -4))
                             .listRowSeparator(.hidden)
                             .tag(name)
                     }
@@ -1744,8 +1744,8 @@ struct ProjectBrowserView: View {
                     .font(.system(size: 8, design: .monospaced))
                     .foregroundStyle(Color(red: 0.61, green: 0.69, blue: 0.71))
                     // Sidebar section headers have different native margins from rows.
-                    .padding(.leading, -6)
-                    .padding(.trailing, 2)
+                    .padding(.leading, 2)
+                    .padding(.trailing, 10)
                 }
                 if !archived.isEmpty {
                     Section {
@@ -1778,6 +1778,7 @@ struct ProjectBrowserView: View {
                 }
             }
             .environment(\.defaultMinListRowHeight, 31)
+            .contentMargins(.horizontal, 2, for: .scrollContent)
             .scrollContentBackground(.hidden)
             .background(DarkSidebarMaterial().ignoresSafeArea())
             .environment(\.colorScheme, .dark)

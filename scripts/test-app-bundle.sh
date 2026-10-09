@@ -30,11 +30,16 @@ if [ -f "$helper/Contents/embedded.provisionprofile" ]; then
   case "$environment" in development|production) ;; *) exit 1 ;; esac
 fi
 test -x "$app/Contents/Helpers/portal-session-bridge"
+# An upgrade must still authenticate to pre-rename daemons with live shells.
+codesign --verify --strict -R '=identifier "dev.mxcl.git-sync.session-bridge"' \
+  "$app/Contents/Helpers/portal-session-bridge"
 test -x "$app/Contents/Helpers/Portal Session Helper.app/Contents/MacOS/portal-sessiond"
 test -d "$app/Contents/Resources/portal_PortalTerminal.bundle"
 test -f "$app/Contents/Resources/completions/fig/build/git.js"
 codesign --verify --deep --strict "$app"
 terminal="$app/Contents/Helpers/Portal Terminal.app"
+codesign --verify --strict -R '=identifier "dev.mxcl.git-sync.session-bridge"' \
+  "$terminal/Contents/Helpers/portal-session-bridge"
 test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = dev.mxcl.portal
 test "$(plutil -extract CFBundleIdentifier raw "$terminal/Contents/Info.plist")" = dev.mxcl.portal.terminal
 test "$(plutil -extract CFBundleName raw "$terminal/Contents/Info.plist")" = 'Portal Terminal'

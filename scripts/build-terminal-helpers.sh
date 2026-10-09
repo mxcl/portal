@@ -24,7 +24,8 @@ cat > "$helper_app/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 codesign --force --sign "$identity" --options runtime --timestamp "$helper_app"
+# Live pre-rename daemons only trust the original bridge identifier.
 codesign --force --sign "$identity" --options runtime --timestamp \
-  --identifier dev.mxcl.portal.session-bridge "$helpers/portal-session-bridge"
+  --identifier dev.mxcl.git-sync.session-bridge "$helpers/portal-session-bridge"
 codesign --verify --strict "$helper_app"
 codesign --verify --strict "$helpers/portal-session-bridge"

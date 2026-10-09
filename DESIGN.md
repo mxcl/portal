@@ -710,9 +710,10 @@ identities and existing Portal clients from the same Developer ID team.
 CLI executables are `portal` and `portald`; the terminal helpers are
 `portal-sessiond` and `portal-session-bridge`. Old CLI paths are executable
 forwarders that immediately exec the renamed binaries, preserving configured SSH
-peers without running an old process. The old Portal session daemon is stopped
-once during this migration; later deployments preserve `portal-sessiond` and its
-live sessions. Persistent state directories and environment keys retain their
+peers without running an old process. Deployments preserve both legacy and renamed
+session daemons and their live sessions. The bridge retains the signing identifier
+`dev.mxcl.git-sync.session-bridge` so pre-rename daemons still authenticate it.
+Persistent state directories and environment keys retain their
 existing names. The menu helper and both foreground apps bundle the original
 Portal `session-icon.png`; the menu icon dims when paused and retains its unread badge.
 

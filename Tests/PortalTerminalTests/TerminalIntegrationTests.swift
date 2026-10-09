@@ -5,6 +5,32 @@ import Testing
 
 @Suite("Embedded terminal", .serialized)
 struct TerminalIntegrationTests {
+    @Test(arguments: [false, true]) @MainActor
+    func externalBranchSwitchUpdatesStatusWithGitTreeHidden(standalone: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func git(_ arguments: [String]) throws {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            process.arguments = ["-C", directory.path] + arguments
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            process.waitUntilExit()
+            #expect(process.terminationStatus == 0)
+        }
+        try git(["init", "--initial-branch=before"])
+        try git(["-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "Initial"])
+        let updated = try await TerminalViewController.externalBranchChangeSelfTest(
+            directory: directory, standalone: standalone
+        ) {
+            try git(["switch", "-c", "after"])
+        }
+        #expect(updated)
+    }
+
     @Test @MainActor func startupStatusMatchesSessionIntent() {
         let statuses = TerminalViewController.sessionStartupStatusesSelfTest()
         #expect(statuses.count == 5)

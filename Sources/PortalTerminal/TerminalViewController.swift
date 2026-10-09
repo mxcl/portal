@@ -3318,9 +3318,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private var contentTrailingToGitTreeConstraint: NSLayoutConstraint?
     private var isGitTreeVisible: Bool { activeTab?.isGitTreeVisible == true }
     private var isGitTreeRefreshPending = false
-    private var gitTreeWatcher: RepositoryWatcher?
-    private var gitTreeWatchURL: URL?
-    private var gitTreeWatchTask: Task<Void, Never>?
+    private var gitRepositoryWatcher: RepositoryWatcher?
+    private var gitRepositoryWatchURL: URL?
+    private var gitRepositoryWatchTask: Task<Void, Never>?
     private var gitTreeRefreshAgain = false
     private let blockViewRenderDelay: TimeInterval = 1.0 / 12.0
     private let interactiveBlockViewRenderDelay: TimeInterval = 1.0 / 60.0
@@ -3518,7 +3518,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         if let commandFocusMonitor {
             NSEvent.removeMonitor(commandFocusMonitor)
         }
-        gitTreeWatchTask?.cancel()
+        gitRepositoryWatchTask?.cancel()
         stopAllSessions()
     }
 
@@ -3590,6 +3590,40 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             && !isSessionVisibleOutsideTab(tab) {
             closeTab(withID: tab.id, createsReplacement: false)
         }
+    }
+
+    static func externalBranchChangeSelfTest(
+        directory: URL, standalone: Bool, switchBranch: () throws -> Void
+    ) async throws -> Bool {
+        let catalog = SessionCatalog(url: directory.appendingPathComponent("sessions.json"), windowID: "test")
+        let controller = TerminalViewController(restoresPersistedWindow: false,
+            standalone: standalone, sessionCatalog: catalog)
+        controller.loadView()
+        let tab = TerminalTab(title: "test", delegate: controller)
+        tab.commandLifecycle.apply(.shellReady(cwd: directory.path))
+        controller.tabs = [tab]
+        controller.activeTabID = tab.id
+        defer {
+            controller.gitRepositoryWatchTask?.cancel()
+            controller.gitRepositoryWatcher = nil
+            tab.session.stop()
+        }
+        controller.refreshVisibleCommandBarGitStatus()
+        controller.refreshGitTreeIfVisible()
+        await controller.gitRepositoryWatchTask?.value
+        for _ in 0..<100 {
+            if tab.statusLabel.stringValue.contains("git before") { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        guard tab.statusLabel.stringValue.contains("git before"), !controller.isGitTreeVisible else {
+            return false
+        }
+        try switchBranch()
+        for _ in 0..<150 {
+            if tab.statusLabel.stringValue.contains("git after") { return true }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return false
     }
 
     static func sessionStartupStatusesSelfTest() -> [String] {
@@ -6544,27 +6578,28 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
     }
 
-    private func updateGitTreeWatcher() {
+    private func updateGitRepositoryWatcher() {
         let url: URL?
-        if isGitTreeVisible, let tab = activeTab, case .local = tab.sessionRef.location {
+        if let tab = activeTab, case .local = tab.sessionRef.location {
             url = URL(fileURLWithPath: tab.currentCwd, isDirectory: true)
         } else { url = nil }
-        guard gitTreeWatchURL != url else { return }
-        gitTreeWatchTask?.cancel()
-        gitTreeWatcher = nil
-        gitTreeWatchURL = url
+        guard gitRepositoryWatchURL != url else { return }
+        gitRepositoryWatchTask?.cancel()
+        gitRepositoryWatcher = nil
+        gitRepositoryWatchURL = url
         guard let url else { return }
-        gitTreeWatchTask = Task { [weak self] in
+        gitRepositoryWatchTask = Task { [weak self] in
             let paths = await Task.detached {
                 (try? RepositoryWatcher.paths(for: url)) ?? [url.path]
             }.value
-            guard !Task.isCancelled, let self, self.gitTreeWatchURL == url else { return }
+            guard !Task.isCancelled, let self, self.gitRepositoryWatchURL == url else { return }
             do {
-                self.gitTreeWatcher = try RepositoryWatcher(paths: paths) { [weak self] in
+                self.gitRepositoryWatcher = try RepositoryWatcher(paths: paths) { [weak self] in
                     self?.refreshGitTreeIfVisible()
                     self?.refreshVisibleCommandBarGitStatus()
                 }
                 self.refreshGitTreeIfVisible()
+                self.refreshVisibleCommandBarGitStatus()
             } catch {
                 self.gitTreeView.display(.message("Live Git tree updates unavailable: \(error.localizedDescription)"))
             }
@@ -6572,7 +6607,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func refreshGitTreeIfVisible(for tab: TerminalTab? = nil) {
-        updateGitTreeWatcher()
+        updateGitRepositoryWatcher()
         guard isGitTreeVisible,
               let tab = tab ?? activeTab,
               tab.id == activeTabID

@@ -1432,7 +1432,13 @@ async fn send_apns(
     }
     match request.send().await {
         Ok(response) if response.status().is_success() => {}
-        Ok(response) => warn!(status=%response.status(), "APNs rejected notification"),
+        Ok(response) => {
+            let status = response.status();
+            let body = response.json::<Value>().await.unwrap_or(Value::Null);
+            let reason = body.get("reason").and_then(Value::as_str);
+            warn!(%status, ?reason, %environment,
+                topic = %state.config.apns_topic, "APNs rejected notification");
+        }
         Err(error) => warn!(%error, "APNs request failed"),
     }
 }

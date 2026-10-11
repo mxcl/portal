@@ -36,6 +36,11 @@ public struct BranchGraphRowCanvas: View {
         Self.graphWidth(model: model, commitOID: commitOID)
     }
 
+    private var canvasWidth: CGFloat {
+        guard let hoveredLabel, model.branchLabels.indices.contains(hoveredLabel) else { return graphWidth }
+        return max(graphWidth, Self.leadingPadding + model.branchLabels[hoveredLabel].hoverOutline.boundingRect.maxX + 2)
+    }
+
     public init(model: CommitGraphModel, rowIndex: Int, commitOID: String, hoveredLabel: Binding<Int?>) {
         self.model = model
         self.rowIndex = rowIndex
@@ -52,7 +57,7 @@ public struct BranchGraphRowCanvas: View {
             context.translateBy(x: Self.leadingPadding, y: Self.verticalBleed)
             drawRow(in: &context)
         }
-        .frame(width: graphWidth, height: Self.rowHeight + Self.verticalBleed * 2)
+        .frame(width: canvasWidth, height: Self.rowHeight + Self.verticalBleed * 2)
         .onContinuousHover { phase in
             switch phase {
             case .active(let location):
@@ -69,6 +74,9 @@ public struct BranchGraphRowCanvas: View {
                 hoveredLabel = nil
             }
         }
+        // Let hovered names cross narrower graph columns without moving commit text.
+        .frame(width: graphWidth, alignment: .leading)
+        .zIndex(hoveredLabel == nil ? 0 : 1)
         // Draw through List's native vertical insets so paths meet between rows.
         .padding(.vertical, -(4 + Self.verticalBleed))
         .accessibilityHidden(true)

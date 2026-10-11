@@ -3,6 +3,7 @@
 //  Licensed under the GNU Affero General Public License v3 or later.
 //
 import Foundation
+import AppKit
 import PortalCore
 import Testing
 import SwiftUI
@@ -41,6 +42,27 @@ func wideHistoryLaneSpacing() {
     let lastWidth = BranchGraphRowCanvas.graphWidth(model: model, commitOID: tips.last!.oid)
     #expect(firstWidth == 32)
     #expect(abs(lastWidth - firstWidth - 17 * 24) < 0.001)
+}
+
+@Test("Hovered branch labels render above content in narrower graph rows", arguments: [false, true])
+@MainActor func hoveredBranchOverlappingContent(hovered: Bool) throws {
+    let commit = RepositoryCommit(oid: "tip", parents: [], author: "", date: .distantPast, message: "tip")
+    var model = CommitGraphGenerator.generate(commits: [commit], headOID: nil)
+    let outline = Path(CGRect(x: 40, y: 10, width: 8, height: 10))
+    model.branchLabels = [GraphBranchLabel(outline: outline, hoverOutline: outline, colorIndex: 0)]
+    let content = HStack(spacing: 0) {
+        BranchGraphRowCanvas(model: model, rowIndex: 0, commitOID: "tip", hoveredLabel: .constant(hovered ? 0 : nil))
+        Color.white.frame(width: 100, height: 44)
+    }
+    let image = try #require(ImageRenderer(content: content).cgImage)
+    let bitmap = NSBitmapImageRep(cgImage: image)
+    // This column lies beyond the 32-point graph width, inside the adjacent content.
+    let hasLabel = (0..<bitmap.pixelsHigh).contains { y in
+        guard let color = bitmap.colorAt(x: 48, y: y)?.usingColorSpace(.deviceRGB) else { return false }
+        return color.alphaComponent > 0.5 && min(color.redComponent, color.greenComponent, color.blueComponent) < 0.8
+    }
+    #expect(hasLabel == hovered)
+    #expect(bitmap.pixelsWide == 132)
 }
 
 @Test("staging sits immediately above HEAD after other branches, including clean and unborn checkouts")

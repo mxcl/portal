@@ -381,10 +381,17 @@ final class StandaloneTerminalWindow: NSWindow, NSWindowDelegate {
     // implementing newWindowForTab would also restore AppKit's unwanted + button.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.type == .keyDown,
-           event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
-           event.charactersIgnoringModifiers?.lowercased() == "t", let workspace {
-            workspace.newTab(in: self)
-            return true
+           event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "t" where workspace != nil:
+                workspace?.newTab(in: self)
+                return true
+            case "w":
+                performClose(nil)
+                return true
+            default:
+                break
+            }
         }
         return super.performKeyEquivalent(with: event)
     }

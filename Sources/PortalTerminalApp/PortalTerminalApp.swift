@@ -84,7 +84,7 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate, ObservableObject 
         return .terminateNow
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 #else
 @main enum PortalTerminalApp { static func main() {} }

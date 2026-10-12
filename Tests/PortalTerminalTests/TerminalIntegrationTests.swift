@@ -333,7 +333,12 @@ struct TerminalIntegrationTests {
 
         let second = try #require(group.windows.first { $0 !== first })
         #expect((second.contentViewController as? TerminalViewController)?.windowDirectory == FileManager.default.homeDirectoryForCurrentUser)
-        second.close()
+        let closeTabKey = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: .command, timestamp: 0, windowNumber: second.windowNumber,
+            context: nil, characters: "w", charactersIgnoringModifiers: "w", isARepeat: false, keyCode: 13))
+        #expect(second.performKeyEquivalent(with: closeTabKey))
+        #expect(!second.isVisible)
+        #expect(first.isVisible)
         #expect(first.tabGroup?.isTabBarVisible != true)
         #expect(workspace.canReopenClosedTab)
         first.makeKeyAndOrderFront(nil)

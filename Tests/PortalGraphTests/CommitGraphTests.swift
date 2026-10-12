@@ -390,14 +390,14 @@ func auxiliaryHistoryLabels() {
     #expect(graph.branchLabels.allSatisfy { !$0.outline.isEmpty })
 }
 
-@Test("Primary lane labels prefer the right and use the left to avoid truncation")
-func primaryLaneLabelsUseAvailableSpace() {
+@Test("Primary lane labels prefer the right and use the left to avoid truncation", arguments: ["0", "3"])
+func primaryLaneLabelsUseAvailableSpace(headOID: String) {
     let commits = (0..<12).map {
         RepositoryCommit(oid: "\($0)", parents: $0 < 11 ? ["\($0 + 1)"] : [],
                          author: "", date: .distantPast, message: "")
     }
     let names = ["0": ["codex/history-complete-windows"], "3": ["main"], "8": ["older"]]
-    let graph = CommitGraphGenerator.generate(commits: commits, headOID: "0", branchNames: names,
+    let graph = CommitGraphGenerator.generate(commits: commits, headOID: headOID, branchNames: names,
         hoverBranchNames: ["0": ["maliwan/codex/history-complete-windows", "origin/codex/history-complete-windows"]])
     #expect(graph.branchLabels.count == 3)
     let moved = graph.branchLabels[0]

@@ -77,6 +77,21 @@ struct GraphBranchLabel: Sendable {
     let colorIndex: Int
 
     static func make(names: [String: [String]], hoverNames: [String: [String]] = [:], commits: [RepositoryCommit], model: CommitGraphModel, preferredHost: String? = nil) -> [Self] {
+        // Color changes split drawing paths, but labels still share the continuous lane's space.
+        var routes: [GraphPath] = []
+        var routeByPath: [Int: Int] = [:]
+        for (index, path) in model.paths.enumerated() where !path.isDashed {
+            if let route = routes.firstIndex(where: { $0.points.last == path.points.first }) {
+                let previous = routes[route]
+                routes[route] = GraphPath(points: previous.points + path.points.dropFirst(),
+                                          colorIndex: previous.colorIndex,
+                                          isHighlighted: previous.isHighlighted, isDashed: false)
+                routeByPath[index] = route
+            } else {
+                routeByPath[index] = routes.count
+                routes.append(path)
+            }
+        }
         let anchors = commits.enumerated().compactMap { row, commit -> (dot: GraphDot, names: [String], hoverNames: [String], route: Int)? in
             guard let names = names[commit.oid], !names.isEmpty else { return nil }
             let dot = model.dots[row]
@@ -85,7 +100,7 @@ struct GraphBranchLabel: Sendable {
                     path.points.first!.y <= dot.center.y && path.points.last!.y > dot.center.y
             }
             // Isolated tips get their own label rather than sharing an unrelated lane.
-            return (dot, names, hoverNames[commit.oid] ?? names, route ?? model.paths.count + row)
+            return (dot, names, hoverNames[commit.oid] ?? names, route.flatMap { routeByPath[$0] } ?? routes.count + row)
         }
         let groups = Dictionary(grouping: anchors, by: \.route)
         return groups.keys.sorted().flatMap { key in
@@ -102,7 +117,7 @@ struct GraphBranchLabel: Sendable {
                     return ordered.reversed().joined(separator: " · ")
                 }
                 let name = text(anchor.names)
-                let route = model.paths.indices.contains(key) ? model.paths[key] : nil
+                let route = routes.indices.contains(key) ? routes[key] : nil
                 var path = route.map {
                     BranchGraphCanvas.path(for: $0, rowHeight: BranchGraphRowCanvas.rowHeight,
                                            laneWidth: BranchGraphRowCanvas.laneWidth)

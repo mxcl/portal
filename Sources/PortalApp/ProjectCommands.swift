@@ -5,11 +5,6 @@ import PortalTerminal
 struct ProjectCommands: Commands {
     @FocusedValue(\.paletteModel) private var model
 
-    private var archiveTitle: String {
-        guard let model else { return "Archive…" }
-        return "Archive on \(model.projectSourceLabel(model.selectedProjectHostSource))…"
-    }
-
     var body: some Commands {
         CommandMenu("Project") {
             Button("Switch Project…") { model?.showPalette() }
@@ -25,7 +20,7 @@ struct ProjectCommands: Commands {
             Button("Open on GitHub") { model?.openSelectedProjectOnGitHub() }
                 .disabled(model?.projectGitHubURL == nil)
             Divider()
-            Button(archiveTitle) { model?.archiveSelectedProject() }
+            Button("Archive…") { model?.archiveSelectedProject() }
                 .disabled(model?.canArchiveSelectedProject != true)
         }
     }

@@ -110,3 +110,52 @@ func archiveRestoreSelectedHost(remote: Bool) async throws {
     while !received && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
     #expect(received)
 }
+
+@Test("archive offers every present host regardless of the selected tab")
+@MainActor
+func archiveHostChoices() {
+    let hosts = (0..<3).map { SyncHost(machine: "Peer \($0)", peer: "peer\($0)", root: "/projects", executable: "/unused") }
+    let model = AppModel(connectToHelper: false)
+    model.configuration = AppConfiguration(root: "/projects", machine: "Local", hosts: hosts,
+        folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)],
+        backupDestination: BackupDestinationConfiguration(root: "/backup"))
+    model.selectedProjectName = "project"
+    model.localProjects["project"] = PeerProject(name: "project", placement: .checkedOut)
+    model.remoteProjects[hosts[0].id] = ["project": PeerProject(name: "project", placement: .mirrored)]
+    model.remoteProjects[hosts[1].id] = ["project": PeerProject(name: "project", placement: .notPresent)]
+    #expect(model.archiveHosts(for: "project") == [nil, hosts[0].id])
+    #expect(model.canArchiveSelectedProject)
+    model.localProjects["project"] = PeerProject(name: "project", placement: .notPresent)
+    #expect(model.canArchiveSelectedProject)
+    #expect(model.archiveHosts(for: "project") == [hosts[0].id])
+    model.placementInProgress = "local"
+    #expect(!model.canArchiveSelectedProject)
+}
+
+@Test("archive processes only chosen hosts and stops on failure", arguments: [false, true])
+@MainActor
+func archiveChosenHosts(fails: Bool) async {
+    let hosts = (0..<3).map { SyncHost(machine: "Peer \($0)", peer: "peer\($0)", root: "/projects", executable: "/unused") }
+    var received: [UUID?] = []
+    let model = AppModel(connectToHelper: false) { command in
+        guard case .setPlacement(let placement, let project, let hostID, _) = command else {
+            Issue.record("Unexpected command")
+            return EngineReply()
+        }
+        #expect(placement == .notPresent)
+        #expect(project == "project")
+        received.append(hostID)
+        await Task.yield()
+        return EngineReply(error: fails ? "Host unavailable" : nil)
+    }
+    model.configuration.hosts = hosts
+    for host in hosts {
+        model.remoteProjects[host.id] = ["project": PeerProject(name: "project", placement: .checkedOut)]
+    }
+    await model.archive("project", on: [])
+    #expect(received.isEmpty)
+    await model.archive("project", on: [hosts[0].id, hosts[2].id])
+    #expect(received == (fails ? [hosts[0].id] : [hosts[0].id, hosts[2].id]))
+    #expect(model.placementInProgress == nil)
+    #expect(fails ? model.error?.contains("Host unavailable") == true : model.error == nil)
+}

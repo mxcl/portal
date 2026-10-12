@@ -302,7 +302,8 @@ moves or deletes the bare repository.
 
 The archived project controls offer explicit permanent deletion of the backup and
 all its snapshots. The initiating Mac requires Touch ID when biometrics are
-available; missing hardware or enrollment shows a confirmation modal with Cancel
+available; unavailable biometric hardware (including contexts that report no biometric type)
+or missing enrollment shows a confirmation modal with Cancel
 as the default action. Cancellation,
 lockout, and authentication failure leave the backup intact. Backup-control v7
 adds `delete` (engine-control v7 adds `deleteBackup`). The destination validates
@@ -317,7 +318,10 @@ per-ref atomicity and eventual consistency are unchanged.
 Archive inventory and metadata mutations are available to configured source Macs
 through SSH and a second owner-only app socket. Unarchive is an explicit promotion
 action targeting the selected computer. Archive controls are also available in
-host tabs. The receiver exports a Git bundle for the selected snapshot; a local
+host tabs. Project → Archive… offers a host checklist for existing checkouts and
+mirrors, independent of the selected tab. Selected hosts are archived sequentially
+using the existing placement operation; a failure stops the remaining operations.
+The receiver exports a Git bundle for the selected snapshot; a local
 restore uses the initiating Mac's project root, while a remote restore relays the
 bundle over SSH to `portald restore-project` under the selected host's configured
 project root. Engine-control v11 carries the destination host ID. The remote

@@ -1041,36 +1041,53 @@ final class AppModel: ObservableObject {
         requestCheckout(project, hostID: hostID, references: projectSnapshot?.references ?? [])
     }
 
+    func archiveHosts(for project: String) -> [UUID?] {
+        ([nil] + configuration.hosts.map { Optional($0.id) }).filter {
+            let placement = placement(of: project, on: $0)
+            return placement == .checkedOut || placement == .mirrored
+        }
+    }
+
     var canArchiveSelectedProject: Bool {
         guard let project = selectedProjectName, placementInProgress == nil,
               configuration.backup != nil || configuration.backupDestination != nil else { return false }
-        let hostID: UUID?
-        switch selectedProjectHostSource {
-        case .local: hostID = nil
-        case .host(let id): hostID = id
-        case .backup: return false
-        }
-        return placement(of: project, on: hostID) == .checkedOut
+        return !archiveHosts(for: project).isEmpty
     }
 
     func archiveSelectedProject() {
         guard canArchiveSelectedProject, let project = selectedProjectName else { return }
-        let hostID: UUID?
-        switch selectedProjectHostSource {
-        case .local: hostID = nil
-        case .host(let id): hostID = id
-        case .backup: return
+        let hosts = archiveHosts(for: project)
+        let choices = hosts.map { hostID in
+            let name = hostID.flatMap { id in configuration.hosts.first { $0.id == id }?.name }
+                ?? "\(configuration.machine) (This Mac)"
+            let button = NSButton(checkboxWithTitle: name, target: nil, action: nil)
+            button.state = (hostID.map(ProjectSource.host) ?? .local) == selectedProjectHostSource ? .on : .off
+            return button
         }
-        let hostName = hostID.flatMap { id in configuration.hosts.first { $0.id == id }?.name }
-            ?? configuration.machine
+        let list = NSStackView(views: choices)
+        list.orientation = .vertical
+        list.alignment = .leading
+        list.spacing = 8
+        list.setFrameSize(list.fittingSize)
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Archive \(project)?"
-        alert.informativeText = "The checkout on \(hostName) will be moved to Trash. The backup will remain available to restore."
+        alert.informativeText = "Select the hosts to archive from. Their checkouts and mirrors will be moved to Trash. The backup will remain available to restore."
+        alert.accessoryView = list
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Archive")
         guard alert.runModal() == .alertSecondButtonReturn else { return }
-        setPlacement(.notPresent, project: project, hostID: hostID)
+        let selected = zip(hosts, choices).filter { $0.1.state == .on }.map { $0.0 }
+        Task { await archive(project, on: selected) }
+    }
+
+    func archive(_ project: String, on hosts: [UUID?]) async {
+        for hostID in hosts {
+            guard archiveHosts(for: project).contains(hostID),
+                  let task = setPlacement(.notPresent, project: project, hostID: hostID) else { return }
+            await task.value
+            guard error == nil else { return }
+        }
     }
 
     private func requestCheckout(_ project: String, hostID: UUID?, references: [RepositoryReference]) {
@@ -1185,7 +1202,7 @@ final class AppModel: ObservableObject {
                     guard try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
                         localizedReason: "Permanently delete all backups of \(item.name).") else { return }
                 } else {
-                    if let unavailable,
+                    if let unavailable, context.biometryType != .none,
                        unavailable.code != LAError.biometryNotAvailable.rawValue,
                        unavailable.code != LAError.biometryNotEnrolled.rawValue {
                         throw unavailable
@@ -2806,7 +2823,7 @@ private struct ArchivedProjectControls: View {
                 }
                 .disabled(model.deletingBackup != nil || model.restoringBackup != nil || model.placementInProgress != nil)
             }
-            Button("Delete Backup", role: .destructive) { model.deleteBackup(item) }
+            Button("Delete Backup…", role: .destructive) { model.deleteBackup(item) }
                 .disabled(model.deletingBackup != nil || model.restoringBackup != nil)
                 .help("Permanently delete this project’s stored repository and all backup snapshots.")
             if model.deletingBackup == item.name { ProgressView("Deleting backup…") }

@@ -96,13 +96,9 @@ public nonisolated enum CommitGraphGenerator {
             rowByHash: rowByHash
         )
 
-        // Reserve orange for HEAD's first-parent history and visible descendants.
+        // Reserve orange for HEAD's first-parent history; other branch tips keep their own color.
         var activeCommits = Set<String>()
         if let headHash {
-            activeCommits.insert(headHash)
-            for commit in commits.reversed() where commit.parents.contains(where: activeCommits.contains) {
-                activeCommits.insert(commit.oid)
-            }
             var ancestor: String? = headHash
             var visited = Set<String>()
             while let hash = ancestor, visited.insert(hash).inserted, let row = rowByHash[hash] {

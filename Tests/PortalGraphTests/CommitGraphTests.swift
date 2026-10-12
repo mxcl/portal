@@ -39,14 +39,19 @@ func activeBranchColor(includeStaging: Bool) throws {
                    commit("main", ["older", "merged"]), commit("merged", ["root"]),
                    commit("older", ["root"]), commit("root"), commit("isolated")]
     let graph = CommitGraphGenerator.generate(commits: commits, headOID: "main", includeStaging: includeStaging,
-                                              branchNames: ["preserve": ["codex/preserve"], "main": ["main"]])
-    for oid in ["descendant", "main", "older", "root"] {
+                                              branchNames: ["descendant": ["codex/preserve"], "main": ["main"]])
+    for oid in ["main", "older", "root"] {
         #expect(graph.colorIndex(for: oid) == 0)
     }
-    for oid in ["preserve", "merged", "isolated"] {
+    for oid in ["preserve", "descendant", "merged", "isolated"] {
         #expect(graph.colorIndex(for: oid) != 0)
     }
     #expect(graph.paths.first?.colorIndex != 0)
+    let branchPath = try #require(graph.paths.first { $0.points.first == graph.dots[1].center })
+    #expect(branchPath.colorIndex != 0)
+    let mainDot = try #require(graph.dots.first { $0.type == .head })
+    #expect(branchPath.points.last == mainDot.center)
+    #expect(graph.paths.contains { !$0.isDashed && $0.points.first == mainDot.center && $0.colorIndex == 0 })
     #expect(graph.links.allSatisfy { $0.colorIndex != 0 })
     #expect(graph.branchLabels.contains { $0.colorIndex == 0 })
     #expect(graph.branchLabels.contains { $0.colorIndex != 0 })

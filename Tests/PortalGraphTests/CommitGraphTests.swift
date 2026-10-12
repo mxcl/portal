@@ -30,6 +30,37 @@ func commitGraphMerge() {
     #expect(model.dots.first?.type == .head)
 }
 
+@Test("Orange follows the active branch instead of the first lane", arguments: [false, true])
+func activeBranchColor(includeStaging: Bool) throws {
+    func commit(_ oid: String, _ parents: [String] = []) -> RepositoryCommit {
+        RepositoryCommit(oid: oid, parents: parents, author: "", date: .distantPast, message: oid)
+    }
+    let commits = [commit("preserve", ["root"]), commit("descendant", ["main"]),
+                   commit("main", ["older", "merged"]), commit("merged", ["root"]),
+                   commit("older", ["root"]), commit("root"), commit("isolated")]
+    let graph = CommitGraphGenerator.generate(commits: commits, headOID: "main", includeStaging: includeStaging,
+                                              branchNames: ["preserve": ["codex/preserve"], "main": ["main"]])
+    for oid in ["descendant", "main", "older", "root"] {
+        #expect(graph.colorIndex(for: oid) == 0)
+    }
+    for oid in ["preserve", "merged", "isolated"] {
+        #expect(graph.colorIndex(for: oid) != 0)
+    }
+    #expect(graph.paths.first?.colorIndex != 0)
+    #expect(graph.links.allSatisfy { $0.colorIndex != 0 })
+    #expect(graph.branchLabels.contains { $0.colorIndex == 0 })
+    #expect(graph.branchLabels.contains { $0.colorIndex != 0 })
+    if includeStaging {
+        #expect(graph.colorIndex(for: CommitGraphGenerator.workingChangesID) == 0)
+        let staging = try #require(graph.paths.first { $0.isDashed })
+        #expect(staging.colorIndex == 0)
+    }
+    let switched = CommitGraphGenerator.generate(commits: commits, headOID: "preserve", includeStaging: includeStaging)
+    #expect(switched.colorIndex(for: "preserve") == 0)
+    #expect(switched.colorIndex(for: "main") != 0)
+    #expect(switched.colorIndex(for: "descendant") != 0)
+}
+
 @Test("wide histories preserve native lane spacing")
 func wideHistoryLaneSpacing() {
     let root = RepositoryCommit(oid: "root", parents: [], author: "", date: .distantPast, message: "root")
@@ -40,6 +71,7 @@ func wideHistoryLaneSpacing() {
 
     let firstWidth = BranchGraphRowCanvas.graphWidth(model: model, commitOID: tips[0].oid)
     let lastWidth = BranchGraphRowCanvas.graphWidth(model: model, commitOID: tips.last!.oid)
+    #expect(model.dots.allSatisfy { $0.colorIndex != 0 })
     #expect(firstWidth == 32)
     #expect(abs(lastWidth - firstWidth - 17 * 24) < 0.001)
 }

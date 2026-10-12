@@ -96,6 +96,26 @@ public nonisolated enum CommitGraphGenerator {
             rowByHash: rowByHash
         )
 
+        // Reserve orange for HEAD's first-parent history and visible descendants.
+        var activeCommits = Set<String>()
+        if let headHash {
+            activeCommits.insert(headHash)
+            for commit in commits.reversed() where commit.parents.contains(where: activeCommits.contains) {
+                activeCommits.insert(commit.oid)
+            }
+            var ancestor: String? = headHash
+            var visited = Set<String>()
+            while let hash = ancestor, visited.insert(hash).inserted, let row = rowByHash[hash] {
+                activeCommits.insert(hash)
+                ancestor = commits[row].parents.first
+            }
+        }
+        for commit in commits where isStaging(commit.oid) {
+            if commit.oid == workingChangesID || commit.parents.contains(where: activeCommits.contains) {
+                activeCommits.insert(commit.oid)
+            }
+        }
+
         var mutablePaths: [MutableGraphPath] = []
         var links: [GraphLink] = []
         var dots: [GraphDot] = []
@@ -166,7 +186,7 @@ public nonisolated enum CommitGraphGenerator {
                     let path = PathHelper(
                         next: firstParent,
                         isHighlighted: isHighlighted,
-                        colorIndex: colorPicker.next(),
+                        colorIndex: activeCommits.contains(commit.oid) ? 0 : colorPicker.next(),
                         start: CGPoint(x: offsetX, y: offsetY),
                         isDashed: isStaging(commit.oid)
                     )
@@ -182,8 +202,13 @@ public nonisolated enum CommitGraphGenerator {
                 mutablePaths.append(highlightedPath)
             }
 
+            if let major, activeCommits.contains(commit.oid) != (major.colorIndex == 0) {
+                let color = activeCommits.contains(commit.oid) ? 0 : colorPicker.next()
+                mutablePaths.append(major.restart(isHighlighted: isHighlighted, colorIndex: color))
+            }
+
             let position = CGPoint(x: major?.lastX ?? offsetX, y: offsetY)
-            let dotColor = major?.colorIndex ?? 0
+            let dotColor = major?.colorIndex ?? (activeCommits.contains(commit.oid) ? 0 : colorPicker.next())
             let dotLane = lane(forX: position.x)
             maxLane = max(maxLane, dotLane)
 
@@ -409,8 +434,8 @@ nonisolated private final class PathHelper {
     }
 
     @discardableResult
-    func restart(isHighlighted: Bool, isDashed: Bool = false) -> MutableGraphPath {
-        let colorIndex = path.colorIndex
+    func restart(isHighlighted: Bool, isDashed: Bool = false, colorIndex: Int? = nil) -> MutableGraphPath {
+        let colorIndex = colorIndex ?? path.colorIndex
         add(x: lastX, y: lastY)
         path = MutableGraphPath(
             points: [CGPoint(x: lastX, y: lastY)],
@@ -434,18 +459,18 @@ nonisolated private struct ColorPicker {
     private var queue: [Int] = []
 
     init(colorCount: Int) {
-        self.colorCount = max(1, colorCount)
+        self.colorCount = max(2, colorCount)
     }
 
     mutating func next() -> Int {
         if queue.isEmpty {
-            queue = Array(0..<colorCount)
+            queue = Array(1..<colorCount)
         }
         return queue.removeFirst()
     }
 
     mutating func recycle(_ index: Int) {
-        guard !queue.contains(index) else { return }
+        guard index != 0, !queue.contains(index) else { return }
         queue.append(index)
     }
 }

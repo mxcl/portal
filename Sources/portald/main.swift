@@ -38,6 +38,7 @@ Usage:
   portald daemon --stdio --root PATH [--machine NAME] [--selective --repository NAME ...] [--receive-only] [--sync-checkouts] [--state PATH]
   portald list --root PATH
   portald inspect --root PATH [--machine NAME]
+  portald restore-project --root PATH
   portald watch-projects --root PATH --watch-version 1
   portald project-content --root PATH --repository NAME
   portald project-staging --root PATH --repository NAME
@@ -152,6 +153,10 @@ do {
                 : repository.diff(at: required("--oid", in: arguments))
             try FileHandle.standardOutput.write(contentsOf: Data(diff.utf8))
         }
+    case "restore-project":
+        let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
+        let result = try ProjectRestoreRequest.receive(from: .standardInput, to: root)
+        print(String(decoding: try JSONEncoder().encode(result), as: UTF8.self))
     case "project-state":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
         let name = try required("--repository", in: arguments)

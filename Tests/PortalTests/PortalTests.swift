@@ -1622,3 +1622,55 @@ func backupTransferProgress() throws {
                      backupProgress: { event in progress.append(event.phase == .transferring) })
     #expect(progress == [false])
 }
+
+@Test("remote archive restore preserves refs and rejects incomplete or incompatible transfers")
+func remoteArchiveRestore() throws {
+    let fixture = try Fixture()
+    let source = fixture.a.appendingPathComponent("project")
+    _ = try git(["-C", source.path, "tag", "v1"])
+    try Data("stashed\n".utf8).write(to: source.appendingPathComponent("file.txt"))
+    _ = try git(["-C", source.path, "stash", "push", "-m", "saved work"])
+    let stash = try git(["-C", source.path, "rev-parse", "refs/stash"])
+    try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
+                     stateURL: fixture.state, bareDestination: true)
+    let index = try BackupIndex(url: fixture.root.appendingPathComponent("index.json"))
+    let item = try #require(index.items(in: fixture.b).first)
+    let snapshot = try #require(item.snapshots.first)
+    let bundle = fixture.root.appendingPathComponent("snapshot.bundle")
+    try BackupIndex.exportBundle(item.name, snapshotID: snapshot.id, from: fixture.b, to: bundle)
+    let bytes = try Data(contentsOf: bundle)
+    let destination = fixture.root.appendingPathComponent("pangolin")
+    try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+    let packet = fixture.root.appendingPathComponent("restore.packet")
+    func receive(version: Int = ProjectRestoreRequest.currentVersion, truncated: Bool = false,
+                 snapshot: BackupSnapshot? = nil) throws -> PeerProject {
+        var request = ProjectRestoreRequest(name: item.name, snapshot: snapshot ?? item.snapshots[0], byteCount: bytes.count)
+        request.version = version
+        FileManager.default.createFile(atPath: packet.path, contents: nil)
+        let output = try FileHandle(forWritingTo: packet)
+        try BackupControlConnection.send(request, to: output)
+        try output.write(contentsOf: truncated ? bytes.dropLast() : bytes)
+        try output.close()
+        let input = try FileHandle(forReadingFrom: packet)
+        defer { try? input.close() }
+        return try ProjectRestoreRequest.receive(from: input, to: destination)
+    }
+    #expect(throws: (any Error).self) { try receive(version: 0) }
+    #expect(throws: (any Error).self) { try receive(truncated: true) }
+    let invalid = try JSONDecoder().decode(BackupSnapshot.self, from: Data("""
+        {"id":"*","machine":"A","branches":["main"],"syncMachines":[]}
+        """.utf8))
+    #expect(throws: (any Error).self) { try receive(snapshot: invalid) }
+    #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).isEmpty)
+    let result = try receive()
+    #expect(result.placement == .checkedOut)
+    let restored = destination.appendingPathComponent(item.name)
+    let tip = try git(["-C", fixture.a.appendingPathComponent(item.name).path, "rev-parse", "HEAD"])
+    #expect(try git(["-C", restored.path, "rev-parse", "HEAD"]) == tip)
+    #expect(try git(["-C", restored.path, "rev-parse", "refs/remotes/a/main"]) == tip)
+    #expect(try git(["-C", restored.path, "rev-parse", "refs/tags/v1"]) == tip)
+    #expect(try git(["-C", restored.path, "rev-parse", "refs/stash"]) == stash)
+    #expect(throws: (any Error).self) { try receive() }
+    #expect(try git(["-C", restored.path, "rev-parse", "HEAD"]) == tip)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path) == [item.name])
+}

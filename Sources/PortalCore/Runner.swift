@@ -283,6 +283,13 @@ public enum Runner {
         try Validator.project(name)
         let bundle = projectsRoot.appendingPathComponent(".portal-unarchive-\(UUID()).bundle")
         defer { try? FileManager.default.removeItem(at: bundle) }
+        try exportBackup(name, snapshot: snapshot, configuration: configuration, to: bundle)
+        try BackupIndex.restore(name, snapshot: snapshot, from: bundle, to: projectsRoot)
+    }
+
+    public static func exportBackup(_ name: String, snapshot: BackupSnapshot,
+                                    configuration: Configuration, to bundle: URL) throws {
+        try Validator.project(name)
         let (process, input, output, error) = try startBackupControl(configuration)
         do {
             try BackupControlConnection.send(
@@ -305,11 +312,37 @@ public enum Runner {
                 throw error
             }
             try finishBackupControl(process, error: error)
-            try BackupIndex.restore(name, snapshot: snapshot, from: bundle, to: projectsRoot)
         } catch {
             if process.isRunning { process.terminate() }
             throw error
         }
+    }
+
+    public static func restorePeerBackup(_ name: String, snapshot: BackupSnapshot,
+                                         bundle: URL, configuration: Configuration) throws -> PeerProject {
+        try configuration.validate()
+        try Validator.project(name)
+        let packet = bundle.deletingLastPathComponent().appendingPathComponent("restore-\(UUID()).packet")
+        guard FileManager.default.createFile(atPath: packet.path, contents: nil) else {
+            throw SyncError.invalidConfiguration("Could not prepare the restore transfer")
+        }
+        defer { try? FileManager.default.removeItem(at: packet) }
+        let output = try FileHandle(forWritingTo: packet)
+        defer { try? output.close() }
+        let input = try FileHandle(forReadingFrom: bundle)
+        defer { try? input.close() }
+        guard let count = try bundle.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+            throw SyncError.invalidConfiguration("Could not read the backup bundle size")
+        }
+        try BackupControlConnection.send(ProjectRestoreRequest(name: name, snapshot: snapshot, byteCount: count), to: output)
+        try BackupControlConnection.copy(count, from: input, to: output)
+        try output.close()
+        let transfer = try FileHandle(forReadingFrom: packet)
+        defer { try? transfer.close() }
+        let data = try runRemote(configuration, arguments: ["restore-project", "--root", configuration.remoteRoot],
+                                 failure: "Could not restore on the peer; update Portal on that computer if needed",
+                                 input: transfer)
+        return try JSONDecoder().decode(PeerProject.self, from: data)
     }
 
     private static func migrateLegacyBackups(at root: URL) throws {
@@ -332,7 +365,7 @@ public enum Runner {
     }
 
     private static func runRemote(_ configuration: Configuration, arguments: [String],
-                                  failure: String) throws -> Data {
+                                  failure: String, input: FileHandle? = nil) throws -> Data {
         let process = Process(), output = Pipe(), error = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
         process.arguments = [
@@ -341,6 +374,7 @@ public enum Runner {
         ]
         process.standardOutput = output
         process.standardError = error
+        if let input { process.standardInput = input }
         try process.run()
         let group = DispatchGroup()
         var stdout = Data(), stderr = Data()

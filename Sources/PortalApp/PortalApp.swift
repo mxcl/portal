@@ -1210,8 +1210,10 @@ final class AppModel: ObservableObject {
     }
 
     func unarchiveBackup(_ item: BackupItem, snapshot: BackupSnapshot) {
-        guard deletingBackup == nil else { return }
-        perform(.restoreBackup(item, snapshot))
+        guard deletingBackup == nil, restoringBackup == nil, placementInProgress == nil else { return }
+        let hostID: UUID?
+        if case .host(let id) = selectedProjectHostSource { hostID = id } else { hostID = nil }
+        perform(.restoreBackup(item, snapshot, hostID: hostID))
     }
 
     func refreshLocal() { perform(.refresh) }
@@ -2577,6 +2579,10 @@ private struct HostControls: View {
                 } else if hostID == nil, let directory = model.selectedLocalRepositoryURL {
                     model.terminals.view(project: project, directory: directory, hosts: model.terminalHosts)
                 }
+            } else if let archived = model.archivedProjects.first(where: { $0.name == project }) {
+                ArchivedProjectControls(item: archived, model: model)
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 status
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2776,6 +2782,8 @@ private struct ArchivedProjectControls: View {
     let item: BackupItem
     @ObservedObject var model: AppModel
 
+    private var destination: String { model.projectSourceLabel(model.selectedProjectHostSource) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label("Archived", systemImage: "archivebox.fill").font(.headline)
@@ -2786,15 +2794,17 @@ private struct ArchivedProjectControls: View {
                     .foregroundStyle(.secondary)
             }
             if model.restoringBackup == item.name {
-                ProgressView("Bringing to this Mac…")
+                ProgressView("Restoring project…")
             } else if item.snapshots.count == 1, let snapshot = item.snapshots.first {
-                Button("Bring to This Mac") { model.unarchiveBackup(item, snapshot: snapshot) }
+                Button("Bring to \(destination)") { model.unarchiveBackup(item, snapshot: snapshot) }
+                    .disabled(model.deletingBackup != nil || model.restoringBackup != nil || model.placementInProgress != nil)
             } else if !item.snapshots.isEmpty {
-                Menu("Bring to This Mac") {
+                Menu("Bring to \(destination)") {
                     ForEach(item.snapshots) { snapshot in
                         Button("From \(snapshot.machine)") { model.unarchiveBackup(item, snapshot: snapshot) }
                     }
                 }
+                .disabled(model.deletingBackup != nil || model.restoringBackup != nil || model.placementInProgress != nil)
             }
             Button("Delete Backup", role: .destructive) { model.deleteBackup(item) }
                 .disabled(model.deletingBackup != nil || model.restoringBackup != nil)

@@ -85,3 +85,28 @@ func archivePreservesSelection() async throws {
     #expect(model.openProjectURL(URL(string: "gitsync://project?name=space%20%26%20unicode%20%C3%A9")!))
     #expect(model.selectedProjectName == "space & unicode é")
 }
+
+@Test("archive restore targets the selected host", arguments: [false, true])
+@MainActor
+func archiveRestoreSelectedHost(remote: Bool) async throws {
+    let host = SyncHost(machine: "pangolin", peer: "pangolin", root: "/projects", executable: "/unused")
+    let item = try JSONDecoder().decode(BackupItem.self, from: Data("""
+        {"name":"project","status":"archived","mirroredBy":[],
+         "snapshots":[{"id":"source","machine":"source","branches":["main"],"syncMachines":[]}]}
+        """.utf8))
+    var received = false
+    let model = AppModel(connectToHelper: false) { command in
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(command)) as! [String: Any]
+        let restore = try #require(json["restoreBackup"] as? [String: Any])
+        #expect(restore["hostID"] as? String == (remote ? host.id.uuidString : nil))
+        received = true
+        return EngineReply()
+    }
+    model.configuration.hosts = [host]
+    model.selectedProjectName = item.name
+    model.selectProjectHost(remote ? .host(host.id) : .local)
+    model.unarchiveBackup(item, snapshot: item.snapshots[0])
+    let deadline = Date().addingTimeInterval(2)
+    while !received && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(received)
+}

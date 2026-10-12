@@ -316,9 +316,15 @@ per-ref atomicity and eventual consistency are unchanged.
 
 Archive inventory and metadata mutations are available to configured source Macs
 through SSH and a second owner-only app socket. Unarchive is an explicit promotion
-action on the Mac where it is chosen. The receiver exports a Git bundle for the
-selected snapshot, and the initiating app restores it into a new repository under
-its own normal project root, promoting that source's branches, tags, and stash
+action targeting the selected computer. Archive controls are also available in
+host tabs. The receiver exports a Git bundle for the selected snapshot; a local
+restore uses the initiating Mac's project root, while a remote restore relays the
+bundle over SSH to `portald restore-project` under the selected host's configured
+project root. Engine-control v11 carries the destination host ID. The remote
+restore stream has a bounded, versioned v1 header followed by the bundle bytes;
+incompatible versions and incomplete transfers are rejected. Temporary transfer
+files are removed on success or failure. The destination creates a new repository,
+promoting that source's branches, tags, and stash
 while retaining every source's peer refs. It refuses an existing destination name
 and constructs the repository under a temporary sibling before atomically moving
 it into place. Because `HEAD` is not replicated, `main`, then `master`, then the

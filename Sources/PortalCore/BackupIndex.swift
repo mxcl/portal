@@ -172,6 +172,19 @@ public final class BackupIndex: @unchecked Sendable {
     public static func restore(_ name: String, snapshot: BackupSnapshot,
                                from bundle: URL, to projectsRoot: URL) throws {
         try Validator.project(name)
+        if snapshot.id != storedSnapshotID {
+            try Validator.machine(snapshot.id)
+            guard Git.checkRef("refs/remotes/\(snapshot.id)/branch") else {
+                throw SyncError.invalidProtocol("Invalid backup snapshot source")
+            }
+        }
+        for machine in snapshot.syncMachines {
+            try Validator.machine(machine)
+            guard Git.checkRef("refs/sync/\(machine)/tags/tag") else {
+                throw SyncError.invalidProtocol("Invalid backup snapshot machine")
+            }
+        }
+        for branch in snapshot.branches { try Validator.sourceRef("refs/heads/" + branch) }
         try restoreSource(name, snapshot: snapshot, from: bundle, to: projectsRoot)
     }
 
@@ -281,7 +294,7 @@ public final class BackupIndex: @unchecked Sendable {
         let manager = FileManager.default
         let target = projectsRoot.appendingPathComponent(name, isDirectory: true)
         guard !manager.fileExists(atPath: target.path) else {
-            throw SyncError.invalidConfiguration("A project named \(name) already exists on this Mac.")
+            throw SyncError.invalidConfiguration("A project named \(name) already exists on the destination computer.")
         }
         let temporary = projectsRoot.appendingPathComponent(".portal-unarchive-\(UUID().uuidString)",
                                                             isDirectory: true)

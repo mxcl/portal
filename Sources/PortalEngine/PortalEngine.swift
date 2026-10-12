@@ -5,7 +5,7 @@ import Foundation
 import PortalCore
 
 public enum EngineControlProtocol {
-    public static let version = 10
+    public static let version = 11
     public static let showPaletteNotification = Notification.Name("dev.mxcl.portal.show-palette")
     public static let changedNotification = Notification.Name("dev.mxcl.portal.engine-changed")
     public static var socketURL: URL {
@@ -31,7 +31,7 @@ public enum EngineCommand: Codable, Sendable {
     case setMergedBranchCleanupEnabled(Bool)
     case setPlacement(ProjectPlacement, project: String, hostID: UUID?, branch: String?)
     case deleteBackup(String)
-    case restoreBackup(BackupItem, BackupSnapshot)
+    case restoreBackup(BackupItem, BackupSnapshot, hostID: UUID? = nil)
     case prepareForTermination
 }
 
@@ -276,8 +276,8 @@ public final class EngineModel: ObservableObject {
                 try save()
                 await refreshBackupItems()?.value
                 appendLog("Deleted backup for \(name)")
-            case let .restoreBackup(item, backup):
-                restoreBackup(item, snapshot: backup)
+            case let .restoreBackup(item, backup, hostID):
+                restoreBackup(item, snapshot: backup, hostID: hostID)
             case .prepareForTermination:
                 shutdown()
             }
@@ -407,44 +407,74 @@ public final class EngineModel: ObservableObject {
         else if isConfigured && !isPaused { try launchAll() }
     }
 
-    public func restoreBackup(_ item: BackupItem, snapshot: BackupSnapshot) {
+    public func restoreBackup(_ item: BackupItem, snapshot: BackupSnapshot, hostID: UUID? = nil) {
         guard placementInProgress == nil, restoringBackup == nil else { return }
         do {
+            let host = hostID.flatMap { id in configuration.hosts.first { $0.id == id } }
+            guard hostID == nil || host != nil else {
+                throw SyncError.invalidConfiguration("The restore destination is no longer configured.")
+            }
+            let connection = host.map {
+                Configuration(root: configuration.root, machine: configuration.machine,
+                              peer: $0.peer, remoteRoot: $0.root, remoteExecutable: $0.executable,
+                              repositories: [], remoteMachine: $0.machine)
+            }
+            let destinationName = host?.name ?? "this Mac"
             let backupRoot = try configuration.validatedBackupDestination()
             let index = backupIndex
             let remote = backupRoot == nil ? try backupControlConfiguration() : nil
             guard (backupRoot != nil && index != nil) || remote != nil else { return }
             let projectsRoot = expandedRoot
-            let machine = configuration.machine
+            let machine = host?.machine ?? configuration.machine
+            error = nil
             restoringBackup = item.name
-            status = "Bringing \(item.name) to this Mac"
+            placementInProgress = hostID?.uuidString ?? "local"
+            status = "Bringing \(item.name) to \(destinationName)"
             Task {
                 do {
-                    let names = try await Task.detached(priority: .userInitiated) {
-                        if let backupRoot {
+                    let (names, restored) = try await Task.detached(priority: .userInitiated) {
+                        var restored: PeerProject?
+                        if let connection {
+                            let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("portal-restore-\(UUID())")
+                            try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false,
+                                                                    attributes: [.posixPermissions: 0o700])
+                            defer { try? FileManager.default.removeItem(at: temporary) }
+                            let bundle = temporary.appendingPathComponent("snapshot.bundle")
+                            if let backupRoot {
+                                try BackupIndex.exportBundle(item.name, snapshotID: snapshot.id, from: backupRoot, to: bundle)
+                            } else if let remote {
+                                try Runner.exportBackup(item.name, snapshot: snapshot, configuration: remote, to: bundle)
+                            }
+                            restored = try Runner.restorePeerBackup(item.name, snapshot: snapshot, bundle: bundle,
+                                                                    configuration: connection)
+                        } else if let backupRoot {
                             try BackupIndex.restore(item.name, snapshotID: snapshot.id,
                                                     from: backupRoot, to: projectsRoot)
                         } else if let remote {
                             try Runner.restoreBackup(item.name, snapshot: snapshot,
                                                      configuration: remote, to: projectsRoot)
                         }
-                        let names = try Repository.discover(in: projectsRoot).map(\.name)
+                        let names = try connection.map { try Runner.inspectPeer($0).repositories }
+                            ?? Repository.discover(in: projectsRoot).map(\.name)
                         if let index { try index.replaceCatalog(machine: machine, repositories: names) }
                         else if let remote {
                             try Runner.replaceBackupCatalog(machine: machine, repositories: names,
                                                             configuration: remote)
                         }
-                        return names
+                        return (names, restored)
                     }.value
-                    try configuration.discoverLocal(names)
+                    if let restored { updatePlacement(restored, hostID: hostID) }
+                    else { try configuration.discoverLocal(names) }
                     try save()
                     restartIfRunning()
                     restoringBackup = nil
+                    placementInProgress = nil
                     status = isRunning ? "Standing By" : "Stopped"
                     refreshBackupItems()
-                    appendLog("Brought \(item.name) to this Mac from \(snapshot.machine)")
+                    appendLog("Brought \(item.name) to \(destinationName) from \(snapshot.machine)")
                 } catch {
                     restoringBackup = nil
+                    placementInProgress = nil
                     fail(error)
                 }
             }

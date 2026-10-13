@@ -76,15 +76,19 @@ public struct BranchGraphRowCanvas: View {
                 hoveredLabel = nil
             }
         }
-        .onTapGesture { location in
-            let point = CGPoint(x: location.x - Self.leadingPadding,
-                                y: location.y - Self.verticalBleed + CGFloat(rowIndex) * Self.rowHeight)
-            let indices = model.branchLabels.indices.reversed()
-            for index in indices {
+        .overlay {
+            ForEach(model.branchLabels.indices, id: \.self) { index in
                 let label = model.branchLabels[index]
-                if let reference = label.reference(at: point, hovered: index == hoveredLabel) {
-                    onInsertReference(reference)
-                    return
+                let references = index == hoveredLabel ? label.hoverReferences : label.references
+                ForEach(references.indices, id: \.self) { referenceIndex in
+                    let reference = references[referenceIndex]
+                    let hitArea = reference.outline.strokedPath(StrokeStyle(lineWidth: 6))
+                        .offsetBy(dx: Self.leadingPadding,
+                                  dy: Self.verticalBleed - CGFloat(rowIndex) * Self.rowHeight)
+                    Button { onInsertReference(reference.name) } label: {
+                        hitArea.fill(.clear).contentShape(hitArea)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }

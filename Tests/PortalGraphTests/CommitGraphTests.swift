@@ -466,3 +466,61 @@ func branchLabelHitTargets() throws {
         #expect(label.reference(at: CGPoint(x: -1000, y: -1000), hovered: hovered) == nil)
     }
 }
+
+private struct BranchClickProbe: NSViewRepresentable {
+    let view: NSView
+    func makeNSView(context: Context) -> NSView { view }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+@Test("Branch clicks insert without selecting their commit row", arguments: [false, true])
+@MainActor func branchClickDoesNotSelectRow(hovered: Bool) throws {
+    NSApplication.shared.finishLaunching()
+    let commit = RepositoryCommit(oid: "tip", parents: [], author: "", date: .distantPast, message: "tip")
+    var model = CommitGraphGenerator.generate(commits: [commit], headOID: nil)
+    let outline = Path(CGRect(x: 4, y: 4, width: 16, height: 32))
+    let hoverOutline = outline.offsetBy(dx: 36, dy: 0)
+    model.branchLabels = [GraphBranchLabel(outline: outline, hoverOutline: hoverOutline, colorIndex: 0,
+        references: [("main", outline)], hoverReferences: [("main", hoverOutline)])]
+    var selection: String?
+    var inserted: [String] = []
+    let probe = NSView()
+    let root = List(selection: Binding(get: { selection }, set: { selection = $0 })) {
+        HStack {
+            BranchGraphRowCanvas(model: model, rowIndex: 0, commitOID: "tip", hoveredLabel: .constant(hovered ? 0 : nil)) {
+                inserted.append($0)
+                selection = nil
+            }
+            .background(BranchClickProbe(view: probe))
+            Text("Commit subject").frame(width: 160, height: 44)
+        }.tag("tip")
+    }
+    let window = NSWindow(contentViewController: NSHostingController(rootView: root))
+    window.styleMask = [.titled, .closable, .resizable]
+    window.setContentSize(NSSize(width: 300, height: 160))
+    NSApp.setActivationPolicy(.regular)
+    NSApp.activate(ignoringOtherApps: true)
+    window.makeKeyAndOrderFront(nil)
+    defer { window.orderOut(nil) }
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    window.makeKey()
+    func click(_ point: NSPoint) throws {
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+            NSApp.postEvent(event, atStart: false)
+        }
+        let deadline = Date().addingTimeInterval(0.1)
+        while let event = NSApp.nextEvent(matching: .any, until: deadline, inMode: .default, dequeue: true) {
+            NSApp.sendEvent(event)
+        }
+    }
+    // Hit the left edge of the label's stroked outline.
+    try click(probe.convert(NSPoint(x: hovered ? 44 : 8, y: probe.bounds.midY), to: nil))
+    #expect(inserted == ["main"])
+    #expect(selection == nil)
+    try click(probe.convert(NSPoint(x: 100, y: probe.bounds.midY), to: nil))
+    #expect(selection == "tip")
+    #expect(inserted == ["main"])
+}

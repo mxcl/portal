@@ -28,6 +28,7 @@ public struct BranchGraphRowCanvas: View {
     let model: CommitGraphModel
     let rowIndex: Int
     let commitOID: String
+    let onInsertReference: (String) -> Void
     @Binding var hoveredLabel: Int?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.backgroundProminence) private var backgroundProminence
@@ -41,10 +42,11 @@ public struct BranchGraphRowCanvas: View {
         return max(graphWidth, Self.leadingPadding + model.branchLabels[hoveredLabel].hoverOutline.boundingRect.maxX + 2)
     }
 
-    public init(model: CommitGraphModel, rowIndex: Int, commitOID: String, hoveredLabel: Binding<Int?>) {
+    public init(model: CommitGraphModel, rowIndex: Int, commitOID: String, hoveredLabel: Binding<Int?>, onInsertReference: @escaping (String) -> Void = { _ in }) {
         self.model = model
         self.rowIndex = rowIndex
         self.commitOID = commitOID
+        self.onInsertReference = onInsertReference
         _hoveredLabel = hoveredLabel
     }
 
@@ -72,6 +74,18 @@ public struct BranchGraphRowCanvas: View {
                 }
             case .ended:
                 hoveredLabel = nil
+            }
+        }
+        .onTapGesture { location in
+            let point = CGPoint(x: location.x - Self.leadingPadding,
+                                y: location.y - Self.verticalBleed + CGFloat(rowIndex) * Self.rowHeight)
+            let indices = model.branchLabels.indices.reversed()
+            for index in indices {
+                let label = model.branchLabels[index]
+                if let reference = label.reference(at: point, hovered: index == hoveredLabel) {
+                    onInsertReference(reference)
+                    return
+                }
             }
         }
         // Let hovered names cross narrower graph columns without moving commit text.

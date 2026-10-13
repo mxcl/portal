@@ -3547,6 +3547,42 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return true
     }
 
+    @discardableResult
+    func insertReference(_ reference: String) -> Bool {
+        guard let tab = activeTab, tab.isShellReady, !tab.hasExited, !tab.isReplayingHistory,
+              !tab.isTerminalControlActive, !isCommandRunning(in: tab) else { return false }
+        dismissCompletion()
+        hideSessionPicker(for: tab)
+        exitFindMode(in: tab)
+        tab.commandLifecycle.apply(.resetHistorySelection)
+        tab.inputView.insertText(reference, replacementRange: tab.inputView.selectedRange())
+        tab.inputView.normalizePlainTextStorage()
+        focusInput(for: tab)
+        return true
+    }
+
+    static func referenceInsertionSelfTest() -> Bool {
+        let controller = TerminalViewController(restoresPersistedWindow: false)
+        controller.loadView()
+        let tab = TerminalTab(title: "test", delegate: controller)
+        controller.tabs = [tab]
+        controller.activeTabID = tab.id
+        guard !controller.insertReference("main") else { return false }
+        tab.commandLifecycle.apply(.shellReady(cwd: "/tmp"))
+        tab.inputView.string = "git diff old -- file"
+        tab.inputView.setSelectedRange(NSRange(location: 9, length: 3))
+        guard controller.insertReference("main"), tab.inputView.string == "git diff main -- file",
+              tab.inputView.selectedRange().location == 13, tab.commandCount == 0 else { return false }
+        tab.commandLifecycle.apply(.submit(command: "sleep 10", cwd: "/tmp", at: Date()))
+        guard !controller.insertReference("abc123"), tab.inputView.string == "git diff main -- file" else { return false }
+        tab.commandLifecycle.apply(.commandFinished(status: 0, isReplay: false, at: Date()))
+        tab.commandLifecycle.apply(.beginHistoryReplay)
+        guard !controller.insertReference("main") else { return false }
+        tab.commandLifecycle.apply(.finishHistoryReplay)
+        tab.commandLifecycle.apply(.shellExited(status: 0, at: Date()))
+        return !controller.insertReference("main")
+    }
+
     var onActivityChange: (() -> Void)?
     var onOutputActivity: (() -> Void)?
 

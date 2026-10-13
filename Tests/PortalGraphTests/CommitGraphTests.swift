@@ -438,3 +438,31 @@ func crowdedPrimaryLaneLabels() {
         }
     }
 }
+
+@Test("Branch label hit targets preserve each name through uppercase rendering and hover")
+func branchLabelHitTargets() throws {
+    let commits = (0..<12).map { index in
+        RepositoryCommit(oid: "c\(index)", parents: index < 11 ? ["c\(index + 1)"] : [],
+                         author: "", date: .distantPast, message: "commit")
+    }
+    let names = ["feature/Case", "main"]
+    let expanded = ["host/feature/Case", "host/main"]
+    let model = CommitGraphGenerator.generate(commits: commits, headOID: "c0",
+        branchNames: ["c0": names], hoverBranchNames: ["c0": expanded])
+    let label = try #require(model.branchLabels.first)
+    for hovered in [false, true] {
+        let targets = hovered ? label.hoverReferences : label.references
+        #expect(Set(targets.map(\.name)) == Set(hovered ? expanded : names))
+        for target in targets {
+            #expect(!target.outline.isEmpty)
+            let rect = target.outline.boundingRect
+            let hit = stride(from: rect.minY, through: rect.maxY, by: 1).contains { y in
+                stride(from: rect.minX, through: rect.maxX, by: 1).contains { x in
+                    label.reference(at: CGPoint(x: x, y: y), hovered: hovered) == target.name
+                }
+            }
+            #expect(hit)
+        }
+        #expect(label.reference(at: CGPoint(x: -1000, y: -1000), hovered: hovered) == nil)
+    }
+}

@@ -75,6 +75,14 @@ struct GraphBranchLabel: Sendable {
     let outline: Path
     let hoverOutline: Path
     let colorIndex: Int
+    var references: [(name: String, outline: Path)] = []
+    var hoverReferences: [(name: String, outline: Path)] = []
+
+    func reference(at point: CGPoint, hovered: Bool) -> String? {
+        (hovered ? hoverReferences : references).first {
+            $0.outline.strokedPath(StrokeStyle(lineWidth: 6)).contains(point)
+        }?.name
+    }
 
     static func make(names: [String: [String]], hoverNames: [String: [String]] = [:], commits: [RepositoryCommit], model: CommitGraphModel, preferredHost: String? = nil) -> [Self] {
         // Color changes split drawing paths, but labels still share the continuous lane's space.
@@ -108,13 +116,15 @@ struct GraphBranchLabel: Sendable {
             func label(at index: Int, onLeft: Bool, next: (index: Int, label: Self)?) -> (label: Self, fits: Bool) {
                 let anchor = group[index]
                 let dot = anchor.dot
-                func text(_ names: [String]) -> String {
-                    let names = names.map { $0.uppercased() }
+                func orderedNames(_ names: [String]) -> [String] {
                     let prefix = preferredHost.map { $0.uppercased() + "/" }
-                    let ordered = names.filter { prefix.map($0.hasPrefix) ?? false } +
-                        names.filter { !(prefix.map($0.hasPrefix) ?? false) }
+                    let ordered = names.filter { prefix.map($0.uppercased().hasPrefix) ?? false } +
+                        names.filter { !(prefix.map($0.uppercased().hasPrefix) ?? false) }
                     // The last name in an upward-reading line is physically at the top.
-                    return ordered.reversed().joined(separator: " · ")
+                    return ordered.reversed()
+                }
+                func text(_ names: [String]) -> String {
+                    orderedNames(names).map { $0.uppercased() }.joined(separator: " · ")
                 }
                 let name = text(anchor.names)
                 let route = routes.indices.contains(key) ? routes[key] : nil
@@ -161,11 +171,26 @@ struct GraphBranchLabel: Sendable {
                 let trimmed = path.trimmedPath(from: fraction(atY: start.y + 5), to: end)
                 let truncate = onLeft ? next != nil : group.count > 1
                 let full = outline(name, along: trimmed, onLeft: onLeft)
-                let fitted = truncate ? outline(name, along: trimmed, onLeft: onLeft, truncate: true) : full
-                return (Self(outline: fitted,
-                             hoverOutline: outline(name, along: trimmed, onLeft: onLeft, truncate: truncate,
-                                                   expanded: true, expandedText: text(anchor.hoverNames)),
-                             colorIndex: dot.colorIndex), !full.isEmpty && fitted == full)
+                func labeledOutline(_ names: [String], expanded: Bool) -> (Path, [(name: String, outline: Path)]) {
+                    var offset = 0
+                    let ranges = orderedNames(names).map { name -> (String, NSRange) in
+                        let length = (name.uppercased() as NSString).length
+                        defer { offset += length + 3 }
+                        return (name, NSRange(location: offset, length: length))
+                    }
+                    var targets = ranges.map { (name: $0.0, outline: Path()) }
+                    let shape = outline(name, along: trimmed, onLeft: onLeft, truncate: truncate,
+                                        expanded: expanded, expandedText: text(names)) { index, glyph in
+                        if let target = ranges.firstIndex(where: { NSLocationInRange(index, $0.1) }) {
+                            targets[target].outline.addPath(glyph)
+                        }
+                    }
+                    return (shape, targets)
+                }
+                let fitted = labeledOutline(anchor.names, expanded: false)
+                let hover = labeledOutline(anchor.hoverNames, expanded: true)
+                return (Self(outline: fitted.0, hoverOutline: hover.0, colorIndex: dot.colorIndex,
+                             references: fitted.1, hoverReferences: hover.1), !full.isEmpty && fitted.0 == full)
             }
             var placed: [Self] = []
             var nextRight: (index: Int, label: Self)?
@@ -189,7 +214,7 @@ struct GraphBranchLabel: Sendable {
         }
     }
 
-    static func outline(_ text: String, along path: Path, onLeft: Bool = false, truncate: Bool = false, expanded: Bool = false, expandedText: String? = nil) -> Path {
+    static func outline(_ text: String, along path: Path, onLeft: Bool = false, truncate: Bool = false, expanded: Bool = false, expandedText: String? = nil, onGlyph: ((Int, Path) -> Void)? = nil) -> Path {
         // Sample the existing curve once; glyphs use its tangent and distance, including lane bends.
         var start: CGPoint?
         path.forEach { element in
@@ -241,11 +266,14 @@ struct GraphBranchLabel: Sendable {
             var glyphs = [CGGlyph](repeating: 0, count: count)
             var positions = [CGPoint](repeating: .zero, count: count)
             var advances = [CGSize](repeating: .zero, count: count)
+            var indices = [CFIndex](repeating: 0, count: count)
+            CTRunGetStringIndices(run, CFRange(), &indices)
             CTRunGetGlyphs(run, CFRange(), &glyphs)
             CTRunGetPositions(run, CFRange(), &positions)
             CTRunGetAdvances(run, CFRange(), &advances)
             let runFont = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] as! CTFont
             for (index, glyph) in glyphs.enumerated() {
+                let stringIndex = indices[index]
                 let position = positions[index]
                 let halfAdvance = advances[index].width / 2
                 guard let shape = CTFontCreatePathForGlyph(runFont, glyph, nil) else { continue }
@@ -259,7 +287,9 @@ struct GraphBranchLabel: Sendable {
                                                   y: a.y + (b.y - a.y) * t)
                     .rotated(by: angle - .pi).scaledBy(x: 1, y: -1)
                     .translatedBy(x: -halfAdvance, y: 0)
-                result.addPath(Path(shape), transform: transform)
+                let glyphPath = Path(shape).applying(transform)
+                result.addPath(glyphPath)
+                onGlyph?(stringIndex, glyphPath)
             }
         }
         return result

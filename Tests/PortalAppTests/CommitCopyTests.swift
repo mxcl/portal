@@ -65,17 +65,35 @@ func selectedCommitCopyCommand() throws {
         #expect(pasteboard.string(forType: .string) == "selected text")
     }
 }
-@Test("SHA copy bubble reserves no action space in idle, hover, or copied states")
+@Test("Reference insertion resolves host labels and quotes shell metacharacters")
 @MainActor
-func commitCopyBubbleLayout() {
+func referenceArguments() {
+    let model = AppModel(connectToHelper: false)
+    let refs = [RepositoryReference(fullName: "refs/heads/feature/Case", oid: "abc"),
+                RepositoryReference(fullName: "refs/tags/v1.0", oid: "abc"),
+                RepositoryReference(fullName: "refs/heads/fix'$HOME", oid: "def"),
+                RepositoryReference(fullName: "refs/sync/peer/tags/v2", oid: "def")]
+    model.projectSnapshot = RepositorySnapshot(commits: [], references: refs, head: nil, branches: [])
+    for ref in refs {
+        let name = RepositoryReference.graphNames([ref], hosts: [], sourceMachine: nil,
+            allReferences: refs, tags: ref.isGraphTag, localMachine: model.configuration.machine).first!
+        let expected = ref.fullName.hasPrefix("refs/sync/") ? ref.fullName : ref.name
+        if expected.contains("'") {
+            #expect(model.gitReferenceArgument(name) == "'fix'\\''$HOME'")
+        } else {
+            #expect(model.gitReferenceArgument(name) == expected)
+        }
+    }
+    #expect(model.gitReferenceArgument(String(repeating: "a", count: 40)) == String(repeating: "a", count: 40))
+}
+
+@Test("SHA insertion button keeps the compact SHA width")
+@MainActor
+func commitSHALayout() {
     let sha = String(repeating: "a123", count: 10)
     let reference = NSHostingView(rootView: Text(sha.prefix(8)).monospaced()
         .padding(.horizontal, 5).padding(.vertical, 1).font(.caption))
-    let expected = reference.fittingSize
-    for (hovered, copied) in [(false, false), (true, false), (true, true)] {
-        let bubble = NSHostingView(rootView: CopyableCommitSHA(sha: sha, isHovered: hovered, isCopied: copied)
-            .font(.caption))
-        #expect(bubble.fittingSize == expected)
-    }
+    let button = NSHostingView(rootView: CommitSHA(sha: sha).font(.caption))
+    #expect(button.fittingSize == reference.fittingSize)
 }
 #endif

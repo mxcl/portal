@@ -31,6 +31,10 @@ struct TerminalIntegrationTests {
         #expect(updated)
     }
 
+    @Test @MainActor func referenceInsertionPreservesDraftAndRejectsBusySessions() {
+        #expect(TerminalViewController.referenceInsertionSelfTest())
+    }
+
     @Test @MainActor func startupStatusMatchesSessionIntent() {
         let statuses = TerminalViewController.sessionStartupStatusesSelfTest()
         #expect(statuses.count == 5)

@@ -1520,6 +1520,37 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func insertGitReference(_ value: String) {
+        guard let project = selectedProjectName else { NSSound.beep(); return }
+        let host: TerminalHost?
+        if case .host(let id) = selectedProjectHostSource {
+            guard let selected = terminalHosts.first(where: { $0.id == id.uuidString }) else { NSSound.beep(); return }
+            host = selected
+        } else { host = nil }
+        guard placement(of: project, on: host.flatMap { UUID(uuidString: $0.id) }) == .checkedOut,
+              let directory = host.map({ URL(fileURLWithPath: $0.directory).appendingPathComponent(project) }) ?? selectedLocalRepositoryURL
+        else { NSSound.beep(); return }
+        guard terminals.insertReference(gitReferenceArgument(value), project: project, directory: directory, hosts: terminalHosts, host: host)
+        else { NSSound.beep(); return }
+        selectCommit(nil)
+        selectedTab = .terminal
+    }
+
+    func gitReferenceArgument(_ value: String) -> String {
+        // Graph labels include friendly host names; insert the actual Git ref instead.
+        let refs = projectSnapshot?.references ?? []
+        let reference = refs.first { ref in
+            [false, true].contains { expanded in
+                RepositoryReference.graphNames([ref], hosts: configuration.hosts, sourceMachine: projectSourceMachine,
+                    allReferences: refs, tags: ref.isGraphTag, localMachine: configuration.machine, expanded: expanded).contains(value)
+            } || ref.displayName(hosts: configuration.hosts) == value
+        }
+        let name = reference.map { $0.fullName.hasPrefix("refs/sync/") ? $0.fullName : $0.name }
+            ?? projectSnapshot?.auxiliaryHistoryLabels.first(where: { $0.value.contains(value) })?.key ?? value
+        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-")
+        return name.unicodeScalars.allSatisfy(safe.contains) ? name : "'" + name.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     func openPaletteResult(_ result: PaletteResult) {
         cancelPaletteCommand()
         guard editor.confirmDiscard() else { return }
@@ -1878,6 +1909,7 @@ struct ProjectBrowserView: View {
                 ContentUnavailableView("Select a Project", systemImage: "sidebar.left")
             }
         }
+        .environment(\.insertGitReference, model.insertGitReference)
         .navigationSplitViewStyle(.balanced)
         // Use the system Copy command so text responders take priority and Edit flashes.
         .copyable(model.selectedCommit.map { [$0.oid] } ?? [])
@@ -2176,6 +2208,7 @@ private struct ProjectHistoryView: View {
 }
 
 private struct CommitList: View {
+    @Environment(\.insertGitReference) private var insertReference
     @State private var hoveredLabel: Int?
     let snapshot: RepositorySnapshot
     let hosts: [SyncHost]
@@ -2262,7 +2295,7 @@ private struct CommitList: View {
                 return "\(item.host): \(changes?.isEmpty == true ? "Clean" : changes?.summary ?? "Unavailable")"
             }.joined(separator: "\n")
             HStack(alignment: .top, spacing: 8) {
-                BranchGraphRowCanvas(model: graph, rowIndex: index, commitOID: checkout.id, hoveredLabel: $hoveredLabel)
+                BranchGraphRowCanvas(model: graph, rowIndex: index, commitOID: checkout.id, hoveredLabel: $hoveredLabel, onInsertReference: insertReference)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .firstTextBaseline) {
                         Text("Staging").fixedSize()
@@ -2328,6 +2361,7 @@ func compactCommitAge(from date: Date, to now: Date, calendar: Calendar = .curre
 }
 
 private struct CommitRow: View {
+    @Environment(\.insertGitReference) private var insertReference
     let commit: RepositoryCommit
     let isCurrent: Bool
     let references: [RepositoryReference]
@@ -2341,20 +2375,22 @@ private struct CommitRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            BranchGraphRowCanvas(model: graph, rowIndex: rowIndex, commitOID: commit.oid, hoveredLabel: $hoveredLabel)
+            BranchGraphRowCanvas(model: graph, rowIndex: rowIndex, commitOID: commit.oid, hoveredLabel: $hoveredLabel, onInsertReference: insertReference)
             VStack(alignment: .leading, spacing: 4) {
                 Text(commit.subject).lineLimit(1)
                 HStack {
                     Text(commit.author)
-                    CopyableCommitSHA(sha: commit.oid)
+                    CommitSHA(sha: commit.oid)
                     ForEach(RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine,
                                                           allReferences: allReferences, tags: true), id: \.self) { tag in
-                        Label(tag, systemImage: "tag")
+                        Button { insertReference(tag) } label: {
+                            Label(tag, systemImage: "tag")
                             .font(.caption2)
                             .lineLimit(1)
                             .padding(.horizontal, 5).padding(.vertical, 2)
                             .background(.quaternary, in: Capsule())
-                            .help(tag)
+                        }.buttonStyle(.plain)
+                            .help("Insert \(tag) into terminal")
                     }
                     Spacer()
                     TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -2373,65 +2409,43 @@ private struct CommitRow: View {
                 .padding(.leading, BranchGraphRowCanvas.graphWidth(model: graph, commitOID: commit.oid) + 8)
                 .offset(y: 4)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
+        .accessibilityActions {
+            ForEach(RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine,
+                allReferences: allReferences), id: \.self) { name in
+                Button("Insert \(name) into terminal") { insertReference(name) }
+            }
+        }
         .help((RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine, allReferences: allReferences, expanded: true) + auxiliaryLabels).joined(separator: "\n"))
         .accessibilityValue(([isCurrent ? "Checked out commit" : ""] +
             RepositoryReference.graphNames(references, hosts: hosts, sourceMachine: sourceMachine, allReferences: allReferences, expanded: true) + auxiliaryLabels).filter { !$0.isEmpty }.joined(separator: ", "))
     }
 }
 
-struct CopyableCommitSHA: View {
-    let sha: String
-    @State private var isHovered = false
-    @State private var isCopied = false
+private struct InsertGitReferenceKey: EnvironmentKey {
+    static let defaultValue: (String) -> Void = { _ in NSSound.beep() }
+}
 
-    init(sha: String, isHovered: Bool = false, isCopied: Bool = false) {
-        self.sha = sha
-        _isHovered = State(initialValue: isHovered)
-        _isCopied = State(initialValue: isCopied)
+extension EnvironmentValues {
+    var insertGitReference: (String) -> Void {
+        get { self[InsertGitReferenceKey.self] }
+        set { self[InsertGitReferenceKey.self] = newValue }
     }
+}
+
+struct CommitSHA: View {
+    let sha: String
+    @Environment(\.insertGitReference) private var insertReference
 
     var body: some View {
-        Text(sha.prefix(8))
-            .monospaced()
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .hidden()
-            .overlay(alignment: .leading) {
-                Button(action: copy) {
-                    HStack(spacing: 5) {
-                        Text(sha.prefix(8)).monospaced()
-                        if isHovered || isCopied {
-                            Text(isCopied ? "COPIED" : "COPY")
-                                .font(.caption2.weight(.semibold))
-                        }
-                    }
-                    .fixedSize()
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background {
-                        if isHovered || isCopied {
-                            Capsule().fill(.regularMaterial)
-                        }
-                    }
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .onHover {
-                    isHovered = $0
-                    if !$0 { isCopied = false }
-                }
-                .help("Copy full commit SHA: \(sha)")
-                .accessibilityLabel(isCopied ? "Copied commit SHA" : "Copy commit SHA")
-                .accessibilityValue(sha)
-            }
-            .zIndex(isHovered || isCopied ? 1 : 0)
-            .onChange(of: sha) { _, _ in isCopied = false }
-    }
-
-    private func copy() {
-        NSPasteboard.general.clearContents()
-        isCopied = NSPasteboard.general.setString(sha, forType: .string)
+        Button { insertReference(sha) } label: {
+            Text(sha.prefix(8)).monospaced()
+                .padding(.horizontal, 5).padding(.vertical, 1)
+        }
+        .buttonStyle(.plain)
+        .help("Insert commit SHA into terminal: \(sha)")
+        .accessibilityLabel("Insert commit SHA into terminal")
+        .accessibilityValue(sha)
     }
 }
 
@@ -2649,6 +2663,7 @@ private extension ProjectPlacement {
 }
 
 private struct CommitDetail: View {
+    @Environment(\.insertGitReference) private var insertReference
     let commit: RepositoryCommit
     let references: [RepositoryReference]
     let sourceMachine: String?
@@ -2702,22 +2717,22 @@ private struct CommitDetail: View {
         Group {
             HStack {
                 Text("Commit").foregroundStyle(.secondary)
-                CopyableCommitSHA(sha: commit.oid)
+                CommitSHA(sha: commit.oid)
             }
             if !commit.parents.isEmpty {
                 HStack(alignment: .top) {
                     Text(commit.parents.count == 1 ? "Parent" : "Parents").foregroundStyle(.secondary)
                     VStack(alignment: .leading) {
-                        ForEach(commit.parents, id: \.self) { CopyableCommitSHA(sha: $0) }
+                        ForEach(commit.parents, id: \.self) { CommitSHA(sha: $0) }
                     }
                 }
             }
             if !referenceNames.isEmpty {
-                Label(referenceNames.joined(separator: ", "),
-                      systemImage: "point.3.connected.trianglepath.dotted")
-                    .textSelection(.enabled)
-                    .accessibilityLabel("References")
-                    .accessibilityValue(referenceNames.joined(separator: ", "))
+                ForEach(referenceNames, id: \.self) { name in
+                    Button { insertReference(name) } label: {
+                        Label(name, systemImage: "point.3.connected.trianglepath.dotted")
+                    }.buttonStyle(.plain).help("Insert \(name) into terminal")
+                }
             }
         }
     }

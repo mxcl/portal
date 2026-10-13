@@ -266,6 +266,12 @@ public final class TerminalWorkspace: ObservableObject {
         return controller.prefillPaletteCommand(command.command, sessionRef: command.sessionRef)
     }
 
+    public func insertReference(_ reference: String, project: String, directory: URL, hosts: [TerminalHost], host: TerminalHost? = nil) -> Bool {
+        let controller = controller(project: project, directory: directory, hosts: hosts, host: host, activates: false)
+        _ = controller.view
+        return controller.insertReference(reference)
+    }
+
     public func focusPreparedCommand(_ command: ProjectTerminalCommand) {
         let path = (command.hostID ?? "local") + ":" + command.directory.standardizedFileURL.path
         controllers[path]?.windowDidAttach()

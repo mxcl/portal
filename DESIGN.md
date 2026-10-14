@@ -435,8 +435,53 @@ indefinitely.
 ## Repository and ref state
 
 Paths are not sent as identity. Within a paired parent, the validated child
-name identifies a project. Renaming is therefore a new project in v1; a future
-explicit pairing database can replace this without changing the wire framing.
+name identifies a project. Project → Rename… explicitly coordinates a name change
+across the configured roots and backup destination. It uses the existing native
+alert and engine command flow; the selected project follows the new name on success.
+
+Rename requires reachable, compatible configured hosts. Each root first records
+both names in `.portal-renames.json`, under `.portal-rename.lock`. Portal's sync,
+placement, restore, GitHub fetch/cleanup, backup writes and editor saves take shared
+operation locks; rename takes a nonblocking exclusive lock and fails if busy.
+Discovery fails while a rename is unfinished, preserving the previous inventory.
+This deliberately suspends discovery/sync for the root until recovery, rather than
+adding per-project scheduling. Ordinary user Git commands, external editors and
+terminal sessions are not coordinated; close them before renaming.
+
+After all roots are prepared, the backup directory and its catalog metadata move
+first, followed by the working repositories. Each directory move is an atomic,
+same-filesystem, no-replace rename. Missing copies remain missing. Symlinked
+repositories, linked worktrees, case-only renames, hidden destination names and
+reuse of retired names are rejected. GitHub repository names and origins are
+unchanged. Each host's branches, tags, stash, HEAD, index and working files remain
+its own. Permanent merged-branch backup objects retain their historical metadata.
+
+Only after every move is acknowledged does the coordinator release the new name.
+The old name stays retired so stale catalogs cannot recreate it. Session guards
+reject messages/scans after the root's rename record changes. Reconnected sessions
+resolve old allow-lists, configure peer URLs using the new name, and migrate ref
+ordering keys through the existing state-file owner, retaining epochs and
+generations. A recorded operation ID makes that migration apply once. App folder
+selections likewise follow completed records. Sync protocol v6 rejects older
+unguarded peers; engine-control v12 and backup-control v8 carry explicit rename.
+Ref updates still provide per-ref atomicity and eventual snapshot consistency;
+there is no cross-host rename transaction.
+
+On failure, stop immediately, attempt to suspend every contacted root, and report
+renamed, unchanged, or unknown outcomes plus any unconfirmed suspension. There is
+no automatic retry or rollback. Records survive process restart. If the final
+release partially succeeds and a host becomes unreachable, suspension there
+cannot be guaranteed; the old name remains retired there nonetheless.
+
+Manual recovery: inspect both directories and `.portal-renames.json` on every
+host (including the backup root), finish the intended directory/configuration
+repairs without overwriting either copy, and verify the backup catalog under the
+backup destination's existing index owner. A move with a lost acknowledgement
+must be inspected, never blindly repeated. Once all roots are verified moved,
+mark that operation's `moved` and `complete` fields true under the root lock on
+every host, then resume Portal. Keep the completed records: they prevent stale
+catalog recreation and carry configuration/state migration. Do not remove a
+record to clear an error.
 
 Source refs map through a closed API:
 

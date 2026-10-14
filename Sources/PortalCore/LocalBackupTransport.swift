@@ -16,10 +16,11 @@ public enum LocalBackupTransport {
 }
 
 public enum BackupControlProtocol {
-    public static let version = 7
+    public static let version = 8
 }
 
 public enum BackupControlAction: String, Codable, Sendable {
+    case rename
     case list
     case archive
     case delete
@@ -43,11 +44,13 @@ public struct BackupControlRequest: Codable, Sendable {
     public let query: String?
     public let searchVersion: Int?
     public let refresh: Bool?
+    public let rename: ProjectRename.Record?
+    public let renameStep: ProjectRename.Step?
 
     public init(version: Int = BackupControlProtocol.version, action: BackupControlAction,
                 repository: String? = nil, snapshotID: String? = nil,
                 oid: String? = nil, machine: String? = nil, repositories: [String]? = nil,
-                mergedBranch: MergedBranchBackup? = nil, refresh: Bool? = nil, query: String? = nil, searchVersion: Int? = nil) {
+                rename: ProjectRename.Record? = nil, renameStep: ProjectRename.Step? = nil, mergedBranch: MergedBranchBackup? = nil, refresh: Bool? = nil, query: String? = nil, searchVersion: Int? = nil) {
         self.version = version
         self.action = action
         self.repository = repository
@@ -59,6 +62,8 @@ public struct BackupControlRequest: Codable, Sendable {
         self.query = query
         self.searchVersion = searchVersion
         self.refresh = refresh
+        self.rename = rename
+        self.renameStep = renameStep
     }
 }
 
@@ -142,7 +147,18 @@ public enum BackupControlService {
             guard request.version == BackupControlProtocol.version else {
                 throw SyncError.invalidProtocol("Unsupported backup control protocol version: \(request.version)")
             }
+            let access = request.action == .rename ? nil : try ProjectAccess(root: root,
+                names: request.repositories ?? request.repository.map { [$0] } ?? request.mergedBranch.map { [$0.project] } ?? [])
+            defer { withExtendedLifetime(access) {} }
             switch request.action {
+            case .rename:
+                guard let record = request.rename, let step = request.renameStep else {
+                    throw SyncError.invalidProtocol("Rename request is incomplete")
+                }
+                try index.rename(record, step: step, in: root)
+                onChange()
+                try BackupControlConnection.send(BackupControlResponse(), to: connection)
+
             case .retainMergedBranch:
                 guard let backup = request.mergedBranch else {
                     throw SyncError.invalidProtocol("Merged branch backup request is incomplete")

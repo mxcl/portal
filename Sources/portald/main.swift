@@ -120,6 +120,9 @@ do {
         }
     case "inspect":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
+        guard try !ProjectRename.records(in: root).contains(where: { !$0.complete }) else {
+            throw SyncError.invalidConfiguration("A project rename requires completion or manual recovery on this host.")
+        }
         let repositories = try Repository.discover(in: root)
         let inspection = PeerInspection(version: SyncProtocol.version,
                                         machine: value("--machine", in: arguments) ?? Configuration.defaultMachine,
@@ -157,6 +160,16 @@ do {
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
         let result = try ProjectRestoreRequest.receive(from: .standardInput, to: root)
         print(String(decoding: try JSONEncoder().encode(result), as: UTF8.self))
+    case "rename-project":
+        guard try required("--rename-version", in: arguments) == "1",
+              let step = ProjectRename.Step(rawValue: try required("--step", in: arguments)),
+              let data = Data(base64Encoded: try required("--record", in: arguments)) else {
+            throw SyncError.invalidProtocol("Unsupported rename request")
+        }
+        let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
+        let record = try JSONDecoder().decode(ProjectRename.Record.self, from: data)
+        try ProjectRename.perform(step, record: record, in: root)
+        print("ok")
     case "project-state":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
         let name = try required("--repository", in: arguments)

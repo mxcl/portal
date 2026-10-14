@@ -88,6 +88,8 @@ extension Repository {
 
     /// Fetch tracking branches and origin tags with explicit destinations, never remote.*.fetch.
     public func fetchGitHub(_ repository: String, peerMachines: [String]) throws {
+        let access = try ProjectAccess(root: url.deletingLastPathComponent(), names: [name])
+        defer { withExtendedLifetime(access) {} }
         guard placement == .checkedOut else {
             throw SyncError.invalidConfiguration("GitHub fetch requires a local checkout")
         }

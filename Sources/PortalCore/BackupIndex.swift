@@ -124,6 +124,21 @@ public final class BackupIndex: @unchecked Sendable {
         }
     }
 
+    public func rename(_ record: ProjectRename.Record, step: ProjectRename.Step, in root: URL) throws {
+        try ProjectRename.perform(step, record: record, in: root, bare: true) {
+            self.inventoryLock.lock(); defer { self.inventoryLock.unlock() }
+            self.lock.lock(); defer { self.lock.unlock() }
+            for key in self.document.catalogs.keys {
+                if self.document.catalogs[key]!.repositories.remove(record.old) != nil {
+                    self.document.catalogs[key]!.repositories.insert(record.new)
+                }
+            }
+            if self.document.archived.remove(record.old) != nil { self.document.archived.insert(record.new) }
+            try self.save()
+            self.scannedAt = nil
+        }
+    }
+
     public func archive(_ name: String, in root: URL) throws {
         try Validator.project(name)
         guard try items(in: root).first(where: { $0.name == name })?.status == .archived else {
@@ -139,6 +154,8 @@ public final class BackupIndex: @unchecked Sendable {
 
     /// Explicit user deletion; never called by background retention or replication.
     public func delete(_ name: String, in root: URL) throws {
+        let access = try ProjectAccess(root: root, names: [name])
+        defer { withExtendedLifetime(access) {} }
         try Validator.project(name)
         inventoryLock.lock(); defer { inventoryLock.unlock() }
         lock.lock(); defer { lock.unlock() }
@@ -291,6 +308,8 @@ public final class BackupIndex: @unchecked Sendable {
 
     private static func restoreSource(_ name: String, snapshot: BackupSnapshot,
                                      from source: URL, to projectsRoot: URL) throws {
+        let access = try ProjectAccess(root: projectsRoot, names: [name])
+        defer { withExtendedLifetime(access) {} }
         let manager = FileManager.default
         let target = projectsRoot.appendingPathComponent(name, isDirectory: true)
         guard !manager.fileExists(atPath: target.path) else {

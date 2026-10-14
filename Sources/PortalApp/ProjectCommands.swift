@@ -20,6 +20,8 @@ struct ProjectCommands: Commands {
             Button("Open on GitHub") { model?.openSelectedProjectOnGitHub() }
                 .disabled(model?.projectGitHubURL == nil)
             Divider()
+            Button("Rename…") { model?.renameSelectedProject() }
+                .disabled(model?.selectedProjectName == nil || model?.placementInProgress != nil)
             Button("Archive…") { model?.archiveSelectedProject() }
                 .disabled(model?.canArchiveSelectedProject != true)
         }

@@ -2,6 +2,7 @@ import Foundation
 
 public final class SyncSession {
     private let root: URL
+    private let renameRecords: [ProjectRename.Record]
     private let machine: String
     private let includedRepositories: Set<String>?
     private let peerRepositoryLocation: PeerRepositoryLocation?
@@ -40,10 +41,14 @@ public final class SyncSession {
         try peerRepositoryLocation?.validate()
         self.root = root
         self.machine = machine
-        includedRepositories = repositories
+        let access = try ProjectAccess(root: root)
+        defer { withExtendedLifetime(access) {} }
+        renameRecords = access.records
+        includedRepositories = repositories.map { Set($0.map { ProjectRename.resolved($0, records: access.records) }) }
         self.peerRepositoryLocation = peerRepositoryLocation
         connection = FramedConnection(input: input, output: output)
         state = try StateStore(url: stateURL)
+        try state.applyRenames(access.records)
         self.backupProgress = backupProgress
         self.isInitiator = isInitiator
         self.receiveOnly = receiveOnly
@@ -116,6 +121,9 @@ public final class SyncSession {
     private func receiveLoop() throws {
         while true {
             let message = try connection.receiveMessage()
+            let names = message.repositories ?? message.update.map { [$0.repository] } ?? message.repository.map { [$0] } ?? []
+            let access = try ProjectAccess(root: root, names: names, expected: renameRecords)
+            defer { withExtendedLifetime(access) {} }
             switch message.type {
             case "hello":
                 let (peer, epoch) = try message.validatedHello()
@@ -245,6 +253,8 @@ public final class SyncSession {
     @discardableResult
     private func sendUpdates(for repository: Repository, full: Bool,
                              excluding excluded: Set<String> = []) throws -> Set<String> {
+        let access = try ProjectAccess(root: root, names: [repository.name], expected: renameRecords)
+        defer { withExtendedLifetime(access) {} }
         lock.lock(); let initialKnown = peerKnown[repository.name]; lock.unlock()
         guard var known = initialKnown else { return [] }
         let stored = try state.updates(machine: machine, repository: repository.name,
@@ -273,6 +283,8 @@ public final class SyncSession {
     }
 
     private func refreshCatalog() throws {
+        let access = try ProjectAccess(root: root, expected: renameRecords)
+        defer { withExtendedLifetime(access) {} }
         let found = try Repository.discover(in: root, including: includedRepositories)
         for repository in found { try configureRemote(for: repository) }
         lock.lock(); repositories = Dictionary(uniqueKeysWithValues: found.map { ($0.name, $0) }); lock.unlock()

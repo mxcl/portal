@@ -5,7 +5,7 @@ import Foundation
 import PortalCore
 
 public enum EngineControlProtocol {
-    public static let version = 11
+    public static let version = 12
     public static let showPaletteNotification = Notification.Name("dev.mxcl.portal.show-palette")
     public static let changedNotification = Notification.Name("dev.mxcl.portal.engine-changed")
     public static var socketURL: URL {
@@ -22,6 +22,7 @@ public enum EngineCommand: Codable, Sendable {
     case resume
     case refresh
     case addHost(peer: String, root: String, executable: String, allowNameCollisions: Bool)
+    case renameProject(old: String, new: String)
     case renameHost(id: UUID, name: String)
     case removeHost(UUID)
     case setBackupDestination(String)
@@ -236,6 +237,8 @@ public final class EngineModel: ObservableObject {
             case let .addHost(peer, root, executable, allowNameCollisions):
                 collisions = try await addHost(peer: peer, root: root, executable: executable,
                                                allowNameCollisions: allowNameCollisions)
+            case let .renameProject(old, new):
+                try await renameProject(old, to: new)
             case let .renameHost(id, name):
                 try renameHost(id: id, name: name)
             case .removeHost(let id):
@@ -321,6 +324,62 @@ public final class EngineModel: ObservableObject {
             return .notPresent
         }
         return localProjects[project]?.placement ?? .unknown
+    }
+
+    private func renameProject(_ old: String, to new: String) async throws {
+        guard placementInProgress == nil, restoringBackup == nil else {
+            throw EngineControlError.message("Wait for the current project operation to finish.")
+        }
+        let record = ProjectRename.Record(old: old, new: new)
+        try ProjectRename.validate(record)
+        let root = expandedRoot
+        let backupRoot = try configuration.validatedBackupDestination()
+        let index = backupIndex
+        let backup = backupRoot == nil ? try backupControlConfiguration() : nil
+        let connections = configuration.hosts.map { host in
+            Configuration(root: configuration.root, machine: configuration.machine,
+                peer: host.peer, remoteRoot: host.root, remoteExecutable: host.executable,
+                remoteMachine: host.machine)
+        }
+        placementInProgress = "rename"
+        error = nil
+        defer { placementInProgress = nil }
+        // The durable root guards also cover incoming sessions and other initiating Macs.
+        stopProcesses()
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                for connection in connections { _ = try Runner.inspectPeer(connection) }
+                if let backup { _ = try Runner.backupItems(backup) }
+                var targets: [ProjectRename.Target] = []
+                if let backupRoot {
+                    guard let index else { throw EngineControlError.message("Backup index is unavailable.") }
+                    targets.append(.init(name: "Backup: \(backupRoot.path)") { step in
+                        try index.rename(record, step: step, in: backupRoot)
+                    })
+                } else if let backup {
+                    targets.append(.init(name: "Backup: \(backup.peer)") { step in
+                        try Runner.renameBackup(record, step: step, configuration: backup)
+                    })
+                }
+                targets.append(.init(name: root.path) { step in
+                    try ProjectRename.perform(step, record: record, in: root)
+                })
+                for connection in connections {
+                    targets.append(.init(name: "\(connection.peer):\(connection.remoteRoot)") { step in
+                        try Runner.renameProject(record, step: step, configuration: connection)
+                    })
+                }
+                try ProjectRename.coordinate(targets)
+            }.value
+            try configuration.applyRenames()
+            try save()
+            refreshLocal()
+            if !isPaused { try launchAll() }
+        } catch {
+            isPaused = true
+            status = "Rename needs attention"
+            throw error
+        }
     }
 
     public func setPlacement(_ placement: ProjectPlacement, project: String, hostID: UUID?, branch: String? = nil) {
@@ -584,6 +643,7 @@ public final class EngineModel: ObservableObject {
     }
 
     private func save() throws {
+        try configuration.applyRenames()
         guard FileManager.default.fileExists(atPath: expandedRoot.path) else {
             throw SyncError.invalidConfiguration("Source folder does not exist: \(configuration.root)")
         }
@@ -654,6 +714,7 @@ public final class EngineModel: ObservableObject {
     }
 
     private func launchAll() throws {
+        try configuration.applyRenames()
         guard syncProcesses.isEmpty, backupReceiver == nil, localBackup == nil else { return }
         let helper = executableURL
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
@@ -963,7 +1024,10 @@ public final class EngineModel: ObservableObject {
     }
 
     private func projectsChanged(_ change: ProjectChange, hostID: UUID?) async throws {
+        let renames = try ProjectRename.records(in: expandedRoot)
+        guard !renames.contains(where: { !$0.complete || change.projects[$0.old] != nil }) else { return }
         let original = configuration
+        try configuration.applyRenames()
         let projects = change.projects.values.map(\.project).sorted { $0.name < $1.name }
         if let hostID {
             guard let host = configuration.hosts.first(where: { $0.id == hostID }) else { return }

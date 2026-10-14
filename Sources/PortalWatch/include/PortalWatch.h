@@ -18,3 +18,6 @@ void portal_observer_paths(portal_observer *, portal_path_callback, void *);
 
 // Wait for client data or EOF. Zero means its lease expired.
 int portal_wait_for_input(int descriptor, int timeout_ms);
+
+// Atomic same-filesystem rename; never replaces an existing destination.
+int portal_rename_exclusive(const char *source, const char *destination);

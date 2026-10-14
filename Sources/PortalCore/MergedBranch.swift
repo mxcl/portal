@@ -102,6 +102,8 @@ extension Repository {
 
     /// The caller must obtain a matching permanent backup receipt before calling this.
     public func deleteMergedBranch(_ backup: MergedBranchBackup, receipt: MergedBranchBackup) throws -> MergedBranchEligibility {
+        let access = try ProjectAccess(root: url.deletingLastPathComponent(), names: [name])
+        defer { withExtendedLifetime(access) {} }
         guard receipt == backup, backup.project == name else {
             throw SyncError.invalidProtocol("Merged branch backup receipt does not match")
         }
@@ -117,6 +119,8 @@ extension Repository {
 extension BackupIndex {
     /// Pins objects previously received by replication; never trusts an inventory or source-side ACK.
     public static func retainMergedBranch(_ backup: MergedBranchBackup, in root: URL) throws -> MergedBranchBackup {
+        let access = try ProjectAccess(root: root, names: [backup.project])
+        defer { withExtendedLifetime(access) {} }
         try backup.merge.validate()
         try Validator.machine(backup.machine)
         try Validator.project(backup.project)

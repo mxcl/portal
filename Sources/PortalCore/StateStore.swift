@@ -11,6 +11,7 @@ private struct StateDocument: Codable {
     var source: [String: StoredRef] = [:]
     var inbound: [String: UInt64] = [:]
     var sourceEpoch: String?
+    var renames: Set<UUID>?
 }
 
 private final class StateFileLock {
@@ -52,6 +53,35 @@ public final class StateStore {
         sourceEpoch = document.sourceEpoch!
         try Validator.epoch(sourceEpoch)
         try save()
+    }
+
+    public func applyRenames(_ records: [ProjectRename.Record]) throws {
+        lock.lock(); defer { lock.unlock() }
+        for record in records where record.complete && !(document.renames ?? []).contains(record.id) {
+            // Discard historical state for a reused destination, then preserve the source generations.
+            for key in Array(document.source.keys) where key.components(separatedBy: "\u{1f}")[1] == record.new {
+                document.source.removeValue(forKey: key)
+            }
+            for key in Array(document.inbound.keys) where key.components(separatedBy: "\u{1f}")[2] == record.new {
+                document.inbound.removeValue(forKey: key)
+            }
+            for key in Array(document.source.keys) {
+                var parts = key.components(separatedBy: "\u{1f}")
+                if parts[1] == record.old {
+                    parts[1] = record.new
+                    document.source[parts.joined(separator: "\u{1f}")] = document.source.removeValue(forKey: key)
+                }
+            }
+            for key in Array(document.inbound.keys) {
+                var parts = key.components(separatedBy: "\u{1f}")
+                if parts[2] == record.old {
+                    parts[2] = record.new
+                    document.inbound[parts.joined(separator: "\u{1f}")] = document.inbound.removeValue(forKey: key)
+                }
+            }
+            document.renames = (document.renames ?? []).union([record.id])
+            try save()
+        }
     }
 
     public func updates(machine: String, repository: String, refs: [String: String], full: Bool) throws -> [RefUpdate] {

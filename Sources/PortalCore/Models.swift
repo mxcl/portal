@@ -4,7 +4,7 @@ import SystemConfiguration
 #endif
 
 public enum SyncProtocol {
-    public static let version = 5
+    public static let version = 6
 }
 
 public struct Configuration: Codable, Equatable, Sendable {
@@ -185,7 +185,7 @@ public struct SyncHost: Codable, Equatable, Identifiable, Sendable {
 
 public struct SyncFolder: Codable, Equatable, Identifiable, Sendable {
     public var id: String { name }
-    public let name: String
+    public var name: String
     public var isLocal: Bool
     public var hosts: Set<UUID>
     public var availableLocally: Bool
@@ -245,7 +245,25 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         self.syncCheckouts = syncCheckouts
     }
 
+    public mutating func applyRenames() throws {
+        guard !root.isEmpty else { return }
+        let records = try ProjectRename.records(in: URL(fileURLWithPath: NSString(string: root).expandingTildeInPath))
+        var renamed: [SyncFolder] = []
+        for var folder in folders {
+            folder.name = ProjectRename.resolved(folder.name, records: records)
+            if let i = renamed.firstIndex(where: { $0.name == folder.name }) {
+                renamed[i].isLocal = renamed[i].isLocal || folder.isLocal
+                renamed[i].availableLocally = renamed[i].availableLocally || folder.availableLocally
+                renamed[i].hosts.formUnion(folder.hosts)
+                renamed[i].availableHosts.formUnion(folder.availableHosts)
+            } else { renamed.append(folder) }
+        }
+        folders = renamed
+    }
+
     public mutating func discoverLocal(_ names: [String]) throws {
+        try applyRenames()
+        if !root.isEmpty, try ProjectRename.records(in: URL(fileURLWithPath: NSString(string: root).expandingTildeInPath)).contains(where: { !$0.complete }) { return }
         let normalized = try validatedNames(names)
         let found = Set(normalized)
         for index in folders.indices {

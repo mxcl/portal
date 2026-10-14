@@ -24,6 +24,20 @@ public enum Runner {
         return overlap(local: local, remote: try inspectPeer(configuration).repositories)
     }
 
+    public static func renameProject(_ record: ProjectRename.Record, step: ProjectRename.Step,
+                                     configuration: Configuration) throws {
+        let data = try JSONEncoder().encode(record)
+        _ = try runRemote(configuration, arguments: ["rename-project", "--root", configuration.remoteRoot,
+            "--rename-version", "1", "--step", step.rawValue, "--record", data.base64EncodedString()],
+            failure: "Rename failed or its outcome is unknown on \(configuration.peer)")
+    }
+
+    public static func renameBackup(_ record: ProjectRename.Record, step: ProjectRename.Step,
+                                    configuration: Configuration) throws {
+        _ = try backupControl(BackupControlRequest(action: .rename, rename: record, renameStep: step),
+                              configuration: configuration)
+    }
+
     public static func setPeerPlacement(_ placement: ProjectPlacement, repository: String,
                                         branch: String? = nil, configuration: Configuration) throws -> PeerProject {
         try configuration.validate()
@@ -105,6 +119,9 @@ public enum Runner {
                                logger: @escaping (String) -> Void = { _ in }) throws {
         try configuration.validate()
         while true {
+            var configuration = configuration
+            let records = try ProjectRename.records(in: configuration.expandedRoot)
+            configuration.repositories = configuration.repositories.map { $0.map { ProjectRename.resolved($0, records: records) } }
             let process = Process(), input = Pipe(), output = Pipe()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
             let isBackup = configuration.remoteReceiveOnly == true
@@ -478,7 +495,12 @@ public enum OneShot {
                             repositoryObserver: ((String) -> Void)? = nil,
                             backupProgress: ((BackupProgress) -> Void)? = nil) throws -> [String] {
         try Validator.machine(machine)
+        try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
+        let sourceAccess = try ProjectAccess(root: sourceRoot)
+        let destinationAccess = try ProjectAccess(root: destinationRoot)
+        defer { withExtendedLifetime((sourceAccess, destinationAccess)) {} }
         let state = try StateStore(url: stateURL)
+        try state.applyRenames(sourceAccess.records)
         let sources = try Repository.discover(in: sourceRoot)
         for source in sources {
             let destination = try Repository.ensure(name: source.name, in: destinationRoot,

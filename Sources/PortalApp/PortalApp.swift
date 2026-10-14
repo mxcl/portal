@@ -1054,6 +1054,44 @@ final class AppModel: ObservableObject {
         return !archiveHosts(for: project).isEmpty
     }
 
+    func renameSelectedProject() {
+        guard let project = selectedProjectName, placementInProgress == nil,
+              editor.confirmDiscard() else { return }
+        let field = NSTextField(string: project)
+        field.frame = NSRect(x: 0, y: 0, width: 300, height: 24)
+        field.setAccessibilityLabel("New project name")
+        let alert = NSAlert()
+        alert.messageText = "Rename \(project)?"
+        alert.informativeText = "All configured hosts must be online. The backup is renamed first, then the project folders. If any step fails, syncing stays suspended for manual recovery. Close editors and commands using this project first."
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let record = ProjectRename.Record(old: project, new: field.stringValue)
+        do { try ProjectRename.validate(record) }
+        catch { self.error = error.localizedDescription; return }
+        pendingPlacement = "rename"
+        placementInProgress = pendingPlacement
+        error = nil
+        updateRepositoryWatcher()
+        Task {
+            defer {
+                pendingPlacement = nil
+                placementInProgress = nil
+                updateRepositoryWatcher()
+            }
+            do {
+                let reply = try await sendCommand(.renameProject(old: record.old, new: record.new))
+                apply(reply)
+                if let message = reply.error ?? reply.snapshot?.error {
+                    throw SyncError.invalidConfiguration(message)
+                }
+                selectProject(record.new)
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+
     func archiveSelectedProject() {
         guard canArchiveSelectedProject, let project = selectedProjectName else { return }
         let hosts = archiveHosts(for: project)

@@ -176,13 +176,19 @@ public struct Repository: Equatable {
     }
 
     public static func discover(in root: URL, including names: Set<String>? = nil) throws -> [Repository] {
+        let access = try ProjectAccess(root: root)
+        defer { withExtendedLifetime(access) {} }
+        guard !access.records.contains(where: { !$0.complete }) else {
+            throw SyncError.invalidConfiguration("A project rename requires completion or manual recovery: \(ProjectRename.journal(in: root).path)")
+        }
         let children = try FileManager.default.contentsOfDirectory(
             at: root, includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         )
         return children.compactMap { child in
             let name = child.lastPathComponent.precomposedStringWithCanonicalMapping
-            guard names?.contains(name) ?? true,
+            guard !access.records.contains(where: { $0.old == name || ($0.new == name && !$0.complete) }),
+                  names?.contains(name) ?? true,
                   (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
                   Git.succeeds(["-C", child.path, "rev-parse", "--git-dir"]),
                   (try? Validator.project(name)) != nil else { return nil }
@@ -193,6 +199,9 @@ public struct Repository: Equatable {
     public static func ensure(name: String, in root: URL, bare: Bool = false) throws -> Repository {
         let name = name.precomposedStringWithCanonicalMapping
         try Validator.project(name)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let access = try ProjectAccess(root: root, names: [name])
+        defer { withExtendedLifetime(access) {} }
         let url = root.appendingPathComponent(name + (bare ? ".git" : ""), isDirectory: true)
         if !Git.succeeds(["-C", url.path, "rev-parse", "--git-dir"]) {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -280,6 +289,8 @@ public struct Repository: Equatable {
 
     public static func setPlacement(name: String, in root: URL, to requested: ProjectPlacement,
                                     branch: String? = nil) throws -> Repository {
+        let access = try ProjectAccess(root: root, names: [name])
+        defer { withExtendedLifetime(access) {} }
         try Validator.project(name)
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {

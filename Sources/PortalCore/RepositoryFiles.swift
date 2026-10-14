@@ -58,6 +58,7 @@ extension Repository {
 /// A bounded, lossless UTF-8 document. Keep original bytes to detect outside edits before saving.
 public struct RepositoryTextFile: Sendable {
     public let url: URL
+    private let repository: URL
     public let original: Data
     public let text: String
 
@@ -77,11 +78,14 @@ public struct RepositoryTextFile: Sendable {
             throw SyncError.invalidConfiguration("This file is not UTF-8 text. Open it in an external editor.")
         }
         self.url = url
+        self.repository = root
         original = bytes
         self.text = text
     }
 
     public func save(_ text: String) throws -> RepositoryTextFile {
+        let access = try ProjectAccess(root: repository.deletingLastPathComponent(), names: [repository.lastPathComponent])
+        defer { withExtendedLifetime(access) {} }
         guard url.resolvingSymlinksInPath().path == url.path,
               try Data(contentsOf: url) == original else {
             throw SyncError.invalidConfiguration("The file changed on disk. Copy your edits, then reload the file before saving.")
@@ -90,11 +94,12 @@ public struct RepositoryTextFile: Sendable {
         let bom = Data([0xef, 0xbb, 0xbf])
         let bytes = (original.starts(with: bom) ? bom : Data()) + Data(text.utf8)
         try bytes.write(to: url, options: .atomic)
-        return RepositoryTextFile(url: url, original: bytes, text: text)
+        return RepositoryTextFile(url: url, repository: repository, original: bytes, text: text)
     }
 
-    private init(url: URL, original: Data, text: String) {
+    private init(url: URL, repository: URL, original: Data, text: String) {
         self.url = url
+        self.repository = repository
         self.original = original
         self.text = text
     }

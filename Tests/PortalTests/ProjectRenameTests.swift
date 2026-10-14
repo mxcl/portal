@@ -206,3 +206,18 @@ func projectRenameRejectsStaleSession() throws {
     #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("before.git").path))
     #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("after.git").path))
 }
+
+@Test("read-only parent directories still allow ordinary discovery and sync guards")
+func projectRenameReadOnlyParent() throws {
+    let root = try renameRoot()
+    defer {
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+        try? FileManager.default.removeItem(at: root)
+    }
+    _ = try Repository.ensure(name: "project", in: root)
+    try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: root.path)
+    let access = try ProjectAccess(root: root, names: ["project"])
+    #expect(try Repository.discover(in: root).map(\.name) == ["project"])
+    #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["project"])
+    withExtendedLifetime(access) {}
+}

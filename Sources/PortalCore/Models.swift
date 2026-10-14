@@ -4,7 +4,7 @@ import SystemConfiguration
 #endif
 
 public enum SyncProtocol {
-    public static let version = 6
+    public static let version = 7
 }
 
 public struct Configuration: Codable, Equatable, Sendable {

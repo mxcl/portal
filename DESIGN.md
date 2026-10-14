@@ -440,7 +440,8 @@ across the configured roots and backup destination. It uses the existing native
 alert and engine command flow; the selected project follows the new name on success.
 
 Rename requires reachable, compatible configured hosts. Each root first records
-both names in `.portal-renames.json`, under `.portal-rename.lock`. Portal's sync,
+both names in `.portal-renames.json`, while holding an advisory lock on the root
+directory itself. Ordinary operations need no write access to that directory. Portal's sync,
 placement, restore, GitHub fetch/cleanup, backup writes and editor saves take shared
 operation locks; rename takes a nonblocking exclusive lock and fails if busy.
 Discovery fails while a rename is unfinished, preserving the previous inventory.
@@ -462,7 +463,7 @@ reject messages/scans after the root's rename record changes. Reconnected sessio
 resolve old allow-lists, configure peer URLs using the new name, and migrate ref
 ordering keys through the existing state-file owner, retaining epochs and
 generations. A recorded operation ID makes that migration apply once. App folder
-selections likewise follow completed records. Sync protocol v6 rejects older
+selections likewise follow completed records. Sync protocol v7 rejects older
 unguarded peers; engine-control v12 and backup-control v8 carry explicit rename.
 Ref updates still provide per-ref atomicity and eventual snapshot consistency;
 there is no cross-host rename transaction.

@@ -15,7 +15,7 @@ public final class ProjectAccess {
 
     public init(root: URL, names: [String] = [], expected: [ProjectRename.Record]? = nil,
                 exclusive: Bool = false) throws {
-        descriptor = open(root.appendingPathComponent(".portal-rename.lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        descriptor = open(root.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard descriptor >= 0 else { throw SyncError.invalidConfiguration("Cannot lock projects folder: \(root.path)") }
         guard flock(descriptor, (exclusive ? LOCK_EX : LOCK_SH) | LOCK_NB) == 0 else {
             close(descriptor)

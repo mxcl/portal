@@ -1672,5 +1672,5 @@ func remoteArchiveRestore() throws {
     #expect(try git(["-C", restored.path, "rev-parse", "refs/stash"]) == stash)
     #expect(throws: (any Error).self) { try receive() }
     #expect(try git(["-C", restored.path, "rev-parse", "HEAD"]) == tip)
-    #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path) == [item.name])
+    #expect(try Set(FileManager.default.contentsOfDirectory(atPath: destination.path)) == [item.name, ".portal-rename.lock"])
 }

@@ -155,3 +155,54 @@ func projectRenameConfiguration() throws {
     #expect(configuration.folders.first?.hosts == [host])
     #expect(configuration.folders.first?.isLocal == true)
 }
+
+@Test("sync after rename preserves peer refs and propagates branch deletion")
+func projectRenameThenSync() throws {
+    let root = try renameRoot(), source = try renameRoot(), backup = try renameRoot()
+    defer { for directory in [root, source, backup] { try? FileManager.default.removeItem(at: directory) } }
+    let repository = try Repository.ensure(name: "before", in: source)
+    _ = try Git.run(["-C", repository.url.path, "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                     "commit", "--allow-empty", "-qm", "initial"])
+    _ = try Git.run(["-C", repository.url.path, "branch", "topic"])
+    let stateURL = root.appendingPathComponent("state.json")
+    _ = try OneShot.sync(sourceRoot: source, destinationRoot: backup, machine: "mac", stateURL: stateURL,
+                         full: true, bareDestination: true)
+    let record = ProjectRename.Record(old: "before", new: "after")
+    try ProjectRename.coordinate([
+        .init(name: "backup") { try ProjectRename.perform($0, record: record, in: backup, bare: true) },
+        .init(name: "source") { try ProjectRename.perform($0, record: record, in: source) }
+    ])
+    _ = try Git.run(["-C", source.appendingPathComponent("after").path, "branch", "-D", "topic"])
+    _ = try OneShot.sync(sourceRoot: source, destinationRoot: backup, machine: "mac", stateURL: stateURL,
+                         bareDestination: true)
+    let target = backup.appendingPathComponent("after.git")
+    #expect(!Git.succeeds(["-C", target.path, "show-ref", "--verify", "refs/remotes/mac/topic"]))
+    #expect(try !Git.text(["-C", target.path, "for-each-ref", "refs/sync/mac/expired/"]).isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: backup.appendingPathComponent("before.git").path))
+}
+
+@Test("a live stale session cannot recreate the old project after rename")
+func projectRenameRejectsStaleSession() throws {
+    let root = try renameRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    _ = try Repository.ensure(name: "before", in: root, bare: true)
+    let incoming = Pipe(), outgoing = Pipe()
+    let session = try SyncSession(root: root, machine: "backup", input: incoming.fileHandleForReading,
+        output: outgoing.fileHandleForWriting, stateURL: root.appendingPathComponent("state.json"), receiveOnly: true)
+    let finished = DispatchGroup()
+    finished.enter()
+    Thread.detachNewThread { defer { finished.leave() }; try? session.run() }
+    defer { try? incoming.fileHandleForWriting.close() }
+    let connection = FramedConnection(input: outgoing.fileHandleForReading, output: incoming.fileHandleForWriting)
+    _ = try connection.receiveMessage()
+    _ = try connection.receiveMessage()
+    let record = ProjectRename.Record(old: "before", new: "after")
+    for step in [ProjectRename.Step.prepare, .move, .finish] {
+        try ProjectRename.perform(step, record: record, in: root, bare: true)
+    }
+    try connection.send(.hello("source", epoch: UUID().uuidString))
+    try connection.send(.catalog(["before"]))
+    #expect(finished.wait(timeout: .now() + 5) == .success)
+    #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("before.git").path))
+    #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("after.git").path))
+}

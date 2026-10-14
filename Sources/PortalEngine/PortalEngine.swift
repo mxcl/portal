@@ -212,6 +212,11 @@ public final class EngineModel: ObservableObject {
 
     public func handle(_ command: EngineCommand) async -> EngineReply {
         do {
+            if placementInProgress == "rename" {
+                guard case .snapshot = command else {
+                    throw EngineControlError.message("Wait for project rename to finish.")
+                }
+            }
             var collisions: [String] = []
             switch command {
             case .snapshot:
@@ -378,6 +383,8 @@ public final class EngineModel: ObservableObject {
         } catch {
             isPaused = true
             status = "Rename needs attention"
+            self.error = String(describing: error)
+            appendLog("Rename stopped: \(error)")
             throw error
         }
     }
@@ -1024,6 +1031,7 @@ public final class EngineModel: ObservableObject {
     }
 
     private func projectsChanged(_ change: ProjectChange, hostID: UUID?) async throws {
+        guard placementInProgress != "rename" else { return }
         let renames = try ProjectRename.records(in: expandedRoot)
         guard !renames.contains(where: { !$0.complete || change.projects[$0.old] != nil }) else { return }
         let original = configuration

@@ -14,13 +14,19 @@ public final class ProjectAccess {
     public let records: [ProjectRename.Record]
 
     public init(root: URL, names: [String] = [], expected: [ProjectRename.Record]? = nil,
-                exclusive: Bool = false) throws {
+                exclusive: Bool = false, waitForIdle: TimeInterval = 0) throws {
         descriptor = open(root.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard descriptor >= 0 else { throw SyncError.invalidConfiguration("Cannot lock projects folder: \(root.path)") }
-        guard flock(descriptor, (exclusive ? LOCK_EX : LOCK_SH) | LOCK_NB) == 0 else {
-            close(descriptor)
-            descriptor = -1
-            throw SyncError.invalidConfiguration("Portal is busy in \(root.path). Try rename again when idle.")
+        let deadline = ProcessInfo.processInfo.systemUptime + waitForIdle
+        while flock(descriptor, (exclusive ? LOCK_EX : LOCK_SH) | LOCK_NB) != 0 {
+            let failure = errno
+            guard (failure == EWOULDBLOCK || failure == EAGAIN || failure == EINTR),
+                  ProcessInfo.processInfo.systemUptime < deadline else {
+                close(descriptor)
+                descriptor = -1
+                throw SyncError.invalidConfiguration("Portal is busy in \(root.path). Try rename again when idle.")
+            }
+            Thread.sleep(forTimeInterval: 0.05)
         }
         do {
             records = try ProjectRename.records(in: root)
@@ -135,7 +141,8 @@ public enum ProjectRename {
     public static func perform(_ step: Step, record: Record, in root: URL, bare: Bool = false,
                                metadata: () throws -> Void = {}) throws {
         try validate(record)
-        let access = try ProjectAccess(root: root, exclusive: true)
+        // A background write may finish shortly after the initiating host stops sync.
+        let access = try ProjectAccess(root: root, exclusive: true, waitForIdle: 10)
         defer { withExtendedLifetime(access) {} }
         var records = access.records
         let source = root.appendingPathComponent(record.old + (bare ? ".git" : ""))

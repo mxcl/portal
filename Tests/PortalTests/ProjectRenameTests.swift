@@ -404,3 +404,24 @@ func projectRenameRejectsStaleReconnect() throws {
     #expect(finished.wait(timeout: .now() + 5) == .success)
     #expect(try Repository.discover(in: root).isEmpty)
 }
+
+@Test("rename waits for a short backup write to release its root lock")
+func projectRenameWaitsForBusyRoot() throws {
+    let root = try renameRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let locked = DispatchSemaphore(value: 0), released = DispatchSemaphore(value: 0)
+    Thread.detachNewThread {
+        do {
+            let access = try ProjectAccess(root: root)
+            locked.signal()
+            Thread.sleep(forTimeInterval: 0.2)
+            withExtendedLifetime(access) {}
+        } catch { Issue.record(error); locked.signal() }
+        released.signal()
+    }
+    locked.wait()
+    defer { released.wait() }
+    let record = ProjectRename.Record(old: "before", new: "after")
+    try ProjectRename.perform(.preflight, record: record, in: root)
+    #expect(try ProjectRename.records(in: root).isEmpty)
+}

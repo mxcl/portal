@@ -447,7 +447,10 @@ preflight still require the recovery procedure below. Each root then records
 both names in `.portal-renames.json`, while holding an advisory lock on the root
 directory itself. Ordinary operations need no write access to that directory. Portal's sync,
 placement, restore, GitHub fetch/cleanup, backup writes and editor saves take shared
-operation locks; rename takes a nonblocking exclusive lock and fails if busy.
+operation locks; rename waits up to ten seconds for an exclusive lock so short
+background writes can drain, then fails if the root is still busy. Ordinary
+operations remain nonblocking. Cancellation during preflight is checked after
+the pending host call returns, before any journal write.
 Discovery fails while a rename is unfinished, preserving the previous inventory.
 This deliberately suspends discovery/sync for the root until recovery, rather than
 adding per-project scheduling. Ordinary user Git commands, external editors and

@@ -8,6 +8,30 @@ private func renameRoot() throws -> URL {
     return root
 }
 
+@Test("an unwritable peer root does not suspend earlier roots")
+func projectRenamePreflightsEveryRoot() throws {
+    let backup = try renameRoot(), local = try renameRoot(), remote = try renameRoot()
+    defer {
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: remote.path)
+        for root in [backup, local, remote] { try? FileManager.default.removeItem(at: root) }
+    }
+    _ = try Repository.ensure(name: "before", in: backup, bare: true)
+    try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: remote.path)
+    let record = ProjectRename.Record(old: "before", new: "after")
+    #expect(throws: SyncError.self) {
+        try ProjectRename.coordinate([
+            .init(name: "backup") { try ProjectRename.perform($0, record: record, in: backup, bare: true) },
+            .init(name: "local") { try ProjectRename.perform($0, record: record, in: local) },
+            .init(name: "remote") { try ProjectRename.perform($0, record: record, in: remote) }
+        ])
+    }
+    for root in [backup, local, remote] {
+        #expect(try ProjectRename.records(in: root).isEmpty)
+        #expect(throws: Never.self) { _ = try Repository.discover(in: root) }
+    }
+    #expect(FileManager.default.fileExists(atPath: backup.appendingPathComponent("before.git").path))
+}
+
 @Test("rename preserves dirty work and refuses stale sessions and old catalogs")
 func projectRenamePreservesWork() throws {
     let root = try renameRoot()
@@ -27,6 +51,25 @@ func projectRenamePreservesWork() throws {
     #expect(throws: SyncError.self) { _ = try Repository.ensure(name: "before", in: root) }
     #expect(throws: SyncError.self) { _ = try ProjectAccess(root: root, expected: original) }
     #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("before").path))
+}
+
+@Test("a peer without preflight support cannot leave earlier roots suspended")
+func projectRenameRejectsOldPeerBeforePrepare() throws {
+    let root = try renameRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let record = ProjectRename.Record(old: "before", new: "after")
+    var contactedSteps: [ProjectRename.Step] = []
+    #expect(throws: SyncError.self) {
+        try ProjectRename.coordinate([
+            .init(name: "local") { try ProjectRename.perform($0, record: record, in: root) },
+            .init(name: "old peer") { step in
+                contactedSteps.append(step)
+                throw SyncError.invalidProtocol("Unsupported rename request")
+            }
+        ])
+    }
+    #expect(contactedSteps == [.preflight])
+    #expect(try ProjectRename.records(in: root).isEmpty)
 }
 
 @Test("busy operations and destination collisions prevent rename")

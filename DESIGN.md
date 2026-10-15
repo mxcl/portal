@@ -439,7 +439,11 @@ name identifies a project. Project → Rename… explicitly coordinates a name c
 across the configured roots and backup destination. It uses the existing native
 alert and engine command flow; the selected project follows the new name on success.
 
-Rename requires reachable, compatible configured hosts. Each root first records
+Rename requires reachable, compatible configured hosts. A read-only preflight on
+every destination checks root write access, name conflicts and repository layout
+before any root is suspended. Older peers reject the unknown preflight step before
+any journal is written. Preparation repeats these checks; failures or races after
+preflight still require the recovery procedure below. Each root then records
 both names in `.portal-renames.json`, while holding an advisory lock on the root
 directory itself. Ordinary operations need no write access to that directory. Portal's sync,
 placement, restore, GitHub fetch/cleanup, backup writes and editor saves take shared

@@ -42,7 +42,7 @@ public final class ProjectAccess {
 }
 
 public enum ProjectRename {
-    public enum Step: String, Codable, Sendable { case prepare, move, finish, suspend }
+    public enum Step: String, Codable, Sendable { case preflight, prepare, move, finish, suspend }
     public struct Record: Codable, Equatable, Sendable {
         public let id: UUID
         public let old: String
@@ -86,12 +86,16 @@ public enum ProjectRename {
         let source = root.appendingPathComponent(record.old + (bare ? ".git" : ""))
         let target = root.appendingPathComponent(record.new + (bare ? ".git" : ""))
         switch step {
-        case .prepare:
+        case .preflight, .prepare:
+            guard FileManager.default.isWritableFile(atPath: root.path) else {
+                throw SyncError.invalidConfiguration("Rename requires write access to the projects folder: \(root.path)")
+            }
             guard !records.contains(where: { !$0.complete || $0.old == record.old || $0.old == record.new || $0.new == record.new }),
                   !exists(target) else {
                 throw SyncError.invalidConfiguration("Rename conflicts with an existing name or unfinished rename in \(root.path).")
             }
             if exists(source) { try validateRepository(source, bare: bare) }
+            if step == .preflight { return }
             records.append(Record(id: record.id, old: record.old, new: record.new))
         case .move, .finish, .suspend:
             guard let i = records.firstIndex(where: { $0.id == record.id && $0.old == record.old && $0.new == record.new }) else {
@@ -152,6 +156,11 @@ extension ProjectRename {
 
     /// The caller orders the backup before the working repositories.
     public static func coordinate(_ targets: [Target]) throws {
+        // Reject incompatible or unwritable peers before suspending any root.
+        for target in targets {
+            do { try target.perform(.preflight) }
+            catch { throw SyncError.invalidConfiguration("Rename preflight failed on \(target.name): \(error). No rename was started.") }
+        }
         var attempted = Set<Int>()
         var status = Array(repeating: "unchanged", count: targets.count)
         do {

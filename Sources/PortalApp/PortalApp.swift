@@ -251,6 +251,9 @@ final class AppModel: ObservableObject {
         didSet { updateRepositoryWatcher() }
     }
     @Published var placementInProgress: String?
+    @Published var renameRequest: ProjectRename.Record?
+    @Published var renameProgress: ProjectRename.Progress?
+    @Published var cancellingRename = false
     @Published var localProjects: [String: PeerProject] = [:]
     @Published var remoteProjects: [UUID: [String: PeerProject]] = [:]
     @Published var checkoutRequest: CheckoutRequest?
@@ -700,6 +703,7 @@ final class AppModel: ObservableObject {
         if backupError != snapshot.backupError { backupError = snapshot.backupError }
         if restoringBackup != snapshot.restoringBackup { restoringBackup = snapshot.restoringBackup }
         if placementInProgress != (pendingPlacement ?? snapshot.placementInProgress) { placementInProgress = pendingPlacement ?? snapshot.placementInProgress }
+        if renameRequest != nil, renameProgress != snapshot.renameProgress { renameProgress = snapshot.renameProgress }
         if localProjects != snapshot.localProjects { localProjects = snapshot.localProjects }
         if remoteProjects != snapshot.remoteProjects { remoteProjects = snapshot.remoteProjects }
 
@@ -1069,26 +1073,51 @@ final class AppModel: ObservableObject {
         alert.window.initialFirstResponder = field
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let record = ProjectRename.Record(old: project, new: field.stringValue)
+        _ = renameProject(record)
+    }
+
+    func renameProject(_ record: ProjectRename.Record) -> Task<Void, Never>? {
+        guard placementInProgress == nil else { return nil }
         do { try ProjectRename.validate(record) }
-        catch { self.error = error.localizedDescription; return }
+        catch { self.error = error.localizedDescription; return nil }
+        renameRequest = record
+        renameProgress = nil
+        cancellingRename = false
         pendingPlacement = "rename"
         placementInProgress = pendingPlacement
         error = nil
         updateRepositoryWatcher()
-        Task {
+        return Task {
             defer {
+                renameRequest = nil
+                renameProgress = nil
+                cancellingRename = false
                 pendingPlacement = nil
                 placementInProgress = nil
                 updateRepositoryWatcher()
             }
             do {
-                let reply = try await sendCommand(.renameProject(old: record.old, new: record.new))
+                let reply = try await sendCommand(.renameProject(record))
                 apply(reply)
-                if let message = reply.error ?? reply.snapshot?.error {
+                if let message = reply.error {
                     throw SyncError.invalidConfiguration(message)
                 }
-                selectProject(record.new)
+                if reply.cancelled != true { selectProject(record.new) }
             } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    func cancelRename() {
+        guard let record = renameRequest, renameProgress == .checking, !cancellingRename else { return }
+        cancellingRename = true
+        Task {
+            do {
+                let reply = try await sendCommand(.cancelProjectRename(record.id))
+                guard renameRequest?.id == record.id else { return }
+                apply(reply)
+                if let message = reply.error { error = message }
+            } catch { self.error = error.localizedDescription }
+            if renameRequest?.id == record.id { cancellingRename = false }
         }
     }
 
@@ -1978,6 +2007,9 @@ struct ProjectBrowserView: View {
         .sheet(item: $model.checkoutRequest) { request in
             BranchPicker(request: request, model: model)
         }
+        .sheet(item: $model.renameRequest) { request in
+            RenameProgressSheet(request: request, model: model)
+        }
         .onOpenURL { url in
             if ["portal", "gitsync"].contains(url.scheme ?? ""), url.host == "github-connected" {
                 model.githubAction(.refresh)
@@ -1992,6 +2024,45 @@ struct ProjectBrowserView: View {
         }
     }
 
+}
+
+private struct RenameProgressSheet: View {
+    let request: ProjectRename.Record
+    @ObservedObject var model: AppModel
+
+    private var message: String {
+        if model.cancellingRename { return "Requesting cancellation…" }
+        switch model.renameProgress {
+        case .checking: return "Checking hosts and backup…"
+        case .cancelling: return "Cancelling after the current check…"
+        case .renaming: return "Renaming backup and project folders…"
+        case nil: return "Connecting to Sync Helper…"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Renaming \(request.old)").font(.headline)
+            Text("New name: \(request.new)").foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                ProgressView().controlSize(.small)
+                Text(message)
+            }
+            Text(model.renameProgress == .renaming
+                 ? "Finishing safely. This step can’t be cancelled."
+                 : "Keep this window open until the operation finishes.")
+                .font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel", action: model.cancelRename)
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(model.renameProgress != .checking || model.cancellingRename)
+            }
+        }
+        .padding(24)
+        .frame(width: 400)
+        .interactiveDismissDisabled()
+    }
 }
 
 private struct DarkSidebarMaterial: NSViewRepresentable {

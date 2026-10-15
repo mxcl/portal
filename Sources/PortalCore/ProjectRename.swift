@@ -43,7 +43,40 @@ public final class ProjectAccess {
 
 public enum ProjectRename {
     public enum Step: String, Codable, Sendable { case preflight, prepare, move, finish, suspend }
-    public struct Record: Codable, Equatable, Sendable {
+    public enum Progress: String, Codable, Sendable { case checking, cancelling, renaming }
+
+    /// Cancellation and the first journal write must agree on one boundary.
+    public final class Operation: @unchecked Sendable {
+        public let id: UUID
+        private let lock = NSLock()
+        private var state: Progress = .checking
+        private let changed: @Sendable () -> Void
+
+        public init(id: UUID, changed: @escaping @Sendable () -> Void = {}) {
+            self.id = id
+            self.changed = changed
+        }
+
+        public var progress: Progress { lock.withLock { state } }
+
+        public func cancel() {
+            lock.withLock { if state == .checking { state = .cancelling } }
+            changed()
+        }
+
+        public func checkCancellation() throws {
+            if progress == .cancelling { throw CancellationError() }
+        }
+
+        fileprivate func begin() throws {
+            try lock.withLock {
+                if state == .cancelling { throw CancellationError() }
+                state = .renaming
+            }
+            changed()
+        }
+    }
+    public struct Record: Codable, Equatable, Sendable, Identifiable {
         public let id: UUID
         public let old: String
         public let new: String
@@ -155,12 +188,14 @@ extension ProjectRename {
     }
 
     /// The caller orders the backup before the working repositories.
-    public static func coordinate(_ targets: [Target]) throws {
+    public static func coordinate(_ targets: [Target], operation: Operation? = nil) throws {
         // Reject incompatible or unwritable peers before suspending any root.
         for target in targets {
+            try operation?.checkCancellation()
             do { try target.perform(.preflight) }
             catch { throw SyncError.invalidConfiguration("Rename preflight failed on \(target.name): \(error). No rename was started.") }
         }
+        try operation?.begin()
         var attempted = Set<Int>()
         var status = Array(repeating: "unchanged", count: targets.count)
         do {

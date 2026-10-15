@@ -8,6 +8,41 @@ private func renameRoot() throws -> URL {
     return root
 }
 
+@Test("cancelling rename during preflight leaves every journal untouched")
+func projectRenameCancellationBeforePrepare() throws {
+    let root = try renameRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let record = ProjectRename.Record(old: "before", new: "after")
+    let operation = ProjectRename.Operation(id: record.id)
+    #expect(throws: CancellationError.self) {
+        try ProjectRename.coordinate([
+            .init(name: "local") { try ProjectRename.perform($0, record: record, in: root) },
+            .init(name: "peer") { step in
+                #expect(step == .preflight)
+                operation.cancel()
+            }
+        ], operation: operation)
+    }
+    #expect(try ProjectRename.records(in: root).isEmpty)
+    #expect(operation.progress == .cancelling)
+}
+
+@Test("cancellation after preparation cannot interrupt the rename")
+func projectRenameCancellationAfterPrepare() throws {
+    let root = try renameRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let record = ProjectRename.Record(old: "before", new: "after")
+    let operation = ProjectRename.Operation(id: record.id)
+    try ProjectRename.coordinate([
+        .init(name: "local") { step in
+            if step == .prepare { operation.cancel() }
+            try ProjectRename.perform(step, record: record, in: root)
+        }
+    ], operation: operation)
+    #expect(operation.progress == .renaming)
+    #expect(try ProjectRename.records(in: root).first?.complete == true)
+}
+
 @Test("an unwritable peer root does not suspend earlier roots")
 func projectRenamePreflightsEveryRoot() throws {
     let backup = try renameRoot(), local = try renameRoot(), remote = try renameRoot()

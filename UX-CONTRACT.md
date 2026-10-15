@@ -60,6 +60,12 @@
   and leaves the backup available to restore. Permanent deletion is never a fallback.
 - Remote commands accept validated project names beneath a configured root only.
   The target host rechecks every safety condition.
+- Rename presents a blocking native sheet only in the initiating project window,
+  showing the old/new names and checking, cancelling, or renaming progress. Cancel
+  is available during checks and disabled once journal preparation begins. The
+  sheet stays open until the helper replies, including after Cancel. Existing
+  error reporting is unchanged; transient watcher errors do not turn a successful
+  rename reply into a failure.
 
 ## Backup and archive
 

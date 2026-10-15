@@ -5,7 +5,7 @@ import Foundation
 import PortalCore
 
 public enum EngineControlProtocol {
-    public static let version = 12
+    public static let version = 13
     public static let showPaletteNotification = Notification.Name("dev.mxcl.portal.show-palette")
     public static let changedNotification = Notification.Name("dev.mxcl.portal.engine-changed")
     public static var socketURL: URL {
@@ -22,7 +22,8 @@ public enum EngineCommand: Codable, Sendable {
     case resume
     case refresh
     case addHost(peer: String, root: String, executable: String, allowNameCollisions: Bool)
-    case renameProject(old: String, new: String)
+    case renameProject(ProjectRename.Record)
+    case cancelProjectRename(UUID)
     case renameHost(id: UUID, name: String)
     case removeHost(UUID)
     case setBackupDestination(String)
@@ -66,17 +67,20 @@ public struct EngineSnapshot: Codable, Equatable, Sendable {
     public let remoteProjects: [UUID: [String: PeerProject]]
     public var observedProjects: [UUID: [String: ObservedProject]] = [:]
     public var projectObservationErrors: [String: String] = [:]
+    public var renameProgress: ProjectRename.Progress? = nil
 }
 
 public struct EngineReply: Codable, Sendable {
     public let snapshot: EngineSnapshot?
     public let nameCollisions: [String]
     public let error: String?
+    public var cancelled: Bool? = nil
 
-    public init(snapshot: EngineSnapshot? = nil, nameCollisions: [String] = [], error: String? = nil) {
+    public init(snapshot: EngineSnapshot? = nil, nameCollisions: [String] = [], error: String? = nil, cancelled: Bool? = nil) {
         self.snapshot = snapshot
         self.nameCollisions = nameCollisions
         self.error = error
+        self.cancelled = cancelled
     }
 
     public func checked() throws -> EngineReply {
@@ -138,6 +142,7 @@ public final class EngineModel: ObservableObject {
     @Published private var observedProjects: [UUID: [String: ObservedProject]] = [:]
     private var projectObservations: [String: ProjectObservation] = [:]
     private var observingProjects = false
+    private var renameOperation: ProjectRename.Operation?
     @Published private var projectObservationErrors: [String: String] = [:]
 
     init(executableURL: URL, configuration: AppConfiguration, support: URL, defaults: UserDefaults = .standard) {
@@ -207,13 +212,15 @@ public final class EngineModel: ObservableObject {
                        logs: logs, backupItems: backupItems, backupTransferring: backupTransferring, backupError: backupProgressError ?? backupError,
                        restoringBackup: restoringBackup, placementInProgress: placementInProgress,
                        localProjects: localProjects, remoteProjects: remoteProjects, observedProjects: observedProjects,
-                       projectObservationErrors: projectObservationErrors)
+                       projectObservationErrors: projectObservationErrors, renameProgress: renameOperation?.progress)
     }
 
     public func handle(_ command: EngineCommand) async -> EngineReply {
         do {
             if placementInProgress == "rename" {
-                guard case .snapshot = command else {
+                switch command {
+                case .snapshot, .cancelProjectRename: break
+                default:
                     throw EngineControlError.message("Wait for project rename to finish.")
                 }
             }
@@ -242,8 +249,10 @@ public final class EngineModel: ObservableObject {
             case let .addHost(peer, root, executable, allowNameCollisions):
                 collisions = try await addHost(peer: peer, root: root, executable: executable,
                                                allowNameCollisions: allowNameCollisions)
-            case let .renameProject(old, new):
-                try await renameProject(old, to: new)
+            case let .renameProject(record):
+                try await renameProject(record)
+            case let .cancelProjectRename(id):
+                if renameOperation?.id == id { renameOperation?.cancel() }
             case let .renameHost(id, name):
                 try renameHost(id: id, name: name)
             case .removeHost(let id):
@@ -290,6 +299,8 @@ public final class EngineModel: ObservableObject {
                 shutdown()
             }
             return EngineReply(snapshot: snapshot(), nameCollisions: collisions)
+        } catch is CancellationError {
+            return EngineReply(snapshot: snapshot(), cancelled: true)
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             return EngineReply(snapshot: snapshot(), error: message)
@@ -331,11 +342,10 @@ public final class EngineModel: ObservableObject {
         return localProjects[project]?.placement ?? .unknown
     }
 
-    private func renameProject(_ old: String, to new: String) async throws {
+    private func renameProject(_ record: ProjectRename.Record) async throws {
         guard placementInProgress == nil, restoringBackup == nil else {
             throw EngineControlError.message("Wait for the current project operation to finish.")
         }
-        let record = ProjectRename.Record(old: old, new: new)
         try ProjectRename.validate(record)
         let root = expandedRoot
         let backupRoot = try configuration.validatedBackupDestination()
@@ -347,13 +357,21 @@ public final class EngineModel: ObservableObject {
                 remoteMachine: host.machine)
         }
         placementInProgress = "rename"
+        let operation = ProjectRename.Operation(id: record.id) { [weak self] in
+            Task { @MainActor in self?.objectWillChange.send() }
+        }
+        renameOperation = operation
         error = nil
-        defer { placementInProgress = nil }
+        defer { renameOperation = nil; placementInProgress = nil }
         // The durable root guards also cover incoming sessions and other initiating Macs.
         stopProcesses()
         do {
             try await Task.detached(priority: .userInitiated) {
-                for connection in connections { _ = try Runner.inspectPeer(connection) }
+                for connection in connections {
+                    try operation.checkCancellation()
+                    _ = try Runner.inspectPeer(connection)
+                }
+                try operation.checkCancellation()
                 if let backup { _ = try Runner.backupItems(backup) }
                 var targets: [ProjectRename.Target] = []
                 if let backupRoot {
@@ -374,12 +392,15 @@ public final class EngineModel: ObservableObject {
                         try Runner.renameProject(record, step: step, configuration: connection)
                     })
                 }
-                try ProjectRename.coordinate(targets)
+                try ProjectRename.coordinate(targets, operation: operation)
             }.value
             try configuration.applyRenames()
             try save()
             refreshLocal()
             if !isPaused { try launchAll() }
+        } catch is CancellationError {
+            if !isPaused { try launchAll() }
+            throw CancellationError()
         } catch {
             isPaused = true
             status = "Rename needs attention"

@@ -46,7 +46,7 @@ func githubResponseDecoding() throws {
         #expect(restored.hasUnreadNotifications == unread)
     }
     #expect(try JSONDecoder().decode(GitHubState.self, from: JSONEncoder().encode(GitHubState())).hasUnreadNotifications == nil)
-    #expect(EngineControlProtocol.version == 12)
+    #expect(EngineControlProtocol.version == 13)
 }
 @Test("GitHub sign-in control requests require no relay configuration")
 func githubConnectAction() throws {

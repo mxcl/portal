@@ -3,6 +3,23 @@ import Testing
 @testable import PortalCore
 @testable import PortalEngine
 
+@Test("rename and cancellation control messages retain their operation identity")
+func renameControlIdentity() throws {
+    let record = ProjectRename.Record(old: "before", new: "after")
+    let rename = try JSONDecoder().decode(EngineRequest.self,
+        from: JSONEncoder().encode(EngineRequest(command: .renameProject(record))))
+    guard case .renameProject(let decoded) = rename.command else {
+        Issue.record("Wrong rename command"); return
+    }
+    #expect(decoded == record)
+    let cancel = try JSONDecoder().decode(EngineRequest.self,
+        from: JSONEncoder().encode(EngineRequest(command: .cancelProjectRename(record.id))))
+    guard case .cancelProjectRename(let id) = cancel.command else {
+        Issue.record("Wrong cancellation command"); return
+    }
+    #expect(id == record.id)
+}
+
 @Test("overlapping backup refreshes share a scan and publish its results")
 @MainActor
 func overlappingBackupRefreshes() async throws {

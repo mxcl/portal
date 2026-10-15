@@ -468,7 +468,11 @@ resolve old allow-lists, configure peer URLs using the new name, and migrate ref
 ordering keys through the existing state-file owner, retaining epochs and
 generations. A recorded operation ID makes that migration apply once. App folder
 selections likewise follow completed records. Sync protocol v7 rejects older
-unguarded peers; engine-control v12 and backup-control v8 carry explicit rename.
+unguarded peers; engine-control v13 carries rename progress and operation-ID-scoped
+cancellation, and backup-control v8 carries explicit rename. Cancellation is
+accepted only before the first prepare: its decision and the transition to
+preparation share a lock. Once preparation begins, the coordinator completes or
+suspends the operation using the existing recovery rules.
 Ref updates still provide per-ref atomicity and eventual snapshot consistency;
 there is no cross-host rename transaction.
 

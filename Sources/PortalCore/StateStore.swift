@@ -57,6 +57,10 @@ public final class StateStore {
 
     public func applyRenames(_ records: [ProjectRename.Record]) throws {
         lock.lock(); defer { lock.unlock() }
+        let applied = document.renames ?? []
+        guard Set(records.filter(\.complete).prefix(applied.count).map(\.id)) == applied else {
+            throw SyncError.invalidConfiguration("Project naming history changed or was reset; inspect the rename journals before syncing.")
+        }
         for record in records where record.complete && !(document.renames ?? []).contains(record.id) {
             // Discard historical state for a reused destination, then preserve the source generations.
             for key in Array(document.source.keys) where key.components(separatedBy: "\u{1f}")[1] == record.new {

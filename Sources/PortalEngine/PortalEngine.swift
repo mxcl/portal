@@ -342,12 +342,14 @@ public final class EngineModel: ObservableObject {
         return localProjects[project]?.placement ?? .unknown
     }
 
-    private func renameProject(_ record: ProjectRename.Record) async throws {
+    private func renameProject(_ request: ProjectRename.Record) async throws {
         guard placementInProgress == nil, restoringBackup == nil else {
             throw EngineControlError.message("Wait for the current project operation to finish.")
         }
-        try ProjectRename.validate(record)
         let root = expandedRoot
+        let record = ProjectRename.Record(id: request.id, old: request.old, new: request.new,
+            previousRenames: try ProjectRename.revision(ProjectRename.records(in: root)))
+        try ProjectRename.validate(record)
         let backupRoot = try configuration.validatedBackupDestination()
         let index = backupIndex
         let backup = backupRoot == nil ? try backupControlConfiguration() : nil
@@ -809,7 +811,7 @@ public final class EngineModel: ObservableObject {
                                                peer: host.peer, remoteRoot: host.root,
                                                remoteExecutable: host.executable, repositories: repositories,
                                                remoteMachine: host.machine, remoteDisplayName: host.name,
-                                               syncCheckouts: configuration.syncCheckouts)
+                                               syncCheckouts: configuration.syncCheckouts, appliedRenames: configuration.appliedRenames)
                 try connection.validate()
                 try launch(connection, id: host.id, name: host.name, helper: helper)
             }
@@ -1054,14 +1056,16 @@ public final class EngineModel: ObservableObject {
     private func projectsChanged(_ change: ProjectChange, hostID: UUID?) async throws {
         guard placementInProgress != "rename" else { return }
         let renames = try ProjectRename.records(in: expandedRoot)
-        guard !renames.contains(where: { !$0.complete || change.projects[$0.old] != nil }) else { return }
+        guard try ProjectRename.revision(renames) == change.namingRevision else {
+            throw SyncError.invalidConfiguration("Project naming history differs; reconcile rename journals before observing this host.")
+        }
         let original = configuration
         try configuration.applyRenames()
         let projects = change.projects.values.map(\.project).sorted { $0.name < $1.name }
         if let hostID {
             guard let host = configuration.hosts.first(where: { $0.id == hostID }) else { return }
             let inspection = PeerInspection(version: SyncProtocol.version, machine: host.machine,
-                repositories: projects.map(\.name), projects: projects)
+                repositories: projects.map(\.name), projects: projects, namingRevision: change.namingRevision)
             recordInspection(inspection, hostID: hostID, knownProjects: configuration.folders.map(\.name))
             if observedProjects[hostID] != change.projects { observedProjects[hostID] = change.projects }
         } else {
@@ -1082,6 +1086,8 @@ public final class EngineModel: ObservableObject {
 
     private func recordInspection(_ inspection: PeerInspection, hostID: UUID,
                                   knownProjects: [String]) {
+        guard let revision = try? ProjectRename.revision(ProjectRename.records(in: expandedRoot)),
+              inspection.namingRevision == revision else { return }
         var configuration = self.configuration
         if let hardware = inspection.hardware,
            let index = configuration.hosts.firstIndex(where: { $0.id == hostID }) {
@@ -1269,15 +1275,20 @@ private final class LocalBackup: @unchecked Sendable {
                 let watcher = try Watcher(root: source, repositories: [])
                 var full = true
                 while !isStopped {
-                    try watcher.add(Repository.discover(in: source))
-                    let repositories = try OneShot.sync(
-                        sourceRoot: source, destinationRoot: destination,
-                        machine: machine, stateURL: stateURL, full: full, bareDestination: true,
-                        repositoryObserver: { [index, destination] name in index.invalidate(name, in: destination) },
-                        backupProgress: progress
-                    )
-                    full = false
-                    try index.replaceCatalog(machine: machine, repositories: repositories)
+                    do {
+                        let sourceAccess = try ProjectAccess(root: source)
+                        let destinationAccess = try ProjectAccess(root: destination)
+                        try watcher.add(Repository.discover(in: source))
+                        let repositories = try OneShot.sync(
+                            sourceRoot: source, destinationRoot: destination,
+                            machine: machine, stateURL: stateURL, full: full, bareDestination: true,
+                            repositoryObserver: { [index, destination] name in index.invalidate(name, in: destination) },
+                            backupProgress: progress
+                        )
+                        full = false
+                        try index.replaceCatalog(machine: machine, repositories: repositories)
+                        withExtendedLifetime((sourceAccess, destinationAccess)) {}
+                    }
                     onCatalog()
                     guard !isStopped else { return }
                     logger("this Mac is up to date")

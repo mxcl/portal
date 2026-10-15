@@ -41,7 +41,7 @@ func disconnectedPeerDoesNotSignal() throws {
     }
 }
 
-@Test("hello requires the current protocol and a source epoch")
+@Test("hello requires the current protocol, source epoch and naming revision")
 func helloValidation() throws {
     let epoch = UUID().uuidString
     let hello = WireMessage.hello("test", epoch: epoch)
@@ -55,6 +55,9 @@ func helloValidation() throws {
 
     var incomplete = hello
     incomplete.epoch = nil
+    #expect(throws: (any Error).self) { try incomplete.validatedHello() }
+    incomplete = hello
+    incomplete.namingRevision = nil
     #expect(throws: (any Error).self) { try incomplete.validatedHello() }
 }
 
@@ -928,6 +931,10 @@ func backupControl() throws {
         return try BackupControlConnection.receivePayload(try #require(response.byteCount), from: client)
     }
 
+    #expect(throws: SyncError.self) {
+        try request(BackupControlRequest(action: .catalog, machine: "stale", repositories: ["project"],
+                                         namingRevision: [UUID()]))
+    }
     let candidate = try #require(request(BackupControlRequest(action: .list)).items?.first)
     #expect(candidate.status == .archived)
     #expect(throws: (any Error).self) {

@@ -187,7 +187,7 @@ public struct Repository: Equatable {
         )
         return children.compactMap { child in
             let name = child.lastPathComponent.precomposedStringWithCanonicalMapping
-            guard !access.records.contains(where: { $0.old == name || ($0.new == name && !$0.complete) }),
+            guard !ProjectRename.isRetiredOrSuspended(name, records: access.records),
                   names?.contains(name) ?? true,
                   (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
                   Git.succeeds(["-C", child.path, "rev-parse", "--git-dir"]),

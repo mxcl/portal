@@ -299,3 +299,108 @@ func projectRenameReadOnlyParent() throws {
     #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["project"])
     withExtendedLifetime(access) {}
 }
+
+@Test("a vacated name can be reused without redirecting selections or mixing backup refs")
+func projectRenameReusesVacatedName() throws {
+    let source = try renameRoot(), backup = try renameRoot(), stateRoot = try renameRoot()
+    defer { for root in [source, backup, stateRoot] { try? FileManager.default.removeItem(at: root) } }
+    var tips: [String: String] = [:]
+    for name in ["portal", "git-sync"] {
+        let repository = try Repository.ensure(name: name, in: source)
+        _ = try Git.run(["-C", repository.url.path, "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                         "commit", "--allow-empty", "-qm", name])
+        tips[name] = try Git.text(["-C", repository.url.path, "rev-parse", "HEAD"])
+    }
+    let stateURL = stateRoot.appendingPathComponent("state.json")
+    _ = try OneShot.sync(sourceRoot: source, destinationRoot: backup, machine: "mac", stateURL: stateURL,
+                         full: true, bareDestination: true)
+    let index = try BackupIndex(url: stateRoot.appendingPathComponent("index.json"))
+    try index.replaceCatalog(machine: "mac", repositories: ["portal", "git-sync"])
+    let host = UUID()
+    var app = AppConfiguration(root: source.path, machine: "mac")
+    app.folders = [SyncFolder(name: "portal", isLocal: true), SyncFolder(name: "git-sync", hosts: [host])]
+    var connection = Configuration(root: source.path, machine: "mac", peer: "peer", remoteRoot: backup.path,
+                                   repositories: ["git-sync"])
+    let first = ProjectRename.Record(old: "portal", new: "portal-tty")
+    let second = ProjectRename.Record(old: "git-sync", new: "portal", previousRenames: [first.id])
+    for record in [first, second] {
+        try ProjectRename.coordinate([
+            .init(name: "backup") { try index.rename(record, step: $0, in: backup) },
+            .init(name: "source") { try ProjectRename.perform($0, record: record, in: source) }
+        ])
+        try app.applyRenames()
+        try connection.applyRenames(ProjectRename.records(in: source))
+        _ = try OneShot.sync(sourceRoot: source, destinationRoot: backup, machine: "mac", stateURL: stateURL,
+                             full: true, bareDestination: true)
+    }
+    app = try JSONDecoder().decode(AppConfiguration.self, from: JSONEncoder().encode(app))
+    connection = try JSONDecoder().decode(Configuration.self, from: JSONEncoder().encode(connection))
+    try app.discoverLocal(["portal", "portal-tty"])
+    try connection.applyRenames(ProjectRename.records(in: source))
+    #expect(connection.repositories == ["portal"])
+    #expect(app.folders.first(where: { $0.name == "portal" })?.hosts == [host])
+    #expect(app.folders.first(where: { $0.name == "portal-tty" })?.hosts.isEmpty == true)
+    #expect(Set(try Repository.discover(in: source).map(\.name)) == ["portal", "portal-tty"])
+    for (name, old) in [("portal", "git-sync"), ("portal-tty", "portal")] {
+        let refs = try Git.text(["-C", backup.appendingPathComponent(name + ".git").path,
+                                 "for-each-ref", "--format=%(objectname)", "refs/remotes/mac/"])
+        #expect(refs == tips[old])
+    }
+    let items = try index.items(in: backup, refresh: true)
+    #expect(Set(items.map(\.name)) == ["portal", "portal-tty"])
+    #expect(items.allSatisfy { $0.mirroredBy == ["mac"] })
+    let revision = [first.id, second.id]
+    #expect(throws: SyncError.self) { _ = try WireMessage.hello("peer", epoch: UUID().uuidString, namingRevision: [first.id]).validatedHello(expectedRevision: revision) }
+    #expect(throws: Never.self) { _ = try WireMessage.hello("peer", epoch: UUID().uuidString, namingRevision: revision).validatedHello(expectedRevision: revision) }
+    #expect(throws: SyncError.self) { try connection.applyRenames([]) }
+    let state = try StateStore(url: stateURL)
+    #expect(throws: SyncError.self) { try state.applyRenames([]) }
+}
+
+@Test("name reuse requires every destination to acknowledge the previous rename")
+func projectRenameReuseRejectsStaleRoot() throws {
+    let current = try renameRoot(), stale = try renameRoot()
+    defer { for root in [current, stale] { try? FileManager.default.removeItem(at: root) } }
+    let first = ProjectRename.Record(old: "portal", new: "portal-tty")
+    try ProjectRename.coordinate([.init(name: "current") { try ProjectRename.perform($0, record: first, in: current) }])
+    let second = ProjectRename.Record(old: "git-sync", new: "portal", previousRenames: [first.id])
+    #expect(throws: SyncError.self) {
+        try ProjectRename.coordinate([
+            .init(name: "current") { try ProjectRename.perform($0, record: second, in: current) },
+            .init(name: "stale") { try ProjectRename.perform($0, record: second, in: stale) }
+        ])
+    }
+    #expect(try ProjectRename.records(in: current).map(\.id) == [first.id])
+    #expect(try ProjectRename.records(in: stale).isEmpty)
+    #expect(throws: SyncError.self) {
+        _ = try OneShot.sync(sourceRoot: stale, destinationRoot: current, machine: "mac",
+                             stateURL: stale.appendingPathComponent("state.json"), bareDestination: true)
+    }
+}
+
+@Test("a reconnect with stale naming history cannot publish a reused name")
+func projectRenameRejectsStaleReconnect() throws {
+    let root = try renameRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let first = ProjectRename.Record(old: "portal", new: "portal-tty")
+    let second = ProjectRename.Record(old: "git-sync", new: "portal", previousRenames: [first.id])
+    for record in [first, second] {
+        try ProjectRename.coordinate([.init(name: "backup") { try ProjectRename.perform($0, record: record, in: root, bare: true) }])
+    }
+    let incoming = Pipe(), outgoing = Pipe()
+    let session = try SyncSession(root: root, machine: "backup", input: incoming.fileHandleForReading,
+        output: outgoing.fileHandleForWriting, stateURL: root.appendingPathComponent("state.json"), receiveOnly: true,
+        catalogObserver: { _, _ in Issue.record("Stale catalog must never be accepted") })
+    let finished = DispatchGroup()
+    finished.enter()
+    Thread.detachNewThread { defer { finished.leave() }; try? session.run() }
+    defer { try? incoming.fileHandleForWriting.close() }
+    let connection = FramedConnection(input: outgoing.fileHandleForReading, output: incoming.fileHandleForWriting)
+    let hello = try connection.receiveMessage()
+    #expect(hello.namingRevision == [first.id, second.id])
+    _ = try connection.receiveMessage()
+    try connection.send(.hello("source", epoch: UUID().uuidString, namingRevision: [first.id]))
+    try connection.send(.catalog(["portal"]))
+    #expect(finished.wait(timeout: .now() + 5) == .success)
+    #expect(try Repository.discover(in: root).isEmpty)
+}

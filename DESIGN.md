@@ -456,20 +456,24 @@ terminal sessions are not coordinated; close them before renaming.
 After all roots are prepared, the backup directory and its catalog metadata move
 first, followed by the working repositories. Each directory move is an atomic,
 same-filesystem, no-replace rename. Missing copies remain missing. Symlinked
-repositories, linked worktrees, case-only renames, hidden destination names and
-reuse of retired names are rejected. GitHub repository names and origins are
+repositories, linked worktrees, case-only renames and hidden destination names
+are rejected. A vacated name may be reused only when every configured root and
+the backup acknowledges the same ordered rename history. GitHub repository names and origins are
 unchanged. Each host's branches, tags, stash, HEAD, index and working files remain
 its own. Permanent merged-branch backup objects retain their historical metadata.
 
 Only after every move is acknowledged does the coordinator release the new name.
-The old name stays retired so stale catalogs cannot recreate it. Session guards
-reject messages/scans after the root's rename record changes. Reconnected sessions
-resolve old allow-lists, configure peer URLs using the new name, and migrate ref
-ordering keys through the existing state-file owner, retaining epochs and
-generations. A recorded operation ID makes that migration apply once. App folder
-selections likewise follow completed records. Sync protocol v7 rejects older
-unguarded peers; engine-control v13 carries rename progress and operation-ID-scoped
-cancellation, and backup-control v8 carries explicit rename. Cancellation is
+The old name stays retired until an explicit later rename reuses it. Session
+guards reject messages/scans after the root's rename record changes. Sync hello,
+inspection, project-watch updates and backup control requests carry the ordered
+completed operation IDs; differing histories fail before accepting project state.
+One-shot sync requires the same history on both roots. Configurations persist
+applied operation IDs and migrate only newly completed renames, so a reused name
+is not redirected by an earlier operation. Ref ordering keys migrate through
+the existing state-file owner, retaining epochs and generations, once per
+operation ID. Sync protocol v8, project-watch v4, backup-control v9 and rename
+command v2 reject older clients. Engine-control v13 carries rename progress and
+operation-ID-scoped cancellation. Cancellation is
 accepted only before the first prepare: its decision and the transition to
 preparation share a lock. Once preparation begins, the coordinator completes or
 suspends the operation using the existing recovery rules.
@@ -490,7 +494,9 @@ must be inspected, never blindly repeated. Once all roots are verified moved,
 mark that operation's `moved` and `complete` fields true under the root lock on
 every host, then resume Portal. Keep the completed records: they prevent stale
 catalog recreation and carry configuration/state migration. Do not remove a
-record to clear an error.
+record to clear an error. A new or reset root with different history needs
+explicit reconciliation before joining; Portal does not guess project identities
+or automatically copy journals between roots.
 
 Source refs map through a closed API:
 

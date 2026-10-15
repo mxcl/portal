@@ -14,6 +14,7 @@ struct WireMessage: Codable {
     var version: Int?
     var machine: String?
     var epoch: String?
+    var namingRevision: [UUID]?
     var repositories: [String]?
     var repository: String?
     var known: [String]?
@@ -21,15 +22,18 @@ struct WireMessage: Codable {
     var oid: String?
     var message: String?
 
-    static func hello(_ machine: String, epoch: String) -> WireMessage {
-        WireMessage(type: "hello", version: protocolVersion, machine: machine, epoch: epoch)
+    static func hello(_ machine: String, epoch: String, namingRevision: [UUID] = []) -> WireMessage {
+        WireMessage(type: "hello", version: protocolVersion, machine: machine, epoch: epoch, namingRevision: namingRevision)
     }
 
-    func validatedHello() throws -> (machine: String, epoch: String) {
+    func validatedHello(expectedRevision: [UUID]? = nil) throws -> (machine: String, epoch: String) {
         guard type == "hello", version == Self.protocolVersion else {
             throw SyncError.invalidProtocol("Unsupported protocol version: \(version.map(String.init) ?? "missing")")
         }
-        guard let machine, let epoch else { throw SyncError.invalidProtocol("HELLO is incomplete") }
+        guard let machine, let epoch, let namingRevision else { throw SyncError.invalidProtocol("HELLO is incomplete") }
+        if let expectedRevision, namingRevision != expectedRevision {
+            throw SyncError.invalidProtocol("Project naming histories differ; reconcile rename journals before syncing.")
+        }
         try Validator.machine(machine); try Validator.epoch(epoch)
         return (machine, epoch)
     }

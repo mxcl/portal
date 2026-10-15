@@ -30,7 +30,7 @@ public final class ProjectAccess {
             if !exclusive {
                 for name in names {
                     try Validator.project(name)
-                    if records.contains(where: { $0.old == name || ($0.new == name && !$0.complete) }) {
+                    if ProjectRename.isRetiredOrSuspended(name, records: records) {
                         throw SyncError.invalidConfiguration("\(name) is suspended or retired by a rename. Inspect \(ProjectRename.journal(in: root).path).")
                     }
                 }
@@ -80,12 +80,14 @@ public enum ProjectRename {
         public let id: UUID
         public let old: String
         public let new: String
+        public var previousRenames: [UUID]?
         public var moved = false
         public var complete = false
-        public init(id: UUID = UUID(), old: String, new: String) {
+        public init(id: UUID = UUID(), old: String, new: String, previousRenames: [UUID] = []) {
             self.id = id
             self.old = old.precomposedStringWithCanonicalMapping
             self.new = new.precomposedStringWithCanonicalMapping
+            self.previousRenames = previousRenames
         }
     }
 
@@ -109,6 +111,26 @@ public enum ProjectRename {
         records.reduce(name) { result, record in record.complete && result == record.old ? record.new : result }
     }
 
+    public static func revision(_ records: [Record]) throws -> [UUID] {
+        guard records.allSatisfy(\.complete) else {
+            throw SyncError.invalidConfiguration("A project rename requires completion or manual recovery.")
+        }
+        return records.map(\.id)
+    }
+
+    public static func pending(_ records: [Record], after applied: [UUID]) throws -> [Record] {
+        let completed = records.filter(\.complete)
+        guard Array(completed.prefix(applied.count).map(\.id)) == applied else {
+            throw SyncError.invalidConfiguration("Project naming history changed or was reset; inspect the rename journals before syncing.")
+        }
+        return Array(completed.dropFirst(applied.count))
+    }
+
+    public static func isRetiredOrSuspended(_ name: String, records: [Record]) -> Bool {
+        guard let latest = records.last(where: { $0.old == name || $0.new == name }) else { return false }
+        return !latest.complete || latest.old == name
+    }
+
     /// Backup callers perform their metadata write while this exclusive lock is held.
     public static func perform(_ step: Step, record: Record, in root: URL, bare: Bool = false,
                                metadata: () throws -> Void = {}) throws {
@@ -123,13 +145,19 @@ public enum ProjectRename {
             guard FileManager.default.isWritableFile(atPath: root.path) else {
                 throw SyncError.invalidConfiguration("Rename requires write access to the projects folder: \(root.path)")
             }
-            guard !records.contains(where: { !$0.complete || $0.old == record.old || $0.old == record.new || $0.new == record.new }),
-                  !exists(target) else {
+            guard try revision(records) == (record.previousRenames ?? []) else {
+                throw SyncError.invalidConfiguration("Project naming history differs in \(root.path). Every host must acknowledge the earlier renames first.")
+            }
+            let destination = records.last(where: { $0.old == record.new || $0.new == record.new })
+            guard !records.contains(where: { $0.id == record.id }),
+                  !isRetiredOrSuspended(record.old, records: records),
+                  destination?.new != record.new, !exists(target) else {
                 throw SyncError.invalidConfiguration("Rename conflicts with an existing name or unfinished rename in \(root.path).")
             }
             if exists(source) { try validateRepository(source, bare: bare) }
             if step == .preflight { return }
-            records.append(Record(id: record.id, old: record.old, new: record.new))
+            records.append(Record(id: record.id, old: record.old, new: record.new,
+                                  previousRenames: record.previousRenames ?? []))
         case .move, .finish, .suspend:
             guard let i = records.firstIndex(where: { $0.id == record.id && $0.old == record.old && $0.new == record.new }) else {
                 throw SyncError.invalidConfiguration("Rename was not prepared in \(root.path).")

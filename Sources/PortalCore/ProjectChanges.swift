@@ -3,14 +3,16 @@ import PortalWatch
 
 /// Complete read-only state, so a slow consumer may safely retain only the newest message.
 public struct ProjectChange: Codable, Sendable {
-    public static let currentVersion = 3
+    public static let currentVersion = 4
     public let version: Int
     public let projects: [String: ObservedProject]
     public let failure: String?
-    public init(version: Int = currentVersion, projects: [String: ObservedProject] = [:], failure: String? = nil) {
+    public let namingRevision: [UUID]
+    public init(version: Int = currentVersion, projects: [String: ObservedProject] = [:], failure: String? = nil, namingRevision: [UUID] = []) {
         self.version = version
         self.projects = projects
         self.failure = failure
+        self.namingRevision = namingRevision
     }
     public func checked() throws -> Self {
         guard version == Self.currentVersion else {
@@ -41,7 +43,7 @@ struct ProjectChangeScanner {
     private var projects: [String: ObservedProject] = [:]
     private var initialized = false
 
-    mutating func scan(_ repositories: [Repository], affected: Set<String>? = nil) throws -> ProjectChange? {
+    mutating func scan(_ repositories: [Repository], affected: Set<String>? = nil, namingRevision: [UUID] = []) throws -> ProjectChange? {
         let names = Set(repositories.map(\.name))
         var changed = !initialized || Set(projects.keys) != names
         projects = projects.filter { names.contains($0.key) }
@@ -60,7 +62,7 @@ struct ProjectChangeScanner {
             changed = true
         }
         initialized = true
-        return changed ? ProjectChange(projects: projects) : nil
+        return changed ? ProjectChange(projects: projects, namingRevision: namingRevision) : nil
     }
 }
 
@@ -144,6 +146,8 @@ extension Runner {
         _ = try ProjectChange(version: version).checked()
         let watcher = try ProjectChangeWatcher(root: root)
         var scanner = ProjectChangeScanner()
+        let records = try ProjectRename.records(in: root)
+        let revision = try ProjectRename.revision(records)
         var repositories = try Repository.discover(in: root)
         var affected: Set<String>?
         var directories: [String: [String]] = [:]
@@ -157,8 +161,12 @@ extension Runner {
         }
         try updateWatches()
         while true {
-            if let change = try scanner.scan(repositories, affected: affected) {
-                try BackupControlConnection.send(change, to: output)
+            do {
+                let access = try ProjectAccess(root: root, expected: records)
+                defer { withExtendedLifetime(access) {} }
+                if let change = try scanner.scan(repositories, affected: affected, namingRevision: revision) {
+                    try BackupControlConnection.send(change, to: output)
+                }
             }
             _ = try watcher.wait()
             // Coalesce a burst, without scheduling any idle scans. Bound the drain

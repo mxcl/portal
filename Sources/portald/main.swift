@@ -120,9 +120,9 @@ do {
         }
     case "inspect":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
-        guard try !ProjectRename.records(in: root).contains(where: { !$0.complete }) else {
-            throw SyncError.invalidConfiguration("A project rename requires completion or manual recovery on this host.")
-        }
+        let access = try ProjectAccess(root: root)
+        defer { withExtendedLifetime(access) {} }
+        let revision = try ProjectRename.revision(access.records)
         let repositories = try Repository.discover(in: root)
         let inspection = PeerInspection(version: SyncProtocol.version,
                                         machine: value("--machine", in: arguments) ?? Configuration.defaultMachine,
@@ -131,7 +131,7 @@ do {
                                             PeerProject(name: $0.name, placement: $0.placement,
                                                         defaultBranch: $0.defaultBranch, githubRepositories: $0.githubRepositories,
                                                         workingChanges: try? $0.workingChanges(), branchTips: try? $0.branchTips())
-                                        }, hardware: .current)
+                                        }, hardware: .current, namingRevision: revision)
         print(String(decoding: try JSONEncoder().encode(inspection), as: UTF8.self))
     case "project-content", "project-diff", "project-search", "project-staging":
         let root = URL(fileURLWithPath: NSString(string: try required("--root", in: arguments)).expandingTildeInPath)
@@ -161,7 +161,7 @@ do {
         let result = try ProjectRestoreRequest.receive(from: .standardInput, to: root)
         print(String(decoding: try JSONEncoder().encode(result), as: UTF8.self))
     case "rename-project":
-        guard try required("--rename-version", in: arguments) == "1",
+        guard try required("--rename-version", in: arguments) == "2",
               let step = ProjectRename.Step(rawValue: try required("--step", in: arguments)),
               let data = Data(base64Encoded: try required("--record", in: arguments)) else {
             throw SyncError.invalidProtocol("Unsupported rename request")

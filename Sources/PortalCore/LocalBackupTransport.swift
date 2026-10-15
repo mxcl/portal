@@ -16,7 +16,7 @@ public enum LocalBackupTransport {
 }
 
 public enum BackupControlProtocol {
-    public static let version = 8
+    public static let version = 9
 }
 
 public enum BackupControlAction: String, Codable, Sendable {
@@ -46,11 +46,12 @@ public struct BackupControlRequest: Codable, Sendable {
     public let refresh: Bool?
     public let rename: ProjectRename.Record?
     public let renameStep: ProjectRename.Step?
+    public var namingRevision: [UUID]?
 
     public init(version: Int = BackupControlProtocol.version, action: BackupControlAction,
                 repository: String? = nil, snapshotID: String? = nil,
                 oid: String? = nil, machine: String? = nil, repositories: [String]? = nil,
-                rename: ProjectRename.Record? = nil, renameStep: ProjectRename.Step? = nil, mergedBranch: MergedBranchBackup? = nil, refresh: Bool? = nil, query: String? = nil, searchVersion: Int? = nil) {
+                rename: ProjectRename.Record? = nil, renameStep: ProjectRename.Step? = nil, mergedBranch: MergedBranchBackup? = nil, refresh: Bool? = nil, query: String? = nil, searchVersion: Int? = nil, namingRevision: [UUID] = []) {
         self.version = version
         self.action = action
         self.repository = repository
@@ -64,6 +65,7 @@ public struct BackupControlRequest: Codable, Sendable {
         self.refresh = refresh
         self.rename = rename
         self.renameStep = renameStep
+        self.namingRevision = namingRevision
     }
 }
 
@@ -150,6 +152,11 @@ public enum BackupControlService {
             let access = request.action == .rename ? nil : try ProjectAccess(root: root,
                 names: request.repositories ?? request.repository.map { [$0] } ?? request.mergedBranch.map { [$0.project] } ?? [])
             defer { withExtendedLifetime(access) {} }
+            if let access {
+                guard try request.namingRevision == ProjectRename.revision(access.records) else {
+                    throw SyncError.invalidProtocol("Project naming history differs; reconnect after reconciling rename journals.")
+                }
+            }
             switch request.action {
             case .rename:
                 guard let record = request.rename, let step = request.renameStep else {

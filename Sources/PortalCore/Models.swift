@@ -4,7 +4,7 @@ import SystemConfiguration
 #endif
 
 public enum SyncProtocol {
-    public static let version = 7
+    public static let version = 8
 }
 
 public struct Configuration: Codable, Equatable, Sendable {
@@ -33,6 +33,7 @@ public struct Configuration: Codable, Equatable, Sendable {
     public var remoteRoot: String
     public var remoteExecutable: String
     public var repositories: [String]?
+    public var appliedRenames: [UUID]?
     public var remoteMachine: String?
     public var remoteDisplayName: String?
     public var remoteState: String?
@@ -43,7 +44,7 @@ public struct Configuration: Codable, Equatable, Sendable {
                 remoteExecutable: String = Configuration.defaultRemoteExecutable,
                 repositories: [String]? = nil, remoteMachine: String? = nil, remoteDisplayName: String? = nil,
                 remoteState: String? = nil, remoteReceiveOnly: Bool? = nil,
-                syncCheckouts: Bool? = nil) {
+                syncCheckouts: Bool? = nil, appliedRenames: [UUID]? = nil) {
         self.root = root
         self.machine = machine
         self.peer = peer
@@ -55,6 +56,13 @@ public struct Configuration: Codable, Equatable, Sendable {
         self.remoteState = remoteState
         self.remoteReceiveOnly = remoteReceiveOnly
         self.syncCheckouts = syncCheckouts
+        self.appliedRenames = appliedRenames
+    }
+
+    public mutating func applyRenames(_ records: [ProjectRename.Record]) throws {
+        let pending = try ProjectRename.pending(records, after: appliedRenames ?? [])
+        repositories = repositories.map { $0.map { ProjectRename.resolved($0, records: pending) } }
+        appliedRenames = records.filter(\.complete).map(\.id)
     }
 
     public func validate() throws {
@@ -122,14 +130,16 @@ public struct PeerInspection: Codable, Equatable, Sendable {
     public let repositories: [String]
     public let projects: [PeerProject]?
     public let hardware: HostHardware?
+    public let namingRevision: [UUID]?
 
     public init(version: Int, machine: String, repositories: [String], projects: [PeerProject]? = nil,
-                hardware: HostHardware? = nil) {
+                hardware: HostHardware? = nil, namingRevision: [UUID] = []) {
         self.version = version
         self.machine = machine
         self.repositories = repositories
         self.projects = projects
         self.hardware = hardware
+        self.namingRevision = namingRevision
     }
 }
 
@@ -231,6 +241,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     public var backup: BackupConfiguration?
     public var backupDestination: BackupDestinationConfiguration?
     public var syncCheckouts: Bool?
+    public var appliedRenames: [UUID]?
 
     public init(root: String, machine: String, hosts: [SyncHost] = [], folders: [SyncFolder] = [],
                 backup: BackupConfiguration? = nil,
@@ -248,9 +259,10 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     public mutating func applyRenames() throws {
         guard !root.isEmpty else { return }
         let records = try ProjectRename.records(in: URL(fileURLWithPath: NSString(string: root).expandingTildeInPath))
+        let pending = try ProjectRename.pending(records, after: appliedRenames ?? [])
         var renamed: [SyncFolder] = []
         for var folder in folders {
-            folder.name = ProjectRename.resolved(folder.name, records: records)
+            folder.name = ProjectRename.resolved(folder.name, records: pending)
             if let i = renamed.firstIndex(where: { $0.name == folder.name }) {
                 renamed[i].isLocal = renamed[i].isLocal || folder.isLocal
                 renamed[i].availableLocally = renamed[i].availableLocally || folder.availableLocally
@@ -259,6 +271,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
             } else { renamed.append(folder) }
         }
         folders = renamed
+        appliedRenames = records.filter(\.complete).map(\.id)
     }
 
     public mutating func discoverLocal(_ names: [String]) throws {

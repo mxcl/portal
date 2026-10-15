@@ -12,6 +12,9 @@ public enum Runner {
         guard inspection.version == WireMessage.protocolVersion else {
             throw SyncError.invalidProtocol("Unsupported protocol version: \(inspection.version)")
         }
+        guard try inspection.namingRevision == ProjectRename.revision(ProjectRename.records(in: configuration.expandedRoot)) else {
+            throw SyncError.invalidProtocol("Project naming history differs; reconcile rename journals before using this host.")
+        }
         try Validator.machine(inspection.machine)
         for name in inspection.repositories { try Validator.project(name) }
         for project in inspection.projects ?? [] { try Validator.project(project.name) }
@@ -28,7 +31,7 @@ public enum Runner {
                                      configuration: Configuration) throws {
         let data = try JSONEncoder().encode(record)
         _ = try runRemote(configuration, arguments: ["rename-project", "--root", configuration.remoteRoot,
-            "--rename-version", "1", "--step", step.rawValue, "--record", data.base64EncodedString()],
+            "--rename-version", "2", "--step", step.rawValue, "--record", data.base64EncodedString()],
             failure: "Rename failed or its outcome is unknown on \(configuration.peer)")
     }
 
@@ -118,10 +121,10 @@ public enum Runner {
                                backupProgress: ((BackupProgress) -> Void)? = nil,
                                logger: @escaping (String) -> Void = { _ in }) throws {
         try configuration.validate()
+        var configuration = configuration
         while true {
-            var configuration = configuration
             let records = try ProjectRename.records(in: configuration.expandedRoot)
-            configuration.repositories = configuration.repositories.map { $0.map { ProjectRename.resolved($0, records: records) } }
+            try configuration.applyRenames(records)
             let process = Process(), input = Pipe(), output = Pipe()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
             let isBackup = configuration.remoteReceiveOnly == true
@@ -156,7 +159,7 @@ public enum Runner {
                         PeerRepositoryLocation(machine: $0, sshTarget: configuration.peer,
                                                root: configuration.remoteRoot, displayName: configuration.remoteDisplayName)
                     },
-                    isInitiator: true,
+                    namingRevision: configuration.appliedRenames, isInitiator: true,
                     backupProgress: isBackup ? backupProgress : nil,
                     syncCheckouts: configuration.syncCheckouts == true,
                     logger: logger
@@ -310,7 +313,8 @@ public enum Runner {
         let (process, input, output, error) = try startBackupControl(configuration)
         do {
             try BackupControlConnection.send(
-                BackupControlRequest(action: .export, repository: name, snapshotID: snapshot.id), to: input
+                BackupControlRequest(action: .export, repository: name, snapshotID: snapshot.id,
+                    namingRevision: try ProjectRename.revision(ProjectRename.records(in: configuration.expandedRoot))), to: input
             )
             try input.close()
             let response = try BackupControlConnection.receive(BackupControlResponse.self, from: output).checked()
@@ -437,6 +441,10 @@ public enum Runner {
                                       configuration: Configuration) throws -> BackupControlResponse {
         let (process, input, output, error) = try startBackupControl(configuration)
         do {
+            var request = request
+            if request.action != .rename {
+                request.namingRevision = try ProjectRename.revision(ProjectRename.records(in: configuration.expandedRoot))
+            }
             try BackupControlConnection.send(request, to: input)
             try input.close()
             let response = try BackupControlConnection.receive(BackupControlResponse.self, from: output).checked()
@@ -452,6 +460,10 @@ public enum Runner {
                                       configuration: Configuration) throws -> Data {
         let (process, input, output, error) = try startBackupControl(configuration)
         do {
+            var request = request
+            if request.action != .rename {
+                request.namingRevision = try ProjectRename.revision(ProjectRename.records(in: configuration.expandedRoot))
+            }
             try BackupControlConnection.send(request, to: input)
             try input.close()
             let response = try BackupControlConnection.receive(BackupControlResponse.self, from: output).checked()
@@ -499,6 +511,9 @@ public enum OneShot {
         let sourceAccess = try ProjectAccess(root: sourceRoot)
         let destinationAccess = try ProjectAccess(root: destinationRoot)
         defer { withExtendedLifetime((sourceAccess, destinationAccess)) {} }
+        guard try ProjectRename.revision(sourceAccess.records) == ProjectRename.revision(destinationAccess.records) else {
+            throw SyncError.invalidConfiguration("Project naming histories differ; reconcile rename journals before syncing.")
+        }
         let state = try StateStore(url: stateURL)
         try state.applyRenames(sourceAccess.records)
         let sources = try Repository.discover(in: sourceRoot)

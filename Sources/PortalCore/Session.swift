@@ -28,7 +28,7 @@ public final class SyncSession {
 
     public init(root: URL, machine: String, input: FileHandle, output: FileHandle,
                 stateURL: URL, repositories: Set<String>? = nil,
-                peerRepositoryLocation: PeerRepositoryLocation? = nil,
+                peerRepositoryLocation: PeerRepositoryLocation? = nil, namingRevision: [UUID]? = nil,
                 isInitiator: Bool = false,
                 receiveOnly: Bool = false,
                 backupProgress: ((BackupProgress) -> Void)? = nil,
@@ -44,7 +44,11 @@ public final class SyncSession {
         let access = try ProjectAccess(root: root)
         defer { withExtendedLifetime(access) {} }
         renameRecords = access.records
-        includedRepositories = repositories.map { Set($0.map { ProjectRename.resolved($0, records: access.records) }) }
+        let revision = try ProjectRename.revision(access.records)
+        if let namingRevision, namingRevision != revision {
+            throw SyncError.invalidConfiguration("Project names changed; reload the connection before syncing.")
+        }
+        includedRepositories = repositories
         self.peerRepositoryLocation = peerRepositoryLocation
         connection = FramedConnection(input: input, output: output)
         state = try StateStore(url: stateURL)
@@ -62,7 +66,7 @@ public final class SyncSession {
         // Install before discovery so writes during the initial scan stay queued.
         let watcher = receiveOnly ? nil : try Watcher(root: root, repositories: [])
         if !receiveOnly { try refreshCatalog() }
-        try connection.send(.hello(machine, epoch: state.sourceEpoch))
+        try connection.send(.hello(machine, epoch: state.sourceEpoch, namingRevision: ProjectRename.revision(renameRecords)))
         try connection.send(.catalog(Array(repositories.keys).sorted()))
 
         let receiver = DispatchGroup()
@@ -126,7 +130,7 @@ public final class SyncSession {
             defer { withExtendedLifetime(access) {} }
             switch message.type {
             case "hello":
-                let (peer, epoch) = try message.validatedHello()
+                let (peer, epoch) = try message.validatedHello(expectedRevision: ProjectRename.revision(renameRecords))
                 if let peerRepositoryLocation, peer != peerRepositoryLocation.machine {
                     throw SyncError.invalidProtocol(
                         "Connected host is \(peer), expected \(peerRepositoryLocation.machine)"

@@ -3304,7 +3304,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let completionPopup = CompletionPopupController()
     private var completionRequestSerial = 0
     private var completionCancellation: CompletionCancellation?
-    private var pendingCompletionIndicatorTabID: UUID?
+    private var pendingCompletionRequestTabID: UUID?
     private var deferredCompletionAcceptanceSerial: Int?
     private var activeCompletionRange: NSRange?
     private var activeCompletionCommonPrefix: String?
@@ -5661,7 +5661,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         completionCancellation?.cancel()
         let cancellation = CompletionCancellation()
         completionCancellation = cancellation
-        showPendingCompletionIndicator(in: tab)
+        beginPendingCompletion(in: tab, mode: mode)
         var environment: [String: String]
         switch tab.sessionRef.location {
         case .local:
@@ -5799,7 +5799,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func deferCompletionAcceptanceUntilPendingRequestCompletes(in tab: TerminalTab) -> Bool {
-        guard pendingCompletionIndicatorTabID == tab.id else { return false }
+        guard pendingCompletionRequestTabID == tab.id else { return false }
+        tab.completionPendingLine.isHidden = false
         deferredCompletionAcceptanceSerial = completionRequestSerial
         return true
     }
@@ -5990,16 +5991,16 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         completionRequestSerial += 1
     }
 
-    private func showPendingCompletionIndicator(in tab: TerminalTab) {
+    private func beginPendingCompletion(in tab: TerminalTab, mode: CompletionRequestMode) {
         clearPendingCompletionIndicator()
-        pendingCompletionIndicatorTabID = tab.id
-        tab.completionPendingLine.isHidden = false
+        pendingCompletionRequestTabID = tab.id
+        tab.completionPendingLine.isHidden = mode != .explicit
     }
 
     private func clearPendingCompletionIndicator() {
-        guard let tabID = pendingCompletionIndicatorTabID else { return }
+        guard let tabID = pendingCompletionRequestTabID else { return }
         tabs.first { $0.id == tabID }?.completionPendingLine.isHidden = true
-        pendingCompletionIndicatorTabID = nil
+        pendingCompletionRequestTabID = nil
     }
 
     private func substring(in value: String, range: NSRange) -> String? {

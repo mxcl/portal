@@ -60,22 +60,6 @@ public struct BranchGraphRowCanvas: View {
             drawRow(in: &context)
         }
         .frame(width: canvasWidth, height: Self.rowHeight + Self.verticalBleed * 2)
-        .onContinuousHover { phase in
-            switch phase {
-            case .active(let location):
-                let point = CGPoint(x: location.x - Self.leadingPadding,
-                                    y: location.y - Self.verticalBleed + CGFloat(rowIndex) * Self.rowHeight)
-                if let hoveredLabel, model.branchLabels.indices.contains(hoveredLabel),
-                   model.branchLabels[hoveredLabel].hoverOutline.strokedPath(StrokeStyle(lineWidth: 6)).contains(point) {
-                    return
-                }
-                hoveredLabel = model.branchLabels.indices.reversed().first { index in
-                    model.branchLabels[index].outline.strokedPath(StrokeStyle(lineWidth: 6)).contains(point)
-                }
-            case .ended:
-                hoveredLabel = nil
-            }
-        }
         .overlay {
             ForEach(model.branchLabels.indices, id: \.self) { index in
                 let label = model.branchLabels[index]
@@ -90,6 +74,23 @@ public struct BranchGraphRowCanvas: View {
                     }
                     .buttonStyle(.plain)
                 }
+            }
+        }
+        // Track the buttons too: an overlay intercepts hover from the canvas beneath it.
+        .onContinuousHover { phase in
+            switch phase {
+            case .active(let location):
+                let point = CGPoint(x: location.x - Self.leadingPadding,
+                                    y: location.y - Self.verticalBleed + CGFloat(rowIndex) * Self.rowHeight)
+                if let hoveredLabel, model.branchLabels.indices.contains(hoveredLabel),
+                   model.branchLabels[hoveredLabel].hoverOutline.strokedPath(StrokeStyle(lineWidth: 6)).contains(point) {
+                    return
+                }
+                hoveredLabel = model.branchLabels.indices.reversed().first { index in
+                    model.branchLabels[index].outline.strokedPath(StrokeStyle(lineWidth: 6)).contains(point)
+                }
+            case .ended:
+                hoveredLabel = nil
             }
         }
         // Let hovered names cross narrower graph columns without moving commit text.

@@ -524,3 +524,55 @@ private struct BranchClickProbe: NSViewRepresentable {
     #expect(selection == "tip")
     #expect(inserted == ["main"])
 }
+
+@Test("Branch hover reaches labels covered by reference buttons")
+@MainActor func branchHoverThroughReferenceButtons() throws {
+    NSApplication.shared.finishLaunching()
+    let commit = RepositoryCommit(oid: "tip", parents: [], author: "", date: .distantPast, message: "tip")
+    var model = CommitGraphGenerator.generate(commits: [commit], headOID: nil)
+    let outline = Path(CGRect(x: 4, y: 4, width: 16, height: 32))
+    let hoverOutline = outline
+    model.branchLabels = [GraphBranchLabel(outline: outline, hoverOutline: hoverOutline, colorIndex: 0,
+        references: [("main", outline)], hoverReferences: [("main", hoverOutline)])]
+    var hoveredLabel: Int?
+    let probe = NSView()
+    let root = List {
+        HStack {
+            BranchGraphRowCanvas(model: model, rowIndex: 0, commitOID: "tip", hoveredLabel: Binding(get: { hoveredLabel }, set: { hoveredLabel = $0 }))
+            .background(BranchClickProbe(view: probe))
+            Text("Commit subject").frame(width: 160, height: 44)
+        }.tag("tip")
+    }
+    let window = NSWindow(contentViewController: NSHostingController(rootView: root))
+    window.acceptsMouseMovedEvents = true
+    window.styleMask = [.titled, .closable, .resizable]
+    window.setContentSize(NSSize(width: 300, height: 160))
+    NSApp.setActivationPolicy(.regular)
+    NSApp.activate(ignoringOtherApps: true)
+    window.makeKeyAndOrderFront(nil)
+    let originalPointer = NSEvent.mouseLocation
+    let screenHeight = try #require(NSScreen.screens.first).frame.height
+    defer {
+        window.orderOut(nil)
+        CGWarpMouseCursorPosition(CGPoint(x: originalPointer.x, y: screenHeight - originalPointer.y))
+    }
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    window.makeKey()
+    func move(_ point: NSPoint) throws {
+        let screenPoint = window.convertPoint(toScreen: point)
+        CGWarpMouseCursorPosition(CGPoint(x: screenPoint.x, y: screenHeight - screenPoint.y))
+        let localEvent = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: point,
+            modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 0, pressure: 0))
+        NSApp.postEvent(localEvent, atStart: false)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        let deadline = Date().addingTimeInterval(0.1)
+        while let event = NSApp.nextEvent(matching: .any, until: deadline, inMode: .default, dequeue: true) {
+            NSApp.sendEvent(event)
+        }
+    }
+    try move(probe.convert(NSPoint(x: 8, y: probe.bounds.midY), to: nil))
+    #expect(hoveredLabel == 0)
+    try move(probe.convert(NSPoint(x: 30, y: probe.bounds.midY), to: nil))
+    #expect(hoveredLabel == nil)
+}

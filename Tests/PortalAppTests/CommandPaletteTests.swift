@@ -3,6 +3,7 @@ import Foundation
 import AppKit
 import SwiftUI
 import Testing
+import PortalEngine
 @testable import PortalApp
 @testable import PortalCore
 @testable import PortalTerminal
@@ -27,7 +28,15 @@ import Testing
         return []
     }
     #expect(search.results.map(\.title) == ["zulu", "middle", "alpha", "legacy-z", "legacy-a", "aaa-project"])
-    search.search("alpha", projects: [], targets: [], hosts: [], commands: commands) { _, _ in [] }
+    search.search("", projects: ["aaa-project", "one"], targets: [], hosts: [], commands: commands,
+                  currentProject: "one") { _, _ in
+        Issue.record("Opening the palette must not search Git")
+        return []
+    }
+    #expect(search.results.map(\.title) == ["one", "middle", "alpha", "legacy-z", "legacy-a", "zulu", "aaa-project"])
+    #expect(search.results.first?.command == nil)
+    search.search("alpha", projects: [], targets: [], hosts: [], commands: commands,
+                  currentProject: "two") { _, _ in [] }
     #expect(search.results.first?.title == "alpha")
 }
 
@@ -84,7 +93,11 @@ import Testing
     defer { window.orderOut(nil) }
     window.makeFirstResponder(original)
     let model = AppModel(connectToHelper: false)
-    model.showPalette(in: window)
+    let receiver = GlobalShortcutReceiver.ReceiverView(model: model)
+    original.addSubview(receiver)
+    window.orderOut(nil)
+    NotificationCenter.default.post(name: EngineControlProtocol.showPaletteNotification, object: nil)
+    #expect(window.isVisible)
     #expect(model.showingPalette)
     let editor = try #require(window.firstResponder as? NSTextView)
     #expect(editor !== original)

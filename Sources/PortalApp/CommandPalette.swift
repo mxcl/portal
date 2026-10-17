@@ -64,7 +64,7 @@ final class PaletteSearch: ObservableObject {
         isLoading = false
     }
 
-    func search(_ query: String, projects: [String], targets: [PaletteTarget], hosts: [SyncHost], commands: [ProjectTerminalCommand] = [],
+    func search(_ query: String, projects: [String], targets: [PaletteTarget], hosts: [SyncHost], commands: [ProjectTerminalCommand] = [], currentProject: String? = nil,
                 read: @escaping @Sendable (PaletteTarget, String) throws -> [RepositorySearchMatch]) {
         stop()
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -80,7 +80,7 @@ final class PaletteSearch: ObservableObject {
                               title: command.command, rank: $0, command: command)
             }
         }
-        sort(recentCommandsFirst: query.isEmpty)
+        sort(recentCommandsFirst: query.isEmpty, currentProject: query.isEmpty ? currentProject : nil)
         failures = []
         guard !query.isEmpty else { return }
         isLoading = !targets.isEmpty
@@ -120,8 +120,13 @@ final class PaletteSearch: ObservableObject {
         }
     }
 
-    private func sort(recentCommandsFirst: Bool = false) {
+    private func sort(recentCommandsFirst: Bool = false, currentProject: String? = nil) {
         results.sort {
+            if let currentProject {
+                let lhs = $0.project == currentProject, rhs = $1.project == currentProject
+                if lhs != rhs { return lhs }
+                if lhs, ($0.command == nil) != ($1.command == nil) { return $0.command == nil }
+            }
             if recentCommandsFirst {
                 switch ($0.command, $1.command) {
                 case let (lhs?, rhs?):
@@ -181,7 +186,7 @@ struct CommandPalette: View {
         model.cancelPaletteCommand()
         let configuration = model.configuration
         search.search(query, projects: model.paletteProjects, targets: model.paletteTargets,
-                      hosts: configuration.hosts, commands: commands) { target, query in
+                      hosts: configuration.hosts, commands: commands, currentProject: model.selectedProjectName) { target, query in
             try AppModel.search(target, query: query, configuration: configuration)
         }
     }

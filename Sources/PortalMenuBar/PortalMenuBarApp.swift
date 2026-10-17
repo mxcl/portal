@@ -151,11 +151,16 @@ final class MenuBarRuntime: ObservableObject {
         outerApplicationURL.appendingPathComponent("Contents/Resources/portald")
     }
 
-    static func openMainApplication() {
+    static func openMainApplication(showPalette: Bool = false) {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
         configuration.addsToRecentItems = false
-        NSWorkspace.shared.openApplication(at: outerApplicationURL, configuration: configuration)
+        if showPalette {
+            NSWorkspace.shared.open([URL(string: "portal://palette")!], withApplicationAt: outerApplicationURL,
+                                    configuration: configuration)
+        } else {
+            NSWorkspace.shared.openApplication(at: outerApplicationURL, configuration: configuration)
+        }
     }
 }
 

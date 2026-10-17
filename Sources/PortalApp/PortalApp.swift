@@ -2011,7 +2011,9 @@ struct ProjectBrowserView: View {
             RenameProgressSheet(request: request, model: model)
         }
         .onOpenURL { url in
-            if ["portal", "gitsync"].contains(url.scheme ?? ""), url.host == "github-connected" {
+            if url.scheme == "portal", url.host == "palette" {
+                NotificationCenter.default.post(name: EngineControlProtocol.showPaletteNotification, object: nil)
+            } else if ["portal", "gitsync"].contains(url.scheme ?? ""), url.host == "github-connected" {
                 model.githubAction(.refresh)
                 openSettings()
                 NSApplication.shared.activate()

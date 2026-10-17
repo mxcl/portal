@@ -16,7 +16,7 @@ struct GlobalShortcutReceiver: NSViewRepresentable {
         init(model: AppModel) {
             self.model = model
             super.init(frame: .zero)
-            DistributedNotificationCenter.default().addObserver(
+            NotificationCenter.default.addObserver(
                 self, selector: #selector(showPalette),
                 name: EngineControlProtocol.showPaletteNotification, object: nil
             )
@@ -24,10 +24,10 @@ struct GlobalShortcutReceiver: NSViewRepresentable {
 
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-        deinit { DistributedNotificationCenter.default().removeObserver(self) }
+        deinit { NotificationCenter.default.removeObserver(self) }
 
         @objc private func showPalette() {
-            guard let window, window.isVisible || window.isMiniaturized else { return }
+            guard let window else { return }
             if window.isMiniaturized { window.deminiaturize(nil) }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate()

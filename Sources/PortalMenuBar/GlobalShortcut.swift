@@ -30,10 +30,7 @@ final class GlobalShortcut {
             }
             // Carbon dispatches application events on the main thread.
             MainActor.assumeIsolated {
-                DistributedNotificationCenter.default().postNotificationName(
-                    EngineControlProtocol.showPaletteNotification, object: nil, deliverImmediately: true
-                )
-                MenuBarRuntime.openMainApplication()
+                MenuBarRuntime.openMainApplication(showPalette: true)
             }
             return noErr
         }, 1, &eventType, nil, &handler)

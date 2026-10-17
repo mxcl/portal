@@ -76,7 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func newTerminalWindow() { TerminalApplication.open() }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        TerminalApplication.open(urls)
+        let files = urls.filter(\.isFileURL)
+        guard !files.isEmpty else { return }
+        TerminalApplication.open(files)
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

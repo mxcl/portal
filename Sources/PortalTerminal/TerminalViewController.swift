@@ -47,14 +47,14 @@ enum TahoeGlassPalette {
     static func tint(light: CGFloat, dark: CGFloat) -> NSColor {
         NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            return (isDark ? NSColor.black : NSColor(srgbRed: 0.45, green: 0.62, blue: 0.90, alpha: 1))
+            return (isDark ? NSColor.black : NSColor(white: 0.6, alpha: 1))
                 .withAlphaComponent(isDark ? dark : light)
         }
     }
 
     static let standaloneSpaceBackground = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            ? .clear : NSColor(srgbRed: 0.45, green: 0.62, blue: 0.90, alpha: 0.06)
+            ? .clear : NSColor(white: 0.6, alpha: 0.06)
     }
 
     static func standaloneCommandBackground(darkOpacity: CGFloat) -> NSColor {

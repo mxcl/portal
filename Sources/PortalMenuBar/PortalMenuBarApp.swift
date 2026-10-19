@@ -76,6 +76,10 @@ private final class MenuBarBadge: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.systemBlue.setFill()
         NSBezierPath(ovalIn: bounds).fill()
+        let outline = NSBezierPath(ovalIn: bounds.insetBy(dx: 0.25, dy: 0.25))
+        outline.lineWidth = 0.5
+        NSColor(srgbRed: 0.05, green: 0.15, blue: 0.4, alpha: 0.45).setStroke()
+        outline.stroke()
     }
 }
 

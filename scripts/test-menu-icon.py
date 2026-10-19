@@ -1,75 +1,63 @@
 #!/usr/bin/env python3
-"""Render the real menu label against the installed helper's resources."""
+"""Check the real native menu icon and badge against installed resources."""
 from pathlib import Path
+import json
 import subprocess
 import tempfile
 import sys
 
 repo = Path(__file__).resolve().parent.parent
 source = (repo / 'Sources/PortalMenuBar/PortalMenuBarApp.swift').read_text()
-view = source[source.index('private struct MenuBarIcon:'):source.index('@MainActor\nfinal class MenuBarRuntime')]
+view = source[source.index('@MainActor\nprivate final class MenuBarIcon {'):source.index('@MainActor\nfinal class MenuBarRuntime')]
 helper = str(Path(sys.argv[1] if len(sys.argv) > 1 else '/Applications/Portal.app') / 'Contents/Library/LoginItems/Portal Menu Helper.app')
-import json
 program = 'import AppKit\nimport SwiftUI\nlet bundle = Bundle(path: ' + json.dumps(helper) + ')!\n'
 program += view.replace('Bundle.main', 'bundle')
 program += '''
 MainActor.assumeIsolated {
-    for unread in [false, true] {
-        let renderer = ImageRenderer(content: MenuBarIcon(isPaused: false, hasUnreadNotifications: unread))
-        renderer.scale = 2
-        guard let data = renderer.nsImage?.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: data) else { fatalError("Missing menu icon") }
-        assert(bitmap.pixelsWide == 32 && bitmap.pixelsHigh == 40, "Unexpected menu icon spacing")
-        // Check the icon's center, excluding the unread badge in the top-right corner.
-        let visible = (8..<24).contains { x in (8..<28).contains { y in
-            (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0
-        }}
-        assert(visible, "Portal menu icon is blank")
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    let icon = MenuBarIcon()
+    let button = icon.statusItem.button!
+    for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+        button.appearance = NSAppearance(named: appearance)
+        for paused in [false, true] {
+            for unread in [false, true, false] {
+                icon.update(isPaused: paused, hasUnreadNotifications: unread)
+                guard let image = button.image, image.isTemplate else {
+                    fatalError("Native status button must retain template tinting")
+                }
+                assert(image.size == NSSize(width: 16, height: 20), "Unexpected icon spacing")
+                guard let bitmap = image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)) else {
+                    fatalError("Missing icon pixels")
+                }
+                assert((0..<bitmap.pixelsWide).contains { x in
+                    (0..<bitmap.pixelsHigh).contains { y in
+                        (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0
+                    }
+                }, "Portal menu icon is blank")
+                for highlighted in [false, true] {
+                    button.highlight(highlighted)
+                    button.layoutSubtreeIfNeeded()
+                    let rendered = button.bitmapImageRepForCachingDisplay(in: button.bounds)!
+                    button.cacheDisplay(in: button.bounds, to: rendered)
+                    let blue = (0..<rendered.pixelsWide).contains { x in
+                        (0..<rendered.pixelsHigh).contains { y in
+                            guard let color = rendered.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
+                            return color.alphaComponent > 0.5 && color.blueComponent > color.redComponent + 0.2
+                        }
+                    }
+                    assert(blue == unread, "Unread GitHub badge must be blue only when unread")
+                    let badge = button.subviews.first { $0 is MenuBarBadge }!
+                    assert(badge.hitTest(NSPoint(x: 3, y: 3)) == nil, "Badge must not intercept menu clicks")
+                }
+            }
+        }
     }
-    print("Portal menu icon renders visible pixels with and without its badge")
+    print("Native icon stays templated; blue badge appears and clears in light/dark, paused, and highlighted states")
+    NSStatusBar.system.removeStatusItem(icon.statusItem)
 }
 '''
 with tempfile.TemporaryDirectory(prefix='portal-icon-test-') as temporary:
     script = Path(temporary) / 'check.swift'
     script.write_text(program)
-    subprocess.run(['swift', str(script)], check=True)
-
-    # Exercise MenuBarExtra's native bridge: ImageRenderer alone cannot detect
-    # template metadata being lost before the image reaches NSStatusBarButton.
-    native = 'import AppKit\nimport SwiftUI\nlet bundle = Bundle(path: ' + json.dumps(helper) + ')!\n'
-    native += view.replace('Bundle.main', 'bundle')
-    native += '''
-@main struct MenuIconProbe: App {
-    init() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            var images: [NSImage] = []
-            func inspect(_ view: NSView) {
-                if let button = view as? NSStatusBarButton, let image = button.image {
-                    images.append(image)
-                }
-                for child in view.subviews { inspect(child) }
-            }
-            for window in NSApp.windows {
-                if let content = window.contentView { inspect(content) }
-            }
-            guard images.count == 4, images.allSatisfy({ $0.isTemplate }) else {
-                fputs("MenuBarExtra must deliver template images to every status button\\n", stderr)
-                exit(1)
-            }
-            print("Native menu icons retain template tinting for paused and unread states")
-            NSApp.terminate(nil)
-        }
-    }
-    var body: some Scene {
-'''
-    for paused in ['false', 'true']:
-        for unread in ['false', 'true']:
-            native += f'''        MenuBarExtra {{ Text("Icon test") }} label: {{
-            MenuBarIcon(isPaused: {paused}, hasUnreadNotifications: {unread})
-        }}
-'''
-    native += '    }\n}\n'
-    script.write_text(native)
-    executable = Path(temporary) / 'check'
-    subprocess.run(['swiftc', '-parse-as-library', str(script), '-o', str(executable)], check=True)
-    subprocess.run([str(executable)], check=True, timeout=15)
+    subprocess.run(['swift', str(script)], check=True, timeout=60)

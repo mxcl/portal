@@ -6,24 +6,40 @@ import SwiftUI
 import PortalEngine
 
 @main
-struct PortalMenuBarApp: App {
-    @NSApplicationDelegateAdaptor(MenuAppDelegate.self) private var appDelegate
-    @StateObject private var runtime = MenuBarRuntime()
-
-    var body: some Scene {
-        MenuBarExtra {
-            StatusMenu(runtime: runtime)
-                .task { await runtime.menuOpened() }
-        } label: {
-            MenuBarIcon(isPaused: runtime.model.isPaused,
-                        hasUnreadNotifications: runtime.model.github.showsUnreadNotifications)
-        }
+@MainActor
+struct PortalMenuBarApp {
+    static func main() {
+        let application = NSApplication.shared
+        let delegate = MenuAppDelegate()
+        application.delegate = delegate
+        application.setActivationPolicy(.accessory)
+        withExtendedLifetime(delegate) { application.run() }
     }
 }
 
-private struct MenuBarIcon: View {
-    let isPaused: Bool
-    let hasUnreadNotifications: Bool
+@MainActor
+private final class MenuBarIcon {
+    let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private let badge = MenuBarBadge(frame: .zero)
+
+    init() {
+        guard let button = statusItem.button else { return }
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        button.addSubview(badge)
+        NSLayoutConstraint.activate([
+            badge.widthAnchor.constraint(equalToConstant: 6),
+            badge.heightAnchor.constraint(equalToConstant: 6),
+            badge.trailingAnchor.constraint(equalTo: button.centerXAnchor, constant: 8),
+            badge.topAnchor.constraint(equalTo: button.centerYAnchor, constant: -10),
+        ])
+    }
+
+    func update(isPaused: Bool, hasUnreadNotifications: Bool) {
+        statusItem.button?.image = Self.image(isPaused: isPaused)
+        badge.isHidden = !hasUnreadNotifications
+        statusItem.button?.setAccessibilityLabel(hasUnreadNotifications
+            ? "Portal, unread GitHub notifications" : "Portal")
+    }
 
     private static let sessionIcon: NSImage = {
         guard let url = Bundle.main.url(forResource: "session-icon", withExtension: "png"),
@@ -33,9 +49,8 @@ private struct MenuBarIcon: View {
         return image
     }()
 
-    var body: some View {
-        // MenuBarExtra extracts an image from its label. Keep the complete image a
-        // template so macOS can tint it, including on an inactive display's menu bar.
+    private static func image(isPaused: Bool) -> NSImage {
+        // Keep the icon templated; the separate badge retains its own color.
         let renderer = ImageRenderer(content:
             Image(nsImage: Self.sessionIcon)
                 .renderingMode(.template)
@@ -47,20 +62,20 @@ private struct MenuBarIcon: View {
                 .shadow(color: .black, radius: 0, x: -0.3)
                 .opacity(isPaused ? 0.45 : 1)
                 .frame(width: 16, height: 20)
-                .overlay(alignment: .topTrailing) {
-                    if hasUnreadNotifications {
-                        Circle().fill(.black).frame(width: 6, height: 6)
-                    }
-                }
         )
         renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
         let image = renderer.nsImage ?? NSImage()
-        // The SwiftUI rendering mode alone does not reach the native status button.
         image.isTemplate = true
-        return Image(nsImage: image)
-            .renderingMode(.template)
-            .accessibilityLabel(hasUnreadNotifications
-                ? "Portal, unread GitHub notifications" : "Portal")
+        return image
+    }
+}
+
+private final class MenuBarBadge: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.systemBlue.setFill()
+        NSBezierPath(ovalIn: bounds).fill()
     }
 }
 
@@ -165,10 +180,32 @@ final class MenuBarRuntime: ObservableObject {
 }
 
 @MainActor
-final class MenuAppDelegate: NSObject, NSApplicationDelegate {
+final class MenuAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private var runtime: MenuBarRuntime?
+    private var icon: MenuBarIcon?
+    private var observation: AnyCancellable?
     static weak var github: GitHubController?
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let runtime = MenuBarRuntime()
+        let icon = MenuBarIcon()
+        self.runtime = runtime
+        self.icon = icon
+        let menu = NSHostingMenu(rootView: StatusMenu(runtime: runtime))
+        menu.delegate = self
+        icon.statusItem.menu = menu
+        updateIcon()
+        observation = runtime.objectWillChange.sink { [weak self] in
+            self?.updateIcon()
+        }
         NSApplication.shared.registerForRemoteNotifications()
+    }
+    private func updateIcon() {
+        guard let runtime else { return }
+        icon?.update(isPaused: runtime.model.isPaused,
+                     hasUnreadNotifications: runtime.model.github.showsUnreadNotifications)
+    }
+    func menuWillOpen(_ menu: NSMenu) {
+        Task { await runtime?.menuOpened() }
     }
     func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         Self.github?.registered(token: deviceToken)

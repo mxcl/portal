@@ -272,6 +272,7 @@ struct ProjectFileBrowser: View {
         let status = editor.files.first { $0.path == node.id }
         return HStack {
             Label(node.name, systemImage: node.children == nil ? "doc.text" : "folder")
+                .foregroundStyle(status?.isIgnored == true ? .secondary : .primary)
                 .lineLimit(1).help(node.id)
             Spacer(minLength: 4)
             if status?.isConflicted == true {

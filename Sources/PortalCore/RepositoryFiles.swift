@@ -7,17 +7,18 @@ public struct RepositoryFile: Codable, Identifiable, Equatable, Sendable {
     public internal(set) var additions: Int? = nil
     public internal(set) var deletions: Int? = nil
     public var isUntracked: Bool { status == "??" }
+    public var isIgnored: Bool { status == "!!" }
     public var isConflicted: Bool { status.contains("U") || status == "AA" || status == "DD" }
-    public var isStaged: Bool { !isUntracked && status.first != " " }
-    public var isUnstaged: Bool { isUntracked || status.last != " " }
+    public var isStaged: Bool { !isIgnored && !isUntracked && status.first != " " }
+    public var isUnstaged: Bool { !isIgnored && (isUntracked || status.last != " ") }
 }
 
 extension Repository {
-    /// Git supplies the paths: tracked files (including deletions) and non-ignored untracked files.
+    /// Git supplies the paths: tracked files (including deletions), untracked files, and ignored files.
     public func files() throws -> [RepositoryFile] {
         let paths = try Git.run(["-C", url.path, "ls-files", "--cached", "--others", "--exclude-standard", "-z"])
         let porcelain = try Git.run(["--no-optional-locks", "-C", url.path, "status", "--porcelain=v1", "-z",
-                                     "--untracked-files=all"])
+                                     "--untracked-files=all", "--ignored"])
         var statuses: [String: String] = [:]
         var records = porcelain.split(separator: 0).makeIterator()
         while let record = records.next() {

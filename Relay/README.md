@@ -65,7 +65,7 @@ No production service is changed by this repository's build or tests.
 ## Internal atlas deployment
 
 The test relay runs at **https://canopy.mxcl.dev/gitinuum**, behind Caddy, with
-its own `gitinuum-relay.service`, service account and SQLite database. Caddy strips
+its own `portal-github-relay.service`, service account and SQLite database. Caddy strips
 `/gitinuum` before forwarding to loopback port 3022; other Canopy routes are unchanged.
 OAuth callback requests are excluded from access logging.
 
@@ -153,3 +153,19 @@ version rejection. A live smoke test additionally needs a configured relay,
 signed helper, and a GitHub repository: push a branch, star it, create an issue
 and PR, then cause an inbox notification. Verify only the relevant paths run,
 local work stays unchanged, and quiet time produces no GitHub requests.
+
+## Atlas service naming and incident rebuild
+
+The GitHub relay uses `portal-github-relay.service` and
+`/usr/local/bin/portal-github-relay`. This avoids colliding with the independent
+`portal-relay.service` encrypted session relay. The old `gitinuum-relay.service`
+name remains a systemd alias. Retain the existing service account, state directory,
+root-only environment file, database path, public `/gitinuum` routes, OAuth
+callbacks and protocol compatibility fields; changing the service name does not
+require migrating these. Do not run both unit names as separate processes.
+
+The October 2026 incident rebuild updates rustls-webpki to 0.103.16 and
+webpki-root-certs to 1.0.10 without changing application code or database schema.
+Build on the development machine with `cargo zigbuild --release --locked --target
+aarch64-unknown-linux-gnu`; preserve the existing executable and unit for rollback,
+then verify `/heartbeat` on loopback port 3022 after a controlled restart.

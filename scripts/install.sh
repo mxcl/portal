@@ -122,7 +122,15 @@ else
   codesign --force --sign "$signing_identity" --options runtime --timestamp "$menu"
 fi
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/MacOS/PortalApp"
-codesign --force --sign "$signing_identity" --options runtime --timestamp "$app"
+discovery_profile=${PORTAL_DISCOVERY_PROFILE:-"$HOME/Library/MobileDevice/Provisioning Profiles/Portal_Developer_ID.provisionprofile"}
+if [ ! -f "$discovery_profile" ]; then
+  discovery_profile="/Applications/Portal.app/Contents/embedded.provisionprofile"
+fi
+security cms -D -i "$discovery_profile" > "$stage/discovery-profile.plist"
+python3 "$repo_dir/scripts/prepare-discovery-signing.py" "$stage/discovery-profile.plist" "$stage/discovery-entitlements.plist"
+cp "$discovery_profile" "$app/Contents/embedded.provisionprofile"
+codesign --force --sign "$signing_identity" --options runtime --timestamp \
+  --entitlements "$stage/discovery-entitlements.plist" "$app"
 if [ -e "$destination" ]; then
   /usr/bin/osascript -e 'tell application id "dev.mxcl.portal.menu-helper" to quit' >/dev/null 2>&1 || true
   /usr/bin/osascript -e 'tell application id "dev.mxcl.portal" to quit' >/dev/null 2>&1 || true

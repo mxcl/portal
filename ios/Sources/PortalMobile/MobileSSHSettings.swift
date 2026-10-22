@@ -8,6 +8,7 @@ struct MobileSSHSettings: View {
     @State private var editing: SSHHost?
     @State private var publicKey = ""
     @State private var error: String?
+    @State private var creatingIdentity = false
 
     var body: some View {
         NavigationStack {
@@ -15,18 +16,28 @@ struct MobileSSHSettings: View {
                 Section {
                     Text("Connect your iPhone and Mac to Tailscale or another private VPN. Enable Remote Login on the Mac. Portal connects directly over SSH; no subscription is required.")
                 }
-                Section("Macs") {
-                    ForEach(model.hosts) { host in
+                Section("Discovered Hosts") {
+                    ForEach(model.hosts.filter { model.discoveredHostIDs.contains($0.id) }) { host in
+                        LabeledContent(host.name, value: host.address)
+                    }
+                    Button("Refresh from iCloud Keychain") { Task { await model.refreshCatalog() } }
+                    Text("Enable hosts in Portal’s Remote Access settings on your Mac. iCloud sync can take time; refresh again if a new host has not arrived.")
+                }
+                Section("Manual Connections") {
+                    ForEach(model.hosts.filter { !model.discoveredHostIDs.contains($0.id) }) { host in
                         Button(host.name) { editing = host }
                     }
                     .onDelete { offsets in
-                        model.hosts.remove(atOffsets: offsets)
+                        let manual = model.hosts.filter { !model.discoveredHostIDs.contains($0.id) }
+                        let removed = Set(offsets.map { manual[$0].id })
+                        model.hosts.removeAll { removed.contains($0.id) }
                         do { try model.saveHosts() } catch { self.error = error.localizedDescription }
                     }
-                    Button("Add Mac", systemImage: "plus") { editing = SSHHost() }
+                    Button("Add Host", systemImage: "plus") { editing = SSHHost() }
                 }
-                Section("Authorize this iPhone") {
-                    Text("Your authentication token stays in iCloud Keychain. Add this derived public key to ~/.ssh/authorized_keys on each Mac. Keep the token private.")
+                Section("Shared Identity") {
+                    Text("Your authentication token stays in iCloud Keychain. Enabling a host on your Mac authorizes this identity. For manual connections, add this public key to ~/.ssh/authorized_keys.")
+                    Button("Create Identity for First Device…") { creatingIdentity = true }
                     if !publicKey.isEmpty {
                         ShareLink("Share SSH Public Key", item: publicKey)
                         Text(publicKey).font(.caption.monospaced()).textSelection(.enabled)
@@ -39,6 +50,12 @@ struct MobileSSHSettings: View {
             .task {
                 do { publicKey = try SSHIdentity.publicKey() }
                 catch { self.error = error.localizedDescription }
+            }
+            .confirmationDialog("Only create an identity on your first Portal device. Otherwise wait for iCloud Keychain to sync.", isPresented: $creatingIdentity) {
+                Button("Create Shared Identity") {
+                    do { _ = try ICloudKeychainRootKey().loadOrCreate(); publicKey = try SSHIdentity.publicKey(); error = nil }
+                    catch { self.error = error.localizedDescription }
+                }
             }
             .sheet(item: $editing) { host in
                 SSHHostEditor(host: host) { updated in

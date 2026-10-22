@@ -272,6 +272,7 @@ final class AppModel: ObservableObject {
     private let selectedProjectKey = "selected-project-v2"
     private let loginMigrationKey = "migrated-portal-menu-helper-login-item-v1"
     private let loginItem = SMAppService.loginItem(identifier: "dev.mxcl.portal.menu-helper")
+    let remoteAccess = RemoteAccessModel()
     private var pendingHostDraft: HostDraft?
     private var notificationObserver: NSObjectProtocol?
     private var fetchingSnapshot = false
@@ -315,6 +316,7 @@ final class AppModel: ObservableObject {
             refreshProject()
         }
         guard connectToHelper else { return }
+        Task { await remoteAccess.launch() }
         if embeddedHelperURL != nil { migrateLegacyLoginItem() }
         notificationObserver = DistributedNotificationCenter.default().addObserver(
             forName: EngineControlProtocol.changedNotification,
@@ -2976,6 +2978,8 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
+            RemoteAccessSettings(model: model.remoteAccess)
+                .tabItem { Label("Remote Access", systemImage: "network") }
             Form {
                 Section("This Mac") {
                     LabeledContent("Projects folder") {

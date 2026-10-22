@@ -1,4 +1,5 @@
 import Foundation
+import PortalDiscovery
 import Darwin
 import Crypto
 import Citadel
@@ -20,19 +21,9 @@ public enum SSHSessionError: Error, LocalizedError {
     }
 }
 
-public struct SSHHost: Codable, Identifiable, Equatable, Sendable {
-    public var id = UUID().uuidString
-    public var name = ""
-    public var address = ""
-    public var username = ""
-    public var port = 22
-    public var hostPublicKey = ""
-    public var helperPath = "/Applications/Portal.app/Contents/Helpers/portal-session-bridge"
-    public var homeDirectory = ""
-    public var shellPath = "/bin/zsh"
+public typealias SSHHost = DiscoveryHost
 
-    public init() {}
-
+extension DiscoveryHost {
     public static func load() -> [SSHHost] {
         guard let data = UserDefaults.standard.data(forKey: "portalSSHHosts") else { return [] }
         return (try? JSONDecoder().decode([SSHHost].self, from: data)) ?? []
@@ -48,17 +39,6 @@ public struct SSHHost: Codable, Identifiable, Equatable, Sendable {
             throw SSHSessionError.configuration("Enter a name, SSH user, valid port, and absolute helper, home and shell paths.")
         }
         _ = try NIOSSHPublicKey(openSSHPublicKey: hostPublicKey)
-    }
-
-    public static func isPrivateAddress(_ value: String) -> Bool {
-        var ipv4 = in_addr()
-        if inet_pton(AF_INET, value, &ipv4) == 1 {
-            let n = UInt32(bigEndian: ipv4.s_addr)
-            return n >> 24 == 10 || n >> 20 == 0xac1 || n >> 16 == 0xc0a8 || n >> 22 == 0x191
-        }
-        var ipv6 = in6_addr()
-        guard inet_pton(AF_INET6, value, &ipv6) == 1 else { return false }
-        return withUnsafeBytes(of: ipv6) { ($0[0] & 0xfe) == 0xfc }
     }
 
     static func quote(_ value: String) -> String {
@@ -77,7 +57,7 @@ public enum SSHIdentity {
     }
 
     public static func publicKey() throws -> String {
-        try publicKey(token: ICloudKeychainRootKey().loadOrCreate())
+        try publicKey(token: ICloudKeychainRootKey().load().get())
     }
 
     static func publicKey(token: Data) throws -> String {

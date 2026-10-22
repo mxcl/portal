@@ -66,3 +66,12 @@ xcodebuild -exportArchive -archivePath /tmp/PortalMobile.xcarchive \
   -exportOptionsPlist ios/ExportOptions.plist \
   -exportPath /tmp/portal-mobile-export -allowProvisioningUpdates
 ```
+
+## Automatic host discovery
+
+In Portal on a Mac, open Settings → Remote Access and enable the Mac. Linux hosts
+are enrolled once there using a trusted entry from `~/.ssh/config`. The iPhone's
+Refresh reads the synced Keychain directory and queries registered hosts over
+SSH. New records may take time to arrive through iCloud. Manual connections
+remain supported. Create a shared identity only on the first device; other
+devices must wait for that token to sync.

@@ -16,7 +16,7 @@ public actor SSHSessionConnection {
 
     private func connect() async throws -> SSHClient {
         try host.validate()
-        let key = try SSHIdentity.privateKey(token: token ?? ICloudKeychainRootKey().loadOrCreate())
+        let key = try SSHIdentity.privateKey(token: token ?? ICloudKeychainRootKey().load().get())
         var settings = SSHClientSettings(host: host.address, port: host.port,
             authenticationMethod: { .ed25519(username: self.host.username, privateKey: key) },
             hostKeyValidator: .trustedKeys([try NIOSSHPublicKey(openSSHPublicKey: host.hostPublicKey)]))

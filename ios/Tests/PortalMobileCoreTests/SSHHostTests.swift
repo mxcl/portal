@@ -13,6 +13,7 @@ import Foundation
 
 @Test func tokenIdentityIsStableAndDistinct() throws {
     let token = Data(repeating: 7, count: 32)
+    #expect(try SSHIdentity.publicKey(token: token) == PortalIdentity.publicKey(token: token))
     #expect(try SSHIdentity.publicKey(token: token) == SSHIdentity.publicKey(token: token))
     #expect(try SSHIdentity.publicKey(token: token) != SSHIdentity.publicKey(token: Data(repeating: 8, count: 32)))
     var host = SSHHost()

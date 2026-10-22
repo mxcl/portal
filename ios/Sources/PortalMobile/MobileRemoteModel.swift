@@ -102,10 +102,20 @@ public final class MobileRemoteModel {
     private var submittedCommands: [String] = []
     private var observedBlockIDs = Set<UUID>()
     public var hosts: [SSHHost] = SSHHost.load()
+    public private(set) var discoveredHostIDs = Set<String>()
+
+    private func refreshDiscoveredHosts() throws {
+        let token = try ICloudKeychainRootKey().load().get()
+        let discovered = try HostDirectory().hosts(token: token)
+        for host in discovered { try host.validate() }
+        let ids = Set(discovered.map(\.id))
+        hosts = SSHHost.load().filter { !ids.contains($0.id) } + discovered
+        discoveredHostIDs = ids
+    }
 
     public func saveHosts() throws {
         for host in hosts { try host.validate() }
-        UserDefaults.standard.set(try JSONEncoder().encode(hosts), forKey: "portalSSHHosts")
+        UserDefaults.standard.set(try JSONEncoder().encode(hosts.filter { !discoveredHostIDs.contains($0.id) }), forKey: "portalSSHHosts")
     }
 
     public init() {
@@ -124,6 +134,7 @@ public final class MobileRemoteModel {
         isRefreshingCatalog = true
         defer { isRefreshingCatalog = false }
         do {
+            try refreshDiscoveredHosts()
             var macs: [RemoteMac] = []
             for host in hosts {
                 do {

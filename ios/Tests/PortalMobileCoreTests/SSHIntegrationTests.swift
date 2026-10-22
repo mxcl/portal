@@ -13,7 +13,7 @@ func directSSHSessionLifecycle() async throws {
     var host = SSHHost()
     host.name = "Integration"
     host.address = try #require(env["PORTAL_TEST_SSH_ADDRESS"])
-    host.port = 22992
+    host.port = Int(env["PORTAL_TEST_SSH_PORT"] ?? "22992") ?? 22992
     host.username = NSUserName()
     host.homeDirectory = NSHomeDirectory()
     host.hostPublicKey = try String(contentsOfFile: directory + "/host-key.pub", encoding: .utf8)

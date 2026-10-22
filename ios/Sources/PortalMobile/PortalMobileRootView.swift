@@ -220,7 +220,7 @@ private struct MobileHostSection: View {
                 NavigationLink {
                     MobileSessionView(
                         model: model,
-                            session: session,
+                        session: session,
                         mac: mac
                     )
                         .onAppear { model.attach(to: session, on: mac) }

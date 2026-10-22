@@ -36,4 +36,3 @@ public enum PortalCommandEnvelope {
         }.joined(separator: "\\\n")
     }
 }
-

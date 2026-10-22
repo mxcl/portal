@@ -219,4 +219,3 @@ public struct RemoteCatalogSession: Codable, Equatable, Identifiable, Sendable {
         self.attachedClientCount = attachedClientCount
     }
 }
-

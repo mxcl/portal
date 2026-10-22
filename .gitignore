@@ -3,3 +3,5 @@
 *.xcodeproj/
 .DS_Store
 /scripts/__pycache__/
+!ios/PortalMobileApp/PortalMobileApp.xcodeproj/
+ios/**/xcuserdata/

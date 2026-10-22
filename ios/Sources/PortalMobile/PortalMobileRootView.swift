@@ -1,0 +1,793 @@
+func mobileSelectedCompletion<Element>(
+    _ suggestions: [Element],
+    selectedIndex: Int?,
+    isPresented: Bool
+) -> Element? {
+    guard isPresented, let selectedIndex, suggestions.indices.contains(selectedIndex) else { return nil }
+    return suggestions[selectedIndex]
+}
+
+func mobileCursorKey(finalByte: UInt8, applicationCursor: Bool) -> [UInt8] {
+    [0x1b, applicationCursor ? 0x4f : 0x5b, finalByte]
+}
+
+#if os(iOS)
+import SwiftUI
+import SwiftTerm
+import UIKit
+import PortalMobileCore
+
+public struct PortalMobileRootView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var model = MobileRemoteModel()
+    @State private var createdDestination: CreatedSessionDestination?
+    @State private var catalogRefreshRequest = 0
+    @State private var showsSettings = false
+
+    public init() {}
+
+    public var body: some View {
+        NavigationStack {
+            List {
+                if case .failed(let reason) = model.connectionState {
+                    Text(reason).foregroundStyle(.red)
+                }
+                if let catalog = model.catalog {
+                    ForEach(catalog.macs.sortedAlphabetically) { mac in
+                        MobileHostSection(
+                            model: model,
+                            mac: mac,
+                            isReachable: isMacReachable(mac, catalog: catalog),
+                            onCreate: { startNewSession(on: mac) }
+                        )
+                    }
+                }
+            }
+            .refreshable { await model.refreshCatalog() }
+            .background(NativeRefreshControlTrigger(request: catalogRefreshRequest))
+            .overlay {
+                if !model.isRefreshingCatalog,
+                   model.catalog?.macs.isEmpty != false {
+                    ContentUnavailableView(
+                        "No sessions yet",
+                        systemImage: "terminal",
+                        description: Text("Connect Tailscale or your VPN, then add your Mac’s SSH address in Settings.")
+                    )
+                    .allowsHitTesting(false)
+                }
+            }
+            .navigationTitle("Portal")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Settings", systemImage: "gear") { showsSettings = true }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Refresh", systemImage: "arrow.clockwise") {
+                        requestCatalogRefresh()
+                    }
+                    .disabled(model.isRefreshingCatalog)
+                }
+            }
+            .navigationDestination(item: $createdDestination) { destination in
+                MobileSessionView(
+                    model: model,
+                    session: destination.session,
+                    mac: destination.mac
+                )
+                .onAppear {
+                    model.attach(
+                        to: destination.session,
+                        on: destination.mac
+                    )
+                }
+            }
+        }
+        .sheet(isPresented: $showsSettings) {
+            MobileSSHSettings(model: model)
+        }
+        .task {
+            requestCatalogRefresh()
+        }
+        .alert("Couldn’t Start Session", isPresented: Binding(
+            get: { model.sessionCreationError != nil },
+            set: { if !$0 { model.dismissSessionCreationError() } }
+        )) {
+            Button("OK") { model.dismissSessionCreationError() }
+        } message: {
+            Text(model.sessionCreationError ?? "The Mac could not start a session.")
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { model.isLocked },
+            set: { _ in }
+        )) {
+            LockedView { model.unlock() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background:
+                model.sceneDidEnterBackground()
+            case .active:
+                model.sceneDidBecomeActive()
+                requestCatalogRefresh()
+            case .inactive:
+                break
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    private func requestCatalogRefresh() {
+        guard !model.isRefreshingCatalog else { return }
+        catalogRefreshRequest &+= 1
+    }
+
+    private func isMacReachable(_ mac: RemoteMac, catalog: RemoteCatalog) -> Bool {
+        mac.online
+    }
+
+    private func startNewSession(on mac: RemoteMac) {
+        Task {
+            guard let session = await model.createSession(on: mac) else {
+                return
+            }
+            createdDestination = CreatedSessionDestination(mac: mac, session: session)
+        }
+    }
+}
+
+private struct NativeRefreshControlTrigger: UIViewRepresentable {
+    let request: Int
+
+    func makeUIView(context: Context) -> TriggerView {
+        TriggerView()
+    }
+
+    func updateUIView(_ view: TriggerView, context: Context) {
+        view.request = request
+    }
+
+    final class TriggerView: UIView {
+        var request = 0 {
+            didSet { triggerIfNeeded() }
+        }
+
+        private var handledRequest = 0
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            triggerIfNeeded()
+        }
+
+        private func triggerIfNeeded() {
+            guard request != 0, request != handledRequest,
+                  let scrollView = enclosingRefreshableScrollView(),
+                  let refreshControl = scrollView.refreshControl else { return }
+            handledRequest = request
+            guard !refreshControl.isRefreshing else { return }
+            refreshControl.beginRefreshing()
+            scrollView.setContentOffset(
+                CGPoint(
+                    x: scrollView.contentOffset.x,
+                    y: -scrollView.adjustedContentInset.top - refreshControl.bounds.height
+                ),
+                animated: true
+            )
+            refreshControl.sendActions(for: .valueChanged)
+        }
+
+        private func enclosingRefreshableScrollView() -> UIScrollView? {
+            var ancestor = superview
+            while let view = ancestor {
+                if let scrollView = view.refreshableScrollView() { return scrollView }
+                ancestor = view.superview
+            }
+            return nil
+        }
+    }
+}
+
+private extension UIView {
+    func refreshableScrollView() -> UIScrollView? {
+        if let scrollView = self as? UIScrollView, scrollView.refreshControl != nil {
+            return scrollView
+        }
+        for view in subviews {
+            if let scrollView = view.refreshableScrollView() { return scrollView }
+        }
+        return nil
+    }
+}
+
+private extension Array where Element == RemoteMac {
+    var sortedAlphabetically: [RemoteMac] {
+        sorted { lhs, rhs in
+            let order = lhs.name.localizedStandardCompare(rhs.name)
+            return order == .orderedSame ? lhs.id < rhs.id : order == .orderedAscending
+        }
+    }
+}
+
+private struct MobileHostSection: View {
+    let model: MobileRemoteModel
+    let mac: RemoteMac
+    let isReachable: Bool
+    let onCreate: () -> Void
+
+    var body: some View {
+        Section {
+            ForEach(mac.sessions) { session in
+                NavigationLink {
+                    MobileSessionView(
+                        model: model,
+                            session: session,
+                        mac: mac
+                    )
+                        .onAppear { model.attach(to: session, on: mac) }
+                } label: {
+                    SessionRow(session: session)
+                }
+                .disabled(!isReachable)
+            }
+            creationRow
+        } header: {
+            HStack {
+                Text(mac.name)
+                Spacer()
+                Text(isReachable ? "Online" : "Unavailable")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var creationRow: some View {
+        Button(action: onCreate) {
+            HStack {
+                Label("New Session", systemImage: "plus")
+                Spacer()
+                if model.creatingMacID == mac.id {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .contentShape(.rect)
+        }
+        .disabled(!isReachable || model.creatingMacID != nil)
+    }
+}
+
+private struct CreatedSessionDestination: Identifiable, Hashable {
+    let mac: RemoteMac
+    let session: RemoteCatalogSession
+
+    var id: String { "\(mac.id):\(session.sessionID)" }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+private struct SessionRow: View {
+    let session: RemoteCatalogSession
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(session.title).font(.headline)
+                if session.runningCommand != nil {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            Text(session.cwd)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+private struct MobileSessionView: View {
+    let model: MobileRemoteModel
+    let session: RemoteCatalogSession
+    let mac: RemoteMac
+    @State private var command = ""
+    @State private var showsCompletions = false
+    @State private var isApplyingCompletion = false
+    @State private var completionSelection: Int?
+    @State private var isHistorySearch = false
+    @State private var showsClearHistoryConfirmation = false
+    @State private var showsClearHistoryError = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            statusBar
+            if showsTerminal {
+                PortalTerminalView(
+                    chunks: model.chunks,
+                    size: model.terminalSize,
+                    generation: model.terminalGeneration
+                ) {
+                    model.sendInput($0)
+                }
+                    .background(.black)
+            } else {
+                blockTranscript
+            }
+            inputBar
+            if showsTerminal { keyStrip }
+        }
+        .background(.black)
+        .navigationTitle(session.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.black, for: .navigationBar)
+        .onDisappear { model.detach() }
+    }
+
+    private var showsTerminal: Bool {
+        model.transcript.isAlternateScreenActive
+    }
+
+    private var blockTranscript: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    if model.transcript.blocks.isEmpty {
+                        if model.isLoadingCommands {
+                            ProgressView()
+                                .controlSize(.large)
+                                .accessibilityLabel("Loading commands")
+                                .frame(maxWidth: .infinity, minHeight: 320)
+                        } else {
+                            ContentUnavailableView(
+                                "No commands yet",
+                                systemImage: "terminal",
+                                description: Text("Run a command here or on a connected Mac.")
+                            )
+                            .frame(maxWidth: .infinity, minHeight: 320)
+                        }
+                    }
+                    ForEach(model.transcript.blocks) { block in
+                        MobileBlockView(block: block)
+                            .id(block.id)
+                    }
+                }
+                .padding(12)
+            }
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            .background(.black)
+            .onChange(of: model.transcript.revision) { _, _ in
+                guard let id = model.transcript.blocks.last?.id else { return }
+                withAnimation { proxy.scrollTo(id, anchor: .bottom) }
+            }
+        }
+    }
+
+    private var statusBar: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(model.connectionState == .attached ? .green : .orange)
+                .frame(width: 7, height: 7)
+            Text(statusText)
+            Spacer()
+            Label("\(model.presenceCount)", systemImage: "keyboard")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .frame(height: 28)
+        .background(.bar)
+    }
+
+    private var inputBar: some View {
+        HStack(spacing: 8) {
+            if showsTerminal {
+                Button("Show Keyboard", systemImage: "keyboard") {
+                    NotificationCenter.default.post(name: .portalFocusTerminal, object: nil)
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                TextField("Command", text: $command)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.body.monospaced())
+                    .keyboardType(.asciiCapable)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.send)
+                    .onChange(of: command) { _, value in
+                        if isApplyingCompletion {
+                            isApplyingCompletion = false
+                            isHistorySearch = false
+                            showsCompletions = false
+                            model.cancelCompletion()
+                            return
+                        }
+                        completionSelection = nil
+                        showsCompletions = isHistorySearch || !value.isEmpty
+                        if isHistorySearch {
+                            model.searchHistory(value, cwd: currentCwd)
+                        } else {
+                            model.complete(value, cwd: currentCwd)
+                        }
+                    }
+                    .onSubmit {
+                        if let suggestion = selectedCompletion {
+                            apply(suggestion)
+                            return
+                        }
+                        guard !model.isCompleting else { return }
+                        guard !command.isEmpty else { return }
+                        model.submit(command)
+                        command = ""
+                    }
+                    .onKeyPress("r", phases: .down) { press in
+                        guard press.modifiers.contains(.control) else { return .ignored }
+                        if isHistorySearch,
+                           showsCompletions,
+                           !model.completionSuggestions.isEmpty {
+                            completionSelection = completionSelection.map {
+                                ($0 + 1) % model.completionSuggestions.count
+                            } ?? 0
+                            return .handled
+                        }
+                        completionSelection = nil
+                        isHistorySearch = true
+                        showsCompletions = true
+                        model.searchHistory(command, cwd: currentCwd)
+                        return .handled
+                    }
+                    .popover(
+                        isPresented: $showsCompletions,
+                        attachmentAnchor: .rect(.bounds),
+                        arrowEdge: .bottom
+                    ) {
+                        MobileCompletionPopover(
+                            suggestions: model.completionSuggestions,
+                            isLoading: model.isCompleting,
+                            selectedIndex: completionSelection
+                        ) { suggestion in
+                            apply(suggestion)
+                        }
+                        .presentationCompactAdaptation(.popover)
+                    }
+                    .onChange(of: showsCompletions) { _, isShown in
+                        if !isShown {
+                            isHistorySearch = false
+                            completionSelection = nil
+                        }
+                    }
+            }
+            Menu {
+                Button("Interrupt  ⌃C", systemImage: "stop.fill") {
+                    model.interrupt()
+                }
+                Button("End Input  ⌃D", systemImage: "eject.fill") {
+                    model.sendInput(Data([0x04]))
+                }
+                Divider()
+                Button("Escape  ⌃[", systemImage: "escape") {
+                    model.sendInput(Data([0x1b]))
+                }
+                Button("Clear Screen  ⌃L", systemImage: "rectangle.on.rectangle.slash") {
+                    model.sendInput(Data([0x0c]))
+                }
+                Divider()
+                Button("Clear Command History…", systemImage: "trash", role: .destructive) {
+                    showsClearHistoryConfirmation = true
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(.rect)
+            }
+            .accessibilityLabel("Terminal Actions")
+        }
+        .confirmationDialog(
+            "Clear command history on this host?",
+            isPresented: $showsClearHistoryConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear History", role: .destructive) {
+                Task {
+                    showsClearHistoryError = !(await model.clearHistory())
+                }
+            }
+        } message: {
+            Text("This permanently removes successful commands. Session Up/Down history is unchanged.")
+        }
+        .alert("Command history could not be cleared", isPresented: $showsClearHistoryError) {
+            Button("OK") {}
+        }
+        .padding(8)
+        .background(.bar)
+    }
+
+    private var keyStrip: some View {
+        HStack(spacing: 4) {
+            TerminalKey("Esc", bytes: [0x1b], model: model)
+            TerminalKey("Ctrl-C", bytes: [0x03], model: model)
+            TerminalKey("Tab", bytes: [0x09], model: model)
+            TerminalKey("←", bytes: cursorKey(0x44), model: model)
+            TerminalKey("↑", bytes: cursorKey(0x41), model: model)
+            TerminalKey("↓", bytes: cursorKey(0x42), model: model)
+            TerminalKey("→", bytes: cursorKey(0x43), model: model)
+            Button("Dismiss", systemImage: "keyboard.chevron.compact.down") {
+                UIApplication.shared.sendAction(
+                    #selector(UIResponder.resignFirstResponder),
+                    to: nil,
+                    from: nil,
+                    for: nil
+                )
+            }
+            .labelStyle(.iconOnly)
+            .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.borderless)
+        .font(.caption.monospaced())
+        .padding(.horizontal, 4)
+        .background(.bar)
+    }
+
+    private var statusText: String {
+        switch model.connectionState {
+        case .idle: "Detached"
+        case .authenticating: "Authenticating"
+        case .connecting: "Connecting"
+        case .attached: mac.name
+        case .reconnecting: "Reconnecting"
+        case .failed(let message): message
+        }
+    }
+
+    private var currentCwd: String {
+        model.transcript.currentCwd ?? session.cwd
+    }
+
+    private func cursorKey(_ finalByte: UInt8) -> [UInt8] {
+        mobileCursorKey(
+            finalByte: finalByte,
+            applicationCursor: model.transcript.isApplicationCursorModeActive
+        )
+    }
+
+    private var selectedCompletion: MobileCompletionSuggestion? {
+        mobileSelectedCompletion(
+            model.completionSuggestions,
+            selectedIndex: completionSelection,
+            isPresented: showsCompletions
+        )
+    }
+
+    private func apply(_ suggestion: MobileCompletionSuggestion) {
+        isApplyingCompletion = true
+        isHistorySearch = false
+        if suggestion.kind == "history" {
+            command = suggestion.insertText
+        } else {
+            let start = command.lastIndex(where: \.isWhitespace)
+                .map { command.index(after: $0) } ?? command.startIndex
+            command.replaceSubrange(start..., with: suggestion.insertText)
+        }
+        showsCompletions = false
+    }
+}
+
+private struct MobileCompletionPopover: View {
+    let suggestions: [MobileCompletionSuggestion]
+    let isLoading: Bool
+    let selectedIndex: Int?
+    let onSelect: (MobileCompletionSuggestion) -> Void
+
+    var body: some View {
+        Group {
+            if suggestions.isEmpty {
+                if isLoading {
+                    ProgressView("Completing…")
+                } else {
+                    ContentUnavailableView("No completions", systemImage: "text.magnifyingglass")
+                }
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                            Button {
+                                onSelect(suggestion)
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(suggestion.displayText)
+                                            .font(.body.monospaced())
+                                        if let description = suggestion.description {
+                                            Text(description)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    Spacer()
+                                    Text(suggestion.trailingLabel)
+                                        .font(.caption2.monospaced())
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .contentShape(.rect)
+                                .padding(.horizontal, 12)
+                                .frame(minHeight: 44)
+                                .background(index == selectedIndex ? Color.accentColor.opacity(0.16) : .clear)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Insert completion")
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: 320, height: suggestions.isEmpty ? 88 : min(CGFloat(suggestions.count) * 48, 288))
+    }
+}
+
+private struct MobileBlockView: View {
+    let block: PortalBlock
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("❯")
+                    .foregroundStyle(.green)
+                Text(block.command)
+                    .font(.callout.monospaced().weight(.medium))
+                    .textSelection(.enabled)
+                Spacer(minLength: 8)
+                state
+            }
+            .font(.body.monospaced())
+
+            if !block.output.isEmpty {
+                Text(block.output)
+                    .font(.callout.monospaced())
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if let cwd = block.cwd {
+                Text(cwd)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(12)
+        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    private var state: some View {
+        switch block.state {
+        case .running:
+            ProgressView().controlSize(.small)
+        case .completed(0):
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .completed(let status):
+            Text("exit \(status)")
+                .font(.caption.monospaced())
+                .foregroundStyle(.red)
+        }
+    }
+}
+
+private struct TerminalKey: View {
+    let title: String
+    let bytes: [UInt8]
+    let model: MobileRemoteModel
+
+    init(_ title: String, bytes: [UInt8], model: MobileRemoteModel) {
+        self.title = title
+        self.bytes = bytes
+        self.model = model
+    }
+
+    var body: some View {
+        Button(title) { model.sendInput(Data(bytes)) }
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(.rect)
+    }
+}
+
+private struct PortalTerminalView: UIViewRepresentable {
+    let chunks: [TerminalChunk]
+    let size: RemoteTerminalSize?
+    let generation: UInt64
+    let onInput: (Data) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onInput: onInput)
+    }
+
+    func makeUIView(context: Context) -> TerminalView {
+        let view = TerminalView(frame: .zero)
+        view.terminalDelegate = context.coordinator
+        view.backgroundColor = .black
+        context.coordinator.terminalView = view
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.focusTerminal),
+            name: .portalFocusTerminal,
+            object: nil
+        )
+        return view
+    }
+
+    func updateUIView(_ view: TerminalView, context: Context) {
+        context.coordinator.onInput = onInput
+        context.coordinator.size = size
+        if context.coordinator.generation != generation {
+            view.getTerminal().resetToInitialState()
+            context.coordinator.generation = generation
+            context.coordinator.lastChunkID = 0
+        }
+        context.coordinator.applySize()
+        for chunk in chunks where chunk.id > context.coordinator.lastChunkID {
+            view.feed(byteArray: Array(chunk.data)[...])
+            context.coordinator.lastChunkID = chunk.id
+        }
+    }
+
+    @MainActor final class Coordinator: NSObject, @preconcurrency TerminalViewDelegate {
+        var onInput: (Data) -> Void
+        var size: RemoteTerminalSize?
+        var generation: UInt64 = 0
+        var lastChunkID: UInt64 = 0
+        weak var terminalView: TerminalView?
+
+        init(onInput: @escaping (Data) -> Void) {
+            self.onInput = onInput
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        @MainActor @objc func focusTerminal() {
+            _ = terminalView?.becomeFirstResponder()
+        }
+
+        @MainActor func applySize() {
+            guard let terminalView, let size else { return }
+            terminalView.getTerminal().resize(cols: Int(size.cols), rows: Int(size.rows))
+        }
+
+        func send(source: TerminalView, data: ArraySlice<UInt8>) { onInput(Data(data)) }
+        func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+            guard let size,
+                  newCols != size.cols || newRows != size.rows
+            else { return }
+            applySize()
+        }
+        func setTerminalTitle(source: TerminalView, title: String) {}
+        func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
+        func scrolled(source: TerminalView, position: Double) {}
+        func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {}
+        func bell(source: TerminalView) {}
+        func clipboardCopy(source: TerminalView, content: Data) {}
+        func clipboardRead(source: TerminalView) -> Data? { nil }
+        func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
+        func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
+    }
+}
+
+private struct LockedView: View {
+    let unlock: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "lock.fill").font(.system(size: 52))
+            Text("Portal is locked").font(.title.bold())
+            Button("Unlock", action: unlock).buttonStyle(.borderedProminent)
+        }
+    }
+}
+
+private extension Notification.Name {
+    static let portalFocusTerminal = Notification.Name("PortalFocusTerminal")
+}
+#endif

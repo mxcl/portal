@@ -49,9 +49,9 @@ public struct PortalMobileRootView: View {
                 if !model.isRefreshingCatalog,
                    model.catalog?.macs.isEmpty != false {
                     ContentUnavailableView(
-                        "No sessions yet",
+                        "No hosts yet",
                         systemImage: "terminal",
-                        description: Text("Connect Tailscale or your VPN, then add your Mac’s SSH address in Settings.")
+                        description: Text("Enable hosts in Portal’s Remote Access settings on your Mac. Connect your VPN, then refresh here after iCloud Keychain syncs.")
                     )
                     .allowsHitTesting(false)
                 }
@@ -86,7 +86,7 @@ public struct PortalMobileRootView: View {
             MobileSSHSettings(model: model)
         }
         .task {
-            requestCatalogRefresh()
+            await model.refreshCatalog()
         }
         .alert("Couldn’t Start Session", isPresented: Binding(
             get: { model.sessionCreationError != nil },

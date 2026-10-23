@@ -1281,6 +1281,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
     }
 
     private let stickyHeader = NSView()
+    private let stickyHeaderMaterial = NonHitTestingVisualEffectView()
     private var headerTopConstraint: NSLayoutConstraint!
     private let commandLabel = SelectableBlockTextField()
     private let metaLabel = SelectableBlockTextField()
@@ -1506,6 +1507,12 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
 
         stickyHeader.translatesAutoresizingMaskIntoConstraints = false
         stickyHeader.wantsLayer = true
+        stickyHeaderMaterial.material = .hudWindow
+        stickyHeaderMaterial.blendingMode = .withinWindow
+        stickyHeaderMaterial.state = .active
+        stickyHeaderMaterial.isHidden = true
+        stickyHeaderMaterial.autoresizingMask = [.width, .height]
+        stickyHeader.addSubview(stickyHeaderMaterial)
         let scrollToTopGesture = NSClickGestureRecognizer(target: self, action: #selector(didClickStickyHeader))
         scrollToTopGesture.delegate = self
         scrollToTopGesture.delaysPrimaryMouseButtonEvents = true
@@ -1726,8 +1733,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         if headerTopConstraint.constant != offset {
             headerTopConstraint.constant = offset
         }
-        stickyHeader.layer?.backgroundColor = offset > 0
-            ? (hasFailed ? failedBackground : NSColor.textBackgroundColor).cgColor : nil
+        stickyHeaderMaterial.isHidden = offset <= 0
     }
 
     @objc private func copyMarkdown() { onCopyMarkdown?() }

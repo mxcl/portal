@@ -1254,7 +1254,7 @@ private final class FindCloseButton: NSButton {
     }
 }
 
-private final class BlockView: NSView {
+private final class BlockView: NSView, NSGestureRecognizerDelegate {
     var usesPortalMaterials = false
     private var runningBackground: NSColor {
         usesPortalMaterials ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.22) : TahoeGlassPalette.commandBackground
@@ -1331,6 +1331,22 @@ private final class BlockView: NSView {
                 )
                 guard block.hitTest(buttonCenter) === block.copyMarkdownButton else { return false }
             }
+            for blockY: CGFloat in [0, 200] {
+                block.setFrameOrigin(NSPoint(x: 0, y: blockY))
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: blockY + 100))
+                guard let gesture = block.stickyHeader.gestureRecognizers.first else { return false }
+                for (view, shouldScroll): (NSView, Bool) in [(block.commandLabel, true), (block.copyMarkdownButton, false)] {
+                    let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+                    guard let event = NSEvent.mouseEvent(
+                        with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                        windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+                    ), block.gestureRecognizer(gesture, shouldAttemptToRecognizeWith: event) == shouldScroll else { return false }
+                }
+                block.scrollToBlockTop(animated: false)
+                guard abs(scrollView.contentView.bounds.minY - (blockY - inset)) < 0.5,
+                      block.headerTopConstraint.constant == 0 else { return false }
+            }
+            block.setFrameOrigin(.zero)
         }
         return true
     }
@@ -1490,6 +1506,10 @@ private final class BlockView: NSView {
 
         stickyHeader.translatesAutoresizingMaskIntoConstraints = false
         stickyHeader.wantsLayer = true
+        let scrollToTopGesture = NSClickGestureRecognizer(target: self, action: #selector(didClickStickyHeader))
+        scrollToTopGesture.delegate = self
+        scrollToTopGesture.delaysPrimaryMouseButtonEvents = true
+        stickyHeader.addGestureRecognizer(scrollToTopGesture)
         stickyHeader.addSubview(header)
         stickyHeader.addSubview(commandLabel)
         let headerSpace = NSView()
@@ -1657,6 +1677,33 @@ private final class BlockView: NSView {
         if abs(outputView.bounds.width - lastMeasuredOutputWidth) > 0.5 {
             needsOutputHeightMeasurement = true
             updateOutputHeight()
+        }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: NSGestureRecognizer, shouldAttemptToRecognizeWith event: NSEvent) -> Bool {
+        headerTopConstraint.constant > 0
+            && !copyMarkdownButton.bounds.contains(copyMarkdownButton.convert(event.locationInWindow, from: nil))
+    }
+
+    @objc private func didClickStickyHeader() {
+        scrollToBlockTop(animated: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
+
+    private func scrollToBlockTop(animated: Bool) {
+        guard let scrollView = enclosingScrollView,
+              let document = scrollView.documentView else { return }
+        let clipView = scrollView.contentView
+        var target = clipView.bounds
+        target.origin.y = document.convert(bounds, from: self).minY - scrollView.contentInsets.top
+        let origin = clipView.constrainBoundsRect(target).origin
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.25
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                clipView.animator().setBoundsOrigin(origin)
+            }
+        } else {
+            clipView.setBoundsOrigin(origin)
         }
     }
 

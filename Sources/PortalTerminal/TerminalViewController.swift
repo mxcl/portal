@@ -1507,7 +1507,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
 
         stickyHeader.translatesAutoresizingMaskIntoConstraints = false
         stickyHeader.wantsLayer = true
-        stickyHeaderMaterial.material = .titlebar
+        stickyHeaderMaterial.material = .headerView
         stickyHeaderMaterial.blendingMode = .withinWindow
         stickyHeaderMaterial.state = .followsWindowActiveState
         stickyHeaderMaterial.isHidden = true

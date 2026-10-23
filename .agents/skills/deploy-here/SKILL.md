@@ -11,9 +11,9 @@ Run the repository's local deployment script:
 ./scripts/deploy-here.sh /absolute/path/to/git-sync
 ```
 
-The script uses `scripts/install.sh` to build and sign a release bundle, then
-`scripts/install-staged.sh` to replace `/Applications/Portal.app` and restart
-the app and its menu helper. It verifies all four installed executables against
+The script uses `scripts/install.sh` to build and sign both release apps, then
+`scripts/install-staged.sh` to replace `/Applications/Portal.app` and `/Applications/Portal Terminal.app` and restart
+the app and its menu helper. It verifies all five installed executables against
 the built bundle. It does not contact the other Mac or atlas, or require the
 Linux toolchain or SDK.
 

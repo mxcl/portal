@@ -6,8 +6,9 @@ if [ "$(uname -s)" != Darwin ]; then
   exit 1
 fi
 
-repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 destination=${1:-"/Applications/Portal.app"}
+terminal_destination="$(dirname -- "$destination")/Portal Terminal.app"
 build_dir="$repo_dir/.build/release"
 # Keep APNs enabled on ordinary local reinstalls without an environment override.
 installed_profile="/Applications/Portal.app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/embedded.provisionprofile"
@@ -23,7 +24,7 @@ cd "$repo_dir"
 swift build -c release
 
 app="$stage/Portal.app"
-terminal="$app/Contents/Helpers/Portal Terminal.app"
+terminal="$stage/Portal Terminal.app"
 menu="$app/Contents/Library/LoginItems/Portal Menu Helper.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" \
   "$menu/Contents/MacOS" "$menu/Contents/Resources" "$(dirname -- "$destination")"
@@ -139,6 +140,7 @@ if [ -e "$destination" ]; then
   /usr/bin/pkill -x PortalApp 2>/dev/null || true
   /usr/bin/pkill -TERM -f "^$destination/Contents/Resources/(git-sync|portald) run " 2>/dev/null || true
 fi
+"$repo_dir/scripts/replace-app.sh" "$terminal" "$terminal_destination"
 "$repo_dir/scripts/replace-app.sh" "$app" "$destination"
 # Keep the icon files shared even when the copy tool expands hardlinks.
 for icon in AppIcon.icns Assets.car; do
@@ -153,5 +155,5 @@ if [ -L "$cli_link" ] && [ "$(readlink "$cli_link")" = "$destination/Contents/Re
 fi
 
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$destination"
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$destination/Contents/Helpers/Portal Terminal.app"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$terminal_destination"
 echo "Installed $destination"

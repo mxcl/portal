@@ -74,6 +74,8 @@ stage="$(mktemp -d "${TMPDIR:-/tmp}/portal-deploy.XXXXXX")"
 built_app="$stage/Portal.app"
 local_stage="/Applications/.portal-app.install.$suffix"
 local_backup="/Applications/.portal-app.previous.$suffix"
+local_terminal="/Applications/.portal-terminal.install.$suffix"
+terminal_backup="/Applications/.portal-terminal.previous.$suffix"
 remote_stage="/Applications/.portal-app.install.$suffix"
 remote_backup="/Applications/.portal-app.previous.$suffix"
 atlas_stage="$atlas_home/.local/bin/.portald.install.$suffix"
@@ -81,8 +83,8 @@ atlas_backup="$atlas_home/.local/bin/.portald.previous.$suffix"
 
 cleanup() {
   rm -rf "$stage"
-  [[ "$local_stage" == /Applications/.portal-app.install.* ]] && rm -rf "$local_stage"
-  ssh -o BatchMode=yes "$peer" "rm -rf '$remote_stage'" 2>/dev/null || true
+  [[ "$local_stage" == /Applications/.portal-app.install.* ]] && rm -rf "$local_stage" "$local_terminal"
+  ssh -o BatchMode=yes "$peer" "rm -rf '$remote_stage' '$local_terminal'" 2>/dev/null || true
   ssh -o BatchMode=yes "$atlas" "rm -f '$atlas_stage'" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -95,22 +97,24 @@ linux_binary="$repo/.build/aarch64-swift-linux-musl/release/portald"
 
 ssh -o BatchMode=yes "$peer" "rm -rf '$remote_stage' '$remote_backup'"
 rsync -aH --delete "$built_app/" "$peer:$remote_stage/"
+rsync -aH --delete "$stage/Portal Terminal.app/" "$peer:$local_terminal/"
 ssh -o BatchMode=yes "$atlas" "mkdir -p '$atlas_home/.local/bin' && rm -f '$atlas_stage' '$atlas_backup'"
 scp -C "$linux_binary" "$atlas:$atlas_stage"
-rm -rf "$local_stage" "$local_backup"
+rm -rf "$local_stage" "$local_backup" "$local_terminal" "$terminal_backup"
 /usr/bin/ditto "$built_app" "$local_stage"
+/usr/bin/ditto "$stage/Portal Terminal.app" "$local_terminal"
 
 # Upgrade the SSH endpoint before its clients; keep the invoking Mac until last.
 ssh -o BatchMode=yes "$atlas" bash -s -- "$atlas_stage" "$atlas_backup" < "$linux_installer"
-ssh -o BatchMode=yes "$peer" bash -s -- "$remote_stage" "$remote_backup" < "$installer"
-"$installer" "$local_stage" "$local_backup"
+ssh -o BatchMode=yes "$peer" bash -s -- "$remote_stage" "$remote_backup" "$local_terminal" "$terminal_backup" < "$installer"
+"$installer" "$local_stage" "$local_backup" "$local_terminal" "$terminal_backup"
 
-for executable in 'MacOS/PortalApp' 'Resources/portald' 'Resources/portal' \
-  'Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/PortalMenuBar' \
-  'Helpers/Portal Terminal.app/Contents/MacOS/PortalTerminalApp'; do
-  expected_hash="$(shasum -a 256 "$built_app/Contents/$executable" | awk '{print $1}')"
-  local_hash="$(shasum -a 256 "/Applications/Portal.app/Contents/$executable" | awk '{print $1}')"
-  remote_hash="$(ssh -o BatchMode=yes "$peer" "shasum -a 256 '/Applications/Portal.app/Contents/$executable'" | awk '{print $1}')"
+for executable in 'Portal.app/Contents/MacOS/PortalApp' 'Portal.app/Contents/Resources/portald' 'Portal.app/Contents/Resources/portal' \
+  'Portal.app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/PortalMenuBar' \
+  'Portal Terminal.app/Contents/MacOS/PortalTerminalApp'; do
+  expected_hash="$(shasum -a 256 "$stage/$executable" | awk '{print $1}')"
+  local_hash="$(shasum -a 256 "/Applications/$executable" | awk '{print $1}')"
+  remote_hash="$(ssh -o BatchMode=yes "$peer" "shasum -a 256 '/Applications/$executable'" | awk '{print $1}')"
   [[ "$expected_hash" == "$local_hash" && "$expected_hash" == "$remote_hash" ]] || {
     echo "Installed executable differs from build: $executable" >&2
     exit 1

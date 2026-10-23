@@ -37,7 +37,9 @@ test -x "$app/Contents/Helpers/Portal Session Helper.app/Contents/MacOS/portal-s
 test -d "$app/Contents/Resources/portal_PortalTerminal.bundle"
 test -f "$app/Contents/Resources/completions/fig/build/git.js"
 codesign --verify --deep --strict "$app"
-terminal="$app/Contents/Helpers/Portal Terminal.app"
+test ! -e "$app/Contents/Helpers/Portal Terminal.app"
+terminal="$(dirname -- "$app")/Portal Terminal.app"
+codesign --verify --deep --strict "$terminal"
 codesign --verify --strict -R '=identifier "dev.mxcl.git-sync.session-bridge"' \
   "$terminal/Contents/Helpers/portal-session-bridge"
 test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = dev.mxcl.portal

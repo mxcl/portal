@@ -3031,9 +3031,6 @@ struct SettingsView: View {
                     }
                 }
                 Section("Terminal") {
-                    Button("Install Portal Terminal…") { TerminalApplication.install() }
-                    Text("Install a separate copy in Applications to make Portal Terminal easy to find in Spotlight.")
-                        .foregroundStyle(.secondary)
                     Button("Become Default Terminal App") {
                         Task { @MainActor in
                             do {

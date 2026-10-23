@@ -63,8 +63,9 @@ It uses a separate relay and APNs, with no recurring GitHub polling.
 $ ./scripts/install.sh
 ```
 
-This builds, Developer ID signs, and installs `Portal.app` plus its embedded
-menu-bar Sync Helper in `/Applications`. Open the app and choose the one parent
+This builds, Developer ID signs, and installs `Portal.app` and `Portal Terminal.app`
+in `/Applications`. Portal includes its menu-bar Sync Helper. Both deploy scripts
+install and verify both apps. Open Portal and choose the one parent
 folder. Add each SSH host before choosing folders; the app rejects the host if its Portal helper cannot
 be inspected. The folder table is prepopulated from every host. Select both the
 local and remote host cells to enable a folder in both directions. Matching

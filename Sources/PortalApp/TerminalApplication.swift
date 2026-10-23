@@ -5,7 +5,9 @@ import PortalTerminal
 @MainActor
 enum TerminalApplication {
     static var url: URL {
-        Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/Portal Terminal.app")
+        let sibling = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("Portal Terminal.app")
+        if FileManager.default.fileExists(atPath: sibling.path) { return sibling }
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: "dev.mxcl.portal.terminal") ?? sibling
     }
 
     static func open(_ urls: [URL] = []) {
@@ -25,21 +27,5 @@ enum TerminalApplication {
         open([TerminalLaunchRequest.url(hostID: hostID)])
     }
 
-    static func install() {
-        let panel = NSOpenPanel()
-        panel.title = "Install Portal Terminal"
-        panel.prompt = "Install Here"
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let directory = panel.url else { return }
-        let destination = directory.appendingPathComponent("Portal Terminal.app")
-        do {
-            // Refuse to overwrite an existing app; Finder can remove it when replacement is wanted.
-            try FileManager.default.copyItem(at: url, to: destination)
-            NSWorkspace.shared.activateFileViewerSelecting([destination])
-        } catch { NSAlert(error: error).runModal() }
-    }
 }
 #endif

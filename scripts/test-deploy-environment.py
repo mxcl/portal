@@ -14,13 +14,16 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
     applications = root / "Applications"
     staged = applications / ".portal-app.install.test"
     staged.mkdir(parents=True)
+    terminal = applications / ".portal-terminal.install.test"
+    terminal.mkdir()
+    terminal_backup = applications / ".portal-terminal.previous.test"
     captured = root / "environment.json"
     stopped = root / "stopped.json"
     retired = root / "retired.jsonl"
     commands = root / "bin"
     commands.mkdir()
     stubs = {
-        "codesign": "#!/bin/sh\nexit 0\n",
+        "codesign": '#!/bin/sh\n[ "$4" != "$FAIL_SIGNATURE" ]\n',
         "lsof": "#!/bin/sh\nexit 0\n",
         "lsregister": "#!/bin/sh\nexit 0\n",
         "pkill": (
@@ -69,7 +72,7 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
     legacy.mkdir(parents=True)
     (legacy / "state.json").write_text('{"epoch":"preserve-me"}')
     subprocess.run(["/bin/bash", str(installer), str(staged),
-                    str(applications / ".portal-app.previous.test")], env=environment, check=True)
+                    str(applications / ".portal-app.previous.test"), str(terminal), str(terminal_backup)], env=environment, check=True)
     migrated = root / "Library/Application Support/Portal/Sync"
     assert legacy.is_symlink()
     assert (migrated / "state.json").read_text() == '{"epoch":"preserve-me"}'
@@ -89,13 +92,33 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
         assert launched[name] == environment[name], (name, launched)
     assert launched["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin", launched
 
+    assert (applications / "Portal Terminal.app").is_dir()
+
+    # Failure after swapping either bundle must restore both previous apps.
+    (applications / "Portal.app" / "old").touch()
+    (applications / "Portal Terminal.app" / "old").touch()
+    for failed_app in ("Portal.app", "Portal Terminal.app"):
+        staged.mkdir()
+        terminal.mkdir()
+        result = subprocess.run(["/bin/bash", str(installer), str(staged),
+                                 str(applications / ".portal-app.previous.test"),
+                                 str(terminal), str(terminal_backup)],
+                                env=dict(environment, FAIL_SIGNATURE=str(applications / failed_app)),
+                                capture_output=True)
+        assert result.returncode != 0
+        assert (applications / "Portal.app" / "old").is_file()
+        assert (applications / "Portal Terminal.app" / "old").is_file()
+        assert not terminal_backup.exists()
+        assert not (applications / ".portal-app.previous.test").exists()
+    terminal.mkdir()
+
     # A collision must leave both stores untouched and the staged app uninstalled.
     legacy.unlink()
     legacy.mkdir()
     (legacy / "state.json").write_text('legacy-conflict')
     staged.mkdir()
     result = subprocess.run(["/bin/bash", str(installer), str(staged),
-                             str(applications / ".portal-app.previous.test")],
+                             str(applications / ".portal-app.previous.test"), str(terminal), str(terminal_backup)],
                             env=environment, capture_output=True)
     assert result.returncode != 0
     assert (legacy / "state.json").read_text() == 'legacy-conflict'

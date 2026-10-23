@@ -5,17 +5,27 @@ staged_app="${1:?staged app required}"
 backup_app="${2:?backup app required}"
 target_app="/Applications/Portal.app"
 
+staged_terminal="${3:?staged terminal required}"
+backup_terminal="${4:?backup terminal required}"
+target_terminal="/Applications/Portal Terminal.app"
+
 [[ "$staged_app" == /Applications/.portal-app.install.* ]]
 [[ "$backup_app" == /Applications/.portal-app.previous.* ]]
+[[ "$staged_terminal" == /Applications/.portal-terminal.install.* ]]
+[[ "$backup_terminal" == /Applications/.portal-terminal.previous.* ]]
 [[ -d "$staged_app" && ! -e "$backup_app" ]]
-
+[[ -d "$staged_terminal" && ! -e "$backup_terminal" ]]
 /usr/bin/codesign --verify --deep --strict "$staged_app"
+/usr/bin/codesign --verify --deep --strict "$staged_terminal"
 
+installed_app=false
+installed_terminal=false
 # shellcheck disable=SC2329 # invoked by the EXIT trap
 restore() {
-  if [[ -d "$backup_app" && ! -d "$target_app" ]]; then
-    mv "$backup_app" "$target_app"
-  fi
+  if $installed_app; then rm -rf "$target_app"; fi
+  if $installed_terminal; then rm -rf "$target_terminal"; fi
+  if [[ -d "$backup_app" ]]; then mv "$backup_app" "$target_app"; fi
+  if [[ -d "$backup_terminal" ]]; then mv "$backup_terminal" "$target_terminal"; fi
 }
 trap restore EXIT
 
@@ -64,14 +74,21 @@ if [[ -d "$target_app" ]]; then
   mv "$target_app" "$backup_app"
 fi
 mv "$staged_app" "$target_app"
+installed_app=true
+if [[ -d "$target_terminal" ]]; then
+  mv "$target_terminal" "$backup_terminal"
+fi
+mv "$staged_terminal" "$target_terminal"
+installed_terminal=true
 /usr/bin/codesign --verify --deep --strict "$target_app"
+/usr/bin/codesign --verify --deep --strict "$target_terminal"
 
 cli_link="$HOME/.local/bin/git-sync"
 if [[ -L "$cli_link" && "$(readlink "$cli_link")" == "$target_app/Contents/Resources/git-sync" ]]; then
   rm "$cli_link"
 fi
 
-rm -rf "$backup_app"
+rm -rf "$backup_app" "$backup_terminal"
 trap - EXIT
 # A registered login item can respawn while the old bundle is being replaced.
 # Restart it after the swap so it cannot keep running the deleted executable.
@@ -80,7 +97,7 @@ if launchctl print "$menu_service" >/dev/null 2>&1; then
   launchctl kickstart -k "$menu_service"
 fi
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$target_app"
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$target_app/Contents/Helpers/Portal Terminal.app"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$target_terminal"
 # open forwards its environment to the app (and its terminal sessions).
 # Allow only normal login essentials, never the deploying agent's environment.
 /usr/bin/env -i HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" \

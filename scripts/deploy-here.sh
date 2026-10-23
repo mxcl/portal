@@ -8,18 +8,21 @@ if [[ -n "$(git -C "$repo" status --porcelain)" ]]; then dirty=dirty; else dirty
 stage="$(mktemp -d "${TMPDIR:-/tmp}/portal-deploy-here.XXXXXX")"
 local_stage="/Applications/.portal-app.install.$revision-$$"
 local_backup="/Applications/.portal-app.previous.$revision-$$"
-trap 'rm -rf "$stage" "$local_stage"' EXIT
+local_terminal="/Applications/.portal-terminal.install.$revision-$$"
+terminal_backup="/Applications/.portal-terminal.previous.$revision-$$"
+trap 'rm -rf "$stage" "$local_stage" "$local_terminal"' EXIT
 
 "$repo/scripts/install.sh" "$stage/Portal.app"
 /usr/bin/codesign --verify --deep --strict "$stage/Portal.app"
 /usr/bin/ditto "$stage/Portal.app" "$local_stage"
-"$repo/scripts/install-staged.sh" "$local_stage" "$local_backup"
+/usr/bin/ditto "$stage/Portal Terminal.app" "$local_terminal"
+"$repo/scripts/install-staged.sh" "$local_stage" "$local_backup" "$local_terminal" "$terminal_backup"
 
-for executable in 'MacOS/PortalApp' 'Resources/portald' 'Resources/portal' \
-  'Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/PortalMenuBar' \
-  'Helpers/Portal Terminal.app/Contents/MacOS/PortalTerminalApp'; do
-  expected_hash="$(shasum -a 256 "$stage/Portal.app/Contents/$executable" | awk '{print $1}')"
-  installed_hash="$(shasum -a 256 "/Applications/Portal.app/Contents/$executable" | awk '{print $1}')"
+for executable in 'Portal.app/Contents/MacOS/PortalApp' 'Portal.app/Contents/Resources/portald' 'Portal.app/Contents/Resources/portal' \
+  'Portal.app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/PortalMenuBar' \
+  'Portal Terminal.app/Contents/MacOS/PortalTerminalApp'; do
+  expected_hash="$(shasum -a 256 "$stage/$executable" | awk '{print $1}')"
+  installed_hash="$(shasum -a 256 "/Applications/$executable" | awk '{print $1}')"
   [[ "$expected_hash" == "$installed_hash" ]] || {
     echo "Installed executable differs from build: $executable" >&2
     exit 1

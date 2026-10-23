@@ -132,6 +132,10 @@ struct TerminalIntegrationTests {
         #expect(portalBlockWidthReflowSelfTest())
     }
 
+    @Test @MainActor func commandHeadersStickWithinTheirBlock() {
+        #expect(portalStickyBlockHeaderSelfTest())
+    }
+
     @Test @MainActor func toolbarDoesNotExtendMinimumScrollRegion() {
         #expect(portalToolbarScrollRegionSelfTest())
     }

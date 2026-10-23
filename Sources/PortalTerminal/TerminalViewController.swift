@@ -1280,6 +1280,8 @@ private final class BlockView: NSView {
         let color: NSColor
     }
 
+    private let stickyHeader = NSView()
+    private var headerTopConstraint: NSLayoutConstraint!
     private let commandLabel = SelectableBlockTextField()
     private let metaLabel = SelectableBlockTextField()
     private let outputView = BlockOutputTextView(frame: .zero)
@@ -1301,6 +1303,37 @@ private final class BlockView: NSView {
     }
     private var findSelectionTarget: FindResultTarget?
     private var findSelectionRange: NSRange?
+
+    static func stickyHeaderSelfTest() -> Bool {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
+        let document = FlippedDocumentView(frame: NSRect(x: 0, y: 0, width: 600, height: 1_200))
+        scrollView.documentView = document
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        let block = BlockView(frame: NSRect(x: 0, y: 0, width: 600, height: 600))
+        block.commandLabel.stringValue = "printf 'long output'"
+        document.addSubview(block)
+        block.layoutSubtreeIfNeeded()
+        let outputFrame = block.outputView.frame
+        for inset: CGFloat in [0, 38] {
+            scrollView.contentInsets.top = inset
+            for scrollY: CGFloat in [0, 100, 580, 700, 0] {
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollY - inset))
+                block.layoutSubtreeIfNeeded()
+                let headerFrame = document.convert(block.stickyHeader.bounds, from: block.stickyHeader)
+                let expectedY = min(scrollY, 600 - headerFrame.height)
+                guard abs(headerFrame.minY - expectedY) < 0.5,
+                      headerFrame.maxY <= 600,
+                      block.outputView.frame == outputFrame else { return false }
+                let buttonCenter = document.convert(
+                    NSPoint(x: block.copyMarkdownButton.bounds.midX, y: block.copyMarkdownButton.bounds.midY),
+                    from: block.copyMarkdownButton
+                )
+                guard block.hitTest(buttonCenter) === block.copyMarkdownButton else { return false }
+            }
+        }
+        return true
+    }
 
     static func widthReflowSelfTest() -> Bool {
         final class Delegate: NSObject, NSTextViewDelegate {}
@@ -1455,13 +1488,24 @@ private final class BlockView: NSView {
         commandLabel.translatesAutoresizingMaskIntoConstraints = false
         commandLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let content = NSStackView(views: [header, commandLabel, outputView])
+        stickyHeader.translatesAutoresizingMaskIntoConstraints = false
+        stickyHeader.wantsLayer = true
+        stickyHeader.addSubview(header)
+        stickyHeader.addSubview(commandLabel)
+        let headerSpace = NSView()
+        headerSpace.translatesAutoresizingMaskIntoConstraints = false
+        let content = NSStackView(views: [headerSpace, outputView])
         content.orientation = .vertical
         content.spacing = 0
-        content.setCustomSpacing(6, after: commandLabel)
         content.alignment = .leading
         content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
+        addSubview(stickyHeader)
+        headerTopConstraint = stickyHeader.topAnchor.constraint(equalTo: topAnchor)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(scrollBoundsChanged(_:)),
+            name: NSView.boundsDidChangeNotification, object: nil
+        )
 
         let outputHeightConstraint = outputView.heightAnchor.constraint(equalToConstant: 0)
         self.outputHeightConstraint = outputHeightConstraint
@@ -1474,8 +1518,17 @@ private final class BlockView: NSView {
         NSLayoutConstraint.activate([
             content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            content.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            header.widthAnchor.constraint(equalTo: content.widthAnchor),
+            content.topAnchor.constraint(equalTo: topAnchor),
+            headerSpace.heightAnchor.constraint(equalTo: stickyHeader.heightAnchor),
+            headerTopConstraint,
+            stickyHeader.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stickyHeader.trailingAnchor.constraint(equalTo: trailingAnchor),
+            header.leadingAnchor.constraint(equalTo: stickyHeader.leadingAnchor, constant: 12),
+            header.trailingAnchor.constraint(equalTo: stickyHeader.trailingAnchor, constant: -12),
+            header.topAnchor.constraint(equalTo: stickyHeader.topAnchor, constant: 8),
+            commandLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor),
+            commandLabel.topAnchor.constraint(equalTo: header.bottomAnchor),
+            commandLabel.bottomAnchor.constraint(equalTo: stickyHeader.bottomAnchor, constant: -6),
             header.heightAnchor.constraint(equalToConstant: 28),
             metaLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor),
             metaLabel.topAnchor.constraint(equalTo: header.topAnchor),
@@ -1557,6 +1610,7 @@ private final class BlockView: NSView {
                 metadata.append(MetadataSegment(text: "exit \(code)", color: .systemRed))
             }
         }
+        updateStickyHeader()
         metaLabel.attributedStringValue = attributedMetadata(metadata)
         applyFindSelectionAppearance(bounce: false)
     }
@@ -1599,10 +1653,34 @@ private final class BlockView: NSView {
 
     override func layout() {
         super.layout()
+        updateStickyHeader()
         if abs(outputView.bounds.width - lastMeasuredOutputWidth) > 0.5 {
             needsOutputHeightMeasurement = true
             updateOutputHeight()
         }
+    }
+
+    @objc private func scrollBoundsChanged(_ notification: Notification) {
+        guard let clipView = notification.object as? NSClipView,
+              clipView === enclosingScrollView?.contentView else { return }
+        updateStickyHeader()
+        layoutSubtreeIfNeeded()
+    }
+
+    private func updateStickyHeader() {
+        guard let scrollView = enclosingScrollView else { return }
+        let clipView = scrollView.contentView
+        let viewportTop = convert(
+            NSPoint(x: clipView.bounds.minX, y: clipView.bounds.minY + scrollView.contentInsets.top),
+            from: clipView
+        ).y
+        // Keep the header inside its own block so the next command pushes it away.
+        let offset = min(max(0, bounds.maxY - viewportTop), max(0, bounds.height - stickyHeader.bounds.height))
+        if headerTopConstraint.constant != offset {
+            headerTopConstraint.constant = offset
+        }
+        stickyHeader.layer?.backgroundColor = offset > 0
+            ? (hasFailed ? failedBackground : NSColor.textBackgroundColor).cgColor : nil
     }
 
     @objc private func copyMarkdown() { onCopyMarkdown?() }
@@ -1920,6 +1998,11 @@ private final class BlockView: NSView {
         let exponent = floor(log10(value))
         return pow(10, exponent - 2)
     }
+}
+
+@MainActor
+func portalStickyBlockHeaderSelfTest() -> Bool {
+    BlockView.stickyHeaderSelfTest()
 }
 
 @MainActor
@@ -2625,6 +2708,7 @@ private final class TerminalTab {
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
         scrollView.contentView.drawsBackground = false
+        scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         sessionPickerView.isHidden = true

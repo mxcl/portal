@@ -155,6 +155,12 @@ private final class NonHitTestingView: NSView {
     }
 }
 
+private final class NonHitTestingGlassEffectView: NSGlassEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
 private final class NonHitTestingVisualEffectView: NSVisualEffectView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
@@ -1281,7 +1287,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
     }
 
     private let stickyHeader = NSView()
-    private let stickyHeaderMaterial = NonHitTestingVisualEffectView()
+    private let stickyHeaderMaterial = NonHitTestingGlassEffectView()
     private var headerTopConstraint: NSLayoutConstraint!
     private let commandLabel = SelectableBlockTextField()
     private let metaLabel = SelectableBlockTextField()
@@ -1507,9 +1513,8 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
 
         stickyHeader.translatesAutoresizingMaskIntoConstraints = false
         stickyHeader.wantsLayer = true
-        stickyHeaderMaterial.material = .headerView
-        stickyHeaderMaterial.blendingMode = .withinWindow
-        stickyHeaderMaterial.state = .followsWindowActiveState
+        stickyHeaderMaterial.style = .regular
+        stickyHeaderMaterial.cornerRadius = 0
         stickyHeaderMaterial.isHidden = true
         stickyHeaderMaterial.autoresizingMask = [.width, .height]
         stickyHeader.addSubview(stickyHeaderMaterial)

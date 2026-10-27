@@ -29,7 +29,7 @@ use std::{
     fs::{File, OpenOptions},
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tracing::{error, info, warn};
@@ -60,6 +60,7 @@ struct Config {
     apns_production: ApnsCredentials,
 }
 struct ApnsCredentials {
+    provider_token: Mutex<Option<(i64, String)>>,
     key_id: String,
     key: EncodingKey,
 }
@@ -70,6 +71,7 @@ fn required(name: &str) -> Result<String> {
 }
 fn apns_credentials(environment: &str) -> Result<ApnsCredentials> {
     Ok(ApnsCredentials {
+        provider_token: Mutex::new(None),
         key_id: required(&format!("APNS_{environment}_KEY_ID"))?,
         key: EncodingKey::from_ec_pem(
             required(&format!("APNS_{environment}_P8"))?
@@ -1387,6 +1389,33 @@ struct ApnsClaims<'a> {
     iat: i64,
 }
 
+impl ApnsCredentials {
+    fn provider_token(&self, team_id: &str, now: i64) -> Result<String> {
+        let mut cached = self
+            .provider_token
+            .lock()
+            .map_err(|_| anyhow::anyhow!("APNs token cache lock poisoned"))?;
+        // APNs permits token rotation every 20–60 minutes, not on every push.
+        if let Some((issued_at, token)) = cached.as_ref() {
+            if (0..50 * 60).contains(&(now - issued_at)) {
+                return Ok(token.clone());
+            }
+        }
+        let mut header = Header::new(Algorithm::ES256);
+        header.kid = Some(self.key_id.clone());
+        let token = encode(
+            &header,
+            &ApnsClaims {
+                iss: team_id,
+                iat: now,
+            },
+            &self.key,
+        )?;
+        *cached = Some((now, token.clone()));
+        Ok(token)
+    }
+}
+
 async fn send_apns(
     state: &AppState,
     device_token: &str,
@@ -1400,16 +1429,7 @@ async fn send_apns(
     } else {
         ("api.push.apple.com", &state.config.apns_production)
     };
-    let mut jwt_header = Header::new(Algorithm::ES256);
-    jwt_header.kid = Some(credentials.key_id.clone());
-    let jwt = match encode(
-        &jwt_header,
-        &ApnsClaims {
-            iss: &state.config.apns_team_id,
-            iat: Utc::now().timestamp(),
-        },
-        &credentials.key,
-    ) {
+    let jwt = match credentials.provider_token(&state.config.apns_team_id, Utc::now().timestamp()) {
         Ok(jwt) => jwt,
         Err(error) => {
             error!(%error, "failed to create APNs token");

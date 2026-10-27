@@ -108,6 +108,8 @@ this device's relay session before removing its Keychain credential.
 ## Delivery contract
 
 - API clients send `Portal-Protocol: 1` (legacy `Gitinuum-Protocol` is accepted). Unsupported versions are rejected.
+- APNs provider tokens are cached per environment and reused for 50 minutes,
+  with signing serialized across concurrent pushes to avoid Apple's token-update throttle.
 - APNs contains only a wake-up hint. Pending fetch/count/inbox work is stored per
   device and repository. UUID replacement IDs prevent old acknowledgments from
   deleting new work; there is no resettable ordering counter.

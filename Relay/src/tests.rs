@@ -661,3 +661,52 @@ fn portal_protocol_supports_legacy_and_rejects_incompatible_versions() {
     headers.insert("portal-protocol", "1".parse().unwrap());
     assert!(check_protocol(&headers).is_ok());
 }
+
+fn test_apns_credentials() -> ApnsCredentials {
+    ApnsCredentials {
+        provider_token: Mutex::new(None),
+        key_id: "test-key".into(),
+        key: EncodingKey::from_ec_pem(include_bytes!("../test-fixtures/apns-test.p8")).unwrap(),
+    }
+}
+
+#[test]
+fn apns_reuses_provider_token_and_refreshes_after_fifty_minutes() {
+    let credentials = test_apns_credentials();
+    let first = credentials.provider_token("test-team", 10_000).unwrap();
+    for now in [10_001, 11_200, 12_999] {
+        assert_eq!(credentials.provider_token("test-team", now).unwrap(), first);
+    }
+    let refreshed = credentials.provider_token("test-team", 13_000).unwrap();
+    assert_ne!(refreshed, first);
+    assert_eq!(
+        credentials.provider_token("test-team", 13_001).unwrap(),
+        refreshed
+    );
+}
+
+#[test]
+fn apns_concurrent_pushes_share_token_and_credentials_have_separate_caches() {
+    let production = test_apns_credentials();
+    let tokens = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..16)
+            .map(|_| {
+                let credentials = &production;
+                scope.spawn(move || credentials.provider_token("test-team", 10_000).unwrap())
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    assert!(tokens.iter().all(|token| token == &tokens[0]));
+    let sandbox = test_apns_credentials();
+    assert!(sandbox.provider_token.lock().unwrap().is_none());
+    let sandbox_token = sandbox.provider_token("test-team", 20_000).unwrap();
+    assert_ne!(sandbox_token, tokens[0]);
+    assert_eq!(
+        production.provider_token("test-team", 10_100).unwrap(),
+        tokens[0]
+    );
+}

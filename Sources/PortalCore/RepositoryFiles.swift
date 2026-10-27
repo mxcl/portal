@@ -16,12 +16,16 @@ public struct RepositoryFile: Codable, Identifiable, Equatable, Sendable {
 extension Repository {
     /// Git supplies the paths: tracked files (including deletions), untracked files, and ignored files.
     public func files() throws -> [RepositoryFile] {
+        try Task.checkCancellation()
         let paths = try Git.run(["-C", url.path, "ls-files", "--cached", "--others", "--exclude-standard", "-z"])
+        try Task.checkCancellation()
         let porcelain = try Git.run(["--no-optional-locks", "-C", url.path, "status", "--porcelain=v1", "-z",
                                      "--untracked-files=all", "--ignored"])
+        try Task.checkCancellation()
         var statuses: [String: String] = [:]
         var records = porcelain.split(separator: 0).makeIterator()
         while let record = records.next() {
+            try Task.checkCancellation()
             guard record.count >= 4 else { continue }
             let status = String(decoding: record.prefix(2), as: UTF8.self)
             statuses[String(decoding: record.dropFirst(3), as: UTF8.self)] = status
@@ -29,7 +33,10 @@ extension Repository {
         }
         let names = Set(paths.split(separator: 0).map { String(decoding: $0, as: UTF8.self) })
             .union(statuses.keys)
-        return names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        return try names.sorted {
+            try Task.checkCancellation()
+            return $0.localizedStandardCompare($1) == .orderedAscending
+        }
             .map { RepositoryFile(path: $0, status: statuses[$0] ?? "  ") }
     }
 

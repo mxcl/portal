@@ -143,9 +143,11 @@ struct ProjectWindowCache: Codable, Sendable {
 
 @MainActor
 final class AppModel: ObservableObject {
-    let editor = ProjectEditor()
+    let editor = ProjectEditor(isActive: false)
     let terminals = TerminalWorkspace()
-    @Published var selectedTab: ProjectTab = .info
+    @Published var selectedTab: ProjectTab = .info {
+        didSet { editor.setActive(selectedTab == .editor) }
+    }
     @Published var terminalSource: ProjectSource?
     @Published var configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
     @Published var github = GitHubState()

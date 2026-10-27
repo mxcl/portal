@@ -10,6 +10,57 @@ import SwiftUI
 @testable import PortalApp
 @testable import PortalCore
 
+@Test("Hidden editor does not scan repositories on connect or filesystem refresh")
+@MainActor
+func hiddenEditorDoesNotScan() async throws {
+    let model = AppModel(connectToHelper: false)
+    model.editor.connect(URL(fileURLWithPath: "/nonexistent-portal-idle-test"))
+    for _ in 0..<100 { model.editor.refresh() }
+    #expect(!model.editor.isLoading)
+    #expect(model.editor.revision == 0)
+    model.editor.connect(nil)
+}
+
+@Test("Editor coalesces refresh bursts and resumes after hiding or changing repository")
+@MainActor
+func editorScanLifecycle() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    _ = try Git.run(["init", "-q", root.path])
+    defer { try? FileManager.default.removeItem(at: root) }
+    try Data("hello".utf8).write(to: root.appendingPathComponent("a.txt"))
+    let editor = ProjectEditor()
+    func settled() async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while editor.isLoading && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(!editor.isLoading)
+        try #require(editor.error == nil)
+    }
+    editor.connect(root)
+    for _ in 0..<100 { editor.refresh() }
+    try await settled()
+    #expect(editor.revision == 2)
+    #expect(editor.files.map(\.path) == ["a.txt"])
+
+    editor.refresh()
+    editor.setActive(false)
+    editor.connect(nil)
+    editor.connect(root)
+    for _ in 0..<100 { editor.refresh() }
+    #expect(!editor.isLoading)
+    let revision = editor.revision
+    editor.setActive(true)
+    // The cancelled scan must finish before the newly requested scan starts.
+    let deadline = Date().addingTimeInterval(5)
+    while editor.revision == revision && Date() < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    try await settled()
+    #expect(editor.revision == revision + 1)
+    #expect(editor.files.map(\.path) == ["a.txt"])
+}
+
 @Test("Bundled Swift syntax queries load successfully")
 @MainActor
 func editorSyntaxResources() throws {

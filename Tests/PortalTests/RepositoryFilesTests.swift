@@ -2,6 +2,20 @@ import Foundation
 import Testing
 @testable import PortalCore
 
+@Test("Cancelled editor scan stops before reading the repository")
+func cancelledEditorScan() async {
+    let task = Task {
+        withUnsafeCurrentTask { $0?.cancel() }
+        return try Repository(name: "missing", url: URL(fileURLWithPath: "/nonexistent-portal-cancel-test")).files()
+    }
+    do {
+        _ = try await task.value
+        Issue.record("Cancelled file scan unexpectedly completed")
+    } catch {
+        #expect(error is CancellationError)
+    }
+}
+
 @Test("Editor lists Git paths and distinguishes both sides of the index without modifying it")
 func editorGitFiles() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

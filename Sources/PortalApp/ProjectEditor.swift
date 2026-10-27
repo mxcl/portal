@@ -57,9 +57,28 @@ final class ProjectEditor: ObservableObject {
     private var document: RepositoryTextFile?
     private var loadID = UUID()
     private var refreshID = UUID()
+    private var scan: Task<[RepositoryFile], Error>?
+    private var refreshPending = false
+    private var isActive: Bool
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, isActive: Bool = true) {
         self.defaults = defaults
+        self.isActive = isActive
+    }
+
+    deinit { scan?.cancel() }
+
+    func setActive(_ active: Bool) {
+        guard isActive != active else { return }
+        isActive = active
+        refreshID = UUID()
+        if active {
+            refresh()
+        } else {
+            scan?.cancel()
+            refreshPending = false
+            isLoading = false
+        }
     }
 
     var isDirty: Bool { document.map { !text.utf8.elementsEqual($0.text.utf8) } ?? false }
@@ -67,6 +86,8 @@ final class ProjectEditor: ObservableObject {
 
     func connect(_ url: URL?) {
         guard repository != url else { return }
+        refreshID = UUID()
+        scan?.cancel()
         repository = url
         document = nil
         path = nil
@@ -80,20 +101,35 @@ final class ProjectEditor: ObservableObject {
     }
 
     func refresh() {
-        refreshID = UUID()
-        let id = refreshID
-        guard let repository else { return }
+        guard isActive, let repository else { return }
         isLoading = true
-        Task {
-            do {
-                let files = try await Task.detached(priority: .userInitiated) {
-                    try Repository(name: repository.lastPathComponent, url: repository).files()
-                }.value
-                guard refreshID == id else { return }
+        // A watcher burst gets one follow-up scan, never another concurrent sort.
+        guard scan == nil else {
+            refreshPending = true
+            return
+        }
+        let id = refreshID
+        let scan = Task.detached(priority: .userInitiated) {
+            try Repository(name: repository.lastPathComponent, url: repository).files()
+        }
+        self.scan = scan
+        Task { [weak self] in
+            let result = await scan.result
+            guard let self else { return }
+            self.scan = nil
+            defer {
+                if refreshPending {
+                    refreshPending = false
+                    refresh()
+                }
+            }
+            guard refreshID == id, isActive else { return }
+            isLoading = false
+            switch result {
+            case .success(let files):
                 self.files = files
                 nodes = FileNode.tree(files.map(\.path))
                 revision += 1
-                isLoading = false
                 if path == nil {
                     let saved = selectionKey.flatMap { defaults.string(forKey: $0) }
                     let candidates = [saved].compactMap { $0 } + ["README.md", "README", "README.markdown", "README.txt"]
@@ -104,10 +140,8 @@ final class ProjectEditor: ObservableObject {
                         open(initial)
                     }
                 }
-            } catch {
-                guard refreshID == id else { return }
+            case .failure(let error):
                 self.error = error.localizedDescription
-                isLoading = false
             }
         }
     }

@@ -5040,7 +5040,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    var sessionPickerExclusions: Set<SessionRef> { Set(tabs.map(\.sessionRef)) }
+    var otherOpenSessionRefs: () -> Set<SessionRef> = { [] }
+
+    var sessionPickerExclusions: Set<SessionRef> {
+        Set(tabs.map(\.sessionRef)).union(otherOpenSessionRefs())
+    }
 
     private func configureSessionPicker(for tab: TerminalTab) {
         let model = SessionPickerModel(inventory: sessionPickerInventory)
@@ -5073,7 +5077,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             }),
             isAvailable: { [weak self] sessionRef in
                 guard let self else { return false }
-                return !self.killingSessionRefs.contains(sessionRef)
+                return !self.sessionPickerExclusions.contains(sessionRef)
+                    && !self.killingSessionRefs.contains(sessionRef)
                     && !self.sessionCatalog.isExited(sessionRef)
             },
             onUpdate: { [weak self] snapshot in

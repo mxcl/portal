@@ -39,7 +39,7 @@ let package = Package(
         ),
         .executableTarget(name: "PortalTerminalApp", dependencies: ["PortalTerminal", "PortalEngine"]),
         .executableTarget(name: "PortalMenuBar", dependencies: ["PortalEngine"]),
-        .testTarget(name: "PortalTerminalTests", dependencies: ["PortalTerminal"]),
+        .testTarget(name: "PortalTerminalTests", dependencies: ["PortalTerminal", "PortalTerminalApp"]),
         .testTarget(name: "PortalCLITests", dependencies: ["portal"]),
         .testTarget(name: "PortalTests", dependencies: ["PortalCore"]),
         .testTarget(name: "PortalGraphTests", dependencies: ["PortalGraph", "PortalCore"]),

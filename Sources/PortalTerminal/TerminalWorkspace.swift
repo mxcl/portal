@@ -193,6 +193,11 @@ public final class TerminalWorkspace: ObservableObject {
         let controller = TerminalViewController(restoresPersistedWindow: false, initialDirectory: directory,
             initialHostID: hostID, standalone: true, launchCommand: command, sessionHosts: hosts,
             restoredSession: restoredSession)
+        controller.otherOpenSessionRefs = { [weak self] in
+            Set(self?.windows.compactMap {
+                ($0.contentViewController as? TerminalViewController)?.activeSessionRef
+            } ?? [])
+        }
         let window = StandaloneTerminalWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 760),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)

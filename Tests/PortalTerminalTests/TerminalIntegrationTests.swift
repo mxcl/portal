@@ -2,6 +2,7 @@
 import AppKit
 import Testing
 @testable import PortalTerminal
+@testable import PortalTerminalApp
 
 @Suite("Embedded terminal", .serialized)
 struct TerminalIntegrationTests {
@@ -221,6 +222,53 @@ struct TerminalIntegrationTests {
         for window in application.windows where window is StandaloneTerminalWindow { window.close() }
         restored.saveWindows(defaults: defaults)
         #expect(!TerminalWorkspace().restoreWindows(hosts: [], defaults: defaults))
+    }
+
+    @Test @MainActor func initialReopenRestoresSavedTabs() async throws {
+        let application = NSApplication.shared
+        let key = "standaloneTerminalWindows"
+        let previous = UserDefaults.standard.object(forKey: key)
+        defer {
+            UserDefaults.standard.set(previous, forKey: key)
+            for window in application.windows where window is StandaloneTerminalWindow { window.close() }
+        }
+        let saved = [TerminalWorkspace.SavedWindow(tabs: [
+            .init(session: nil, directory: URL(fileURLWithPath: "/tmp"), hostID: nil),
+            .init(session: nil, directory: URL(fileURLWithPath: "/tmp"), hostID: nil)
+        ], selectedIndex: 0, frame: "{{0, 0}, {1120, 760}}")]
+        UserDefaults.standard.set(try JSONEncoder().encode(saved), forKey: key)
+        let delegate = TerminalDelegate()
+        _ = delegate.applicationShouldHandleReopen(application, hasVisibleWindows: false)
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        for _ in 0..<100 {
+            if application.windows.contains(where: { $0 is StandaloneTerminalWindow }) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let window = try #require(application.windows.first { $0 is StandaloneTerminalWindow })
+        #expect(window.tabGroup?.windows.count == 2)
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func standalonePickerExcludesOtherNativeTabs(separateWindow: Bool) throws {
+        let application = NSApplication.shared
+        let workspace = TerminalWorkspace()
+        workspace.newWindow(directory: URL(fileURLWithPath: "/tmp"))
+        defer {
+            for window in application.windows where window is StandaloneTerminalWindow { window.close() }
+        }
+        let first = try #require(application.windows.first { $0 is StandaloneTerminalWindow })
+        let firstController = try #require(first.contentViewController as? TerminalViewController)
+        let session = try #require(firstController.activeSessionRef)
+        if separateWindow {
+            workspace.newWindow(directory: URL(fileURLWithPath: "/tmp"))
+        } else {
+            workspace.newTab(in: first)
+        }
+        let second = try #require(application.windows.first { $0 is StandaloneTerminalWindow && $0 !== first })
+        let pickerController = try #require(second.contentViewController as? TerminalViewController)
+        #expect(pickerController.sessionPickerExclusions.contains(session))
+        first.close()
+        #expect(!pickerController.sessionPickerExclusions.contains(session))
     }
 
     @Test @MainActor func standaloneUsesPortalBlurMaterial() {

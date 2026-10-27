@@ -1290,6 +1290,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
     private let stickyHeader = NSView()
     private let stickyHeaderMaterial = NonHitTestingGlassEffectView()
     private var headerTopConstraint: NSLayoutConstraint!
+    private var metadataLeadingConstraint: NSLayoutConstraint!
     private let commandLabel = SelectableBlockTextField()
     private let metaLabel = SelectableBlockTextField()
     private let outputView = BlockOutputTextView(frame: .zero)
@@ -1323,6 +1324,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         document.addSubview(block)
         block.layoutSubtreeIfNeeded()
         let outputFrame = block.outputView.frame
+        let commandFrame = block.commandLabel.frame
         for inset: CGFloat in [0, 38] {
             scrollView.contentInsets.top = inset
             for scrollY: CGFloat in [0, 100, 580, 700, 0] {
@@ -1355,6 +1357,31 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
                       block.headerTopConstraint.constant == 0 else { return false }
             }
             block.setFrameOrigin(.zero)
+        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.titlebarAppearsTransparent = true
+        window.contentView = scrollView
+        defer { window.close() }
+        scrollView.contentInsets.top = 0
+        block.metaLabel.stringValue = "~/src/av  79.6 ms  3:01 PM"
+        for scrollY: CGFloat in [100, -100, 100] {
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollY))
+            block.layoutSubtreeIfNeeded()
+            let metadata = block.metaLabel.convert(block.metaLabel.bounds, to: nil)
+            guard let zoom = window.standardWindowButton(.zoomButton) else { return false }
+            let button = zoom.convert(zoom.bounds, to: nil)
+            if scrollY > 0 {
+                guard metadata.minX > button.maxX else { return false }
+            } else {
+                guard block.metadataLeadingConstraint.constant == 0 else { return false }
+            }
+            guard block.commandLabel.frame == commandFrame,
+                  block.outputView.frame == outputFrame else { return false }
         }
         return true
     }
@@ -1535,6 +1562,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         addSubview(content)
         addSubview(stickyHeader)
         headerTopConstraint = stickyHeader.topAnchor.constraint(equalTo: topAnchor)
+        metadataLeadingConstraint = metaLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor)
         NotificationCenter.default.addObserver(
             self, selector: #selector(scrollBoundsChanged(_:)),
             name: NSView.boundsDidChangeNotification, object: nil
@@ -1563,7 +1591,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
             commandLabel.topAnchor.constraint(equalTo: header.bottomAnchor),
             commandLabel.bottomAnchor.constraint(equalTo: stickyHeader.bottomAnchor, constant: -6),
             header.heightAnchor.constraint(equalToConstant: 28),
-            metaLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor),
+            metadataLeadingConstraint,
             metaLabel.topAnchor.constraint(equalTo: header.topAnchor),
             metaLabel.trailingAnchor.constraint(lessThanOrEqualTo: copyMarkdownButton.leadingAnchor, constant: -8),
             copyMarkdownButton.topAnchor.constraint(equalTo: header.topAnchor),
@@ -1736,6 +1764,22 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         ).y
         // Keep the header inside its own block so the next command pushes it away.
         let offset = min(max(0, bounds.maxY - viewportTop), max(0, bounds.height - stickyHeader.bounds.height))
+        if let header = metaLabel.superview {
+            // Account for the pending sticky offset before Auto Layout moves the header.
+            let row = convert(header.bounds, from: header)
+                .offsetBy(dx: 0, dy: headerTopConstraint.constant - offset)
+            var leading: CGFloat = 0
+            for type: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+                guard let button = window?.standardWindowButton(type), !button.isHiddenOrHasHiddenAncestor else { continue }
+                let frame = convert(button.bounds, from: button)
+                if row.intersects(frame) {
+                    leading = max(leading, frame.maxX + 8 - row.minX)
+                }
+            }
+            if metadataLeadingConstraint.constant != leading {
+                metadataLeadingConstraint.constant = leading
+            }
+        }
         if headerTopConstraint.constant != offset {
             headerTopConstraint.constant = offset
         }

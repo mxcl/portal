@@ -2064,12 +2064,56 @@ func portalStickyBlockHeaderSelfTest() -> Bool {
 }
 
 @MainActor
+func portalCommandBarOverlaySelfTest() -> Bool {
+    let delegate = TerminalViewController()
+    let tab = TerminalTab(title: "Test", delegate: delegate)
+    let host = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
+    host.addSubview(tab.rootView)
+    NSLayoutConstraint.activate([
+        tab.rootView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+        tab.rootView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+        tab.rootView.topAnchor.constraint(equalTo: host.topAnchor),
+        tab.rootView.bottomAnchor.constraint(equalTo: host.bottomAnchor)
+    ])
+    let history = NSView()
+    history.translatesAutoresizingMaskIntoConstraints = false
+    history.heightAnchor.constraint(equalToConstant: 1_200).isActive = true
+    tab.stackView.addArrangedSubview(history)
+    tab.setToolbarInset(38)
+    for height: CGFloat in [44, 120, 44] {
+        tab.commandInputHeightConstraint?.constant = height
+        host.layoutSubtreeIfNeeded()
+        tab.rootView.layoutSubtreeIfNeeded()
+        guard let document = tab.scrollView.documentView else { return false }
+        let bottomInset = tab.scrollView.contentInsets.bottom
+        guard bottomInset > height,
+              abs(bottomInset - tab.sessionPickerView.frame.maxY) < 0.5,
+              tab.scrollView.frame == tab.rootView.bounds,
+              tab.commandBarMaterial.frame.minY == tab.rootView.bounds.minY,
+              !tab.commandBarMaterial.isHidden else { return false }
+        tab.scrollView.contentView.scroll(to: NSPoint(
+            x: 0, y: document.bounds.height + bottomInset - tab.scrollView.contentView.bounds.height
+        ))
+        let historyBottom = tab.rootView.convert(NSPoint(x: 0, y: document.bounds.maxY), from: document).y
+        guard abs(historyBottom - tab.sessionPickerView.frame.maxY) < 0.5 else { return false }
+        tab.scrollView.contentView.scroll(to: NSPoint(x: 0, y: 100))
+        guard tab.scrollView.documentVisibleRect.maxY < document.bounds.height else { return false }
+    }
+    tab.commandBarView.isHidden = true
+    tab.updateCommandBarInset()
+    return tab.scrollView.contentInsets.bottom == 0
+        && tab.scrollView.scrollerInsets.bottom == 0
+        && tab.commandBarMaterial.isHidden
+        && tab.documentMinimumHeightConstraint.constant == -38
+}
+
+@MainActor
 func portalToolbarScrollRegionSelfTest() -> Bool {
     let delegate = TerminalViewController()
     let tab = TerminalTab(title: "Test", delegate: delegate)
     for inset: CGFloat in [0, 38, 0] {
         tab.setToolbarInset(inset)
-        guard tab.documentMinimumHeightConstraint.constant + tab.scrollView.contentInsets.top == 0,
+        guard tab.documentMinimumHeightConstraint.constant + tab.scrollView.contentInsets.top + tab.scrollView.contentInsets.bottom == 0,
               tab.scrollView.scrollerInsets.top == inset else { return false }
     }
     return withExtendedLifetime(delegate) { true }
@@ -2650,6 +2694,15 @@ final class SessionCandidateRowView: NSView {
     }
 }
 
+private final class TerminalTabRootView: NSView {
+    var onLayout: (() -> Void)?
+
+    override func layout() {
+        super.layout()
+        onLayout?()
+    }
+}
+
 @MainActor
 private final class TerminalTab {
     let id = UUID()
@@ -2661,7 +2714,7 @@ private final class TerminalTab {
     var session: PtySession
     let commandLifecycle: CommandLifecycle
     let outputProcessor = TerminalOutputProcessor()
-    let rootView = NSView()
+    let rootView = TerminalTabRootView()
     let scrollView = NSScrollView()
     let stackView = NSStackView()
     let sessionPickerView = SessionPickerView()
@@ -2671,6 +2724,7 @@ private final class TerminalTab {
     let statusLabel = NSTextField(labelWithString: "Starting shell...")
     let commandSeparator = SeparatorView()
     let commandBarView = NSView()
+    let commandBarMaterial = NonHitTestingGlassEffectView()
     let findCloseButton = FindCloseButton(frame: .zero)
     let completionPendingLine = NSView()
     let ptyPassthroughView = PtyPassthroughView(frame: .zero)
@@ -2678,8 +2732,6 @@ private final class TerminalTab {
     var hasUnviewedCompletion = false
 
     var documentMinimumHeightConstraint: NSLayoutConstraint!
-    var scrollBottomToCommandBarConstraint: NSLayoutConstraint?
-    var scrollBottomToRootConstraint: NSLayoutConstraint?
     var sessionPickerHeightConstraint: NSLayoutConstraint?
     var commandInputHeightConstraint: NSLayoutConstraint?
     var interruptedBlockID: UUID?
@@ -2744,12 +2796,32 @@ private final class TerminalTab {
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentInsets.top = inset
         scrollView.scrollerInsets.top = inset
-        // The inset already reserves toolbar space; fill only the usable viewport.
-        documentMinimumHeightConstraint.constant = -inset
+        updateCommandBarInset()
+    }
+
+    func updateCommandBarInset() {
+        let inset = commandBarView.isHidden ? 0 : max(0, sessionPickerView.frame.maxY - rootView.bounds.minY)
+        commandBarMaterial.isHidden = commandBarView.isHidden
+        let oldInset = scrollView.contentInsets.bottom
+        let documentHeight = scrollView.documentView?.bounds.height ?? 0
+        let wasAtBottom = scrollView.contentView.bounds.maxY >= documentHeight + oldInset - 1
+        if oldInset != inset {
+            scrollView.contentInsets.bottom = inset
+            scrollView.scrollerInsets.bottom = inset
+            if wasAtBottom {
+                scrollView.contentView.scroll(to: NSPoint(
+                    x: 0,
+                    y: max(-scrollView.contentInsets.top, documentHeight + inset - scrollView.contentView.bounds.height)
+                ))
+            }
+        }
+        // Insets reserve both overlays; short histories fill only the usable viewport.
+        documentMinimumHeightConstraint.constant = -scrollView.contentInsets.top - inset
     }
 
     private func buildView(delegate: NSTextViewDelegate) {
         rootView.translatesAutoresizingMaskIntoConstraints = false
+        rootView.onLayout = { [weak self] in self?.updateCommandBarInset() }
 
         let documentView = FlippedDocumentView()
         documentView.translatesAutoresizingMaskIntoConstraints = false
@@ -2824,7 +2896,9 @@ private final class TerminalTab {
         statusLineStack.addArrangedSubview(statusLabel)
 
         commandBarView.wantsLayer = true
-        commandBarView.layer?.backgroundColor = TahoeGlassPalette.commandBackground.cgColor
+        commandBarMaterial.style = .regular
+        commandBarMaterial.cornerRadius = 0
+        commandBarMaterial.translatesAutoresizingMaskIntoConstraints = false
         commandBarView.translatesAutoresizingMaskIntoConstraints = false
         findCloseButton.isHidden = true
         findCloseButton.translatesAutoresizingMaskIntoConstraints = false
@@ -2847,14 +2921,12 @@ private final class TerminalTab {
         commandBarView.addSubview(completionPendingLine)
 
         rootView.addSubview(scrollView)
+        rootView.addSubview(commandBarMaterial)
         rootView.addSubview(sessionPickerView)
         rootView.addSubview(commandSeparator)
         rootView.addSubview(commandBarView)
         rootView.addSubview(ptyPassthroughView)
 
-        scrollBottomToCommandBarConstraint = scrollView.bottomAnchor.constraint(equalTo: sessionPickerView.topAnchor)
-        scrollBottomToRootConstraint = scrollView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor)
-        scrollBottomToRootConstraint?.isActive = false
         sessionPickerHeightConstraint = sessionPickerView.heightAnchor.constraint(equalToConstant: 0)
         commandInputHeightConstraint = inputScroll.heightAnchor.constraint(
             equalToConstant: CommandInputTextView.minimumVisibleHeight
@@ -2865,7 +2937,12 @@ private final class TerminalTab {
             scrollView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: rootView.topAnchor),
-            scrollBottomToCommandBarConstraint!,
+            scrollView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
+
+            commandBarMaterial.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            commandBarMaterial.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            commandBarMaterial.topAnchor.constraint(equalTo: sessionPickerView.topAnchor),
+            commandBarMaterial.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
 
             sessionPickerView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
             sessionPickerView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
@@ -3575,7 +3652,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         rootView.onAppearanceChange = { [weak self] in
             guard let self else { return }
             for tab in tabs {
-                tab.commandBarView.layer?.backgroundColor = (standalone ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.22) : TahoeGlassPalette.commandBackground).cgColor
+                tab.commandBarView.layer?.backgroundColor = nil
                 updateCommandBarDirectoryStatus(for: tab, forceRefresh: true)
                 tab.inputView.resetPlainTextAttributes()
             }
@@ -4511,7 +4588,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.findQuery = ""
         tab.findResults = []
         tab.findResultIndex = nil
-        tab.commandBarView.layer?.backgroundColor = (standalone ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.22) : TahoeGlassPalette.commandBackground).cgColor
+        tab.commandBarView.layer?.backgroundColor = nil
         tab.findCloseButton.isHidden = true
         tab.inputView.setAccessibilityLabel("Terminal command input")
         setInput(tab.findCommandDraft, in: tab)
@@ -4881,7 +4958,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             commandHistory: commandHistory,
             commandRunDates: commandRunDates
         )
-        tab.commandBarView.layer?.backgroundColor = (standalone ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.22) : TahoeGlassPalette.commandBackground).cgColor
+        tab.commandBarView.layer?.backgroundColor = nil
         tab.commandLifecycle.apply(.cwdChanged(directoryPath))
         tab.findCloseButton.target = self
         tab.findCloseButton.action = #selector(closeFindMode(_:))
@@ -7045,8 +7122,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         guard tab.commandBarView.isHidden == shouldShowCommandBar else { return }
         tab.commandBarView.isHidden = !shouldShowCommandBar
         tab.commandSeparator.isHidden = !shouldShowCommandBar
-        tab.scrollBottomToCommandBarConstraint?.isActive = shouldShowCommandBar
-        tab.scrollBottomToRootConstraint?.isActive = !shouldShowCommandBar
+        tab.updateCommandBarInset()
         tab.rootView.needsLayout = true
         tab.rootView.layoutSubtreeIfNeeded()
     }
@@ -7084,7 +7160,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
     private func terminalGridSize(for tab: TerminalTab) -> TerminalGridSize? {
         var viewport = tab.scrollView.contentView.bounds
-        viewport.size.height -= toolbarInset
+        viewport.size.height -= toolbarInset + tab.scrollView.contentInsets.bottom
         guard viewport.width > 0, viewport.height > 0 else { return nil }
 
         let contentSize = latestRunningBlock(in: tab)
@@ -7322,7 +7398,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
         documentView.layoutSubtreeIfNeeded()
         tab.scrollView.contentView.layoutSubtreeIfNeeded()
-        let maxY = max(-tab.scrollView.contentInsets.top, documentView.bounds.height - tab.scrollView.contentView.bounds.height)
+        let maxY = max(-tab.scrollView.contentInsets.top, documentView.bounds.height + tab.scrollView.contentInsets.bottom - tab.scrollView.contentView.bounds.height)
         tab.scrollView.contentView.scroll(to: NSPoint(x: 0, y: maxY))
         tab.scrollView.reflectScrolledClipView(tab.scrollView.contentView)
     }

@@ -1291,6 +1291,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
     private let stickyHeaderMaterial = NonHitTestingGlassEffectView()
     private var headerTopConstraint: NSLayoutConstraint!
     private var metadataLeadingConstraint: NSLayoutConstraint!
+    private var metadataTopConstraint: NSLayoutConstraint!
     private let commandLabel = SelectableBlockTextField()
     private let metaLabel = SelectableBlockTextField()
     private let outputView = BlockOutputTextView(frame: .zero)
@@ -1376,9 +1377,11 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
             guard let zoom = window.standardWindowButton(.zoomButton) else { return false }
             let button = zoom.convert(zoom.bounds, to: nil)
             if scrollY > 0 {
-                guard metadata.minX > button.maxX else { return false }
+                guard metadata.minX > button.maxX,
+                      abs(metadata.midY - button.midY) < 0.5 else { return false }
             } else {
-                guard block.metadataLeadingConstraint.constant == 0 else { return false }
+                guard block.metadataLeadingConstraint.constant == 0,
+                      block.metadataTopConstraint.constant == 0 else { return false }
             }
             guard block.commandLabel.frame == commandFrame,
                   block.outputView.frame == outputFrame else { return false }
@@ -1563,6 +1566,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         addSubview(stickyHeader)
         headerTopConstraint = stickyHeader.topAnchor.constraint(equalTo: topAnchor)
         metadataLeadingConstraint = metaLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor)
+        metadataTopConstraint = metaLabel.topAnchor.constraint(equalTo: header.topAnchor)
         NotificationCenter.default.addObserver(
             self, selector: #selector(scrollBoundsChanged(_:)),
             name: NSView.boundsDidChangeNotification, object: nil
@@ -1592,7 +1596,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
             commandLabel.bottomAnchor.constraint(equalTo: stickyHeader.bottomAnchor, constant: -6),
             header.heightAnchor.constraint(equalToConstant: 28),
             metadataLeadingConstraint,
-            metaLabel.topAnchor.constraint(equalTo: header.topAnchor),
+            metadataTopConstraint,
             metaLabel.trailingAnchor.constraint(lessThanOrEqualTo: copyMarkdownButton.leadingAnchor, constant: -8),
             copyMarkdownButton.topAnchor.constraint(equalTo: header.topAnchor),
             copyMarkdownButton.trailingAnchor.constraint(equalTo: header.trailingAnchor),
@@ -1769,15 +1773,21 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
             let row = convert(header.bounds, from: header)
                 .offsetBy(dx: 0, dy: headerTopConstraint.constant - offset)
             var leading: CGFloat = 0
+            var top: CGFloat = 0
+            let metadataCenter = row.maxY + metaLabel.alignmentRectInsets.top - metaLabel.bounds.height / 2
             for type: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
                 guard let button = window?.standardWindowButton(type), !button.isHiddenOrHasHiddenAncestor else { continue }
                 let frame = convert(button.bounds, from: button)
                 if row.intersects(frame) {
                     leading = max(leading, frame.maxX + 8 - row.minX)
+                    top = metadataCenter - frame.midY
                 }
             }
             if metadataLeadingConstraint.constant != leading {
                 metadataLeadingConstraint.constant = leading
+            }
+            if metadataTopConstraint.constant != top {
+                metadataTopConstraint.constant = top
             }
         }
         if headerTopConstraint.constant != offset {

@@ -1266,7 +1266,8 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         usesPortalMaterials ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.22) : TahoeGlassPalette.commandBackground
     }
     private var completedBackground: NSColor {
-        usesPortalMaterials ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.18) : TahoeGlassPalette.commandBackground
+        guard effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua else { return .clear }
+        return usesPortalMaterials ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.18) : TahoeGlassPalette.commandBackground
     }
     private var failedBackground: NSColor {
         TahoeGlassPalette.failedCommandBackground
@@ -2163,6 +2164,8 @@ func portalDetachedBlockAppearanceSelfTest() -> Bool {
             view.effectiveAppearance.performAsCurrentDrawingAppearance {
                 if case .completed(127) = state {
                     expected = TahoeGlassPalette.failedCommandBackground.cgColor
+                } else if case .completed(0) = state, name == .aqua {
+                    expected = NSColor.clear.cgColor
                 } else {
                     let opacity: CGFloat
                     if case .running = state { opacity = 0.22 } else { opacity = 0.18 }

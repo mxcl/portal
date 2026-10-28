@@ -1289,6 +1289,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
 
     private let stickyHeader = NSView()
     private let stickyHeaderMaterial = NonHitTestingGlassEffectView()
+    private let stickyHeaderDarkMaterial = NonHitTestingVisualEffectView()
     private var headerTopConstraint: NSLayoutConstraint!
     private var metadataLeadingConstraint: NSLayoutConstraint!
     private var metadataTopConstraint: NSLayoutConstraint!
@@ -1385,6 +1386,16 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
             }
             guard block.commandLabel.frame == commandFrame,
                   block.outputView.frame == outputFrame else { return false }
+        }
+        for name in [NSAppearance.Name.aqua, .darkAqua, .aqua] {
+            block.appearance = NSAppearance(named: name)
+            for scrollY: CGFloat in [100, -100] {
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollY))
+                block.layoutSubtreeIfNeeded()
+                guard block.stickyHeaderMaterial.isHidden == (scrollY < 0 || name == .darkAqua),
+                      block.stickyHeaderDarkMaterial.isHidden == (scrollY < 0 || name == .aqua),
+                      block.stickyHeaderDarkMaterial.frame == block.stickyHeader.bounds else { return false }
+            }
         }
         return true
     }
@@ -1549,6 +1560,12 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         stickyHeaderMaterial.isHidden = true
         stickyHeaderMaterial.autoresizingMask = [.width, .height]
         stickyHeader.addSubview(stickyHeaderMaterial)
+        stickyHeaderDarkMaterial.material = .headerView
+        stickyHeaderDarkMaterial.blendingMode = .withinWindow
+        stickyHeaderDarkMaterial.state = .active
+        stickyHeaderDarkMaterial.isHidden = true
+        stickyHeaderDarkMaterial.autoresizingMask = [.width, .height]
+        stickyHeader.addSubview(stickyHeaderDarkMaterial)
         let scrollToTopGesture = NSClickGestureRecognizer(target: self, action: #selector(didClickStickyHeader))
         scrollToTopGesture.delegate = self
         scrollToTopGesture.delaysPrimaryMouseButtonEvents = true
@@ -1793,7 +1810,9 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         if headerTopConstraint.constant != offset {
             headerTopConstraint.constant = offset
         }
-        stickyHeaderMaterial.isHidden = offset <= 0
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        stickyHeaderMaterial.isHidden = offset <= 0 || isDark
+        stickyHeaderDarkMaterial.isHidden = offset <= 0 || !isDark
     }
 
     @objc private func copyMarkdown() { onCopyMarkdown?() }

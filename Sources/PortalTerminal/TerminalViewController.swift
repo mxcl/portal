@@ -2141,6 +2141,11 @@ func portalCommandBarOverlaySelfTest() -> Bool {
         tab.rootView.layoutSubtreeIfNeeded()
         guard let document = tab.scrollView.documentView else { return false }
         let bottomInset = tab.scrollView.contentInsets.bottom
+        tab.scrollView.tile()
+        guard let scroller = tab.scrollView.verticalScroller else { return false }
+        let scrollerFrame = tab.rootView.convert(scroller.bounds, from: scroller)
+        guard abs(scrollerFrame.minY - tab.sessionPickerView.frame.maxY) < 0.5,
+              abs(scrollerFrame.maxY - (tab.rootView.bounds.maxY - 38)) < 0.5 else { return false }
         guard bottomInset > height,
               abs(bottomInset - tab.sessionPickerView.frame.maxY) < 0.5,
               tab.scrollView.frame == tab.rootView.bounds,
@@ -2169,7 +2174,7 @@ func portalToolbarScrollRegionSelfTest() -> Bool {
     for inset: CGFloat in [0, 38, 0] {
         tab.setToolbarInset(inset)
         guard tab.documentMinimumHeightConstraint.constant + tab.scrollView.contentInsets.top + tab.scrollView.contentInsets.bottom == 0,
-              tab.scrollView.scrollerInsets.top == inset else { return false }
+              tab.scrollView.scrollerInsets.top == 0 else { return false }
     }
     return withExtendedLifetime(delegate) { true }
 }
@@ -2851,8 +2856,8 @@ private final class TerminalTab {
 
     func setToolbarInset(_ inset: CGFloat) {
         scrollView.automaticallyAdjustsContentInsets = false
+        // AppKit also applies content insets to the scroller; scrollerInsets would add them twice.
         scrollView.contentInsets.top = inset
-        scrollView.scrollerInsets.top = inset
         updateCommandBarInset()
     }
 
@@ -2864,7 +2869,6 @@ private final class TerminalTab {
         let wasAtBottom = scrollView.contentView.bounds.maxY >= documentHeight + oldInset - 1
         if oldInset != inset {
             scrollView.contentInsets.bottom = inset
-            scrollView.scrollerInsets.bottom = inset
             if wasAtBottom {
                 scrollView.contentView.scroll(to: NSPoint(
                     x: 0,

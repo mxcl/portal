@@ -155,34 +155,17 @@ private final class NonHitTestingView: NSView {
     }
 }
 
-private final class NonHitTestingGlassEffectView: NSGlassEffectView {
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-}
-
 private final class NonHitTestingVisualEffectView: NSVisualEffectView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 }
 
-private final class TerminalBarMaterialView: NSView {
-    let glass = NonHitTestingGlassEffectView()
-    let titlebar = NonHitTestingVisualEffectView()
-
+private final class TerminalBarMaterialView: NSGlassEffectView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        glass.style = .regular
-        glass.cornerRadius = 0
-        titlebar.material = .titlebar
-        titlebar.blendingMode = .withinWindow
-        titlebar.state = .followsWindowActiveState
-        for effect in [glass as NSView, titlebar] {
-            effect.frame = bounds
-            effect.autoresizingMask = [.width, .height]
-            addSubview(effect)
-        }
+        style = .regular
+        cornerRadius = 0
         updateAppearance()
     }
 
@@ -197,8 +180,8 @@ private final class TerminalBarMaterialView: NSView {
 
     private func updateAppearance() {
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        glass.isHidden = isDark
-        titlebar.isHidden = !isDark
+        // Keep glass's tighter blur while counteracting its white wash in dark mode.
+        tintColor = isDark ? NSColor.black.withAlphaComponent(0.2) : nil
     }
 }
 
@@ -1427,9 +1410,9 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
                 scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollY))
                 block.layoutSubtreeIfNeeded()
                 guard block.stickyHeaderMaterial.isHidden == (scrollY < 0),
-                      block.stickyHeaderMaterial.glass.isHidden == (name == .darkAqua),
-                      block.stickyHeaderMaterial.titlebar.isHidden == (name == .aqua),
-                      block.stickyHeaderMaterial.titlebar.frame == block.stickyHeader.bounds else { return false }
+                      block.stickyHeaderMaterial.style == .regular,
+                      block.stickyHeaderMaterial.tintColor == (name == .darkAqua ? NSColor.black.withAlphaComponent(0.2) : nil),
+                      block.stickyHeaderMaterial.frame == block.stickyHeader.bounds else { return false }
             }
         }
         return true
@@ -2182,10 +2165,8 @@ func portalCommandBarOverlaySelfTest() -> Bool {
     for name in [NSAppearance.Name.aqua, .darkAqua, .aqua] {
         host.appearance = NSAppearance(named: name)
         host.layoutSubtreeIfNeeded()
-        guard tab.commandBarMaterial.glass.isHidden == (name == .darkAqua),
-              tab.commandBarMaterial.titlebar.isHidden == (name == .aqua),
-              tab.commandBarMaterial.titlebar.material == .titlebar,
-              tab.commandBarMaterial.titlebar.frame == tab.commandBarMaterial.bounds else { return false }
+        guard tab.commandBarMaterial.style == .regular,
+              tab.commandBarMaterial.tintColor == (name == .darkAqua ? NSColor.black.withAlphaComponent(0.2) : nil) else { return false }
     }
     for height: CGFloat in [44, 120, 44] {
         tab.commandInputHeightConstraint?.constant = height

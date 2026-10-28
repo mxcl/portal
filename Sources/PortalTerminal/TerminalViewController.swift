@@ -2835,6 +2835,11 @@ private final class TerminalTab {
     var activeBlockID: UUID? { commandLifecycle.state.activeBlockID }
     var pendingBlockID: UUID? { commandLifecycle.state.pendingBlockID }
     var currentCwd: String { commandLifecycle.state.currentCwd }
+    var isScrolledToBottom: Bool {
+        scrollView.contentView.bounds.maxY >= (scrollView.documentView?.bounds.height ?? 0)
+            + scrollView.contentInsets.bottom - 1
+    }
+
     var isScrollToBottomScheduled = false
     var isShellReady: Bool { commandLifecycle.state.isShellReady }
     var isReplayingHistory: Bool { commandLifecycle.state.isReplayingHistory }
@@ -3968,6 +3973,68 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             try await Task.sleep(for: .milliseconds(20))
         }
         return false
+    }
+
+    static func outputScrollingSelfTest(startsAtBottom: Bool) async -> Bool {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let catalog = SessionCatalog(url: directory.appendingPathComponent("sessions.json"), windowID: "test")
+        let controller = TerminalViewController(restoresPersistedWindow: false, sessionCatalog: catalog)
+        let tab = TerminalTab(title: "Test", delegate: controller)
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
+        host.addSubview(tab.rootView)
+        NSLayoutConstraint.activate([
+            tab.rootView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            tab.rootView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            tab.rootView.topAnchor.constraint(equalTo: host.topAnchor),
+            tab.rootView.bottomAnchor.constraint(equalTo: host.bottomAnchor)
+        ])
+        tab.setToolbarInset(38)
+        tab.commandLifecycle.apply(.shellReady(cwd: "/tmp"))
+        let change = tab.commandLifecycle.apply(.submit(command: "test", cwd: "/tmp", at: Date()))
+        guard let id = change.addedBlockIDs.first else { return false }
+        tab.commandLifecycle.apply(.commandStarted)
+        func render(lines: Int) {
+            let output = String(repeating: "output line\n", count: lines)
+            tab.commandLifecycle.apply(.output(blockID: id, plainText: output,
+                attributedText: NSAttributedString(string: output),
+                isAlternateScreenActive: false, isApplicationCursorModeActive: false))
+            controller.updateBlockViewNow(for: id, in: tab)
+            host.layoutSubtreeIfNeeded()
+        }
+        func drainScroll() async {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+        render(lines: 100)
+        await drainScroll()
+        controller.scrollToBottomNow(tab)
+        if !startsAtBottom {
+            tab.scrollView.contentView.scroll(to: NSPoint(x: 0, y: 100))
+        }
+        let originalY = tab.scrollView.contentView.bounds.minY
+        render(lines: 150)
+        await drainScroll()
+        func positionIsCorrect() -> Bool {
+            let documentHeight = tab.scrollView.documentView!.bounds.height
+            guard documentHeight > tab.scrollView.contentView.bounds.height else { return false }
+            if startsAtBottom {
+                return abs(tab.scrollView.contentView.bounds.maxY
+                    - documentHeight - tab.scrollView.contentInsets.bottom) < 1
+            }
+            return abs(tab.scrollView.contentView.bounds.minY - originalY) < 1
+        }
+        guard positionIsCorrect() else { return false }
+        controller.handleMarker(PortalMarker(rawValue: "D;1"), isReplay: false, in: tab)
+        await drainScroll()
+        guard positionIsCorrect() else { return false }
+        tab.commandLifecycle.apply(.submit(command: "next", cwd: "/tmp", at: Date()))
+        guard let block = tab.blocks.last else { return false }
+        controller.addBlockView(block, to: tab)
+        host.layoutSubtreeIfNeeded()
+        await drainScroll()
+        return positionIsCorrect()
     }
 
     static func sessionStartupStatusesSelfTest() -> [String] {
@@ -6626,6 +6693,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
                 openRemoteCode(payload: payload, in: tab)
             }
         case .commandFinished(let status):
+            let wasAtBottom = tab.isScrolledToBottom
             tab.mouseTrackingMode = nil
             tab.usesSGRMouseMode = false
             tab.interruptedBlockID = nil
@@ -6659,7 +6727,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             updateCommandBarVisibility(for: tab)
             updateTabTitleForDirectory(tab)
             persistSessionState()
-            scrollToBottom(tab)
+            if wasAtBottom { scrollToBottomNow(tab) }
             focusInput(for: tab)
             runInitialCommandIfNeeded(in: tab)
         case .unknown(let code, let payload):
@@ -7193,6 +7261,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             return
         }
 
+        let wasAtBottom = tab.isScrolledToBottom
         tab.isTerminalControlActive = isActive
         if let runningBlock = latestRunningBlock(in: tab) {
             tab.blockViews[runningBlock.id]?.hidesLiveDuration = isActive
@@ -7207,7 +7276,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         resizePtyToViewport(for: tab)
         focusInput(for: tab)
-        scrollToBottom(tab)
+        if wasAtBottom { scrollToBottomNow(tab) }
     }
 
     private func updateCommandBarVisibility(for tab: TerminalTab) {
@@ -7326,6 +7395,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func addBlockView(_ block: TerminalBlock, to tab: TerminalTab) {
+        let wasAtBottom = tab.isScrolledToBottom
         let separator = SeparatorView()
         tab.stackView.addArrangedSubview(separator)
         separator.widthAnchor.constraint(equalTo: tab.stackView.widthAnchor).isActive = true
@@ -7362,7 +7432,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         if tab.isFindMode {
             updateFindResults(in: tab, bounce: false)
         }
-        scrollToBottom(tab)
+        if wasAtBottom { scrollToBottomNow(tab) }
     }
 
     private func ensureBlockView(for blockID: UUID, in tab: TerminalTab) {
@@ -7452,9 +7522,10 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private func updateBlockViewNow(for blockID: UUID, in tab: TerminalTab) {
         tab.pendingBlockViewUpdates.remove(blockID)
         guard let block = tab.blocks.first(where: { $0.id == blockID }) else { return }
+        let wasAtBottom = tab.isScrolledToBottom
         ensureBlockView(for: blockID, in: tab)
         tab.blockViews[blockID]?.update(with: block)
-        scrollToBottom(tab)
+        if wasAtBottom { scrollToBottomNow(tab) }
     }
 
     private func copy(_ value: String) {

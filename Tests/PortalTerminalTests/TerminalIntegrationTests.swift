@@ -7,6 +7,11 @@ import Testing
 @Suite("Embedded terminal", .serialized)
 struct TerminalIntegrationTests {
     @Test(arguments: [false, true]) @MainActor
+    func outputOnlyFollowsWhenAlreadyAtBottom(startsAtBottom: Bool) async {
+        #expect(await TerminalViewController.outputScrollingSelfTest(startsAtBottom: startsAtBottom))
+    }
+
+    @Test(arguments: [false, true]) @MainActor
     func externalBranchSwitchUpdatesStatusWithGitTreeHidden(standalone: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

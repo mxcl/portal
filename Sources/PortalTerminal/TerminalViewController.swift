@@ -167,6 +167,41 @@ private final class NonHitTestingVisualEffectView: NSVisualEffectView {
     }
 }
 
+private final class TerminalBarMaterialView: NSView {
+    let glass = NonHitTestingGlassEffectView()
+    let titlebar = NonHitTestingVisualEffectView()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        glass.style = .regular
+        glass.cornerRadius = 0
+        titlebar.material = .titlebar
+        titlebar.blendingMode = .withinWindow
+        titlebar.state = .followsWindowActiveState
+        for effect in [glass as NSView, titlebar] {
+            effect.frame = bounds
+            effect.autoresizingMask = [.width, .height]
+            addSubview(effect)
+        }
+        updateAppearance()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearance()
+    }
+
+    private func updateAppearance() {
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        glass.isHidden = isDark
+        titlebar.isHidden = !isDark
+    }
+}
+
 private final class SessionPickerView: NSView {
     private enum Direction: Equatable {
         case up, down, left, right
@@ -1288,8 +1323,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
     }
 
     private let stickyHeader = NSView()
-    private let stickyHeaderMaterial = NonHitTestingGlassEffectView()
-    private let stickyHeaderDarkMaterial = NonHitTestingVisualEffectView()
+    private let stickyHeaderMaterial = TerminalBarMaterialView()
     private var headerTopConstraint: NSLayoutConstraint!
     private var metadataLeadingConstraint: NSLayoutConstraint!
     private var metadataTopConstraint: NSLayoutConstraint!
@@ -1392,9 +1426,10 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
             for scrollY: CGFloat in [100, -100] {
                 scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollY))
                 block.layoutSubtreeIfNeeded()
-                guard block.stickyHeaderMaterial.isHidden == (scrollY < 0 || name == .darkAqua),
-                      block.stickyHeaderDarkMaterial.isHidden == (scrollY < 0 || name == .aqua),
-                      block.stickyHeaderDarkMaterial.frame == block.stickyHeader.bounds else { return false }
+                guard block.stickyHeaderMaterial.isHidden == (scrollY < 0),
+                      block.stickyHeaderMaterial.glass.isHidden == (name == .darkAqua),
+                      block.stickyHeaderMaterial.titlebar.isHidden == (name == .aqua),
+                      block.stickyHeaderMaterial.titlebar.frame == block.stickyHeader.bounds else { return false }
             }
         }
         return true
@@ -1555,17 +1590,9 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
 
         stickyHeader.translatesAutoresizingMaskIntoConstraints = false
         stickyHeader.wantsLayer = true
-        stickyHeaderMaterial.style = .regular
-        stickyHeaderMaterial.cornerRadius = 0
         stickyHeaderMaterial.isHidden = true
         stickyHeaderMaterial.autoresizingMask = [.width, .height]
         stickyHeader.addSubview(stickyHeaderMaterial)
-        stickyHeaderDarkMaterial.material = .headerView
-        stickyHeaderDarkMaterial.blendingMode = .withinWindow
-        stickyHeaderDarkMaterial.state = .active
-        stickyHeaderDarkMaterial.isHidden = true
-        stickyHeaderDarkMaterial.autoresizingMask = [.width, .height]
-        stickyHeader.addSubview(stickyHeaderDarkMaterial)
         let scrollToTopGesture = NSClickGestureRecognizer(target: self, action: #selector(didClickStickyHeader))
         scrollToTopGesture.delegate = self
         scrollToTopGesture.delaysPrimaryMouseButtonEvents = true
@@ -1810,9 +1837,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         if headerTopConstraint.constant != offset {
             headerTopConstraint.constant = offset
         }
-        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        stickyHeaderMaterial.isHidden = offset <= 0 || isDark
-        stickyHeaderDarkMaterial.isHidden = offset <= 0 || !isDark
+        stickyHeaderMaterial.isHidden = offset <= 0
     }
 
     @objc private func copyMarkdown() { onCopyMarkdown?() }
@@ -2154,6 +2179,14 @@ func portalCommandBarOverlaySelfTest() -> Bool {
     history.heightAnchor.constraint(equalToConstant: 1_200).isActive = true
     tab.stackView.addArrangedSubview(history)
     tab.setToolbarInset(38)
+    for name in [NSAppearance.Name.aqua, .darkAqua, .aqua] {
+        host.appearance = NSAppearance(named: name)
+        host.layoutSubtreeIfNeeded()
+        guard tab.commandBarMaterial.glass.isHidden == (name == .darkAqua),
+              tab.commandBarMaterial.titlebar.isHidden == (name == .aqua),
+              tab.commandBarMaterial.titlebar.material == .titlebar,
+              tab.commandBarMaterial.titlebar.frame == tab.commandBarMaterial.bounds else { return false }
+    }
     for height: CGFloat in [44, 120, 44] {
         tab.commandInputHeightConstraint?.constant = height
         host.layoutSubtreeIfNeeded()
@@ -2805,7 +2838,7 @@ private final class TerminalTab {
     let statusLabel = NSTextField(labelWithString: "Starting shell...")
     let commandSeparator = SeparatorView()
     let commandBarView = NSView()
-    let commandBarMaterial = NonHitTestingGlassEffectView()
+    let commandBarMaterial = TerminalBarMaterialView()
     let findCloseButton = FindCloseButton(frame: .zero)
     let completionPendingLine = NSView()
     let ptyPassthroughView = PtyPassthroughView(frame: .zero)
@@ -2976,8 +3009,6 @@ private final class TerminalTab {
         statusLineStack.addArrangedSubview(statusLabel)
 
         commandBarView.wantsLayer = true
-        commandBarMaterial.style = .regular
-        commandBarMaterial.cornerRadius = 0
         commandBarMaterial.translatesAutoresizingMaskIntoConstraints = false
         commandBarView.translatesAutoresizingMaskIntoConstraints = false
         findCloseButton.isHidden = true

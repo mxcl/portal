@@ -147,6 +147,15 @@ struct TerminalIntegrationTests {
         #expect(await portalStickyBlockHeaderSelfTest())
     }
 
+    @Test @MainActor func runningBlockPreservesCommandEditorHeight() {
+        let heights = portalCommandSubmissionHeightsSelfTest()
+        #expect(heights.count == 4)
+        #expect(heights[0] > 0)
+        #expect(abs(heights[1] - heights[0]) < 0.5)
+        #expect(abs(heights[2] - heights[1]) < 0.5)
+        #expect(heights[3] > heights[2])
+    }
+
     @Test @MainActor func commandBarOverlaysHistoryWithoutHidingItsEnd() async {
         #expect(await portalCommandBarOverlaySelfTest())
     }

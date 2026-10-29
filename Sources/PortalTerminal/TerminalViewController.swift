@@ -1355,7 +1355,7 @@ private final class BlockView: NSView {
     }
 
     private enum Metrics {
-        static let runningMinimumHeight: CGFloat = 90
+        static let runningMinimumHeight: CGFloat = 100
     }
 
     private enum DurationRounding: Equatable {
@@ -1381,7 +1381,6 @@ private final class BlockView: NSView {
     private let findReticuleLayer = CALayer()
     private var outputHeightConstraint: NSLayoutConstraint?
     private var minimumHeightConstraint: NSLayoutConstraint?
-    private var contentBottomConstraint: NSLayoutConstraint?
     private var hasVisibleOutput = false
     private var lastMeasuredOutputWidth: CGFloat = 0
     private var needsOutputHeightMeasurement = true
@@ -1744,8 +1743,9 @@ private final class BlockView: NSView {
         let minimumHeightConstraint = heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.runningMinimumHeight)
         self.minimumHeightConstraint = minimumHeightConstraint
         let contentBottomConstraint = content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10)
-        contentBottomConstraint.isActive = false
-        self.contentBottomConstraint = contentBottomConstraint
+        // Keep the editor-sized floor without stretching short output to fill it.
+        contentBottomConstraint.priority = .defaultHigh
+        contentBottomConstraint.isActive = true
 
         NSLayoutConstraint.activate([
             content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
@@ -1777,6 +1777,7 @@ private final class BlockView: NSView {
             copyMarkdownButton.widthAnchor.constraint(equalToConstant: 36),
             copyMarkdownButton.heightAnchor.constraint(equalToConstant: 28),
             outputHeightConstraint,
+            content.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -10),
             minimumHeightConstraint
         ])
     }
@@ -1828,10 +1829,10 @@ private final class BlockView: NSView {
                 ))
             }
             minimumHeightConstraint?.constant = Metrics.runningMinimumHeight
-            contentBottomConstraint?.isActive = hasVisibleOutput
+
         case .completed(let code):
             minimumHeightConstraint?.constant = 0
-            contentBottomConstraint?.isActive = true
+
             layer?.backgroundColor = (code == 0
                 ? completedBackground
                 : failedBackground
@@ -2290,6 +2291,39 @@ func portalFindScrollClearanceSelfTest(topInset: CGFloat, startingOffset: CGFloa
 @MainActor
 func portalStickyBlockHeaderSelfTest() async -> Bool {
     await BlockView.stickyHeaderSelfTest()
+}
+
+@MainActor
+func portalCommandSubmissionHeightsSelfTest() -> [CGFloat] {
+    let delegate = TerminalViewController()
+    let tab = TerminalTab(title: "Test", delegate: delegate)
+    let host = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
+    host.addSubview(tab.rootView)
+    NSLayoutConstraint.activate([
+        tab.rootView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+        tab.rootView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+        tab.rootView.topAnchor.constraint(equalTo: host.topAnchor),
+        tab.rootView.bottomAnchor.constraint(equalTo: host.bottomAnchor)
+    ])
+    host.layoutSubtreeIfNeeded()
+    var heights = [tab.commandBarView.bounds.height]
+    let view = BlockView()
+    view.translatesAutoresizingMaskIntoConstraints = false
+    tab.stackView.addArrangedSubview(view)
+    view.widthAnchor.constraint(equalTo: tab.stackView.widthAnchor).isActive = true
+    tab.commandBarView.isHidden = true
+    tab.updateCommandBarInset()
+    for (revision, output) in ["", "Starting…\n", String(repeating: "progress\n", count: 10)].enumerated() {
+        view.update(with: TerminalBlock(id: UUID(), command: "build", cwd: "/tmp",
+            startedAt: Date(), finishedAt: nil, output: output,
+            attributedOutput: NSAttributedString(string: output, attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+            ]), outputRevision: revision, state: .running))
+        host.layoutSubtreeIfNeeded()
+        tab.rootView.layoutSubtreeIfNeeded()
+        heights.append(view.bounds.height)
+    }
+    return heights
 }
 
 @MainActor

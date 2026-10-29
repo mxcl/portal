@@ -472,6 +472,16 @@ public struct TerminalCommands: Commands {
         self.nextProjectTerminal = nextProjectTerminal
     }
 
+    private func performFind(_ action: Selector, fallback: NSTextFinder.Action) {
+        if let terminal = TerminalWorkspace.findTarget(startingAt: NSApp.keyWindow?.firstResponder) {
+            NSApp.sendAction(action, to: terminal, from: nil)
+        } else {
+            let item = NSMenuItem()
+            item.tag = fallback.rawValue
+            NSApp.sendAction(#selector(NSTextView.performTextFinderAction(_:)), to: nil, from: item)
+        }
+    }
+
     public var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("New Terminal Window", action: newWindow).keyboardShortcut("n")
@@ -505,15 +515,17 @@ public struct TerminalCommands: Commands {
         }
         CommandGroup(after: .pasteboard) {
             Button("Find…") {
-                if let terminal = TerminalWorkspace.findTarget(startingAt: NSApp.keyWindow?.firstResponder) {
-                    terminal.findInHistory(nil)
-                } else {
-                    let item = NSMenuItem()
-                    item.tag = NSTextFinder.Action.showFindInterface.rawValue
-                    NSApp.sendAction(#selector(NSTextView.performTextFinderAction(_:)), to: nil, from: item)
-                }
+                performFind(#selector(TerminalViewController.findInHistory(_:)), fallback: .showFindInterface)
             }
             .keyboardShortcut("f")
+            Button("Find Next") {
+                performFind(#selector(TerminalViewController.findNextInHistory(_:)), fallback: .nextMatch)
+            }
+            .keyboardShortcut("g")
+            Button("Find Previous") {
+                performFind(#selector(TerminalViewController.findPreviousInHistory(_:)), fallback: .previousMatch)
+            }
+            .keyboardShortcut("g", modifiers: [.command, .option])
             Button("Clear Terminal") { workspace.perform(#selector(TerminalViewController.clearActiveTab(_:))) }
                 .keyboardShortcut("k").disabled(!enabled)
             Divider()

@@ -1784,7 +1784,6 @@ struct ProjectBrowserView: View {
     @FocusState private var isSidebarFocused: Bool
     @Environment(\.openSettings) private var openSettings
     @State private var search = ""
-    @State private var isArchivedExpanded = false
     @State private var visibility: NavigationSplitViewVisibility = .all
     @State private var projectSelection: String?
     @State private var hostPaneWidth: CGFloat = 600
@@ -1803,7 +1802,7 @@ struct ProjectBrowserView: View {
         model.projectNames.filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }
     }
     private var archived: [BackupItem] {
-        model.archivedProjects.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+        model.archivedProjects.filter { !search.isEmpty && $0.name.localizedCaseInsensitiveContains(search) }
     }
 
     var body: some View {
@@ -1818,7 +1817,6 @@ struct ProjectBrowserView: View {
                     }
                 } header: {
                     HStack {
-                        Text("PROJECTS")
                         Spacer()
                         HStack(spacing: 0) {
                             Text("B").frame(width: 18).help("Backup activity or error")
@@ -1833,32 +1831,14 @@ struct ProjectBrowserView: View {
                     .padding(.trailing, 10)
                 }
                 if !archived.isEmpty {
-                    Section {
-                        if isArchivedExpanded {
-                            ForEach(archived) { item in
-                                Text(item.name)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .lineLimit(1)
-                                    .listRowSeparator(.hidden)
-                                    .tag(item.name)
-                            }
+                    Section("Archived") {
+                        ForEach(archived) { item in
+                            Text(item.name)
+                                .font(.system(size: 11, design: .monospaced))
+                                .lineLimit(1)
+                                .listRowSeparator(.hidden)
+                                .tag(item.name)
                         }
-                    } header: {
-                        Button {
-                            isArchivedExpanded.toggle()
-                        } label: {
-                            HStack {
-                                Text("Archived")
-                                Spacer()
-                                Image(systemName: isArchivedExpanded ? "chevron.down" : "chevron.right")
-                                    .padding(.trailing, 12)
-                                    .accessibilityHidden(true)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityValue(isArchivedExpanded ? "Expanded" : "Collapsed")
-                        .accessibilityHint("Toggle archived projects")
                     }
                 }
             }
@@ -1867,7 +1847,23 @@ struct ProjectBrowserView: View {
             .scrollContentBackground(.hidden)
             .background(DarkSidebarMaterial().ignoresSafeArea())
             .environment(\.colorScheme, .dark)
-            .navigationTitle("Projects")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        ForEach(model.archivedProjects) { item in
+                            Button(item.name) {
+                                model.selectProject(item.name)
+                                model.selectedTab = .info
+                            }
+                        }
+                    } label: {
+                        Label("Restore Archived Project", systemImage: "plus")
+                    }
+                    .menuIndicator(.hidden)
+                    .disabled(model.archivedProjects.isEmpty)
+                    .help("Restore an archived project")
+                }
+            }
             .focused($isSidebarFocused)
             .onChange(of: model.selectedTab, initial: true) { _, tab in
                 if tab == .info { isSidebarFocused = true }

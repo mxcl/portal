@@ -66,7 +66,7 @@ struct ProjectTerminalCommands: Commands {
 
     var body: some Commands {
         TerminalCommands(workspace: workspace,
-                         enabled: model.map { !$0.showsCommitDiff
+                         enabled: model.map { $0.selectedTab == .terminal && !$0.showsCommitDiff
                              && $0.projectTerminalSources.contains($0.selectedProjectHostSource) } ?? false,
                          hosts: model?.terminalHosts ?? [],
                          newWindow: { TerminalApplication.open() },
@@ -74,6 +74,20 @@ struct ProjectTerminalCommands: Commands {
                          nextProjectTerminal: model.flatMap { model in
                              model.projectTerminalSources.isEmpty ? nil : { model.showNextProjectTerminal() }
                          })
+    }
+}
+
+extension AppDelegate {
+    func applicationWillUpdate(_ notification: Notification) {
+        guard let menu = NSApp.mainMenu else { return }
+        Self.placeProjectMenuFirst(in: menu)
+    }
+
+    static func placeProjectMenuFirst(in menu: NSMenu) {
+        guard let project = menu.items.first(where: { $0.title == "Project" }),
+              menu.index(of: project) > 1 else { return }
+        menu.removeItem(project)
+        menu.insertItem(project, at: 1)
     }
 }
 #endif

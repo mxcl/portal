@@ -310,6 +310,15 @@ public final class TerminalWorkspace: ObservableObject {
         return controller
     }
 
+    static func findTarget(startingAt responder: NSResponder?) -> TerminalViewController? {
+        var current = responder
+        while let candidate = current, !(candidate is NSWindow) {
+            if let terminal = candidate as? TerminalViewController { return terminal }
+            current = candidate.nextResponder
+        }
+        return nil
+    }
+
     fileprivate func perform(_ action: Selector) {
         guard let controller = (NSApp.keyWindow?.contentViewController as? TerminalViewController) ?? activeController else { return }
         NSApp.sendAction(action, to: controller, from: nil)
@@ -464,7 +473,7 @@ public struct TerminalCommands: Commands {
     }
 
     public var body: some Commands {
-        CommandMenu("Terminal") {
+        CommandGroup(after: .newItem) {
             Button("New Terminal Window", action: newWindow).keyboardShortcut("n")
             Menu("New Terminal Session") {
                 ForEach(hosts, id: \.id) { host in
@@ -486,14 +495,25 @@ public struct TerminalCommands: Commands {
                 Button("Move Tab to New Window") { workspace.focusedWindow?.moveTabToNewWindow(nil) }
                     .disabled(!workspace.standaloneFocused)
             }
-            Divider()
+        }
+        CommandGroup(after: .toolbar) {
             if let nextProjectTerminal {
                 Button("Next Project Terminal", action: nextProjectTerminal)
                     .keyboardShortcut("t", modifiers: [.command, .option, .shift])
 
             }
-            Button("Find in History…") { workspace.perform(#selector(TerminalViewController.findInHistory(_:))) }
-                .keyboardShortcut("f", modifiers: [.command, .shift]).disabled(!enabled)
+        }
+        CommandGroup(after: .pasteboard) {
+            Button("Find…") {
+                if let terminal = TerminalWorkspace.findTarget(startingAt: NSApp.keyWindow?.firstResponder) {
+                    terminal.findInHistory(nil)
+                } else {
+                    let item = NSMenuItem()
+                    item.tag = NSTextFinder.Action.showFindInterface.rawValue
+                    NSApp.sendAction(#selector(NSTextView.performTextFinderAction(_:)), to: nil, from: item)
+                }
+            }
+            .keyboardShortcut("f")
             Button("Clear Terminal") { workspace.perform(#selector(TerminalViewController.clearActiveTab(_:))) }
                 .keyboardShortcut("k").disabled(!enabled)
             Divider()

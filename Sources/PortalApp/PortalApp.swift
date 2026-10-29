@@ -32,17 +32,12 @@ struct PortalApp: App {
             ProjectBrowserView(model: model)
                 .focusedSceneValue(\.paletteModel, model)
                 .background(GlobalShortcutReceiver(model: model))
-                .onAppear {
-                    appDelegate.editor = model.editor
-                }
-                .modifier(EditorCloseGuard(editor: model.editor))
         }
         .defaultSize(width: 1180, height: 720)
         .windowResizability(.contentMinSize)
         .commands {
             SidebarCommands()
             ProjectCommands()
-            EditorCommands()
             ProjectViewCommands()
             ProjectTerminalCommands(workspace: model.terminals)
             CommandGroup(after: .appSettings) {
@@ -64,8 +59,6 @@ struct PortalApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    weak var editor: ProjectEditor?
-
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
         let item = menu.addItem(withTitle: "New Terminal Window", action: #selector(newTerminalWindow), keyEquivalent: "")
@@ -81,9 +74,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalApplication.open(files)
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        editor?.confirmDiscard() == false ? .terminateCancel : .terminateNow
-    }
 }
 
 private struct HostDraft {
@@ -143,11 +133,8 @@ struct ProjectWindowCache: Codable, Sendable {
 
 @MainActor
 final class AppModel: ObservableObject {
-    let editor = ProjectEditor(isActive: false)
     let terminals = TerminalWorkspace()
-    @Published var selectedTab: ProjectTab = .info {
-        didSet { editor.setActive(selectedTab == .editor) }
-    }
+    @Published var selectedTab: ProjectTab = .info
     @Published var terminalSource: ProjectSource?
     @Published var configuration = AppConfiguration(root: "", machine: Configuration.defaultMachine)
     @Published var github = GitHubState()
@@ -209,7 +196,6 @@ final class AppModel: ObservableObject {
 
     private func navigateHistory(backward: Bool) {
         guard let destination = backward ? backHistory.last : forwardHistory.last else { return }
-        if destination.project != selectedProjectName, !editor.confirmDiscard() { return }
         if let current = navigationLocation {
             if backward { forwardHistory.append(current) } else { backHistory.append(current) }
         }
@@ -314,7 +300,6 @@ final class AppModel: ObservableObject {
             projectReadme = cache.content.readme
             projectGitHubURL = cache.content.githubURL
             projectSource = cache.source
-            editor.connect(selectedEditorRepositoryURL)
             refreshProject()
         }
         guard connectToHelper else { return }
@@ -395,11 +380,6 @@ final class AppModel: ObservableObject {
         return repositoryURL(for: name)
     }
 
-    var selectedEditorRepositoryURL: URL? {
-        guard let name = selectedProjectName, placement(of: name, on: nil) == .checkedOut else { return nil }
-        return selectedLocalRepositoryURL
-    }
-
     var terminalHosts: [TerminalHost] {
         configuration.hosts.map { host in
             TerminalHost(id: host.id.uuidString, name: host.name, peer: host.peer,
@@ -412,10 +392,6 @@ final class AppModel: ObservableObject {
     }
 
     var showsCommitDiff: Bool { selectedCommitID != nil && selectedStaging == nil }
-
-    var canEditSelectedHost: Bool {
-        selectedProjectHostSource == .local && selectedEditorRepositoryURL != nil
-    }
 
     var selectedProjectHostSource: ProjectSource {
         if let source = terminalSource,
@@ -463,8 +439,7 @@ final class AppModel: ObservableObject {
     }
 
     var availableTabs: [ProjectTab] {
-        selectedStaging?.source == .local || selectedEditorRepositoryURL != nil ? ProjectTab.allCases
-            : (!projectTerminalSources.isEmpty ? [.info, .diff, .terminal] : [.info, .diff])
+        !projectTerminalSources.isEmpty ? [.info, .diff, .terminal] : [.info, .diff]
     }
 
     var stagingCheckouts: [ProjectStaging] {
@@ -518,10 +493,7 @@ final class AppModel: ObservableObject {
     }
 
     var toolbarTabs: [ProjectTab] {
-        if let staging = selectedStaging {
-            return staging.source == .local && selectedEditorRepositoryURL != nil
-                ? [.editor, .terminal] : [.diff, .terminal]
-        }
+        if selectedStaging != nil { return [.diff, .terminal] }
         return isSelectedProjectArchived ? [.info, .diff] : [.diff]
     }
 
@@ -756,7 +728,6 @@ final class AppModel: ObservableObject {
                 guard !Task.isCancelled, let self, watchedRepositoryURL == url else { return }
                 repositoryWatcher = try RepositoryWatcher(paths: paths) { [weak self] in
                     guard let self, watchedRepositoryURL == url, projectSource == .local else { return }
-                    editor.refresh()
                     if isLoadingProject { projectRefreshPending = true }
                     else { refreshProject() }
                 }
@@ -792,31 +763,12 @@ final class AppModel: ObservableObject {
         return true
     }
 
-    var diffFileAction: ((DiffFile) -> Void)? {
-        guard selectedEditorRepositoryURL != nil else { return nil }
-        return { file in self.openDiffFile(file) }
-    }
-
-    func openDiffFile(_ file: DiffFile) {
-        guard let repository = selectedEditorRepositoryURL else { return }
-        if editor.repository != repository {
-            guard editor.confirmDiscard() else { return }
-            editor.connect(repository)
-        }
-        let path = file.newPath.isEmpty || file.newPath == "/dev/null" ? file.oldPath : file.newPath
-        editor.open(path)
-        guard editor.path == path else { return }
-        selectedTab = .editor
-    }
-
     func selectProject(_ name: String?) {
         guard name != selectedProjectName else { return }
-        guard editor.confirmDiscard() else { return }
         recordNavigation()
         paletteNavigation = UUID()
         terminalSource = nil
         selectedProjectName = name
-        editor.connect(selectedEditorRepositoryURL)
         if let name { UserDefaults.standard.set(name, forKey: selectedProjectKey) }
         else { UserDefaults.standard.removeObject(forKey: selectedProjectKey) }
         selectCommit(nil, recordingHistory: false)
@@ -952,7 +904,7 @@ final class AppModel: ObservableObject {
         if selectedCommitID != oid {
             paletteCommit = nil
             selectedTab = staging != nil
-                ? (staging?.source == .local && selectedEditorRepositoryURL != nil ? .editor : .diff)
+                ? .diff
                 : (oid == nil ? .info : .diff)
         }
         if let staging, selectedCommitID != oid {
@@ -1065,8 +1017,7 @@ final class AppModel: ObservableObject {
     }
 
     func renameSelectedProject() {
-        guard let project = selectedProjectName, placementInProgress == nil,
-              editor.confirmDiscard() else { return }
+        guard let project = selectedProjectName, placementInProgress == nil else { return }
         let field = NSTextField(string: project)
         field.frame = NSRect(x: 0, y: 0, width: 300, height: 24)
         field.setAccessibilityLabel("New project name")
@@ -1185,7 +1136,6 @@ final class AppModel: ObservableObject {
     func setPlacement(_ placement: ProjectPlacement, project: String, hostID: UUID?, branch: String? = nil,
                       checkoutAfterMirror: Bool = false) -> Task<Void, Never>? {
         guard placementInProgress == nil else { return nil }
-        if hostID == nil, project == selectedProjectName, !editor.confirmDiscard() { return nil }
         let awaitMirror = hostID == nil && placement == .mirrored && self.placement(of: project, on: nil) == .notPresent
         let root = URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath)
         let expectedBranches = selectedProjectName == project
@@ -1626,7 +1576,6 @@ final class AppModel: ObservableObject {
 
     func openPaletteResult(_ result: PaletteResult) {
         cancelPaletteCommand()
-        guard editor.confirmDiscard() else { return }
         if let command = result.command {
             paletteCommandTask = Task {
                 let prepared = await terminals.prepareCommand(command, hosts: terminalHosts)
@@ -1940,7 +1889,6 @@ struct ProjectBrowserView: View {
         } detail: {
             if model.showsCommitDiff {
                 ProjectDetailView(model: model)
-                    .environment(\.diffOpenFile, model.diffFileAction)
             } else if let name = model.selectedProjectName {
                 HostControls(project: name, model: model)
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { hostPaneWidth = $0 }
@@ -1952,29 +1900,6 @@ struct ProjectBrowserView: View {
                                 Spacer(minLength: 0)
                             }
                             .frame(width: max(0, hostPaneWidth - 24))
-                            .overlay(alignment: .leading) {
-                                if model.selectedTab == .editor && model.canEditSelectedHost {
-                                    HStack {
-                                        EditorFilesButton(editor: model.editor)
-                                        EditorSaveButton(editor: model.editor)
-                                    }
-                                }
-                            }
-                            .overlay(alignment: .trailing) {
-                                Picker("Working copy view", selection: Binding(
-                                    get: { model.selectedTab == .editor && model.canEditSelectedHost ? ProjectTab.editor : .terminal },
-                                    set: { model.selectedTab = $0 }
-                                )) {
-                                    Label("Terminal", systemImage: "terminal").tag(ProjectTab.terminal)
-                                    Label("Editor", systemImage: "curlybraces").tag(ProjectTab.editor)
-                                        .disabled(!model.canEditSelectedHost)
-                                }
-                                .pickerStyle(.segmented)
-                                .labelStyle(.iconOnly)
-                                .labelsHidden()
-                                .fixedSize()
-                                .help(model.canEditSelectedHost ? "Terminal or editor" : "Editor requires a local checkout")
-                            }
                         }
                         .sharedBackgroundVisibility(.hidden)
                     }
@@ -2005,10 +1930,6 @@ struct ProjectBrowserView: View {
                 model.selectProject(name)
                 projectSelection = model.selectedProjectName
             }
-        }
-        .onChange(of: model.selectedEditorRepositoryURL) { _, url in
-            // A checkout can become available without changing the selected project.
-            if !model.editor.isDirty { model.editor.connect(url) }
         }
         .sheet(item: $model.checkoutRequest) { request in
             BranchPicker(request: request, model: model)
@@ -2718,10 +2639,7 @@ private struct HostControls: View {
                 Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled).padding(8)
             }
             if model.placement(of: project, on: hostID) == .checkedOut {
-                if model.selectedTab == .editor, model.canEditSelectedHost {
-                    ProjectEditorView(editor: model.editor)
-                        .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
-                } else if let hostID, let host = model.terminalHosts.first(where: { $0.id == hostID.uuidString }) {
+                if let hostID, let host = model.terminalHosts.first(where: { $0.id == hostID.uuidString }) {
                     model.terminals.view(project: project, directory: URL(fileURLWithPath: host.directory).appendingPathComponent(project),
                                          hosts: model.terminalHosts, host: host)
                 } else if hostID == nil, let directory = model.selectedLocalRepositoryURL {
@@ -2976,7 +2894,6 @@ private struct MarkdownDocument: View {
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
-    @AppStorage("editor-show-scroll-preview") private var showScrollPreview = false
 
     var body: some View {
         TabView {
@@ -3042,9 +2959,6 @@ struct SettingsView: View {
                             } catch { NSAlert(error: error).runModal() }
                         }
                     }
-                }
-                Section("Editor") {
-                    Toggle("Show scroll preview", isOn: $showScrollPreview)
                 }
             }
             .formStyle(.grouped)

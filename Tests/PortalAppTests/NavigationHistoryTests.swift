@@ -77,14 +77,14 @@ func navigationHistoryAcrossLoads() async throws {
     try await finishLoading()
     #expect(!model.canGoBack)
     let staging = try #require(model.selectedCommitID)
-    model.selectedTab = .editor
+    model.selectedTab = .diff
     model.selectProject("second")
     try await finishLoading()
     model.goBack()
     try await finishLoading()
     #expect(model.selectedProjectName == "first")
     #expect(model.selectedCommitID == staging)
-    #expect(model.selectedTab == .editor)
+    #expect(model.selectedTab == .diff)
     #expect(!model.canGoBack)
     model.refreshProject()
     try await finishLoading()

@@ -38,7 +38,7 @@ ln -s ../Resources/legacy-terminal-bridge "$app/Contents/Helpers/gitinuum-sessio
 "$repo_dir/scripts/bundle-terminal-completions.sh" "$app/Contents/Resources"
 cp "$build_dir/PortalApp" "$app/Contents/MacOS/PortalApp"
 for resource_bundle in "$build_dir"/*.bundle; do
-  case "$(basename "$resource_bundle")" in git-sync_*) continue ;; esac
+  case "$(basename "$resource_bundle")" in git-sync_*|CodeEdit*) continue ;; esac
   cp -R "$resource_bundle" "$app/Contents/Resources/"
 done
 cp "$build_dir/portald" "$app/Contents/Resources/portald"

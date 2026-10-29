@@ -5,7 +5,7 @@ import Testing
 @testable import PortalEngine
 import PortalGraph
 
-@Test("Staging opens the editor, loads both index sides, and stays selected when clean")
+@Test("Staging selects the diff, loads both index sides, and stays selected when clean")
 @MainActor
 func workingChangesSelection() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -34,8 +34,8 @@ func workingChangesSelection() async throws {
     model.selectNextStaging()
     try await finishLoading()
     #expect(model.selectedCommitID == CommitGraphGenerator.workingChangesID)
-    #expect(model.toolbarTabs == [.editor, .terminal])
-    #expect(model.selectedTab == .editor)
+    #expect(model.toolbarTabs == [.diff, .terminal])
+    #expect(model.selectedTab == .diff)
     #expect(model.availableTabs == ProjectTab.allCases)
     #expect(model.workingDiffStaged)
     #expect(model.selectedCommitDiff?.contains("+staged") == true)
@@ -67,7 +67,7 @@ func workingChangesSelection() async throws {
     model.selectCommit(CommitGraphGenerator.workingChangesID)
     #expect(!model.showsCommitDiff)
     try await finishLoading()
-    #expect(model.selectedTab == .editor)
+    #expect(model.selectedTab == .diff)
 }
 
 @Test("Peer staging keeps its own HEAD and files and opens its remote diff")
@@ -126,7 +126,7 @@ func peerWorkingChangesSelection() async throws {
     model.selectNextStaging()
     try await finishLoading()
     #expect(model.selectedCommitID == local.id)
-    #expect(model.selectedTab == .editor)
+    #expect(model.selectedTab == .diff)
     #expect(model.selectedTerminalHost == nil)
     #expect(model.selectedTerminalDirectory?.path == project.path)
     #expect(model.selectedCommitDiff?.contains("+local") == true)
@@ -294,11 +294,11 @@ func projectSelectionOpensStagingTerminal() async throws {
     #expect(model.selectedTab == .terminal)
     #expect(model.selectedProjectHostSource == .local)
     #expect(model.selectedTerminalDirectory?.path == project.path)
-    model.selectedTab = .editor
+    model.selectedTab = .diff
     model.refreshProject()
     try await finishLoading()
     #expect(model.selectedCommitID == CommitGraphGenerator.workingChangesID)
-    #expect(model.selectedTab == .editor)
+    #expect(model.selectedTab == .diff)
 }
 
 @Test("Staging groups only matching SHAs and host tabs follow grouped and diverged checkouts")

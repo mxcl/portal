@@ -17,24 +17,13 @@ plist = dict(CFBundleIdentifier='dev.mxcl.' + scheme, CFBundleExecutable='Probe'
              CFBundleURLTypes=[dict(CFBundleTypeRole='Viewer', CFBundleURLName='Window Test',
                                    CFBundleURLSchemes=[scheme])])
 (scratch / 'Probe.app/Contents/Info.plist').write_bytes(plistlib.dumps(plist))
-source = (repo / 'Sources/PortalApp/ProjectEditor.swift').read_text()
-guard = source[source.index('struct EditorCloseGuard:'):source.index('\nstruct ProjectFileBrowser:')]
-(scratch / 'Guard.swift').write_text('import AppKit\nimport SwiftUI\n' + guard)
 (scratch / 'scheme').write_text(scheme)
 PY
 cat > "$scratch/Probe.swift" <<'SWIFT'
 import AppKit
 import SwiftUI
 
-@MainActor final class ProjectEditor: ObservableObject {
-    let path: String? = "test.txt"
-    @Published var isDirty = false
-    func save() -> Bool { false }
-    func discard() { isDirty = false }
-}
-
 @MainActor final class Delegate: NSObject, NSApplicationDelegate {
-    static let editor = ProjectEditor()
     static var receivedURLs = 0
     private let result = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("result")
     private var projectWindow: NSWindow? { NSApp.windows.first { $0.identifier?.rawValue == "projects" } }
@@ -68,13 +57,12 @@ import SwiftUI
         Window("Portal", id: "projects") {
             Text("Project")
                 .onOpenURL { _ in Delegate.receivedURLs += 1; NSApp.activate() }
-                .modifier(EditorCloseGuard(editor: Delegate.editor))
         }
         Settings { Text("Settings") }
     }
 }
 SWIFT
-swiftc -parse-as-library "$scratch/Guard.swift" "$scratch/Probe.swift" -o "$app/Contents/MacOS/Probe"
+swiftc -parse-as-library "$scratch/Probe.swift" -o "$app/Contents/MacOS/Probe"
 "$registry" -f "$app"
 # Launch by URL alone, exactly as the menu helper does, without an app-open event.
 open "$(cat "$scratch/scheme")://project?name=first"

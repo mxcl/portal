@@ -13,9 +13,6 @@ PY
 cat > "$scratch/Probe.swift" <<'SWIFT'
 import AppKit
 
-@MainActor final class ProjectEditor {
-    func confirmDiscard() -> Bool { true }
-}
 @MainActor enum TerminalApplication {
     static var requests: [[URL]] = []
     static func open(_ urls: [URL] = []) { requests.append(urls) }

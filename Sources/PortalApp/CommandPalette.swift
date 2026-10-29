@@ -271,7 +271,7 @@ struct CommandPalette: View {
         .accessibilityLabel("Command Palette")
     }
 }
-/// Focus on attachment, before another key event can reach the underlying editor
+/// Focus on attachment, before another key event can reach the underlying view
 /// or terminal. AppKit also owns marked-text handling and the accessible clear button.
 private struct PaletteSearchField: NSViewRepresentable {
     @Binding var query: String

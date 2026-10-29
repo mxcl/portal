@@ -46,7 +46,7 @@ struct ProjectViewCommands: Commands {
             ))
             .disabled(model == nil)
             Divider()
-            ForEach([ProjectTab.terminal, .editor, .diff, .info]) { tab in
+            ForEach([ProjectTab.terminal, .diff, .info]) { tab in
                 Button("Show \(tab.title)") { model?.selectedTab = tab }
                     .keyboardShortcut(KeyEquivalent(tab.rawValue.first!), modifiers: [.command, .option])
                     .disabled(model?.availableTabs.contains(tab) != true)
@@ -65,7 +65,7 @@ struct ProjectTerminalCommands: Commands {
 
     var body: some Commands {
         TerminalCommands(workspace: workspace,
-                         enabled: model.map { !$0.showsCommitDiff && $0.selectedTab != .editor
+                         enabled: model.map { !$0.showsCommitDiff
                              && $0.projectTerminalSources.contains($0.selectedProjectHostSource) } ?? false,
                          hosts: model?.terminalHosts ?? [],
                          newWindow: { TerminalApplication.open() },

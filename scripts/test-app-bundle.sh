@@ -9,12 +9,7 @@ for icon in AppIcon.icns Assets.car; do
   test "$app/Contents/Resources/$icon" -ef "$helper/Contents/Resources/$icon"
 done
 test ! -e "$app/Contents/Library/LoginItems/Gitinuum Menu.app"
-test -d "$app/Contents/Resources/CodeEditLanguages_CodeEditLanguages.bundle"
-queries="$app/Contents/Resources/CodeEditLanguages_CodeEditLanguages.bundle"
-if [ -d "$queries/Contents" ]; then
-  queries="$queries/Contents/Resources"
-fi
-test -f "$queries/Resources/tree-sitter-swift/highlights.scm"
+test ! -e "$app/Contents/Resources/CodeEditLanguages_CodeEditLanguages.bundle"
 test ! -L "$app/Contents/Resources/git-sync"
 "$app/Contents/Resources/portal" --help | grep -q "Usage: portal"
 "$app/Contents/Resources/portald" --help | grep -q 'portald daemon'

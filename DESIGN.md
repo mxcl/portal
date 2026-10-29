@@ -37,36 +37,13 @@ The first glyph stays anchored; the suffix expands upward along the same path an
 The checked-out commit row has a thin, subdued system-accent outline, independent
 of the native selection fill. Its accessibility value identifies it as checked out.
 
-The trailing segmented control selects Info or Diff, with Editor and Terminal
-available while Staging is selected; Editor is also available whenever the project
-has a local working copy. Info shows project placement and README;
-selecting a commit opens Diff. Selecting Staging opens the local editor: a native
-file outline and CodeEditSourceEditor share a resizable split in the detail column,
-keeping the commit lanes visible. Remote staging opens Diff. Terminal opens the embedded terminal for the selected working copy. External
-editor, Finder, Terminal, and GitHub actions are direct project toolbar buttons,
-separated from Refresh by a fixed toolbar spacer. GitHub uses its official
-Invertocat from https://brand.github.com/foundations/logo as a template asset.
-
-The editor lists tracked and non-ignored untracked files, including deleted paths
-for diff inspection. Green checkmarks identify staged files; orange marks identify
-unstaged or untracked files; conflicts have a warning symbol. A file may show both
-staged and unstaged marks. Separate diff choices compare saved work with the index
-or the index with HEAD using the existing gitdiff renderer. Saving never stages.
-The existing repository watcher refreshes file status and diffs. Clicking a diff
-filename opens its local working copy in Editor, retaining the selected history
-entry and guarding unsaved edits. Renames use the new path; deleted files use the
-old path and show the editor’s missing-file error when absent locally. Clickable
-filenames gain a light accent background on hover, with a stronger
-accent background while pressed.
-
-Save and Command-S atomically save a regular UTF-8 file, preserving line endings.
-The first editor supports files up to 2 MB; binary files, symlinks, and Git metadata
-cannot be edited. Unsaved text survives tab switches; file/project switches and
-window close/quit offer Save, Cancel, and Don't Save. Outside changes make Save
-fail with the draft retained; Reload is explicit and also guards unsaved text.
-Native AppKit alerts own these decisions, ProjectEditor owns the draft, and
-RepositoryTextFile owns lossless reading and saving. Semantic AppKit colors own
-editor syntax and status styling; no separate theme token system is introduced.
+Project views provide Info, Diff, and Terminal. Info shows project placement and
+README; selecting a commit opens Diff. Selecting Staging selects the working-copy
+diff and its host; the host pane shows the embedded terminal for that checkout.
+Portal has no built-in file editor. Diff filenames are read-only; the Project menu
+can open the local repository in an external editor, Finder, or Terminal, or open
+it on GitHub. GitHub uses its official Invertocat from
+https://brand.github.com/foundations/logo as a template asset.
 
 The menu-bar helper shows a Project Status section with each local repository's
 branch and changed-file count (or clean/mirrored state). It refreshes on menu
@@ -137,7 +114,7 @@ Staged and Unstaged views, including untracked files, and reads from the selecte
 row's host. Local staging refreshes with the repository; peer staging uses lightweight
 read-only project-staging requests on project load, Refresh, and pushed host
 invalidation events. Healthy connections have no refresh timer. Unavailable hosts show a retry message instead of stale
-staging. Peer rows open Diff and never expose the local Editor or Terminal. The row
+staging. Peer rows select their own host and never expose the local Terminal. The row
 and its selection remain when clean; mirrors and backups omit it.
 
 The detail column keeps project placement visible above a scrolling README.
@@ -446,7 +423,7 @@ any journal is written. Preparation repeats these checks; failures or races afte
 preflight still require the recovery procedure below. Each root then records
 both names in `.portal-renames.json`, while holding an advisory lock on the root
 directory itself. Ordinary operations need no write access to that directory. Portal's sync,
-placement, restore, GitHub fetch/cleanup, backup writes and editor saves take shared
+placement, restore, GitHub fetch/cleanup and backup writes take shared
 operation locks; rename waits up to ten seconds for an exclusive lock so short
 background writes can drain, then fails if the root is still busy. Ordinary
 operations remain nonblocking. Cancellation during preflight is checked after

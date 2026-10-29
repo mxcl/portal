@@ -17,7 +17,6 @@ let package = Package(
         .package(path: "vendor/gitdiff"),
         .package(path: "shared/PortalDiscovery"),
         .package(url: "https://github.com/gonzalezreal/textual.git", exact: "0.5.0"),
-        .package(path: "vendor/CodeEditSourceEditor"),
     ],
     targets: [
         .target(
@@ -33,7 +32,6 @@ let package = Package(
         .executableTarget(
             name: "PortalApp",
             dependencies: [.product(name: "PortalDiscovery", package: "PortalDiscovery", condition: .when(platforms: [.macOS])), .target(name: "PortalTerminal", condition: .when(platforms: [.macOS])), "PortalCore", "PortalEngine", "PortalGraph", .product(name: "gitdiff", package: "gitdiff"),
-                           .product(name: "CodeEditSourceEditor", package: "CodeEditSourceEditor", condition: .when(platforms: [.macOS])),
                            .product(name: "Textual", package: "textual", condition: .when(platforms: [.macOS]))],
             resources: [.process("Resources")]
         ),

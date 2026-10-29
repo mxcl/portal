@@ -12,6 +12,9 @@ terminal_destination="$(dirname -- "$destination")/Portal.app"
 build_dir="$repo_dir/.build/release"
 # Keep APNs enabled on ordinary local reinstalls without an environment override.
 installed_profile="/Applications/Portal Hub.app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/embedded.provisionprofile"
+if [ ! -f "$installed_profile" ]; then
+  installed_profile="/Applications/Portal.app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/embedded.provisionprofile"
+fi
 push_profile=${PORTAL_PUSH_PROFILE-${GITINUUM_PUSH_PROFILE-}}
 if [ "${PORTAL_PUSH_PROFILE+x}" != x ] && [ "${GITINUUM_PUSH_PROFILE+x}" != x ] && [ -f "$installed_profile" ]; then
   push_profile=$installed_profile
@@ -126,6 +129,9 @@ codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/
 discovery_profile=${PORTAL_DISCOVERY_PROFILE:-"$HOME/Library/MobileDevice/Provisioning Profiles/Portal_Developer_ID.provisionprofile"}
 if [ ! -f "$discovery_profile" ]; then
   discovery_profile="/Applications/Portal Hub.app/Contents/embedded.provisionprofile"
+fi
+if [ ! -f "$discovery_profile" ]; then
+  discovery_profile="/Applications/Portal.app/Contents/embedded.provisionprofile"
 fi
 security cms -D -i "$discovery_profile" > "$stage/discovery-profile.plist"
 python3 "$repo_dir/scripts/prepare-discovery-signing.py" "$stage/discovery-profile.plist" "$stage/discovery-entitlements.plist"

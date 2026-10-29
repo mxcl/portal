@@ -70,6 +70,28 @@ for i in "${!legacy_paths[@]}"; do
   fi
 done
 
+# The helper is stopped, so its configuration has a single writer during migration.
+/usr/bin/python3 - "$HOME/Library/Application Support/Portal/Sync/config-v2.json" <<'PYCONFIG'
+import json, pathlib, shutil, sys
+path = pathlib.Path(sys.argv[1])
+if path.exists():
+    config = json.loads(path.read_text())
+    changed = False
+    for host in config.get("hosts", []):
+        old = host.get("executable", "")
+        new = old.replace("/Applications/Portal.app/Contents/Resources/", "/Applications/Portal Hub.app/Contents/Resources/")
+        if new.endswith("/.local/bin/gitinuumd") or new.endswith("/.local/bin/git-sync"):
+            new = new.rsplit("/", 1)[0] + "/portald"
+        if new != old:
+            host["executable"] = new
+            changed = True
+    if changed:
+        shutil.copy2(path, str(path) + ".before-hub-rename")
+        temporary = path.with_suffix(".migrating")
+        temporary.write_text(json.dumps(config, indent=2) + "\n")
+        temporary.replace(path)
+PYCONFIG
+
 if [[ -d "$target_app" ]]; then
   mv "$target_app" "$backup_app"
 fi

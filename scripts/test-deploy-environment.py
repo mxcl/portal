@@ -71,11 +71,15 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
     legacy = root / "Library/Application Support/GitSync"
     legacy.mkdir(parents=True)
     (legacy / "state.json").write_text('{"epoch":"preserve-me"}')
+    (legacy / "config-v2.json").write_text(json.dumps({"hosts": [{"executable": str(applications / "Portal.app/Contents/Resources/portald")}, {"executable": "/home/test/.local/bin/gitinuumd"}, {"executable": "/custom/daemon"}]}))
     subprocess.run(["/bin/bash", str(installer), str(staged),
                     str(applications / ".portal-app.previous.test"), str(terminal), str(terminal_backup)], env=environment, check=True)
     migrated = root / "Library/Application Support/Portal/Sync"
     assert legacy.is_symlink()
     assert (migrated / "state.json").read_text() == '{"epoch":"preserve-me"}'
+    hosts = json.loads((migrated / "config-v2.json").read_text())["hosts"]
+    assert [h["executable"] for h in hosts] == [str(applications / "Portal Hub.app/Contents/Resources/portald"), "/home/test/.local/bin/portald", "/custom/daemon"]
+    assert (migrated / "config-v2.json.before-hub-rename").exists()
     legacy_service = f"gui/{os.getuid()}/dev.mxcl.git-sync.menu-helper"
     assert [json.loads(line) for line in retired.read_text().splitlines()] == [
         ["disable", legacy_service], ["bootout", legacy_service]

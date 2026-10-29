@@ -1,6 +1,6 @@
 ---
 name: deploy-here
-description: Build, sign, install, restart, and verify Portal on the current Mac only. Use when asked to deploy here, install locally, or update Portal on this Mac from the current git-sync checkout.
+description: Build, sign, install, restart, and verify Portal on the current Mac only. Use when asked to deploy here, install locally, or update Portal on this Mac from the current Portal checkout.
 ---
 
 # Deploy Here
@@ -8,7 +8,7 @@ description: Build, sign, install, restart, and verify Portal on the current Mac
 Run the repository's local deployment script:
 
 ```bash
-./scripts/deploy-here.sh /absolute/path/to/git-sync
+./scripts/deploy-here.sh /absolute/path/to/portal
 ```
 
 The script uses `scripts/install.sh` to build and sign both release apps, then
@@ -28,3 +28,7 @@ Do not pull, reset, switch branches, or copy the repository. Report the deployed
 revision, dirty state, and local host's result. On failure, report the failing
 command and retain any installer backup; do not clear caches, install toolchains,
 or change signing settings.
+
+After deployment, verify bundle IDs and signatures, helper processes, and peer connectivity.
+Saved Mac daemon paths must point to `/Applications/Portal Hub.app/Contents/Resources/portald`;
+Linux paths should point to `~/.local/bin/portald`. Preserve live terminal session helpers.

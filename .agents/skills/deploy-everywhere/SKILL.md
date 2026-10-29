@@ -53,3 +53,9 @@ For a read-only environment check, run:
 After deployment, verify bundle IDs and signatures, helper processes, and peer connectivity.
 Saved Mac daemon paths must point to `/Applications/Portal Hub.app/Contents/Resources/portald`;
 Linux paths should point to `~/.local/bin/portald`. Preserve live terminal session helpers.
+
+The Atlas deployment also cross-builds the Rust terminal helpers with `cargo zigbuild`
+for `aarch64-unknown-linux-musl` and installs them in `~/.local/lib/portal/terminal`.
+Verify a new SSH terminal session, not just `portald`: terminal and Git sync use
+separate executables. Preserve a live legacy daemon by sharing its existing state
+and socket directory; never stop it during routine deployment.

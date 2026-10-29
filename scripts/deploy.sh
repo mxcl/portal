@@ -30,7 +30,7 @@ case "$local_host" in
   *) echo "Deploy Everywhere only supports Maliwan and pangolin; current host is $local_host" >&2; exit 1 ;;
 esac
 
-for command in git rsync scp security shasum ssh swift xcrun; do
+for command in git rsync scp security shasum ssh swift xcrun cargo zig; do
   command -v "$command" >/dev/null || { echo "Missing command: $command" >&2; exit 1; }
 done
 [[ -x "$installer" ]] || { echo "Installer is not executable: $installer" >&2; exit 1; }
@@ -92,6 +92,8 @@ trap cleanup EXIT
 "$repo/scripts/install.sh" "$built_app"
 /usr/bin/codesign --verify --deep --strict "$built_app"
 "$linux_swift" build --package-path "$repo" -c release --product portald --swift-sdk aarch64-swift-linux-musl
+cargo zigbuild --manifest-path "$repo/TerminalHelpers/Cargo.toml" --release --locked --target aarch64-unknown-linux-musl
+linux_helpers="$repo/TerminalHelpers/target/aarch64-unknown-linux-musl/release"
 linux_binary="$repo/.build/aarch64-swift-linux-musl/release/portald"
 [[ -x "$linux_binary" ]] || { echo "Linux build missing: $linux_binary" >&2; exit 1; }
 
@@ -100,6 +102,10 @@ rsync -aH --delete "$built_app/" "$peer:$remote_stage/"
 rsync -aH --delete "$stage/Portal.app/" "$peer:$local_terminal/"
 ssh -o BatchMode=yes "$atlas" "mkdir -p '$atlas_home/.local/bin' && rm -f '$atlas_stage' '$atlas_backup'"
 scp -C "$linux_binary" "$atlas:$atlas_stage"
+ssh -o BatchMode=yes "$atlas" "mkdir -p '$atlas_stage.terminal'"
+scp -C "$linux_helpers/portal-sessiond" "$linux_helpers/portal-session-bridge" "$atlas:$atlas_stage.terminal/"
+ssh -o BatchMode=yes "$atlas" bash -s -- "$atlas_stage.terminal" < "$script_dir/install-linux-terminal-staged.sh"
+ssh -o BatchMode=yes "$atlas" "rm -rf '$atlas_stage.terminal'"
 rm -rf "$local_stage" "$local_backup" "$local_terminal" "$terminal_backup"
 /usr/bin/ditto "$built_app" "$local_stage"
 /usr/bin/ditto "$stage/Portal.app" "$local_terminal"
@@ -127,6 +133,11 @@ atlas_hash="$(ssh -o BatchMode=yes "$atlas" "sha256sum '$atlas_home/.local/bin/p
   exit 1
 }
 
+for helper in portal-sessiond portal-session-bridge; do
+  expected="$(shasum -a 256 "$linux_helpers/$helper" | awk '{print $1}')"
+  actual="$(ssh -o BatchMode=yes "$atlas" "sha256sum '$atlas_home/.local/lib/portal/terminal/$helper'" | awk '{print $1}')"
+  [[ "$expected" == "$actual" ]] || { echo "Linux helper hash mismatch: $helper" >&2; exit 1; }
+done
 trap - EXIT
 rm -rf "$stage"
 echo "Deployed Portal $revision ($dirty) to $local_host, $peer, and $atlas; both apps restarted and the Linux endpoint verified."

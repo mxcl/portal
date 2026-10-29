@@ -5,6 +5,9 @@ import AVFoundation
 final class Recording: NSObject, SCRecordingOutputDelegate {
     func recordingOutputDidStartRecording(_ recordingOutput: SCRecordingOutput) {
         print("RECORDING \(Date().timeIntervalSince1970)"); fflush(stdout)
+        if let path = ProcessInfo.processInfo.environment["PORTAL_FILM_READY_FILE"] {
+            FileManager.default.createFile(atPath: path, contents: Data())
+        }
     }
     func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) {
         fputs("Recording failed: \(error)\n", stderr); exit(1)
@@ -15,7 +18,8 @@ let delegate = Recording()
 Task { @MainActor in
     do {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-        let windows = content.windows.filter { ($0.owningApplication?.bundleIdentifier == "dev.mxcl.portal.film" && $0.windowLayer == 0 && $0.frame.width > 1000 && $0.frame.height > 500) || $0.title == "Portal Film Backdrop" }
+        let filmID = ProcessInfo.processInfo.environment["PORTAL_FILM_BUNDLE_ID"] ?? "dev.mxcl.portal.film"
+        let windows = content.windows.filter { ($0.owningApplication?.bundleIdentifier == filmID && $0.frame.width > 1000 && $0.frame.height > 500) || $0.title == "Portal Film Backdrop" }
         for window in windows { print("WINDOW \(window.windowID) \(window.title ?? "") \(window.frame)") }
         guard windows.count >= 2, let display = content.displays.first else { fatalError("Missing film windows") }
         let filter = CommandLine.arguments.contains("--display")

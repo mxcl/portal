@@ -1,37 +1,37 @@
 # Portal film assets
 
-These helpers stage a sample project inside the real Portal terminal. The Orbit
-output is scripted demonstration data, not Portal build or benchmark results.
+The film uses real Portal views, the default appearance, and a blank blinking
+prompt. Orbit's ANSI output is scripted demonstration data, not Portal build or
+benchmark results.
 
-- `scene.py`: ten short ANSI output scenes. Define a shell function named `orbit`
-  that invokes this script, then execute each scene as a separate command.
-- `backdrop.swift`: animated native scenery. Its optional argument is the Portal
-  window ID; it orders its own window immediately beneath that window.
-- `record.swift`: a 60 fps ScreenCaptureKit recorder. Arguments are an unused
-  output `.mov` path and duration in seconds. It captures only the staged
-  `dev.mxcl.portal.film` terminal and the backdrop, excluding other applications.
-  Add `--display` for the full display: this is required to preserve real
-  behind-window blur. Keep only the staged scene visible during that capture.
-  Requires macOS 15+, screen recording access, and the calibrated 1512×982 display.
+Build `PortalFilm` with `swift build -c release --product PortalFilm`. Prepare a
+separate app bundle from the installed Portal app, replace its main executable
+with that binary, and give it a distinct bundle identifier. Sign the outer bundle
+with the normal Developer ID identity; preserve the original signed helpers.
+Compile `backdrop.swift` and `record.swift` with `swiftc` into a tools directory.
+Keep executables and recordings outside this repository.
 
-- `perform.py`: executes the ten timed commands through the existing session
-  bridge, waiting for each command to finish. Pass an output path and `--display`
-  for the final take. It targets only the unique `/tmp/orbit` session.
+Run the filming bundle's executable with three arguments:
 
-Compile the Swift files with `swiftc`. Keep executables and video output outside
-this repository. The filming copy uses the installed Portal executable, a distinct
-bundle identifier, and the normal Developer ID signing identity. Preserve the
-original signed helper bundles when preparing it.
+```
+PortalTerminalApp <repository> <tools-directory> <unused-output.mov>
+```
 
-Prepare an isolated shell, change to the sample project folder, and use **Edit →
-Clear Terminal**. This leaves a blank blinking input with no session listings.
+`Film.swift` types through the editor's native text-input methods. No desktop
+controller or synthetic mouse events are involved. Commands start at 2, 6, 10,
+14, 19, 23, 27, 31, 35, and 39 seconds. Typing takes roughly 100 ms per character,
+with a pause before submission. Capture lasts 46 seconds, including a final hold.
 
-Suggested command starts (seconds): explore 2, graph 4.5, check 6.5, build 8.5,
-test 12, bench 14, diff 16, assets 18, status 20, preview 22. Hold the final frame
-through 30 seconds. Inspect the recorded video for actual backdrop transmission;
-an offscreen capture may flatten the window's material even when the scenery is
-present in the composition.
+The backdrop uses ordinary window ordering and exits when the filming host exits,
+even if the host is killed. The harness also terminates child processes on errors
+and successful completion. Set `PORTAL_FILM_VALIDATE_ONLY=1` to exercise the
+commands quickly without any backdrop or recording, logging scroll geometry.
 
-Verified on the filming host: filtered capture flattened the material; full-display
-capture preserved the blur. The exported cut is silent and retains the macOS
-capture badge. Validate fixtures with `python3 scripts/demo/perform.py --self-test`.
+The recorder uses full-display ScreenCaptureKit capture to preserve native
+behind-window blur; capturing only selected windows flattens it. Keep the filmed
+window visible throughout the take. Cursor capture is disabled. Recording requires
+macOS 15+, screen recording access, and the calibrated 1512×982 display. The output
+is silent. Inspect the first frame, typed text, and final output before exporting.
+
+`scene.py` supplies the ten scenes. `perform.py` is the older session-bridge runner;
+its fixtures can be checked with `python3 scripts/demo/perform.py --self-test`.

@@ -36,6 +36,10 @@ let package = Package(
             resources: [.process("Resources")]
         ),
         .executableTarget(name: "PortalTerminalApp", dependencies: ["PortalTerminal", "PortalEngine"]),
+        .executableTarget(name: "PortalFilm", dependencies: ["PortalTerminal"],
+                          path: "scripts/demo",
+                          exclude: ["README.md", "backdrop.swift", "record.swift", "scene.py", "perform.py"],
+                          sources: ["Film.swift"]),
         .executableTarget(name: "PortalMenuBar", dependencies: ["PortalEngine"]),
         .testTarget(name: "PortalTerminalTests", dependencies: ["PortalTerminal", "PortalTerminalApp"]),
         .testTarget(name: "PortalCLITests", dependencies: ["portal"]),

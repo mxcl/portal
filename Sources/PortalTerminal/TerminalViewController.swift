@@ -1217,24 +1217,25 @@ private final class HoverCopyMarkdownButton: NSButton {
     }
 }
 
-private final class FindCloseButton: NSButton {
+private final class CommandBarButton: NSButton {
     private var hoverTrackingArea: NSTrackingArea?
     private var isHovering = false {
         didSet { updateAppearance() }
     }
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
+    init(symbol: String, label: String) {
+        super.init(frame: .zero)
         isBordered = false
         bezelStyle = .regularSquare
         image = NSImage(
-            systemSymbolName: "multiply",
-            accessibilityDescription: "Close Find"
+            systemSymbolName: symbol,
+            accessibilityDescription: label
         )
         imagePosition = .imageOnly
         imageScaling = .scaleProportionallyDown
         symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-        toolTip = "Close Find"
+        toolTip = label
+        setAccessibilityLabel(label)
         wantsLayer = true
         layer?.cornerRadius = 6
         layer?.cornerCurve = .continuous
@@ -2226,10 +2227,15 @@ func portalCommandBarOverlaySelfTest() -> Bool {
         tab.scrollView.contentView.scroll(to: NSPoint(
             x: 0, y: document.bounds.height + bottomInset - tab.scrollView.contentView.bounds.height
         ))
+        guard tab.scrollToBottomButton.isHidden else { return false }
         let historyBottom = tab.rootView.convert(NSPoint(x: 0, y: document.bounds.maxY), from: document).y
         guard abs(historyBottom - tab.sessionPickerView.frame.maxY) < 0.5 else { return false }
         tab.scrollView.contentView.scroll(to: NSPoint(x: 0, y: 100))
-        guard tab.scrollView.documentVisibleRect.maxY < document.bounds.height else { return false }
+        guard tab.scrollView.documentVisibleRect.maxY < document.bounds.height,
+              !tab.scrollToBottomButton.isHidden,
+              tab.scrollToBottomButton.image != nil else { return false }
+        tab.scrollToBottomButton.performClick(nil)
+        guard tab.isScrolledToBottom, tab.scrollToBottomButton.isHidden else { return false }
     }
     tab.commandBarView.isHidden = true
     tab.updateCommandBarInset()
@@ -2836,7 +2842,7 @@ private final class TerminalTabRootView: NSView {
 }
 
 @MainActor
-private final class TerminalTab {
+private final class TerminalTab: NSObject {
     let id = UUID()
     var sessionRef: SessionRef
     var sessionID: String {
@@ -2857,7 +2863,8 @@ private final class TerminalTab {
     let commandSeparator = SeparatorView()
     let commandBarView = NSView()
     let commandBarMaterial = TerminalBarMaterialView()
-    let findCloseButton = FindCloseButton(frame: .zero)
+    let findCloseButton = CommandBarButton(symbol: "multiply", label: "Close Find")
+    let scrollToBottomButton = CommandBarButton(symbol: "arrow.down.to.line", label: "Scroll to bottom")
     let completionPendingLine = NSView()
     let ptyPassthroughView = PtyPassthroughView(frame: .zero)
     var title: String
@@ -2926,6 +2933,7 @@ private final class TerminalTab {
             commandHistory: commandHistory,
             commandRunDates: commandRunDates
         )
+        super.init()
         buildView(delegate: delegate)
     }
 
@@ -2953,6 +2961,21 @@ private final class TerminalTab {
         }
         // Insets reserve both overlays; short histories fill only the usable viewport.
         documentMinimumHeightConstraint.constant = -scrollView.contentInsets.top - inset
+        updateScrollToBottomButton()
+    }
+
+    @objc private func updateScrollToBottomButton() {
+        scrollToBottomButton.isHidden = isScrolledToBottom
+    }
+
+    @objc func scrollToBottom() {
+        guard let documentView = scrollView.documentView else { return }
+        documentView.layoutSubtreeIfNeeded()
+        scrollView.contentView.layoutSubtreeIfNeeded()
+        let maxY = max(-scrollView.contentInsets.top, documentView.bounds.height + scrollView.contentInsets.bottom - scrollView.contentView.bounds.height)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: maxY))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        updateScrollToBottomButton()
     }
 
     private func buildView(delegate: NSTextViewDelegate) {
@@ -2976,6 +2999,15 @@ private final class TerminalTab {
         scrollView.contentView.drawsBackground = false
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(updateScrollToBottomButton),
+            name: NSView.boundsDidChangeNotification, object: scrollView.contentView
+        )
+        documentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(updateScrollToBottomButton),
+            name: NSView.frameDidChangeNotification, object: documentView
+        )
 
         sessionPickerView.isHidden = true
         sessionPickerView.sessionPickerStack = sessionPickerStack
@@ -3036,6 +3068,14 @@ private final class TerminalTab {
         commandBarView.translatesAutoresizingMaskIntoConstraints = false
         findCloseButton.isHidden = true
         findCloseButton.translatesAutoresizingMaskIntoConstraints = false
+        scrollToBottomButton.isHidden = true
+        scrollToBottomButton.translatesAutoresizingMaskIntoConstraints = false
+        scrollToBottomButton.target = self
+        scrollToBottomButton.action = #selector(scrollToBottom)
+        let buttons = NSStackView(views: [scrollToBottomButton, findCloseButton])
+        buttons.orientation = .horizontal
+        buttons.spacing = 0
+        buttons.translatesAutoresizingMaskIntoConstraints = false
         completionPendingLine.wantsLayer = true
         completionPendingLine.layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.75).cgColor
         completionPendingLine.isHidden = true
@@ -3050,7 +3090,7 @@ private final class TerminalTab {
             self?.isApplicationCursorModeActive == true
         }
         commandBarView.addSubview(statusLineStack)
-        commandBarView.addSubview(findCloseButton)
+        commandBarView.addSubview(buttons)
         commandBarView.addSubview(inputScroll)
         commandBarView.addSubview(completionPendingLine)
 
@@ -3115,12 +3155,14 @@ private final class TerminalTab {
 
             statusLineStack.leadingAnchor.constraint(equalTo: commandBarView.leadingAnchor, constant: 12),
             statusLineStack.trailingAnchor.constraint(
-                lessThanOrEqualTo: findCloseButton.leadingAnchor,
+                lessThanOrEqualTo: buttons.leadingAnchor,
                 constant: -8
             ),
             statusLineStack.topAnchor.constraint(equalTo: commandBarView.topAnchor, constant: 8),
-            findCloseButton.topAnchor.constraint(equalTo: commandBarView.topAnchor, constant: 4),
-            findCloseButton.trailingAnchor.constraint(equalTo: commandBarView.trailingAnchor, constant: -8),
+            buttons.topAnchor.constraint(equalTo: commandBarView.topAnchor, constant: 4),
+            buttons.trailingAnchor.constraint(equalTo: commandBarView.trailingAnchor, constant: -8),
+            scrollToBottomButton.widthAnchor.constraint(equalToConstant: 28),
+            scrollToBottomButton.heightAnchor.constraint(equalToConstant: 28),
             findCloseButton.widthAnchor.constraint(equalToConstant: 28),
             findCloseButton.heightAnchor.constraint(equalToConstant: 28),
 
@@ -7604,14 +7646,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func scrollToBottomNow(_ tab: TerminalTab) {
-        guard let documentView = tab.scrollView.documentView else {
-            return
-        }
-        documentView.layoutSubtreeIfNeeded()
-        tab.scrollView.contentView.layoutSubtreeIfNeeded()
-        let maxY = max(-tab.scrollView.contentInsets.top, documentView.bounds.height + tab.scrollView.contentInsets.bottom - tab.scrollView.contentView.bounds.height)
-        tab.scrollView.contentView.scroll(to: NSPoint(x: 0, y: maxY))
-        tab.scrollView.reflectScrolledClipView(tab.scrollView.contentView)
+        tab.scrollToBottom()
     }
 
     private func decodeBase64(_ value: String) -> String? {

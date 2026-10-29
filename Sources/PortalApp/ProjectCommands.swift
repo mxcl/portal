@@ -84,6 +84,7 @@ extension AppDelegate {
     }
 
     private static var isNamingProjectMenu = false
+    private static weak var titledMainMenu: NSMenu?
     private static weak var titledMenuItem: NSMenuItem?
     private static weak var titledSubmenu: NSMenu?
     private static var titleObservations: [NSKeyValueObservation] = []
@@ -97,18 +98,19 @@ extension AppDelegate {
             $0.title == "File" || $0.title == "Project" || $0.submenu?.title == "File"
         }), let submenu = item.submenu else { return }
         if titledMenuItem !== item || titledSubmenu !== submenu {
+            titledMainMenu = menu
             titledMenuItem = item
             titledSubmenu = submenu
             // Menu tracking can reset either title without an application or menu-item update.
             titleObservations = [
-                item.observe(\.title) { [weak menu] _, _ in
+                item.observe(\.title) { _, _ in
                     MainActor.assumeIsolated {
-                        if let menu { Self.nameProjectMenu(in: menu) }
+                        if let menu = Self.titledMainMenu { Self.nameProjectMenu(in: menu) }
                     }
                 },
-                submenu.observe(\.title) { [weak menu] _, _ in
+                submenu.observe(\.title) { _, _ in
                     MainActor.assumeIsolated {
-                        if let menu { Self.nameProjectMenu(in: menu) }
+                        if let menu = Self.titledMainMenu { Self.nameProjectMenu(in: menu) }
                     }
                 }
             ]

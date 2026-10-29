@@ -260,6 +260,12 @@ matrix from repositories already present on each host. A project participates
 disabling either cell stops both directions. Equal names already present at
 both ends require explicit confirmation before the host is added.
 
+Checking out an absent or mirrored project first enables its mirror, then waits
+for branch refs at the destination before offering branch selection. This applies
+to local and remote hosts; replication remains active during the wait. A timeout
+leaves the mirror intact and reports that branch data is still unavailable.
+Only the user's checkout action promotes a peer branch into a local branch.
+
 An optional backup selects one inspected host. The receiving host separately
 chooses a parent folder, distinct from its normal root, through Portal Hub.app.
 The menu helper owns an owner-only Unix socket and a receive-only session rooted at that

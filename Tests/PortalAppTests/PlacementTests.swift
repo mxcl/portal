@@ -64,6 +64,33 @@ func checkoutAbsentProject() async throws {
     #expect(Repository(name: "project", url: destination.appendingPathComponent("project")).placement == .checkedOut)
 }
 
+@Test("remote checkout prepares replication before requesting a branch", arguments: [ProjectPlacement.notPresent, .mirrored])
+@MainActor
+func checkoutRemoteWaitsForMirror(placement: ProjectPlacement) async throws {
+    let host = SyncHost(machine: "Peer", peer: "peer", root: "/projects", executable: "/unused")
+    var commands = 0
+    let model = AppModel(connectToHelper: false) { command in
+        commands += 1
+        guard case let .setPlacement(requested, project, hostID, branch) = command else {
+            Issue.record("Expected mirror preparation"); throw SyncError.invalidConfiguration("Stop")
+        }
+        #expect(requested == .mirrored)
+        #expect(project == "project")
+        #expect(hostID == host.id)
+        #expect(branch == nil)
+        throw SyncError.invalidConfiguration("Stop before network access")
+    }
+    model.configuration = AppConfiguration(root: "/projects", machine: "Local", hosts: [host])
+    model.remoteProjects[host.id] = ["project": PeerProject(name: "project", placement: placement, defaultBranch: "main")]
+    model.checkOut("project", hostID: host.id)
+    let deadline = Date().addingTimeInterval(5)
+    while model.placementInProgress != nil && Date() < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(commands == 1)
+    #expect(model.placementInProgress == nil)
+}
+
 @Test("placement failure clears progress and exposes the error")
 @MainActor
 func placementConnectionFailure() async throws {

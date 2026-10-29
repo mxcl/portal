@@ -1002,8 +1002,9 @@ final class AppModel: ObservableObject {
 
     func checkOut(_ project: String, hostID: UUID?) {
         guard placementInProgress == nil else { return }
-        if hostID == nil, placement(of: project, on: nil) == .notPresent {
-            setPlacement(.mirrored, project: project, hostID: nil, checkoutAfterMirror: true)
+        let destination = placement(of: project, on: hostID)
+        if destination == .notPresent || destination == .mirrored {
+            setPlacement(.mirrored, project: project, hostID: hostID, checkoutAfterMirror: true)
             return
         }
         let preferred: String?
@@ -1149,7 +1150,10 @@ final class AppModel: ObservableObject {
     func setPlacement(_ placement: ProjectPlacement, project: String, hostID: UUID?, branch: String? = nil,
                       checkoutAfterMirror: Bool = false) -> Task<Void, Never>? {
         guard placementInProgress == nil else { return nil }
-        let awaitMirror = hostID == nil && placement == .mirrored && self.placement(of: project, on: nil) == .notPresent
+        let awaitMirror = placement == .mirrored
+            && (checkoutAfterMirror || (hostID == nil && self.placement(of: project, on: nil) == .notPresent))
+        let connection = hostID.flatMap { id in configuration.hosts.first { $0.id == id } }
+            .map { Self.remoteConfiguration($0, in: configuration) }
         let root = URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath)
         let expectedBranches = selectedProjectName == project
             ? projectSnapshot.map { $0.references.filter { $0.fullName.hasPrefix("refs/heads/") }.map(\.name) } : nil
@@ -1183,14 +1187,20 @@ final class AppModel: ObservableObject {
                     let repository = Repository(name: project, url: root.appendingPathComponent(project))
                     while true {
                         let snapshot = try await Task.detached(priority: .userInitiated) {
-                            try repository.snapshot(limit: 0)
+                            if let connection {
+                                return try Runner.projectStaging(project, configuration: connection)
+                            }
+                            guard hostID == nil else {
+                                throw SyncError.invalidConfiguration("Host is no longer configured")
+                            }
+                            return try repository.snapshot(limit: 0)
                         }.value
                         let branches = checkoutBranches(in: snapshot.references)
                         let ready = !branches.isEmpty
                             && Set(expectedBranches ?? []).isSubset(of: Set(branches))
                         if ready {
                             if checkoutAfterMirror {
-                                requestCheckout(project, hostID: nil, references: snapshot.references)
+                                requestCheckout(project, hostID: hostID, references: snapshot.references)
                             }
                             break
                         }

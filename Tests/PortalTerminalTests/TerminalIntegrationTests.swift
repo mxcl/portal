@@ -147,8 +147,8 @@ struct TerminalIntegrationTests {
         #expect(portalStickyBlockHeaderSelfTest())
     }
 
-    @Test @MainActor func commandBarOverlaysHistoryWithoutHidingItsEnd() {
-        #expect(portalCommandBarOverlaySelfTest())
+    @Test @MainActor func commandBarOverlaysHistoryWithoutHidingItsEnd() async {
+        #expect(await portalCommandBarOverlaySelfTest())
     }
 
     @Test @MainActor func toolbarDoesNotExtendMinimumScrollRegion() {

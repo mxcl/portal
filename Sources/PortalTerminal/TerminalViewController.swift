@@ -1247,6 +1247,12 @@ private final class CommandBarButton: NSButton {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsetsZero }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .arrow)
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let hoverTrackingArea {
@@ -2186,7 +2192,7 @@ func portalStickyBlockHeaderSelfTest() -> Bool {
 }
 
 @MainActor
-func portalCommandBarOverlaySelfTest() -> Bool {
+func portalCommandBarOverlaySelfTest() async -> Bool {
     let delegate = TerminalViewController()
     let tab = TerminalTab(title: "Test", delegate: delegate)
     let host = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
@@ -2234,7 +2240,18 @@ func portalCommandBarOverlaySelfTest() -> Bool {
         guard tab.scrollView.documentVisibleRect.maxY < document.bounds.height,
               !tab.scrollToBottomButton.isHidden,
               tab.scrollToBottomButton.image != nil else { return false }
+        host.layoutSubtreeIfNeeded()
+        let button = tab.scrollToBottomButton
+        guard abs(button.frame.width - button.frame.height) < 0.5 else { return false }
+        for y in [CGFloat(1), button.bounds.midY, button.bounds.maxY - 1] {
+            let point = button.convert(NSPoint(x: button.bounds.midX, y: y), to: host)
+            guard host.hitTest(point) === button else { return false }
+        }
         tab.scrollToBottomButton.performClick(nil)
+        let deadline = Date().addingTimeInterval(2)
+        while !tab.isScrolledToBottom && Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         guard tab.isScrolledToBottom, tab.scrollToBottomButton.isHidden else { return false }
     }
     tab.commandBarView.isHidden = true
@@ -2968,12 +2985,25 @@ private final class TerminalTab: NSObject {
         scrollToBottomButton.isHidden = isScrolledToBottom
     }
 
-    @objc func scrollToBottom() {
+    @objc private func scrollToBottomClicked() {
+        scrollToBottom(animated: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
+
+    func scrollToBottom(animated: Bool = false) {
         guard let documentView = scrollView.documentView else { return }
         documentView.layoutSubtreeIfNeeded()
         scrollView.contentView.layoutSubtreeIfNeeded()
         let maxY = max(-scrollView.contentInsets.top, documentView.bounds.height + scrollView.contentInsets.bottom - scrollView.contentView.bounds.height)
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: maxY))
+        let destination = NSPoint(x: 0, y: maxY)
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.25
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                scrollView.contentView.animator().setBoundsOrigin(destination)
+            }
+        } else {
+            scrollView.contentView.scroll(to: destination)
+        }
         scrollView.reflectScrolledClipView(scrollView.contentView)
         updateScrollToBottomButton()
     }
@@ -3071,7 +3101,7 @@ private final class TerminalTab: NSObject {
         scrollToBottomButton.isHidden = true
         scrollToBottomButton.translatesAutoresizingMaskIntoConstraints = false
         scrollToBottomButton.target = self
-        scrollToBottomButton.action = #selector(scrollToBottom)
+        scrollToBottomButton.action = #selector(scrollToBottomClicked)
         let buttons = NSStackView(views: [scrollToBottomButton, findCloseButton])
         buttons.orientation = .horizontal
         buttons.spacing = 0
@@ -3159,6 +3189,7 @@ private final class TerminalTab: NSObject {
                 constant: -8
             ),
             statusLineStack.topAnchor.constraint(equalTo: commandBarView.topAnchor, constant: 8),
+            buttons.heightAnchor.constraint(equalToConstant: 28),
             buttons.topAnchor.constraint(equalTo: commandBarView.topAnchor, constant: 4),
             buttons.trailingAnchor.constraint(equalTo: commandBarView.trailingAnchor, constant: -8),
             scrollToBottomButton.widthAnchor.constraint(equalToConstant: 28),
@@ -3168,7 +3199,7 @@ private final class TerminalTab: NSObject {
 
             inputScroll.leadingAnchor.constraint(equalTo: commandBarView.leadingAnchor),
             inputScroll.trailingAnchor.constraint(equalTo: commandBarView.trailingAnchor),
-            inputScroll.topAnchor.constraint(equalTo: statusLineStack.bottomAnchor, constant: 4),
+            inputScroll.topAnchor.constraint(equalTo: buttons.bottomAnchor, constant: 4),
             inputScroll.bottomAnchor.constraint(equalTo: commandBarView.bottomAnchor),
             commandInputHeightConstraint!,
 

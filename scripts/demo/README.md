@@ -36,5 +36,7 @@ window visible throughout the take. Cursor capture is disabled. Recording requir
 macOS 15+, screen recording access, and the calibrated 1512×982 display. The output
 is silent. Inspect the first frame, typed text, and final output before exporting.
 
-`scene.py` supplies the ten scenes. `perform.py` is the older session-bridge runner;
+`scene.py` supplies the ten scenes using standard ANSI palette colors and tables
+that span up to 110 columns. Check them with `python3 scripts/demo/scene.py --self-test`.
+The filming window is 1032×700, preserving the default app’s proportions. `perform.py` is the older session-bridge runner;
 its fixtures can be checked with `python3 scripts/demo/perform.py --self-test`.

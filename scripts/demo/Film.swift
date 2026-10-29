@@ -59,7 +59,7 @@ struct PortalFilm {
               let root = window.contentView, let editor = input(in: root), let screen = window.screen ?? NSScreen.main
         else { throw NSError(domain: "PortalFilm", code: 3) }
         window.level = .normal
-        window.setContentSize(NSSize(width: 1120, height: 700))
+        window.setContentSize(NSSize(width: 1032, height: 700))
         window.setFrameOrigin(NSPoint(x: screen.frame.midX - window.frame.width / 2,
                                       y: screen.frame.midY - window.frame.height / 2))
         window.makeKeyAndOrderFront(nil)

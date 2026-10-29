@@ -401,6 +401,13 @@ final class AppModel: ObservableObject {
         return projectTerminalSources.first ?? .local
     }
 
+    var showsProjectHostTabs: Bool {
+        guard helperAvailable, !isLoadingProject, let name = selectedProjectName else { return false }
+        return localProjects[name].map { $0.placement != .unknown } == true
+            || remoteProjects.values.contains { $0[name].map { $0.placement != .unknown } == true }
+            || isSelectedProjectArchived
+    }
+
     var projectCheckoutSources: [ProjectSource] {
         guard selectedProjectName != nil else { return [] }
         let checkedOut = projectTerminalSources
@@ -1899,37 +1906,39 @@ struct ProjectBrowserView: View {
                 HostControls(project: name, model: model)
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { hostPaneWidth = $0 }
                     .toolbar {
-                        ToolbarItem(placement: .primaryAction) {
-                            HStack {
-                                Spacer(minLength: 0)
-                                HStack(spacing: 0) {
-                                    if !model.projectTerminalSources.isEmpty {
-                                        HostTabs(model: model).fixedSize()
-                                    }
-                                    if !model.projectCheckoutSources.isEmpty {
-                                        Menu {
-                                            ForEach(model.projectCheckoutSources, id: \.self) { source in
-                                                Button(model.projectSourceLabel(source)) {
-                                                    model.selectProjectHost(source)
-                                                }
-                                            }
-                                        } label: {
-                                            Image(systemName: "plus")
+                        if model.showsProjectHostTabs {
+                            ToolbarItem(placement: .primaryAction) {
+                                HStack {
+                                    Spacer(minLength: 0)
+                                    HStack(spacing: 0) {
+                                        if !model.projectTerminalSources.isEmpty {
+                                            HostTabs(model: model).fixedSize()
                                         }
-                                        .menuIndicator(.hidden)
-                                        .menuStyle(.borderlessButton)
-                                        .fixedSize()
-                                        .padding(.horizontal, 8)
-                                        .help("Check out on another host")
-                                        .accessibilityLabel("Check out on another host")
+                                        if !model.projectCheckoutSources.isEmpty {
+                                            Menu {
+                                                ForEach(model.projectCheckoutSources, id: \.self) { source in
+                                                    Button(model.projectSourceLabel(source)) {
+                                                        model.selectProjectHost(source)
+                                                    }
+                                                }
+                                            } label: {
+                                                Image(systemName: "plus")
+                                            }
+                                            .menuIndicator(.hidden)
+                                            .menuStyle(.borderlessButton)
+                                            .fixedSize()
+                                            .padding(.horizontal, 8)
+                                            .help("Check out on another host")
+                                            .accessibilityLabel("Check out on another host")
+                                        }
                                     }
+                                    .glassEffect()
+                                    Spacer(minLength: 0)
                                 }
-                                .glassEffect()
-                                Spacer(minLength: 0)
+                                .frame(width: max(0, hostPaneWidth - 24))
                             }
-                            .frame(width: max(0, hostPaneWidth - 24))
+                            .sharedBackgroundVisibility(.hidden)
                         }
-                        .sharedBackgroundVisibility(.hidden)
                     }
             } else {
                 ContentUnavailableView("Select a Project", systemImage: "sidebar.left")

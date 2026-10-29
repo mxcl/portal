@@ -133,3 +133,25 @@ func projectTerminalCheckoutEligibility() {
     model.selectedProjectName = nil
     #expect(model.projectCheckoutSources.isEmpty)
 }
+
+@Test("Host tabs stay hidden until project host state is loaded")
+@MainActor
+func hostTabsWaitForLoading() {
+    let host = SyncHost(machine: "Peer", peer: "peer", root: "/projects", executable: "/unused")
+    let model = AppModel(connectToHelper: false)
+    model.configuration = AppConfiguration(root: "/projects", machine: "Local", hosts: [host])
+    model.selectedProjectName = "project"
+    #expect(!model.showsProjectHostTabs)
+    model.helperAvailable = true
+    #expect(!model.showsProjectHostTabs)
+    model.localProjects["project"] = PeerProject(name: "project", placement: .unknown)
+    #expect(!model.showsProjectHostTabs)
+    model.remoteProjects[host.id] = ["project": PeerProject(name: "project", placement: .checkedOut)]
+    #expect(model.showsProjectHostTabs)
+    model.isLoadingProject = true
+    #expect(!model.showsProjectHostTabs)
+    model.isLoadingProject = false
+    #expect(model.showsProjectHostTabs)
+    model.helperAvailable = false
+    #expect(!model.showsProjectHostTabs)
+}

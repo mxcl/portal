@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build && mkdir -p portal/security && cp portal/index.html portal/security/index.html",
-    "dev": "vite"
+    "build": "npm --prefix www run build:pages && rm -rf portal && cp -R www/out portal",
+    "dev": "npm --prefix www run dev"
   },
   "dependencies": {
     "react": "19.2.6",

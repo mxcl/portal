@@ -1301,6 +1301,45 @@ private final class TerminalIconButton: NSButton {
     }
 }
 
+private final class StickyBlockHeaderView: NSView {
+    var isSticky = false
+
+    private var windowDragRect: NSRect {
+        guard isSticky else { return .zero }
+        var trafficLights = NSRect.null
+        for type: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window?.standardWindowButton(type), !button.isHiddenOrHasHiddenAncestor else { continue }
+            trafficLights = trafficLights.union(convert(button.bounds, from: button))
+        }
+        guard !trafficLights.isNull else { return .zero }
+        return bounds.intersection(NSRect(x: bounds.minX, y: trafficLights.minY,
+                                          width: bounds.width, height: trafficLights.height))
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        guard hit != nil, windowDragRect.contains(convert(point, from: superview)) else { return hit }
+        var view = hit
+        while let candidate = view, candidate !== self {
+            if candidate is NSControl || candidate is NSTextView { return hit }
+            view = candidate.superview
+        }
+        return self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if windowDragRect.contains(convert(event.locationInWindow, from: nil)) {
+            window?.performDrag(with: event)
+        } else {
+            super.mouseDown(with: event)
+        }
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(windowDragRect, cursor: .arrow)
+    }
+}
+
 private final class BlockView: NSView {
     var usesPortalMaterials = false
     private var runningBackground: NSColor {
@@ -1327,7 +1366,7 @@ private final class BlockView: NSView {
         let color: NSColor
     }
 
-    private let stickyHeader = NSView()
+    private let stickyHeader = StickyBlockHeaderView()
     private let stickyHeaderMaterial = TerminalBarMaterialView()
     private var headerTopConstraint: NSLayoutConstraint!
     private var metadataLeadingConstraint: NSLayoutConstraint!
@@ -1441,7 +1480,11 @@ private final class BlockView: NSView {
             }
             block.setFrameOrigin(.zero)
         }
-        let window = NSWindow(
+        final class DragTestWindow: NSWindow {
+            var didDrag = false
+            override func performDrag(with event: NSEvent) { didDrag = true }
+        }
+        let window = DragTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false
@@ -1473,6 +1516,23 @@ private final class BlockView: NSView {
             if scrollY > 0 {
                 guard metadata.minX > button.maxX,
                       abs(metadata.midY - button.midY) < 0.5 else { return false }
+                let blankPoint = NSPoint(x: (metadata.maxX + block.scrollToTopButton.convert(.zero, to: nil).x) / 2,
+                                        y: button.midY)
+                let hitPoint = document.convert(blankPoint, from: nil)
+                guard block.hitTest(hitPoint) === block.stickyHeader else { return false }
+                guard let event = NSEvent.mouseEvent(
+                    with: .leftMouseDown, location: blankPoint, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+                ) else { return false }
+                window.didDrag = false
+                block.stickyHeader.mouseDown(with: event)
+                guard window.didDrag else { return false }
+                let textPoint = document.convert(NSPoint(x: metadata.midX, y: metadata.midY), from: nil)
+                guard block.hitTest(textPoint) === block.metaLabel else { return false }
+                for control in [block.copyMarkdownButton, block.scrollToTopButton] {
+                    let point = document.convert(NSPoint(x: control.bounds.midX, y: control.bounds.midY), from: control)
+                    guard block.hitTest(point) === control else { return false }
+                }
             } else {
                 guard block.metadataLeadingConstraint.constant == 0,
                       block.metadataTopConstraint.constant == 0 else { return false }
@@ -1898,6 +1958,7 @@ private final class BlockView: NSView {
         if headerTopConstraint.constant != offset {
             headerTopConstraint.constant = offset
         }
+        stickyHeader.isSticky = offset > 0
         stickyHeaderMaterial.isHidden = offset <= 0
         scrollToTopButton.isHidden = offset <= 0
     }

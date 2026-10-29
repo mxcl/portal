@@ -13,8 +13,6 @@ struct ProjectMenuTests {
         let item = menu.addItem(withTitle: "File", action: nil, keyEquivalent: "")
         item.submenu = NSMenu(title: "File")
         application.mainMenu = menu
-        let delegate = AppDelegate()
-        (delegate as NSApplicationDelegate).applicationDidFinishLaunching?(Notification(name: NSApplication.didFinishLaunchingNotification))
         AppDelegate.nameProjectMenu(in: menu)
 
         // Tracking can reset only the menu-bar item, without an app-update callback.
@@ -22,11 +20,9 @@ struct ProjectMenuTests {
         #expect(item.title == "Project")
         #expect(item.submenu?.title == "Project")
         item.submenu?.title = "File"
-        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: item.submenu)
         #expect(item.title == "Project")
         #expect(item.submenu?.title == "Project")
         #expect(menu.items.count == 2)
-        withExtendedLifetime(delegate) {}
     }
 
     @Test @MainActor func projectMenuKeepsSwiftUIMenuSlots() {

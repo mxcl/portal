@@ -78,33 +78,43 @@ struct ProjectTerminalCommands: Commands {
 }
 
 extension AppDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        for name in [NSMenu.didChangeItemNotification, NSMenu.didBeginTrackingNotification] {
-            NotificationCenter.default.addObserver(
-                self, selector: #selector(projectMenuDidChange(_:)), name: name, object: nil
-            )
-        }
-    }
-
-    @objc private func projectMenuDidChange(_ notification: Notification) {
-        applicationWillUpdate(notification)
-    }
-
     func applicationWillUpdate(_ notification: Notification) {
         guard let menu = NSApp.mainMenu else { return }
         Self.nameProjectMenu(in: menu)
     }
 
     private static var isNamingProjectMenu = false
+    private static weak var titledMenuItem: NSMenuItem?
+    private static weak var titledSubmenu: NSMenu?
+    private static var titleObservations: [NSKeyValueObservation] = []
 
     static func nameProjectMenu(in menu: NSMenu) {
         guard !isNamingProjectMenu else { return }
         isNamingProjectMenu = true
         defer { isNamingProjectMenu = false }
         // SwiftUI owns menu positions; moving its items breaks command reconciliation.
-        guard let file = menu.items.first(where: { $0.title == "File" || $0.submenu?.title == "File" }) else { return }
-        file.title = "Project"
-        file.submenu?.title = "Project"
+        guard let item = menu.items.first(where: {
+            $0.title == "File" || $0.title == "Project" || $0.submenu?.title == "File"
+        }), let submenu = item.submenu else { return }
+        if titledMenuItem !== item || titledSubmenu !== submenu {
+            titledMenuItem = item
+            titledSubmenu = submenu
+            // Menu tracking can reset either title without an application or menu-item update.
+            titleObservations = [
+                item.observe(\.title) { [weak menu] _, _ in
+                    MainActor.assumeIsolated {
+                        if let menu { Self.nameProjectMenu(in: menu) }
+                    }
+                },
+                submenu.observe(\.title) { [weak menu] _, _ in
+                    MainActor.assumeIsolated {
+                        if let menu { Self.nameProjectMenu(in: menu) }
+                    }
+                }
+            ]
+        }
+        if item.title != "Project" { item.title = "Project" }
+        if submenu.title != "Project" { submenu.title = "Project" }
     }
 }
 #endif

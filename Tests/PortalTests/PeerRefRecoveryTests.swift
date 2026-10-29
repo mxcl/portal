@@ -37,13 +37,11 @@ func missingAcceptedPeerRef() throws {
     try connection.send(update: RefUpdate(repository: "project", sourceRef: "refs/heads/main", generation: 1,
                                          oid: oid, cleanCheckout: true), pack: repository.pack(oid: oid, excluding: []))
     let received = destination.appendingPathComponent("project.git")
-    let deadline = Date().addingTimeInterval(3)
-    var actual: String?
-    repeat {
-        actual = try? Git.text(["-C", received.path, "rev-parse", "--verify", "refs/remotes/a/main"])
-        if actual == oid { break }
-        Thread.sleep(forTimeInterval: 0.05)
-    } while Date() < deadline
+    // ACK is sent only after the ref is restored. A wall-clock polling deadline
+    // can expire while the receiver waits for a worker during parallel tests.
+    let acknowledgement = try connection.receiveMessage()
+    #expect(acknowledgement.type == "ack")
+    let actual = try Git.text(["-C", received.path, "rev-parse", "--verify", "refs/remotes/a/main"])
     #expect(actual == oid)
     #expect(try Repository(name: "project", url: received).sourceRefs().isEmpty)
 }

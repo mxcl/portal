@@ -47,10 +47,12 @@ enum Git {
 
         let group = DispatchGroup()
         var output = Data(), error = Data()
+        // These readers must make progress even when synchronous Git callers occupy
+        // every cooperative executor worker. Do not queue them on the global pool.
         group.enter()
-        DispatchQueue.global().async { output = stdout.fileHandleForReading.readDataToEndOfFile(); group.leave() }
+        Thread.detachNewThread { output = stdout.fileHandleForReading.readDataToEndOfFile(); group.leave() }
         group.enter()
-        DispatchQueue.global().async { error = stderr.fileHandleForReading.readDataToEndOfFile(); group.leave() }
+        Thread.detachNewThread { error = stderr.fileHandleForReading.readDataToEndOfFile(); group.leave() }
         #if canImport(Darwin)
         _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         #elseif canImport(Glibc) || canImport(Musl)

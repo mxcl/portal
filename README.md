@@ -3,6 +3,8 @@
 [Portal](https://github.com/mxcl/portal/releases/download/v1.0.0/Portal-1.0.0.dmg) is the terminal app.
 [Portal Hub](https://github.com/mxcl/portal/releases/download/v1.0.0/Portal-Hub-1.0.0.dmg) manages projects, syncing, and backups. Download either app separately.
 
+https://github.com/user-attachments/assets/c9829fa6-da3b-4339-a564-af6d8da1fb35
+
 Continuously exchange Git history between your own computers over one
 persistent SSH connection. `portald` implements a bidirectional, continuous
 fetch/push system. Each host publishes snapshots of its refs into the other

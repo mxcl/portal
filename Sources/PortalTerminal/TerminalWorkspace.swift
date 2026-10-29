@@ -525,7 +525,7 @@ public struct TerminalCommands: Commands {
             Button("Find Previous") {
                 performFind(#selector(TerminalViewController.findPreviousInHistory(_:)), fallback: .previousMatch)
             }
-            .keyboardShortcut("g", modifiers: [.command, .option])
+            .keyboardShortcut("g", modifiers: [.command, .shift])
             Button("Clear Terminal") { workspace.perform(#selector(TerminalViewController.clearActiveTab(_:))) }
                 .keyboardShortcut("k").disabled(!enabled)
             Divider()

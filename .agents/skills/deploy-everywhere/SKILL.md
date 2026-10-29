@@ -11,11 +11,11 @@ Run the repository's deployment script from the `git-sync` checkout:
 ./scripts/deploy.sh /absolute/path/to/git-sync
 ```
 
-The script detects whether it runs on Maliwan or pangolin, builds and signs `Portal.app` and `Portal Terminal.app` release bundles there, and copies those exact bundles to the other Mac over SSH.
+The script detects whether it runs on Maliwan or pangolin, builds and signs `Portal Hub.app` and `Portal.app` release bundles there, and copies those exact bundles to the other Mac over SSH.
 It also uses the matching open-source Swift toolchain at `~/.swiftly/bin/swift`
 and the installed `aarch64-swift-linux-musl` SDK to cross-build a static binary
 (`--product gitinuumd`) for `atlas`. It installs all three targets with rollback protection, restarts
-both Mac apps at `/Applications/Portal.app`, and verifies all five installed
+both Mac apps at `/Applications/Portal Hub.app`, and verifies all five installed
 Mac executables against the built bundle, plus the Linux executable hash.
 
 The shared Mac installer launches the app with a minimal login environment on

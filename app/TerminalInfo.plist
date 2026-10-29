@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Portal Terminal</string>
+	<string>Portal</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -24,7 +24,7 @@
 	<string>3</string>
 	<key>CFBundleURLTypes</key>
 	<array><dict>
-		<key>CFBundleURLName</key><string>Portal Terminal Destination</string>
+		<key>CFBundleURLName</key><string>Portal Destination</string>
 		<key>CFBundleURLSchemes</key><array><string>portal-terminal</string></array>
 	</dict></array>
 	<key>CFBundleDocumentTypes</key>

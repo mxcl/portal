@@ -79,9 +79,9 @@ struct SessionWireProtocolTests {
     @Test("app route through the bundled session bridge")
     func appBridgeRouting() {
         #expect(SessionWireProtocol.localBridgeCandidates(
-            forExecutable: "/Applications/Portal.app/Contents/MacOS/Portal"
+            forExecutable: "/Applications/Portal Hub.app/Contents/MacOS/Portal"
         ) == [
-            "/Applications/Portal.app/Contents/Helpers/portal-session-bridge",
+            "/Applications/Portal Hub.app/Contents/Helpers/portal-session-bridge",
         ])
     }
 

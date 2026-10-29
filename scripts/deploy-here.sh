@@ -12,15 +12,15 @@ local_terminal="/Applications/.portal-terminal.install.$revision-$$"
 terminal_backup="/Applications/.portal-terminal.previous.$revision-$$"
 trap 'rm -rf "$stage" "$local_stage" "$local_terminal"' EXIT
 
-"$repo/scripts/install.sh" "$stage/Portal.app"
-/usr/bin/codesign --verify --deep --strict "$stage/Portal.app"
-/usr/bin/ditto "$stage/Portal.app" "$local_stage"
-/usr/bin/ditto "$stage/Portal Terminal.app" "$local_terminal"
+"$repo/scripts/install.sh" "$stage/Portal Hub.app"
+/usr/bin/codesign --verify --deep --strict "$stage/Portal Hub.app"
+/usr/bin/ditto "$stage/Portal Hub.app" "$local_stage"
+/usr/bin/ditto "$stage/Portal.app" "$local_terminal"
 "$repo/scripts/install-staged.sh" "$local_stage" "$local_backup" "$local_terminal" "$terminal_backup"
 
-for executable in 'Portal.app/Contents/MacOS/PortalApp' 'Portal.app/Contents/Resources/portald' 'Portal.app/Contents/Resources/portal' \
-  'Portal.app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/PortalMenuBar' \
-  'Portal Terminal.app/Contents/MacOS/PortalTerminalApp'; do
+for executable in 'Portal Hub.app/Contents/MacOS/PortalApp' 'Portal Hub.app/Contents/Resources/portald' 'Portal Hub.app/Contents/Resources/portal' \
+  'Portal Hub.app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/PortalMenuBar' \
+  'Portal.app/Contents/MacOS/PortalTerminalApp'; do
   expected_hash="$(shasum -a 256 "$stage/$executable" | awk '{print $1}')"
   installed_hash="$(shasum -a 256 "/Applications/$executable" | awk '{print $1}')"
   [[ "$expected_hash" == "$installed_hash" ]] || {

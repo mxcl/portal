@@ -12,7 +12,7 @@ Run the repository's local deployment script:
 ```
 
 The script uses `scripts/install.sh` to build and sign both release apps, then
-`scripts/install-staged.sh` to replace `/Applications/Portal.app` and `/Applications/Portal Terminal.app` and restart
+`scripts/install-staged.sh` to replace `/Applications/Portal Hub.app` and `/Applications/Portal.app` and restart
 the app and its menu helper. It verifies all five installed executables against
 the built bundle. It does not contact the other Mac or atlas, or require the
 Linux toolchain or SDK.

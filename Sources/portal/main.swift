@@ -16,7 +16,7 @@ if let first = arguments.first, ["help", "--help", "-h"].contains(first) {
 }
 
 guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "dev.mxcl.portal") else {
-    FileHandle.standardError.write(Data("portal: Install and open Portal.app first.\n".utf8))
+    FileHandle.standardError.write(Data("portal: Install and open Portal Hub.app first.\n".utf8))
     exit(1)
 }
 

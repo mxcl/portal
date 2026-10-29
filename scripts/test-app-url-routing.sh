@@ -25,7 +25,7 @@ import AppKit
             delegate.application(application, open: [URL(string: address)!])
         }
         guard TerminalApplication.requests.isEmpty else {
-            print("FAIL: Portal URLs launched Portal Terminal")
+            print("FAIL: Portal URLs launched Portal")
             exit(1)
         }
         let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)

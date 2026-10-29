@@ -71,7 +71,7 @@ fi
 suffix="$revision-$$"
 [[ "$suffix" =~ ^[0-9a-f]+-[0-9]+$ ]]
 stage="$(mktemp -d "${TMPDIR:-/tmp}/portal-deploy.XXXXXX")"
-built_app="$stage/Portal.app"
+built_app="$stage/Portal Hub.app"
 local_stage="/Applications/.portal-app.install.$suffix"
 local_backup="/Applications/.portal-app.previous.$suffix"
 local_terminal="/Applications/.portal-terminal.install.$suffix"
@@ -97,21 +97,21 @@ linux_binary="$repo/.build/aarch64-swift-linux-musl/release/portald"
 
 ssh -o BatchMode=yes "$peer" "rm -rf '$remote_stage' '$remote_backup'"
 rsync -aH --delete "$built_app/" "$peer:$remote_stage/"
-rsync -aH --delete "$stage/Portal Terminal.app/" "$peer:$local_terminal/"
+rsync -aH --delete "$stage/Portal.app/" "$peer:$local_terminal/"
 ssh -o BatchMode=yes "$atlas" "mkdir -p '$atlas_home/.local/bin' && rm -f '$atlas_stage' '$atlas_backup'"
 scp -C "$linux_binary" "$atlas:$atlas_stage"
 rm -rf "$local_stage" "$local_backup" "$local_terminal" "$terminal_backup"
 /usr/bin/ditto "$built_app" "$local_stage"
-/usr/bin/ditto "$stage/Portal Terminal.app" "$local_terminal"
+/usr/bin/ditto "$stage/Portal.app" "$local_terminal"
 
 # Upgrade the SSH endpoint before its clients; keep the invoking Mac until last.
 ssh -o BatchMode=yes "$atlas" bash -s -- "$atlas_stage" "$atlas_backup" < "$linux_installer"
 ssh -o BatchMode=yes "$peer" bash -s -- "$remote_stage" "$remote_backup" "$local_terminal" "$terminal_backup" < "$installer"
 "$installer" "$local_stage" "$local_backup" "$local_terminal" "$terminal_backup"
 
-for executable in 'Portal.app/Contents/MacOS/PortalApp' 'Portal.app/Contents/Resources/portald' 'Portal.app/Contents/Resources/portal' \
-  'Portal.app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/PortalMenuBar' \
-  'Portal Terminal.app/Contents/MacOS/PortalTerminalApp'; do
+for executable in 'Portal Hub.app/Contents/MacOS/PortalApp' 'Portal Hub.app/Contents/Resources/portald' 'Portal Hub.app/Contents/Resources/portal' \
+  'Portal Hub.app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/MacOS/PortalMenuBar' \
+  'Portal.app/Contents/MacOS/PortalTerminalApp'; do
   expected_hash="$(shasum -a 256 "$stage/$executable" | awk '{print $1}')"
   local_hash="$(shasum -a 256 "/Applications/$executable" | awk '{print $1}')"
   remote_hash="$(ssh -o BatchMode=yes "$peer" "shasum -a 256 '/Applications/$executable'" | awk '{print $1}')"

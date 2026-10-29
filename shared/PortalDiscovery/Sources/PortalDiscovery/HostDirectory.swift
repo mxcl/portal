@@ -10,7 +10,7 @@ public struct DiscoveryHost: Codable, Identifiable, Equatable, Sendable {
     public var username = ""
     public var port = 22
     public var hostPublicKey = ""
-    public var helperPath = "/Applications/Portal.app/Contents/Helpers/portal-session-bridge"
+    public var helperPath = "/Applications/Portal Hub.app/Contents/Helpers/portal-session-bridge"
     public var homeDirectory = ""
     public var shellPath = "/bin/zsh"
     public init() {}

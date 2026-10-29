@@ -9,7 +9,7 @@ import sys
 repo = Path(__file__).resolve().parent.parent
 source = (repo / 'Sources/PortalMenuBar/PortalMenuBarApp.swift').read_text()
 view = source[source.index('@MainActor\nprivate final class MenuBarIcon {'):source.index('@MainActor\nfinal class MenuBarRuntime')]
-helper = str(Path(sys.argv[1] if len(sys.argv) > 1 else '/Applications/Portal.app') / 'Contents/Library/LoginItems/Portal Menu Helper.app')
+helper = str(Path(sys.argv[1] if len(sys.argv) > 1 else '/Applications/Portal Hub.app') / 'Contents/Library/LoginItems/Portal Menu Helper.app')
 program = 'import AppKit\nimport SwiftUI\nlet bundle = Bundle(path: ' + json.dumps(helper) + ')!\n'
 program += view.replace('Bundle.main', 'bundle')
 program += '''

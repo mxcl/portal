@@ -18,7 +18,7 @@ VPN. The app requires iOS 26.1 or later and has no subscription.
    **New Session**.
 
 The default helper path is
-`/Applications/Portal.app/Contents/Helpers/portal-session-bridge`. Connections
+`/Applications/Portal Hub.app/Contents/Helpers/portal-session-bridge`. Connections
 require an RFC 1918, Tailscale/CGNAT, or IPv6 ULA address. DNS names and public IPs
 are rejected. Routing and VPN access controls belong to the VPN; the app does
 not install or manage a VPN profile. Private LAN routing also works.

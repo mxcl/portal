@@ -8,7 +8,7 @@ public enum SyncProtocol {
 }
 
 public struct Configuration: Codable, Equatable, Sendable {
-    public static let defaultRemoteExecutable = "/Applications/Portal.app/Contents/Resources/portald"
+    public static let defaultRemoteExecutable = "/Applications/Portal Hub.app/Contents/Resources/portald"
 
     public static var defaultMachine: String {
         #if canImport(SystemConfiguration)

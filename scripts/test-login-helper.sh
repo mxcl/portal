@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-app=${1:-/Applications/Portal.app}
+app=${1:-/Applications/Portal Hub.app}
 service="gui/$(id -u)/dev.mxcl.portal.menu-helper"
 pid=$(launchctl print "$service" | awk '/^[[:space:]]*pid = / { print $3 }')
 test -n "$pid"

@@ -89,12 +89,12 @@ matching Developer ID provisioning profile and APNs credentials for its topic.
 Build the app with:
 
 ```sh
-PORTAL_PUSH_PROFILE=/absolute/path/helper.provisionprofile scripts/install.sh /path/to/Portal.app
+PORTAL_PUSH_PROFILE=/absolute/path/helper.provisionprofile scripts/install.sh /path/to/Portal Hub.app
 ```
 
 Packaging validates the profile's identity, push entitlement and expiry, embeds
 it, and signs the helper with its entitlements. Without an override, the installer
-reuses the profile from `/Applications/Portal.app` when present. Set
+reuses the profile from `/Applications/Portal Hub.app` when present. Set
 `PORTAL_PUSH_PROFILE=` to explicitly build without push support. Builds still
 work without a profile; automatic pushes require a correctly signed helper. The profile's
 APNs environment is recorded in the helper's Info.plist, never inferred from a

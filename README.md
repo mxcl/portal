@@ -1,5 +1,8 @@
 # Portal
 
+[Portal](https://github.com/mxcl/portal/releases/download/v1.0.0/Portal-1.0.0.dmg) is the terminal app.
+[Portal Hub](https://github.com/mxcl/portal/releases/download/v1.0.0/Portal-Hub-1.0.0.dmg) manages projects, syncing, and backups. Download either app separately.
+
 Continuously exchange Git history between your own computers over one
 persistent SSH connection. `portald` implements a bidirectional, continuous
 fetch/push system. Each host publishes snapshots of its refs into the other
@@ -63,9 +66,9 @@ It uses a separate relay and APNs, with no recurring GitHub polling.
 $ ./scripts/install.sh
 ```
 
-This builds, Developer ID signs, and installs `Portal.app` and `Portal Terminal.app`
+This builds, Developer ID signs, and installs `Portal Hub.app` and `Portal.app`
 in `/Applications`. Portal includes its menu-bar Sync Helper. Both deploy scripts
-install and verify both apps. Open Portal and choose the one parent
+install and verify both apps. Open Portal Hub and choose the one parent
 folder. Add each SSH host before choosing folders; the app rejects the host if its Portal helper cannot
 be inspected. The folder table is prepopulated from every host. Select both the
 local and remote host cells to enable a folder in both directions. Matching
@@ -74,7 +77,7 @@ Sure?” confirmation.
 
 The Backup tab can continuously send every local repository to one existing
 host. On the receiving Mac, use the same tab to choose **Receive Backups on This
-Mac**; that folder must differ from its projects folder. Portal.app owns the
+Mac**; that folder must differ from its projects folder. Portal Hub.app owns the
 destination and the SSH process only relays encrypted protocol bytes, so Remote
 Login does not need Full Disk Access. The connection is receive-only: refs
 created inside the backup are never published back to the source Mac. Each
@@ -97,13 +100,9 @@ picker hidden.
 The embedded helper owns continuous syncing and shows live transfer logs in its
 menu, even while the project window is closed. The Launch at Login setting
 registers only `Portal Menu Helper.app`, which shares the main app’s icon files. It uses the copy of `portald` inside each peer's
-`/Applications/Portal.app`; the path can be changed while adding that host.
+`/Applications/Portal Hub.app`; the path can be changed while adding that host.
 
-**New Terminal Window** opens the embedded **Portal Terminal** app. It lists all
-terminal sessions, including project sessions. In Settings → General → Terminal,
-choose **Install Portal Terminal…** to put a separate copy in Applications for
-Spotlight, or **Become Default Terminal App** to use it for shell scripts and
-Unix executables.
+**New Terminal Window** opens the sibling **Portal** app in Applications. It lists all terminal sessions, including project sessions. Install both apps to open terminals from Portal Hub.
 
 Choose **Portal → Install Command Line Tool…** to install `portal` in
 `/usr/local/bin`. The bundled installer opens in Terminal and requests your

@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-app=${1:?Usage: test-app-bundle.sh /path/to/Portal.app}
+app=${1:?Usage: test-app-bundle.sh /path/to/Portal Hub.app}
 helper="$app/Contents/Library/LoginItems/Portal Menu Helper.app"
 test "$(plutil -extract CFBundleName raw "$helper/Contents/Info.plist")" = 'Portal Menu Helper'
 test "$(plutil -extract CFBundleIconFile raw "$helper/Contents/Info.plist")" = AppIcon
@@ -32,14 +32,14 @@ test -x "$app/Contents/Helpers/Portal Session Helper.app/Contents/MacOS/portal-s
 test -d "$app/Contents/Resources/portal_PortalTerminal.bundle"
 test -f "$app/Contents/Resources/completions/fig/build/git.js"
 codesign --verify --deep --strict "$app"
-test ! -e "$app/Contents/Helpers/Portal Terminal.app"
-terminal="$(dirname -- "$app")/Portal Terminal.app"
+test ! -e "$app/Contents/Helpers/Portal.app"
+terminal="$(dirname -- "$app")/Portal.app"
 codesign --verify --deep --strict "$terminal"
 codesign --verify --strict -R '=identifier "dev.mxcl.git-sync.session-bridge"' \
   "$terminal/Contents/Helpers/portal-session-bridge"
 test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = dev.mxcl.portal
 test "$(plutil -extract CFBundleIdentifier raw "$terminal/Contents/Info.plist")" = dev.mxcl.portal.terminal
-test "$(plutil -extract CFBundleName raw "$terminal/Contents/Info.plist")" = 'Portal Terminal'
+test "$(plutil -extract CFBundleName raw "$terminal/Contents/Info.plist")" = 'Portal'
 test "$(plutil -extract CFBundleShortVersionString raw "$terminal/Contents/Info.plist")" = "$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")"
 test "$(plutil -extract CFBundleVersion raw "$terminal/Contents/Info.plist")" = "$(plutil -extract CFBundleVersion raw "$app/Contents/Info.plist")"
 test -x "$terminal/Contents/MacOS/PortalTerminalApp"
@@ -48,13 +48,13 @@ test -f "$terminal/Contents/Resources/completions/fig/build/git.js"
 for icon in AppIcon.icns Assets.car; do
   test -s "$terminal/Contents/Resources/$icon"
   if cmp -s "$app/Contents/Resources/$icon" "$terminal/Contents/Resources/$icon"; then
-    echo "Portal Terminal must retain its separate terminal icon: $icon" >&2
+    echo "Portal must retain its separate terminal icon: $icon" >&2
     exit 1
   fi
 done
 plutil -extract CFBundleDocumentTypes json -o - "$terminal/Contents/Info.plist" | grep -q com.apple.terminal.shell-script
 if plutil -extract CFBundleDocumentTypes json -o - "$app/Contents/Info.plist" >/dev/null 2>&1; then
-  echo 'Document handlers belong to Portal Terminal' >&2
+  echo 'Document handlers belong to Portal' >&2
   exit 1
 fi
 for bundle in "$app" "$helper" "$terminal"; do

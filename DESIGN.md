@@ -261,10 +261,10 @@ disabling either cell stops both directions. Equal names already present at
 both ends require explicit confirmation before the host is added.
 
 An optional backup selects one inspected host. The receiving host separately
-chooses a parent folder, distinct from its normal root, through Portal.app.
+chooses a parent folder, distinct from its normal root, through Portal Hub.app.
 The menu helper owns an owner-only Unix socket and a receive-only session rooted at that
 user-selected folder. The SSH-launched helper only relays the framed byte stream
-to that socket, so macOS attributes destination access to Portal.app rather
+to that socket, so macOS attributes destination access to Portal Hub.app rather
 than Remote Login. No network listener or additional credential is introduced.
 The endpoint accepts catalogs, objects, and ref snapshots but never advertises
 repositories or publishes its own refs back. Its ordering state has one writer
@@ -666,8 +666,8 @@ the pair under `~/.local/lib/portal/terminal`. macOS peers need the updated app.
 No helper is uploaded or installed automatically when a connection is opened.
 
 Validation: `swift test`, `cargo test --manifest-path TerminalHelpers/Cargo.toml`,
-`scripts/test-terminal-peer-authentication.sh /path/to/Portal.app`, and
-`python3 scripts/test-terminal-sessions.py /path/to/Portal.app` (or the Linux
+`scripts/test-terminal-peer-authentication.sh /path/to/Portal Hub.app`, and
+`python3 scripts/test-terminal-sessions.py /path/to/Portal Hub.app` (or the Linux
 helper directory). The session check exercises detach, continued execution,
 history replay, reattach and exit against both wire versions.
 
@@ -742,7 +742,7 @@ probe. Visible elapsed-time displays and failure retry deadlines remain timers.
 ### Application identity and standalone terminals
 
 The foreground bundle is `dev.mxcl.portal` (Portal), with
-`dev.mxcl.portal.menu-helper` as its login item. `Contents/Helpers/Portal Terminal.app`
+`dev.mxcl.portal.menu-helper` as its login item. `Contents/Helpers/Portal.app`
 is a separate foreground app (`dev.mxcl.portal.terminal`) with the same icon and
 version. New Terminal Window launches that app; shell scripts, Unix executables,
 and folders are registered to it. Its session picker includes project sessions,
@@ -750,7 +750,7 @@ including sessions attached in the project app. Only sessions already in the
 current terminal window are excluded.
 
 Installation registers both bundles with Launch Services. Settings also offers
-Install Portal Terminal to copy the self-contained embedded app into Applications
+Install Portal to copy the self-contained embedded app into Applications
 for Spotlight discovery. The copied app shares the existing terminal runtime and
 session catalogs. Application Support, engine IPC, GitHub credential keys, CLI
 names, and wire protocols retain their existing names to preserve state and peer

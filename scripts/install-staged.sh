@@ -3,11 +3,11 @@ set -euo pipefail
 
 staged_app="${1:?staged app required}"
 backup_app="${2:?backup app required}"
-target_app="/Applications/Portal.app"
+target_app="/Applications/Portal Hub.app"
 
 staged_terminal="${3:?staged terminal required}"
 backup_terminal="${4:?backup terminal required}"
-target_terminal="/Applications/Portal Terminal.app"
+target_terminal="/Applications/Portal.app"
 
 [[ "$staged_app" == /Applications/.portal-app.install.* ]]
 [[ "$backup_app" == /Applications/.portal-app.previous.* ]]

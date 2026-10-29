@@ -651,7 +651,7 @@ public final class MobileRemoteModel {
         }
         try await context.evaluatePolicy(
             .deviceOwnerAuthentication,
-            localizedReason: "Attach to your Portal Terminal sessions"
+            localizedReason: "Attach to your Portal sessions"
         )
         lastAuthenticatedAt = Date()
     }

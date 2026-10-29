@@ -11,7 +11,7 @@ struct PortalTests {
 @Test("peer executable defaults to the installed app bundle")
 func defaultPeerExecutable() {
     let configuration = Configuration(root: "/", machine: "mac", peer: "peer", remoteRoot: "/tmp")
-    #expect(configuration.remoteExecutable == "/Applications/Portal.app/Contents/Resources/portald")
+    #expect(configuration.remoteExecutable == "/Applications/Portal Hub.app/Contents/Resources/portald")
     #expect(configuration.syncCheckouts != true)
 }
 

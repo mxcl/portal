@@ -2,16 +2,16 @@
 set -eu
 
 if [ "$(uname -s)" != Darwin ]; then
-  echo "Portal.app can only be installed on macOS." >&2
+  echo "Portal Hub.app can only be installed on macOS." >&2
   exit 1
 fi
 
 repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-destination=${1:-"/Applications/Portal.app"}
-terminal_destination="$(dirname -- "$destination")/Portal Terminal.app"
+destination=${1:-"/Applications/Portal Hub.app"}
+terminal_destination="$(dirname -- "$destination")/Portal.app"
 build_dir="$repo_dir/.build/release"
 # Keep APNs enabled on ordinary local reinstalls without an environment override.
-installed_profile="/Applications/Portal.app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/embedded.provisionprofile"
+installed_profile="/Applications/Portal Hub.app/Contents/Library/LoginItems/Portal Menu Helper.app/Contents/embedded.provisionprofile"
 push_profile=${PORTAL_PUSH_PROFILE-${GITINUUM_PUSH_PROFILE-}}
 if [ "${PORTAL_PUSH_PROFILE+x}" != x ] && [ "${GITINUUM_PUSH_PROFILE+x}" != x ] && [ -f "$installed_profile" ]; then
   push_profile=$installed_profile
@@ -23,8 +23,8 @@ trap 'rm -rf "$stage"' EXIT HUP INT TERM
 cd "$repo_dir"
 swift build -c release
 
-app="$stage/Portal.app"
-terminal="$stage/Portal Terminal.app"
+app="$stage/Portal Hub.app"
+terminal="$stage/Portal.app"
 menu="$app/Contents/Library/LoginItems/Portal Menu Helper.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" \
   "$menu/Contents/MacOS" "$menu/Contents/Resources" "$(dirname -- "$destination")"
@@ -125,7 +125,7 @@ fi
 codesign --force --sign "$signing_identity" --options runtime --timestamp "$app/Contents/MacOS/PortalApp"
 discovery_profile=${PORTAL_DISCOVERY_PROFILE:-"$HOME/Library/MobileDevice/Provisioning Profiles/Portal_Developer_ID.provisionprofile"}
 if [ ! -f "$discovery_profile" ]; then
-  discovery_profile="/Applications/Portal.app/Contents/embedded.provisionprofile"
+  discovery_profile="/Applications/Portal Hub.app/Contents/embedded.provisionprofile"
 fi
 security cms -D -i "$discovery_profile" > "$stage/discovery-profile.plist"
 python3 "$repo_dir/scripts/prepare-discovery-signing.py" "$stage/discovery-profile.plist" "$stage/discovery-entitlements.plist"

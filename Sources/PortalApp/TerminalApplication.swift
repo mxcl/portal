@@ -5,7 +5,7 @@ import PortalTerminal
 @MainActor
 enum TerminalApplication {
     static var url: URL {
-        let sibling = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("Portal Terminal.app")
+        let sibling = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("Portal.app")
         if FileManager.default.fileExists(atPath: sibling.path) { return sibling }
         return NSWorkspace.shared.urlForApplication(withBundleIdentifier: "dev.mxcl.portal.terminal") ?? sibling
     }

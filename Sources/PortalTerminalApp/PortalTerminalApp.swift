@@ -9,7 +9,7 @@ import PortalTerminal
 struct PortalTerminalApp: App {
     @NSApplicationDelegateAdaptor(TerminalDelegate.self) private var delegate
     var body: some Scene {
-        Settings { Text("Portal Terminal uses your Portal terminal sessions.").padding() }
+        Settings { Text("Portal uses your Portal terminal sessions.").padding() }
         .commands {
             TerminalCommands(workspace: delegate.workspace, enabled: true, hosts: delegate.hosts,
                 managesTabs: true, newWindow: { delegate.newWindow() },

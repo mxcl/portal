@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
         "pgrep": '#!/bin/sh\n[ "$2" = PortalApp ]\n',
         "open": (
             f"#!{sys.executable}\nimport json, os, sys\n"
-            f"assert sys.argv[1:] == {[str(applications / 'Portal.app')]!r}\n"
+            f"assert sys.argv[1:] == {[str(applications / 'Portal Hub.app')]!r}\n"
             f"with open({str(captured)!r}, 'w') as output:\n"
             "    json.dump(dict(os.environ), output)\n"
         ),
@@ -92,12 +92,12 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
         assert launched[name] == environment[name], (name, launched)
     assert launched["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin", launched
 
-    assert (applications / "Portal Terminal.app").is_dir()
+    assert (applications / "Portal.app").is_dir()
 
     # Failure after swapping either bundle must restore both previous apps.
+    (applications / "Portal Hub.app" / "old").touch()
     (applications / "Portal.app" / "old").touch()
-    (applications / "Portal Terminal.app" / "old").touch()
-    for failed_app in ("Portal.app", "Portal Terminal.app"):
+    for failed_app in ("Portal Hub.app", "Portal.app"):
         staged.mkdir()
         terminal.mkdir()
         result = subprocess.run(["/bin/bash", str(installer), str(staged),
@@ -106,8 +106,8 @@ with tempfile.TemporaryDirectory(prefix="gitinuum-deploy-test-") as temporary:
                                 env=dict(environment, FAIL_SIGNATURE=str(applications / failed_app)),
                                 capture_output=True)
         assert result.returncode != 0
+        assert (applications / "Portal Hub.app" / "old").is_file()
         assert (applications / "Portal.app" / "old").is_file()
-        assert (applications / "Portal Terminal.app" / "old").is_file()
         assert not terminal_backup.exists()
         assert not (applications / ".portal-app.previous.test").exists()
     terminal.mkdir()

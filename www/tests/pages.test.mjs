@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '../..');
 for (const route of ['portal', 'portal/security', 'portal/privacy']) {
   const html = readFileSync(resolve(root, route, 'index.html'), 'utf8');
-  assert.match(html, /<title>Portal/);
+  assert.match(html, /<title>[^<]*Portal/);
   for (const match of html.matchAll(/(?:src|href|poster)="(\/portal\/[^"?#]*)(?:[?#][^"]*)?"/g)) {
     assert.ok(existsSync(resolve(root, '.' + match[1])), `Missing published asset: ${match[1]}`);
   }

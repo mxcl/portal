@@ -1301,7 +1301,7 @@ private final class TerminalIconButton: NSButton {
     }
 }
 
-private final class StickyBlockHeaderView: NSView {
+final class StickyBlockHeaderView: NSView {
     var isSticky = false
 
     private var windowDragRect: NSRect {
@@ -1336,7 +1336,9 @@ private final class StickyBlockHeaderView: NSView {
     }
 
     override func resetCursorRects() {
-        addCursorRect(windowDragRect, cursor: .arrow)
+        let rect = windowDragRect
+        guard !rect.isEmpty else { return }
+        addCursorRect(rect, cursor: .arrow)
     }
 }
 

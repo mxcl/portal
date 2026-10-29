@@ -4,15 +4,6 @@ import PortalTerminal
 
 @MainActor
 enum TerminalApplication {
-    static let installedURL = URL(fileURLWithPath: "/Applications/Portal Terminal.app")
-
-    static func openTab() {
-        NSWorkspace.shared.open([TerminalLaunchRequest.newTabURL], withApplicationAt: installedURL,
-                                configuration: NSWorkspace.OpenConfiguration()) { _, error in
-            if let error { Task { @MainActor in NSAlert(error: error).runModal() } }
-        }
-    }
-
     static var url: URL {
         let sibling = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("Portal Terminal.app")
         if FileManager.default.fileExists(atPath: sibling.path) { return sibling }

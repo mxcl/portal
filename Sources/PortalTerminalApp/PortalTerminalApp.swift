@@ -33,7 +33,7 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate, ObservableObject 
         return false
     }
 
-    func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hostID: String? = nil, restoringWindows: Bool = false, asTab: Bool = false) {
+    func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hostID: String? = nil, restoringWindows: Bool = false) {
         openedWindow = true
         Task {
             let snapshot = try? await EngineClient.send(.snapshot).snapshot
@@ -49,10 +49,6 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate, ObservableObject 
                              directory: host.root)
             } ?? []
             self.hosts = hosts
-            if asTab {
-                workspace.openRequestedTab(hosts: hosts)
-                return
-            }
             if restoringWindows, workspace.restoreWindows(hosts: hosts) { return }
             if let hostID {
                 guard let host = hosts.first(where: { $0.id == hostID }) else {
@@ -71,10 +67,6 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate, ObservableObject 
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            if url == TerminalLaunchRequest.newTabURL {
-                newWindow(asTab: true)
-                continue
-            }
             if let hostID = TerminalLaunchRequest.hostID(from: url) {
                 newWindow(hostID: hostID)
                 continue

@@ -2,8 +2,6 @@ import Foundation
 
 /// Pass a configured host identity, never executable shell text, between the two apps.
 public enum TerminalLaunchRequest {
-    public static let newTabURL = URL(string: "portal-terminal://new-tab")!
-
     public static func url(hostID: String) -> URL {
         var components = URLComponents()
         components.scheme = "portal-terminal"

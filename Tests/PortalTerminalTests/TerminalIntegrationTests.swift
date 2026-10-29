@@ -344,20 +344,6 @@ struct TerminalIntegrationTests {
         #expect(TerminalLaunchRequest.hostID(from: URL(string: "portal-terminal://new-window?host=")!) == nil)
     }
 
-    @Test @MainActor func requestedTabCreatesWindowThenJoinsExistingWindow() throws {
-        let application = NSApplication.shared
-        let workspace = TerminalWorkspace()
-        defer {
-            for window in application.windows where window is StandaloneTerminalWindow { window.close() }
-        }
-        workspace.openRequestedTab(hosts: [])
-        let first = try #require(application.windows.first { $0 is StandaloneTerminalWindow })
-        #expect(first.tabGroup?.windows.count ?? 1 == 1)
-        workspace.openRequestedTab(hosts: [])
-        #expect(first.tabGroup?.windows.count == 2)
-        #expect(first.tabGroup?.selectedWindow !== first)
-    }
-
     @Test @MainActor func nativeTabsStartHiddenAndCanBeReopened() throws {
         let application = NSApplication.shared
         let workspace = TerminalWorkspace()

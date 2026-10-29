@@ -14,6 +14,7 @@ struct ProjectCommands: Commands {
             Button("Reveal in Finder") { model?.revealSelectedProjectInFinder() }
                 .disabled(model?.selectedLocalRepositoryURL == nil)
             Button("Open in Terminal") { model?.openSelectedProjectInTerminal() }
+                .keyboardShortcut("t")
                 .disabled(model?.selectedLocalRepositoryURL == nil)
             Button("Open in External Editor") { model?.openSelectedProjectInEditor() }
                 .disabled(model?.selectedLocalRepositoryURL == nil)
@@ -64,13 +65,6 @@ struct ProjectTerminalCommands: Commands {
     let workspace: TerminalWorkspace
 
     var body: some Commands {
-        CommandGroup(after: .newItem) {
-            Button("New Terminal Tab") { TerminalApplication.openTab() }
-                .keyboardShortcut("t")
-                .disabled((model.map { $0.selectedTab != .terminal || $0.showsCommitDiff
-                    || !$0.projectTerminalSources.contains($0.selectedProjectHostSource) } ?? true)
-                    || !FileManager.default.fileExists(atPath: TerminalApplication.installedURL.path))
-        }
         TerminalCommands(workspace: workspace,
                          enabled: model.map { !$0.showsCommitDiff
                              && $0.projectTerminalSources.contains($0.selectedProjectHostSource) } ?? false,

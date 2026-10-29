@@ -1373,7 +1373,7 @@ private final class BlockView: NSView {
     private var headerTopConstraint: NSLayoutConstraint!
     private var metadataLeadingConstraint: NSLayoutConstraint!
     private var metadataTopConstraint: NSLayoutConstraint!
-    private let commandLabel = SelectableBlockTextField()
+    fileprivate let commandLabel = SelectableBlockTextField()
     private let metaLabel = SelectableBlockTextField()
     private let outputView = BlockOutputTextView(frame: .zero)
     private let copyMarkdownButton = HoverCopyMarkdownButton(frame: .zero)
@@ -1759,7 +1759,7 @@ private final class BlockView: NSView {
             header.trailingAnchor.constraint(equalTo: stickyHeader.trailingAnchor, constant: -12),
             header.topAnchor.constraint(equalTo: stickyHeader.topAnchor, constant: 8),
             commandLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor),
-            commandLabel.topAnchor.constraint(equalTo: header.bottomAnchor),
+            commandLabel.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 10),
             commandLabel.bottomAnchor.constraint(equalTo: stickyHeader.bottomAnchor, constant: -6),
             header.heightAnchor.constraint(equalToConstant: 28),
             metadataLeadingConstraint,
@@ -2294,7 +2294,7 @@ func portalStickyBlockHeaderSelfTest() async -> Bool {
 }
 
 @MainActor
-func portalCommandSubmissionHeightsSelfTest() -> [CGFloat] {
+func portalCommandSubmissionHeightsSelfTest(alignment: Bool = false) -> [CGFloat] {
     let delegate = TerminalViewController()
     let tab = TerminalTab(title: "Test", delegate: delegate)
     let host = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
@@ -2306,6 +2306,10 @@ func portalCommandSubmissionHeightsSelfTest() -> [CGFloat] {
         tab.rootView.bottomAnchor.constraint(equalTo: host.bottomAnchor)
     ])
     host.layoutSubtreeIfNeeded()
+    tab.inputView.string = "build"
+    tab.inputView.layoutManager?.ensureLayout(for: tab.inputView.textContainer!)
+    let editorRect = tab.inputView.convert(NSRect(origin: tab.inputView.textContainerOrigin, size: .zero), to: tab.commandBarView)
+    let editorTop = tab.commandBarView.bounds.maxY - editorRect.minY
     var heights = [tab.commandBarView.bounds.height]
     let view = BlockView()
     view.translatesAutoresizingMaskIntoConstraints = false
@@ -2313,7 +2317,7 @@ func portalCommandSubmissionHeightsSelfTest() -> [CGFloat] {
     view.widthAnchor.constraint(equalTo: tab.stackView.widthAnchor).isActive = true
     tab.commandBarView.isHidden = true
     tab.updateCommandBarInset()
-    for (revision, output) in ["", "Starting…\n", String(repeating: "progress\n", count: 10)].enumerated() {
+    for (revision, output) in ["", "Starting…", String(repeating: "progress\n", count: 10)].enumerated() {
         view.update(with: TerminalBlock(id: UUID(), command: "build", cwd: "/tmp",
             startedAt: Date(), finishedAt: nil, output: output,
             attributedOutput: NSAttributedString(string: output, attributes: [
@@ -2322,6 +2326,13 @@ func portalCommandSubmissionHeightsSelfTest() -> [CGFloat] {
         host.layoutSubtreeIfNeeded()
         tab.rootView.layoutSubtreeIfNeeded()
         heights.append(view.bounds.height)
+    }
+    if alignment {
+        let label = view.commandLabel
+        let rect = label.alignmentRect(forFrame: label.bounds)
+        let origin = label.convert(NSPoint(x: rect.minX, y: rect.minY), to: view)
+
+        return [editorRect.minX, editorTop, origin.x, view.bounds.maxY - origin.y]
     }
     return heights
 }
@@ -4251,6 +4262,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             tab.commandLifecycle.apply(.output(blockID: id, plainText: output,
                 attributedText: NSAttributedString(string: output),
                 isAlternateScreenActive: false, isApplicationCursorModeActive: false))
+            controller.refreshRunningElapsedTime(in: tab)
+            controller.stopRunningElapsedUpdates(for: tab)
+            host.layoutSubtreeIfNeeded()
             controller.updateBlockViewNow(for: id, in: tab)
             host.layoutSubtreeIfNeeded()
         }
@@ -4287,6 +4301,59 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         host.layoutSubtreeIfNeeded()
         await drainScroll()
         return positionIsCorrect()
+    }
+
+    static func repeatedCommandScrollingSelfTest() async -> Bool {
+        let controller = TerminalViewController(restoresPersistedWindow: false, standalone: true)
+        let tab = TerminalTab(title: "Test", delegate: controller)
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 1120, height: 760))
+        let window = NSWindow(contentRect: host.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.orderOut(nil) }
+        host.addSubview(tab.rootView)
+        NSLayoutConstraint.activate([
+            tab.rootView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            tab.rootView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            tab.rootView.topAnchor.constraint(equalTo: host.topAnchor),
+            tab.rootView.bottomAnchor.constraint(equalTo: host.bottomAnchor)
+        ])
+        controller.tabs = [tab]
+        controller.activeTabID = tab.id
+        tab.setToolbarInset(0)
+        host.layoutSubtreeIfNeeded()
+        tab.commandLifecycle.apply(.shellReady(cwd: "/tmp"))
+        for index in 0..<10 {
+            tab.commandLifecycle.apply(.submit(command: "command \(index)", cwd: "/tmp", at: Date()))
+            guard let block = tab.blocks.last else { return false }
+            controller.addBlockView(block, to: tab)
+            controller.updateCommandBarVisibility(for: tab)
+            controller.scrollToBottomNow(tab)
+            host.layoutSubtreeIfNeeded()
+            await Task.yield()
+            tab.commandLifecycle.apply(.commandStarted)
+            let output = String(repeating: "output line with a long description that wraps across the available terminal width and requires a second line\n", count: 8)
+            tab.commandLifecycle.apply(.output(blockID: block.id, plainText: output,
+                attributedText: NSAttributedString(string: output, attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+                ]), isAlternateScreenActive: false, isApplicationCursorModeActive: false))
+            controller.refreshRunningElapsedTime(in: tab)
+            controller.stopRunningElapsedUpdates(for: tab)
+            host.layoutSubtreeIfNeeded()
+            controller.updateBlockViewNow(for: block.id, in: tab)
+            host.layoutSubtreeIfNeeded()
+            await Task.yield()
+            controller.handleMarker(PortalMarker(rawValue: "D;1"), isReplay: false, in: tab)
+            host.layoutSubtreeIfNeeded()
+            await Task.yield()
+            host.layoutSubtreeIfNeeded()
+            tab.setToolbarInset(0)
+            host.layoutSubtreeIfNeeded()
+            guard tab.isScrolledToBottom else {
+                print("Lost bottom at command \(index): \(tab.scrollView.contentView.bounds) doc \(tab.scrollView.documentView!.bounds) inset \(tab.scrollView.contentInsets)")
+                return false
+            }
+        }
+        return true
     }
 
     static func sessionStartupStatusesSelfTest() -> [String] {
@@ -7479,7 +7546,11 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             return
         }
 
+        // A timer tick can render output before the scheduled output update does.
+        // Preserve follow mode before that output changes the document height.
+        let wasAtBottom = tab.isScrolledToBottom
         tab.blockViews[runningBlock.id]?.update(with: runningBlock, now: now)
+        if wasAtBottom { scrollToBottomNow(tab) }
 
         let refreshInterval = displayRefreshInterval(for: tab)
         let interval = BlockView.liveDurationRefreshInterval(

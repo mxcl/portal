@@ -11,6 +11,10 @@ struct TerminalIntegrationTests {
         #expect(await TerminalViewController.outputScrollingSelfTest(startsAtBottom: startsAtBottom))
     }
 
+    @Test @MainActor func repeatedCommandsKeepOutputAboveComposer() async {
+        #expect(await TerminalViewController.repeatedCommandScrollingSelfTest())
+    }
+
     @Test(arguments: [false, true]) @MainActor
     func externalBranchSwitchUpdatesStatusWithGitTreeHidden(standalone: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -145,6 +149,12 @@ struct TerminalIntegrationTests {
 
     @Test @MainActor func commandHeadersStickWithinTheirBlock() async {
         #expect(await portalStickyBlockHeaderSelfTest())
+    }
+
+    @Test @MainActor func commandTextKeepsPositionOnSubmission() {
+        let positions = portalCommandSubmissionHeightsSelfTest(alignment: true)
+        #expect(abs(positions[0] - positions[2]) < 0.5)
+        #expect(abs(positions[1] - positions[3]) < 0.5)
     }
 
     @Test @MainActor func runningBlockPreservesCommandEditorHeight() {

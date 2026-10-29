@@ -1331,6 +1331,40 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
     private var findSelectionTarget: FindResultTarget?
     private var findSelectionRange: NSRange?
 
+    static func findScrollClearanceSelfTest(topInset: CGFloat, startingOffset: CGFloat) -> Bool {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
+        let document = FlippedDocumentView(frame: NSRect(x: 0, y: 0, width: 600, height: 2_400))
+        scrollView.documentView = document
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets.top = topInset
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        let view = BlockView(frame: NSRect(x: 0, y: 200, width: 600, height: 1_600))
+        document.addSubview(view)
+        let output = (0..<80).map { "output line \($0)\n" }.joined()
+        view.update(with: TerminalBlock(
+            id: UUID(), command: "print output", cwd: "/tmp", startedAt: Date(), finishedAt: Date(),
+            output: output,
+            attributedOutput: NSAttributedString(string: output, attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+            ]), outputRevision: 1, state: .completed(0)
+        ))
+        view.layoutSubtreeIfNeeded()
+        let range = (output as NSString).range(of: "output line 40")
+        view.setFindSelection(target: .output, range: range)
+        guard let rect = view.outputRect(for: range) else { return false }
+        let match = document.convert(rect, from: view.outputView)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: match.minY + startingOffset))
+        view.layoutSubtreeIfNeeded()
+        view.scrollFindSelectionToVisible()
+        view.layoutSubtreeIfNeeded()
+        guard let visibleRect = view.outputRect(for: range) else { return false }
+        let visibleMatch = document.convert(visibleRect, from: view.outputView)
+        let header = document.convert(view.stickyHeader.bounds, from: view.stickyHeader)
+        let viewport = scrollView.contentView.bounds
+        return visibleMatch.minY >= max(header.maxY, viewport.minY + topInset) + 7.5
+            && visibleMatch.maxY <= viewport.maxY - 7.5
+    }
+
     static func stickyHeaderSelfTest() -> Bool {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
         let document = FlippedDocumentView(frame: NSRect(x: 0, y: 0, width: 600, height: 1_200))
@@ -1734,11 +1768,12 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         case .command:
             scrollToVisible(convert(commandLabel.bounds.insetBy(dx: 0, dy: -8), from: commandLabel))
         case .output:
-            guard let rect = outputRect(for: range) else {
-                scrollToVisible(convert(outputView.bounds.insetBy(dx: 0, dy: -8), from: outputView))
-                return
-            }
-            scrollToVisible(convert(rect.insetBy(dx: 0, dy: -8), from: outputView))
+            layoutSubtreeIfNeeded()
+            let rect = outputRect(for: range) ?? outputView.bounds
+            var targetRect = convert(rect.insetBy(dx: 0, dy: -8), from: outputView)
+            // Block coordinates are unflipped: reserve space above the match for its sticky header.
+            targetRect.size.height += stickyHeader.bounds.height
+            scrollToVisible(targetRect)
         }
     }
 
@@ -2137,6 +2172,11 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         let exponent = floor(log10(value))
         return pow(10, exponent - 2)
     }
+}
+
+@MainActor
+func portalFindScrollClearanceSelfTest(topInset: CGFloat, startingOffset: CGFloat) -> Bool {
+    BlockView.findScrollClearanceSelfTest(topInset: topInset, startingOffset: startingOffset)
 }
 
 @MainActor

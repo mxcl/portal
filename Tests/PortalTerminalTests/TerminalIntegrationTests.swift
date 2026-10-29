@@ -138,6 +138,11 @@ struct TerminalIntegrationTests {
         #expect(portalBlockWidthReflowSelfTest())
     }
 
+    @Test(arguments: [CGFloat(0), 38], [CGFloat(-10), 80, -400]) @MainActor
+    func findResultsClearStickyHeaders(topInset: CGFloat, startingOffset: CGFloat) {
+        #expect(portalFindScrollClearanceSelfTest(topInset: topInset, startingOffset: startingOffset))
+    }
+
     @Test @MainActor func commandHeadersStickWithinTheirBlock() {
         #expect(portalStickyBlockHeaderSelfTest())
     }

@@ -117,10 +117,19 @@ func projectTerminalCheckoutEligibility() {
     model.localProjects = ["project": PeerProject(name: "project", placement: .mirrored)]
     model.remoteProjects = [host.id: ["project": PeerProject(name: "project", placement: .mirrored)]]
     #expect(model.projectTerminalSources.isEmpty)
+    #expect(model.projectCheckoutSources == [.local, .host(host.id)])
     model.remoteProjects[host.id]?["project"] = PeerProject(name: "project", placement: .checkedOut)
     #expect(model.projectTerminalSources == [.host(host.id)])
+    #expect(model.projectCheckoutSources == [.local])
+    #expect(model.selectedProjectHostSource == .host(host.id))
     model.localProjects["project"] = PeerProject(name: "project", placement: .checkedOut)
     #expect(model.projectTerminalSources == [.local, .host(host.id)])
+    #expect(model.projectCheckoutSources.isEmpty)
     model.remoteProjects = [:]
     #expect(model.projectTerminalSources == [.local])
+    #expect(model.projectCheckoutSources == [.host(host.id)])
+    model.selectProjectHost(.host(host.id))
+    #expect(model.selectedProjectHostSource == .host(host.id))
+    model.selectedProjectName = nil
+    #expect(model.projectCheckoutSources.isEmpty)
 }

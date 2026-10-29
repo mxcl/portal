@@ -398,9 +398,15 @@ final class AppModel: ObservableObject {
            source == .local || configuration.hosts.contains(where: { .host($0.id) == source }) {
             return source
         }
-        return .local
+        return projectTerminalSources.first ?? .local
     }
 
+    var projectCheckoutSources: [ProjectSource] {
+        guard selectedProjectName != nil else { return [] }
+        let checkedOut = projectTerminalSources
+        return ([ProjectSource.local] + configuration.hosts.map { .host($0.id) })
+            .filter { !checkedOut.contains($0) }
+    }
 
     var projectTerminalSources: [ProjectSource] {
         guard let name = selectedProjectName else { return [] }
@@ -1896,7 +1902,29 @@ struct ProjectBrowserView: View {
                         ToolbarItem(placement: .primaryAction) {
                             HStack {
                                 Spacer(minLength: 0)
-                                HostTabs(model: model).fixedSize().glassEffect()
+                                HStack(spacing: 0) {
+                                    if !model.projectTerminalSources.isEmpty {
+                                        HostTabs(model: model).fixedSize()
+                                    }
+                                    if !model.projectCheckoutSources.isEmpty {
+                                        Menu {
+                                            ForEach(model.projectCheckoutSources, id: \.self) { source in
+                                                Button(model.projectSourceLabel(source)) {
+                                                    model.selectProjectHost(source)
+                                                }
+                                            }
+                                        } label: {
+                                            Image(systemName: "plus")
+                                        }
+                                        .menuIndicator(.hidden)
+                                        .menuStyle(.borderlessButton)
+                                        .fixedSize()
+                                        .padding(.horizontal, 8)
+                                        .help("Check out on another host")
+                                        .accessibilityLabel("Check out on another host")
+                                    }
+                                }
+                                .glassEffect()
                                 Spacer(minLength: 0)
                             }
                             .frame(width: max(0, hostPaneWidth - 24))
@@ -2568,7 +2596,7 @@ private struct ProjectOverview: View {
 private struct HostTabs: NSViewRepresentable {
     @ObservedObject var model: AppModel
 
-    private var sources: [ProjectSource] { [.local] + model.configuration.hosts.map { .host($0.id) } }
+    private var sources: [ProjectSource] { model.projectTerminalSources }
 
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
@@ -2600,7 +2628,7 @@ private struct HostTabs: NSViewRepresentable {
             control.setImageScaling(.scaleProportionallyDown, forSegment: index)
             control.setToolTip(name, forSegment: index)
         }
-        control.selectedSegment = sources.firstIndex(of: model.selectedProjectHostSource) ?? 0
+        control.selectedSegment = sources.firstIndex(of: model.selectedProjectHostSource) ?? -1
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSSegmentedControl, context: Context) -> CGSize? {

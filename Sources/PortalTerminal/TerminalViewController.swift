@@ -1031,6 +1031,14 @@ private final class BlockOutputTextView: NSTextView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        // Sticky headers cover output without shrinking its tracking area.
+        if let content = window?.contentView {
+            let point = content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
+            guard content.hitTest(point) === self else {
+                hoveredLinkRange = nil
+                return
+            }
+        }
         if forwardTerminalMouseEvent(event) {
             hoveredLinkRange = nil
             NSCursor.arrow.set()
@@ -1192,12 +1200,16 @@ private final class HoverCopyMarkdownButton: NSButton {
         }
         let trackingArea = NSTrackingArea(
             rect: .zero,
-            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited],
+            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate],
             owner: self,
             userInfo: nil
         )
         addTrackingArea(trackingArea)
         hoverTrackingArea = trackingArea
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.arrow.set()
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -1260,12 +1272,16 @@ private final class TerminalIconButton: NSButton {
         }
         let trackingArea = NSTrackingArea(
             rect: .zero,
-            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited],
+            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate],
             owner: self,
             userInfo: nil
         )
         addTrackingArea(trackingArea)
         hoverTrackingArea = trackingArea
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.arrow.set()
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -1435,6 +1451,18 @@ private final class BlockView: NSView {
         window.contentView = scrollView
         defer { window.close() }
         scrollView.contentInsets.top = 0
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: 100))
+        block.layoutSubtreeIfNeeded()
+        for button in [block.copyMarkdownButton, block.scrollToTopButton] {
+            let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+            guard let event = NSEvent.mouseEvent(
+                with: .mouseMoved, location: point, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0
+            ) else { return false }
+            NSCursor.arrow.set()
+            block.outputView.mouseMoved(with: event)
+            guard NSCursor.current == NSCursor.arrow else { return false }
+        }
         block.metaLabel.stringValue = "~/src/av  79.6 ms  3:01 PM"
         for scrollY: CGFloat in [100, -100, 100] {
             scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollY))

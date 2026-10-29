@@ -22,6 +22,9 @@ controller or synthetic mouse events are involved. Commands start at 2, 6, 10,
 14, 19, 23, 27, 31, 35, and 39 seconds. Typing takes roughly 100 ms per character,
 with a pause before submission. Capture lasts 46 seconds, including a final hold.
 
+The backdrop gradually cycles through blue, jade, amber, and violet over 48 seconds.
+Its diffuse pools, caustic highlights, and dark ground share the same color timeline.
+
 The backdrop uses ordinary window ordering and exits when the filming host exits,
 even if the host is killed. The harness also terminates child processes on errors
 and successful completion. Set `PORTAL_FILM_VALIDATE_ONLY=1` to exercise the

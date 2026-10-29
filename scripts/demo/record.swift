@@ -18,7 +18,9 @@ Task { @MainActor in
         let windows = content.windows.filter { ($0.owningApplication?.bundleIdentifier == "dev.mxcl.portal.film" && $0.windowLayer == 0 && $0.frame.width > 1000 && $0.frame.height > 500) || $0.title == "Portal Film Backdrop" }
         for window in windows { print("WINDOW \(window.windowID) \(window.title ?? "") \(window.frame)") }
         guard windows.count >= 2, let display = content.displays.first else { fatalError("Missing film windows") }
-        let filter = SCContentFilter(display: display, including: windows)
+        let filter = CommandLine.arguments.contains("--display")
+            ? SCContentFilter(display: display, excludingWindows: [])
+            : SCContentFilter(display: display, including: windows)
         let config = SCStreamConfiguration()
         // shortcut: framing is calibrated for the 1512×982 shoot display. Recalibrate before filming on another display.
         config.width = 3024; config.height = 1700

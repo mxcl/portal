@@ -163,8 +163,8 @@ public final class TerminalWorkspace: ObservableObject {
         }
     }
 
-    public func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hosts: [TerminalHost] = [], hostID: String? = nil) {
-        openWindow(directory: directory, command: command, hosts: hosts, hostID: hostID)
+    public func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hosts: [TerminalHost] = [], hostID: String? = nil, skipsSessionPicker: Bool = false) {
+        openWindow(directory: directory, command: command, hosts: hosts, hostID: hostID, skipsSessionPicker: skipsSessionPicker)
     }
 
     public func newTab() {
@@ -188,10 +188,10 @@ public final class TerminalWorkspace: ObservableObject {
     }
 
     private func openWindow(directory: URL, command: String? = nil, hosts: [TerminalHost], hostID: String?,
-                            restoredSession: SessionCatalog.Record? = nil, tabbedWith parent: NSWindow? = nil) {
+                            skipsSessionPicker: Bool = false, restoredSession: SessionCatalog.Record? = nil, tabbedWith parent: NSWindow? = nil) {
         PtySession.configureSSHHosts(hosts)
         let controller = TerminalViewController(restoresPersistedWindow: false, initialDirectory: directory,
-            initialHostID: hostID, standalone: true, launchCommand: command, sessionHosts: hosts,
+            initialHostID: hostID, standalone: true, skipsSessionPicker: skipsSessionPicker, launchCommand: command, sessionHosts: hosts,
             restoredSession: restoredSession)
         controller.otherOpenSessionRefs = { [weak self] in
             Set(self?.windows.compactMap {

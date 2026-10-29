@@ -229,6 +229,26 @@ struct TerminalIntegrationTests {
         #expect(!TerminalWorkspace().restoreWindows(hosts: [], defaults: defaults))
     }
 
+    @Test @MainActor func directoryOpenSkipsSessionPicker() async throws {
+        let application = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory
+        let delegate = TerminalDelegate()
+        defer {
+            for window in application.windows where window is StandaloneTerminalWindow { window.close() }
+        }
+        delegate.application(application, open: [directory])
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        for _ in 0..<100 {
+            if application.windows.contains(where: { $0 is StandaloneTerminalWindow }) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let windows = application.windows.filter { $0 is StandaloneTerminalWindow }
+        #expect(windows.count == 1)
+        let controller = try #require(windows.first?.contentViewController as? TerminalViewController)
+        #expect(controller.windowDirectory.standardizedFileURL == directory.standardizedFileURL)
+        #expect(!controller.isShowingSessionPicker)
+    }
+
     @Test @MainActor func initialReopenRestoresSavedTabs() async throws {
         let application = NSApplication.shared
         let key = "standaloneTerminalWindows"

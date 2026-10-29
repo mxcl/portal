@@ -3584,6 +3584,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
     private let initialHostID: String?
     private let initialDirectory: URL
     private let selfTestCommand: String?
+    private let skipsSessionPicker: Bool
     private let launchCommand: String?
     private let sessionHosts: [TerminalHost]
     private let sessionCatalog: SessionCatalog
@@ -3697,6 +3698,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         initialDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         initialHostID: String? = nil,
         standalone: Bool = false,
+        skipsSessionPicker: Bool = false,
         launchCommand: String? = nil,
         sessionHosts: [TerminalHost] = [],
         restoredSession: SessionCatalog.Record? = nil,
@@ -3705,6 +3707,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         _ = Self.didRunPassthroughRoutingSelfTest
         self.restoredSession = restoredSession
         self.standalone = standalone
+        self.skipsSessionPicker = skipsSessionPicker
         self.initialHostID = initialHostID
         self.initialDirectory = initialDirectory
         self.selfTestCommand = selfTestCommand
@@ -3720,6 +3723,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         _ = Self.didRunPassthroughRoutingSelfTest
         self.restoredSession = nil
         self.standalone = false
+        self.skipsSessionPicker = false
         self.initialHostID = nil
         self.initialDirectory = FileManager.default.homeDirectoryForCurrentUser
         self.selfTestCommand = nil
@@ -4945,6 +4949,8 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return true
     }
 
+    var isShowingSessionPicker: Bool { activeTab?.sessionPickerView.isHidden == false }
+
     private var activeTab: TerminalTab? {
         guard let activeTabID else { return nil }
         return tabs.first { $0.id == activeTabID }
@@ -4960,7 +4966,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
 
         if tabsToRestore.isEmpty {
             createTab(initialCommand: launchCommand.map { InitialCommand(command: $0, exitsShellAfterCompletion: false) },
-                      showsSessionPicker: standalone && launchCommand == nil && initialHostID == nil)
+                      showsSessionPicker: standalone && !skipsSessionPicker && launchCommand == nil && initialHostID == nil)
             return
         }
 

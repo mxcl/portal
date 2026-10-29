@@ -33,7 +33,7 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate, ObservableObject 
         return false
     }
 
-    func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hostID: String? = nil, restoringWindows: Bool = false) {
+    func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hostID: String? = nil, restoringWindows: Bool = false, skipsSessionPicker: Bool = false) {
         openedWindow = true
         Task {
             let snapshot = try? await EngineClient.send(.snapshot).snapshot
@@ -60,7 +60,7 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate, ObservableObject 
                 }
                 workspace.newWindow(directory: URL(fileURLWithPath: host.directory), hosts: hosts, hostID: host.id)
             } else {
-                workspace.newWindow(directory: directory, command: command, hosts: hosts)
+                workspace.newWindow(directory: directory, command: command, hosts: hosts, skipsSessionPicker: skipsSessionPicker)
             }
         }
     }
@@ -75,7 +75,7 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate, ObservableObject 
             var directory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) else { continue }
             let command = directory.boolValue ? nil : "'" + url.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-            newWindow(directory: directory.boolValue ? url : url.deletingLastPathComponent(), command: command)
+            newWindow(directory: directory.boolValue ? url : url.deletingLastPathComponent(), command: command, skipsSessionPicker: true)
         }
     }
 

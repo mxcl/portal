@@ -1,18 +1,93 @@
 # Portal
 
-[Portal](https://github.com/mxcl/portal/releases/download/v1.0.0/Portal-1.0.0.dmg) is the terminal app.
-[Portal Hub](https://github.com/mxcl/portal/releases/download/v1.0.0/Portal-Hub-1.0.0.dmg) manages projects, syncing, and backups. Download either app separately.
+A beautiful, tasteful, delightful terminal. macOS native AF.
+
+This repository contains two separate Mac apps:
+
+- **[Portal][download]** is the terminal: command blocks, completions, and sessions that survive closed tabs and app relaunches.
+- **[Portal Hub][hub-download]** is an experimental project manager with Git sync and backups across your computers.
+
+Download either app separately. Both require macOS 26 or newer on Apple silicon.
+
+## Portal · the terminal
+
+[Download Portal for macOS][download], open the DMG, and drag **Portal.app** into Applications.
 
 https://github.com/user-attachments/assets/c9829fa6-da3b-4339-a564-af6d8da1fb35
 
-Continuously exchange Git history between your own computers over one
-persistent SSH connection. `portald` implements a bidirectional, continuous
-fetch/push system. Each host publishes snapshots of its refs into the other
-host's peer namespace while both working repositories remain independent by
-default. Incoming history leaves local branches, `HEAD`, the index, and working
-files alone unless guarded checkout syncing is explicitly enabled.
+### Your shell keeps running
+
+Portal renders each command and its output as a block. Your shell runs in a separate `portal-sessiond` process.
+
+Close a tab with `⌘W` and reopen it with `⌘⇧T`. Quit Portal and come back later. Typing `exit` ends the session; closing its window only detaches.
+
+The new-tab screen lists live sessions with their working directory, recent command, and host. Rejoin a session where you left it, with its output history intact.
+
+### Rejoin from another Mac or iPhone
+
+Start or rejoin sessions on your other computers over SSH. On Mac, Portal uses the hosts configured in Portal Hub. Install both apps to configure those destinations and open project terminals from Hub.
+
+The repository also includes [Portal for iPhone](ios/README.md), which connects to Mac sessions over SSH on Tailscale or another private VPN. Follow its setup guide for SSH keys, pinned host keys, and network requirements.
+
+For a Linux terminal host, install the persistent session helpers as well as any Git sync daemon you need:
 
 ```console
+$ ./scripts/install-terminal-helpers.sh
+```
+
+Run this from a checkout on the Linux host with Rust installed. The helpers live in `~/.local/lib/portal/terminal`; `portald` handles Git sync separately.
+
+### Completions without shell setup
+
+Portal combines executable names, shell builtins, command history, paths, and bundled [Fig completion specs][fig] as you type. Completions also work in remote sessions.
+
+> [!IMPORTANT]
+> Fig generators can execute shell code. A generator for a remote session runs as your user on that host. Use completion specs you trust.
+
+## Portal Hub · experimental project management & Git sync
+
+[Download Portal Hub][hub-download] for project browsing, commit graphs, diffs, GitHub activity, continuous Git sync, and backups across your computers.
+
+> [!WARNING]
+> Portal Hub is experimental. Its project management and synchronization features are under active development.
+
+Open **Portal Hub.app**, choose your projects folder, and add your SSH hosts. Select the local and remote host cells for each project you want to sync. Existing repositories with matching names require confirmation before enabling the connection.
+
+Browse a project's history, README, and diffs even when it lives on another host. Hub reads remote repositories over SSH without requiring a local checkout. **New Terminal Window** opens the separate Portal terminal app.
+
+### Your Git history, on your computers
+
+`portald` continuously exchanges Git objects and ref snapshots over SSH. Each host keeps its own branches, tags, stash, `HEAD`, index, and working tree. Incoming branches appear under the peer's name:
+
+```console
+$ git log linux/main
+$ git diff main..linux/main
+```
+
+Each enabled peer is also a Git remote. Ordinary `git fetch linux` and `git push linux main` work over SSH.
+
+If both machines advance `main`, both histories are retained. You decide when to merge, rebase, or incorporate a peer's work.
+
+**Keep matching clean checkouts in sync** opts both ends into guarded fast-forwards: the branch must match, both checkouts must be clean, and the local commit must be an ancestor of the peer tip. Divergent, staged, untracked, or otherwise dirty work stays untouched.
+
+The menu helper keeps syncing when the project window is closed and shows live transfer logs. **Launch at Login** registers that helper.
+
+### Back up and browse your projects
+
+The Backup tab can continuously send your local repositories to another host. On the receiving Mac, choose **Receive Backups on This Mac** and a folder separate from your projects. Each backup is a bare Git repository; its refs are never published back to the source Mac.
+
+Browse stored repositories, archive projects that no known host contains, or **Unarchive** a snapshot into your projects folder. Unarchive refuses to overwrite an existing repository.
+
+The optional [GitHub integration](Relay/README.md) adds project notifications, star/PR/issue counts, and fetches triggered by GitHub pushes.
+
+### Linux / CLI
+
+Build and install the Git sync daemon with Swift 5.9 or newer and Git:
+
+```console
+$ swift build -c release --product portald
+$ mkdir -p ~/.local/bin
+$ install .build/release/portald ~/.local/bin/portald
 $ portald run \
     --root ~/src \
     --machine macbook \
@@ -20,130 +95,31 @@ $ portald run \
     --remote-root /home/max/src
 ```
 
-Without `--selective`, every immediate child of `~/src` that Git recognizes as
-a repository participates in the exchange. The Mac app always uses an explicit
-selection. A missing selected project is initialized at the peer as an empty
-folder containing `.git`; files are not checked out.
+Without `--selective`, every immediate Git repository under the root participates. Hub uses an explicit project selection. A missing selected project is initialized on the peer without checking out its files.
 
-```console
-$ git log linux/main
-$ git diff main..linux/main
-```
+Saved Mac daemon paths should point to `/Applications/Portal Hub.app/Contents/Resources/portald`; Linux paths should point to `~/.local/bin/portald`. Legacy command names remain compatibility forwarders.
 
-Branches appear at `refs/remotes/<lowercase-kebab-machine>/…`, tags at
-`refs/sync/<machine>/tags/…`, and stashes at
-`refs/sync/<machine>/stash`.
+For the replication contract, ref namespaces, and failure handling, see [DESIGN.md](DESIGN.md). For CLI options, run `portald help`.
 
-Each enabled peer is also available as a Git remote named from its configured
-display name in lowercase kebab case (or its machine name when unnamed),
-so ordinary commands such as
-`git fetch linux` and `git push linux main` work over SSH. Portal configures
-branch and tag fetch mappings without changing local branches or tags.
+## Build from source
 
-If both machines advance `main`, both histories are retained:
-
-```text
-machine A: refs/heads/main          machine B: refs/heads/main
-           refs/remotes/b/main                refs/remotes/a/main
-```
-
-You decide when to merge, rebase, reset, check out, or incorporate a
-peer ref, as you would after `git fetch`.
-
-`--sync-checkouts` (or **Keep matching clean checkouts in sync** in the Mac app)
-opts both ends of a connection into guarded fast-forwards. Portal advances a
-checked-out branch only when that same branch is the peer's clean checkout, the
-local checkout is clean, and its current commit is an ancestor of the peer tip.
-Staged, unstaged, untracked, divergent committed work, and non-fast-forward
-updates leave the checkout untouched. A checkout that becomes clean later
-retries the fast-forward during reconciliation (within five minutes).
-
-The optional [GitHub integration](Relay/README.md) adds project notifications,
-star/open PR/open issue counts, and branch/tag fetches triggered by GitHub pushes.
-It uses a separate relay and APNs, with no recurring GitHub polling.
-
-## Install the Mac app
+The Mac apps need Xcode, Rust, and the signing identity and provisioning profiles expected by the installer:
 
 ```console
 $ ./scripts/install.sh
 ```
 
-This builds, Developer ID signs, and installs `Portal Hub.app` and `Portal.app`
-in `/Applications`. Portal includes its menu-bar Sync Helper. Both deploy scripts
-install and verify both apps. Open Portal Hub and choose the one parent
-folder. Add each SSH host before choosing folders; the app rejects the host if its Portal helper cannot
-be inspected. The folder table is prepopulated from every host. Select both the
-local and remote host cells to enable a folder in both directions. Matching
-repository names already present on both hosts retain the initial “Are You
-Sure?” confirmation.
-
-The Backup tab can continuously send every local repository to one existing
-host. On the receiving Mac, use the same tab to choose **Receive Backups on This
-Mac**; that folder must differ from its projects folder. Portal Hub.app owns the
-destination and the SSH process only relays encrypted protocol bytes, so Remote
-Login does not need Full Disk Access. The connection is receive-only: refs
-created inside the backup are never published back to the source Mac. Each
-backup is a bare repository named `<repository>.git` directly inside the chosen
-destination.
-
-The Backup tab lists stored repositories on both the receiving Mac and Macs that
-back up to it. Repositories that no known host contains can be marked archived
-without moving or deleting their data. **Unarchive** transfers a selected
-snapshot from the receiver into the projects folder on the Mac where the action
-was chosen; it refuses to overwrite an existing repository.
-
-Projects that are not on this Mac remain browsable. Portal reads their commit
-graph, README, and selected commit diffs over SSH without creating a local mirror;
-live repositories also expose their GitHub origin. When several live hosts or
-backup snapshots contain the project, the graph toolbar identifies the source and
-lets you switch it. A local repository always takes precedence and keeps the source
-picker hidden.
-
-The embedded helper owns continuous syncing and shows live transfer logs in its
-menu, even while the project window is closed. The Launch at Login setting
-registers only `Portal Menu Helper.app`, which shares the main app’s icon files. It uses the copy of `portald` inside each peer's
-`/Applications/Portal Hub.app`; the path can be changed while adding that host.
-
-**New Terminal Window** opens the sibling **Portal** app in Applications. It lists all terminal sessions, including project sessions. Install both apps to open terminals from Portal Hub.
-
-Choose **Portal → Install Command Line Tool…** to install `portal` in
-`/usr/local/bin`. The bundled installer opens in Terminal and requests your
-administrator password via `sudo`. Run `portal` to open the app, or
-`portal /path/to/repository` to select a project. `portal --sync-help` lists
-the daemon commands. The app must remain
-installed; run the menu installer again after an update to refresh the CLI.
-
-Existing hosts configured with `/Applications/Git Sync.app/Contents/Resources/portald`
-need their executable path updated after renaming the installed app.
-
-The bundle keeps `git-sync` as a compatibility symlink to `portald` for older
-installed launchers. New peer configurations use `portald`.
-
-## Linux / CLI install
-
-Swift 5.9 or newer and Git are required.
-
-```console
-$ swift build -c release
-$ install .build/release/portald ~/.local/bin/portald
-```
-
-The peer needs ordinary SSH authentication. No network listener, repository
-hook, Git replacement, or filesystem mirroring is used. macOS backup receivers
-use owner-only local Unix sockets inside Application Support. Git remains
-responsible for object validation, packs, garbage collection, and atomic ref
-updates.
-
-## Development
+This builds, signs, and installs both **Portal.app** and **Portal Hub.app** in `/Applications`. The Swift and Rust tests can run without the app-signing setup:
 
 ```console
 $ swift test
+$ cargo test --manifest-path TerminalHelpers/Cargo.toml
 ```
-
-See [DESIGN.md](DESIGN.md) for the protocol, state model, and failure analysis.
 
 ## License
 
-Portal is licensed under AGPL-3.0-or-later. Its commit graph renderer is
-adapted from [MacGit](https://github.com/Commit-Plus/macgit); the original
-copyright and license notices are preserved in those source files.
+Portal is licensed under AGPL-3.0-or-later. Portal Hub's commit graph renderer is adapted from [MacGit](https://github.com/Commit-Plus/macgit); its original copyright and license notices are preserved in the source files.
+
+[download]: https://github.com/mxcl/portal/releases/download/v1.0.0/Portal-1.0.0.dmg
+[hub-download]: https://github.com/mxcl/portal/releases/download/v1.0.0/Portal-Hub-1.0.0.dmg
+[fig]: https://github.com/withfig/autocomplete

@@ -6,7 +6,7 @@ struct ProjectCommands: Commands {
     @FocusedValue(\.paletteModel) private var model
 
     var body: some Commands {
-        CommandMenu("Project") {
+        CommandGroup(before: .newItem) {
             Button("Switch Project…") { model?.showPalette() }
                 .keyboardShortcut("p")
                 .disabled(model == nil)
@@ -80,14 +80,14 @@ struct ProjectTerminalCommands: Commands {
 extension AppDelegate {
     func applicationWillUpdate(_ notification: Notification) {
         guard let menu = NSApp.mainMenu else { return }
-        Self.placeProjectMenuFirst(in: menu)
+        Self.nameProjectMenu(in: menu)
     }
 
-    static func placeProjectMenuFirst(in menu: NSMenu) {
-        guard let project = menu.items.first(where: { $0.title == "Project" }),
-              menu.index(of: project) > 1 else { return }
-        menu.removeItem(project)
-        menu.insertItem(project, at: 1)
+    static func nameProjectMenu(in menu: NSMenu) {
+        // SwiftUI owns menu positions; moving its items breaks command reconciliation.
+        guard let file = menu.items.first(where: { $0.submenu?.title == "File" }) else { return }
+        file.title = "Project"
+        file.submenu?.title = "Project"
     }
 }
 #endif

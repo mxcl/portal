@@ -1217,7 +1217,7 @@ private final class HoverCopyMarkdownButton: NSButton {
     }
 }
 
-private final class CommandBarButton: NSButton {
+private final class TerminalIconButton: NSButton {
     private var hoverTrackingArea: NSTrackingArea?
     private var isHovering = false {
         didSet { updateAppearance() }
@@ -1285,7 +1285,7 @@ private final class CommandBarButton: NSButton {
     }
 }
 
-private final class BlockView: NSView, NSGestureRecognizerDelegate {
+private final class BlockView: NSView {
     var usesPortalMaterials = false
     private var runningBackground: NSColor {
         usesPortalMaterials ? TahoeGlassPalette.standaloneCommandBackground(darkOpacity: 0.22) : TahoeGlassPalette.commandBackground
@@ -1320,6 +1320,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
     private let metaLabel = SelectableBlockTextField()
     private let outputView = BlockOutputTextView(frame: .zero)
     private let copyMarkdownButton = HoverCopyMarkdownButton(frame: .zero)
+    private let scrollToTopButton = TerminalIconButton(symbol: "arrow.up.to.line", label: "Scroll to top of block")
     private let findReticuleLayer = CALayer()
     private var outputHeightConstraint: NSLayoutConstraint?
     private var minimumHeightConstraint: NSLayoutConstraint?
@@ -1372,7 +1373,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
             && visibleMatch.maxY <= viewport.maxY - 7.5
     }
 
-    static func stickyHeaderSelfTest() -> Bool {
+    static func stickyHeaderSelfTest() async -> Bool {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
         let document = FlippedDocumentView(frame: NSRect(x: 0, y: 0, width: 600, height: 1_200))
         scrollView.documentView = document
@@ -1393,7 +1394,8 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
                 let expectedY = min(scrollY, 600 - headerFrame.height)
                 guard abs(headerFrame.minY - expectedY) < 0.5,
                       headerFrame.maxY <= 600,
-                      block.outputView.frame == outputFrame else { return false }
+                      block.outputView.frame == outputFrame,
+                      block.scrollToTopButton.isHidden == (scrollY == 0) else { return false }
                 let buttonCenter = document.convert(
                     NSPoint(x: block.copyMarkdownButton.bounds.midX, y: block.copyMarkdownButton.bounds.midY),
                     from: block.copyMarkdownButton
@@ -1403,17 +1405,23 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
             for blockY: CGFloat in [0, 200] {
                 block.setFrameOrigin(NSPoint(x: 0, y: blockY))
                 scrollView.contentView.scroll(to: NSPoint(x: 0, y: blockY + 100))
-                guard let gesture = block.stickyHeader.gestureRecognizers.first else { return false }
-                for (view, shouldScroll): (NSView, Bool) in [(block.commandLabel, true), (block.copyMarkdownButton, false)] {
-                    let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
-                    guard let event = NSEvent.mouseEvent(
-                        with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
-                        windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
-                    ), block.gestureRecognizer(gesture, shouldAttemptToRecognizeWith: event) == shouldScroll else { return false }
+                block.layoutSubtreeIfNeeded()
+                guard block.stickyHeader.gestureRecognizers.isEmpty,
+                      !block.scrollToTopButton.isHidden,
+                      block.scrollToTopButton.image != nil,
+                      block.scrollToTopButton.frame.width == block.scrollToTopButton.frame.height else { return false }
+                for y in [CGFloat(1), block.scrollToTopButton.bounds.midY, block.scrollToTopButton.bounds.maxY - 1] {
+                    let point = document.convert(NSPoint(x: block.scrollToTopButton.bounds.midX, y: y), from: block.scrollToTopButton)
+                    guard block.hitTest(point) === block.scrollToTopButton else { return false }
                 }
-                block.scrollToBlockTop(animated: false)
+                block.scrollToTopButton.performClick(nil)
+                let deadline = Date().addingTimeInterval(2)
+                while !block.scrollToTopButton.isHidden && Date() < deadline {
+                    try? await Task.sleep(for: .milliseconds(10))
+                }
                 guard abs(scrollView.contentView.bounds.minY - (blockY - inset)) < 0.5,
-                      block.headerTopConstraint.constant == 0 else { return false }
+                      block.headerTopConstraint.constant == 0,
+                      block.scrollToTopButton.isHidden else { return false }
             }
             block.setFrameOrigin(.zero)
         }
@@ -1602,8 +1610,14 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         copyMarkdownButton.setButtonType(.momentaryPushIn)
         copyMarkdownButton.translatesAutoresizingMaskIntoConstraints = false
 
+        scrollToTopButton.target = self
+        scrollToTopButton.action = #selector(scrollToTopClicked)
+        scrollToTopButton.isHidden = true
+        scrollToTopButton.translatesAutoresizingMaskIntoConstraints = false
+
         let header = NSView()
         header.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(scrollToTopButton)
         header.addSubview(metaLabel)
         header.addSubview(copyMarkdownButton)
         metaLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1616,10 +1630,6 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         stickyHeaderMaterial.isHidden = true
         stickyHeaderMaterial.autoresizingMask = [.width, .height]
         stickyHeader.addSubview(stickyHeaderMaterial)
-        let scrollToTopGesture = NSClickGestureRecognizer(target: self, action: #selector(didClickStickyHeader))
-        scrollToTopGesture.delegate = self
-        scrollToTopGesture.delaysPrimaryMouseButtonEvents = true
-        stickyHeader.addGestureRecognizer(scrollToTopGesture)
         stickyHeader.addSubview(header)
         stickyHeader.addSubview(commandLabel)
         let headerSpace = NSView()
@@ -1664,7 +1674,11 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
             header.heightAnchor.constraint(equalToConstant: 28),
             metadataLeadingConstraint,
             metadataTopConstraint,
-            metaLabel.trailingAnchor.constraint(lessThanOrEqualTo: copyMarkdownButton.leadingAnchor, constant: -8),
+            metaLabel.trailingAnchor.constraint(lessThanOrEqualTo: scrollToTopButton.leadingAnchor, constant: -8),
+            scrollToTopButton.topAnchor.constraint(equalTo: header.topAnchor),
+            scrollToTopButton.trailingAnchor.constraint(equalTo: copyMarkdownButton.leadingAnchor, constant: -4),
+            scrollToTopButton.widthAnchor.constraint(equalToConstant: 28),
+            scrollToTopButton.heightAnchor.constraint(equalToConstant: 28),
             copyMarkdownButton.topAnchor.constraint(equalTo: header.topAnchor),
             copyMarkdownButton.trailingAnchor.constraint(equalTo: header.trailingAnchor),
             copyMarkdownButton.bottomAnchor.constraint(lessThanOrEqualTo: header.bottomAnchor),
@@ -1793,12 +1807,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
         }
     }
 
-    func gestureRecognizer(_ gestureRecognizer: NSGestureRecognizer, shouldAttemptToRecognizeWith event: NSEvent) -> Bool {
-        headerTopConstraint.constant > 0
-            && !copyMarkdownButton.bounds.contains(copyMarkdownButton.convert(event.locationInWindow, from: nil))
-    }
-
-    @objc private func didClickStickyHeader() {
+    @objc private func scrollToTopClicked() {
         scrollToBlockTop(animated: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     }
 
@@ -1862,6 +1871,7 @@ private final class BlockView: NSView, NSGestureRecognizerDelegate {
             headerTopConstraint.constant = offset
         }
         stickyHeaderMaterial.isHidden = offset <= 0
+        scrollToTopButton.isHidden = offset <= 0
     }
 
     @objc private func copyMarkdown() { onCopyMarkdown?() }
@@ -2187,8 +2197,8 @@ func portalFindScrollClearanceSelfTest(topInset: CGFloat, startingOffset: CGFloa
 }
 
 @MainActor
-func portalStickyBlockHeaderSelfTest() -> Bool {
-    BlockView.stickyHeaderSelfTest()
+func portalStickyBlockHeaderSelfTest() async -> Bool {
+    await BlockView.stickyHeaderSelfTest()
 }
 
 @MainActor
@@ -2880,8 +2890,8 @@ private final class TerminalTab: NSObject {
     let commandSeparator = SeparatorView()
     let commandBarView = NSView()
     let commandBarMaterial = TerminalBarMaterialView()
-    let findCloseButton = CommandBarButton(symbol: "multiply", label: "Close Find")
-    let scrollToBottomButton = CommandBarButton(symbol: "arrow.down.to.line", label: "Scroll to bottom")
+    let findCloseButton = TerminalIconButton(symbol: "multiply", label: "Close Find")
+    let scrollToBottomButton = TerminalIconButton(symbol: "arrow.down.to.line", label: "Scroll to bottom")
     let completionPendingLine = NSView()
     let ptyPassthroughView = PtyPassthroughView(frame: .zero)
     var title: String

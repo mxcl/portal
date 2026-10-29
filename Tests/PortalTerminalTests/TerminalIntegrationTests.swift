@@ -143,8 +143,8 @@ struct TerminalIntegrationTests {
         #expect(portalFindScrollClearanceSelfTest(topInset: topInset, startingOffset: startingOffset))
     }
 
-    @Test @MainActor func commandHeadersStickWithinTheirBlock() {
-        #expect(portalStickyBlockHeaderSelfTest())
+    @Test @MainActor func commandHeadersStickWithinTheirBlock() async {
+        #expect(await portalStickyBlockHeaderSelfTest())
     }
 
     @Test @MainActor func commandBarOverlaysHistoryWithoutHidingItsEnd() async {

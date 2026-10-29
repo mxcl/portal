@@ -78,14 +78,31 @@ struct ProjectTerminalCommands: Commands {
 }
 
 extension AppDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        for name in [NSMenu.didChangeItemNotification, NSMenu.didBeginTrackingNotification] {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(projectMenuDidChange(_:)), name: name, object: nil
+            )
+        }
+    }
+
+    @objc private func projectMenuDidChange(_ notification: Notification) {
+        applicationWillUpdate(notification)
+    }
+
     func applicationWillUpdate(_ notification: Notification) {
         guard let menu = NSApp.mainMenu else { return }
         Self.nameProjectMenu(in: menu)
     }
 
+    private static var isNamingProjectMenu = false
+
     static func nameProjectMenu(in menu: NSMenu) {
+        guard !isNamingProjectMenu else { return }
+        isNamingProjectMenu = true
+        defer { isNamingProjectMenu = false }
         // SwiftUI owns menu positions; moving its items breaks command reconciliation.
-        guard let file = menu.items.first(where: { $0.submenu?.title == "File" }) else { return }
+        guard let file = menu.items.first(where: { $0.title == "File" || $0.submenu?.title == "File" }) else { return }
         file.title = "Project"
         file.submenu?.title = "Project"
     }

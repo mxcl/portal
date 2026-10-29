@@ -4,6 +4,31 @@ import Testing
 @testable import PortalApp
 
 struct ProjectMenuTests {
+    @Test @MainActor func projectTitleSurvivesUpdatesWhileTracking() {
+        let application = NSApplication.shared
+        let previousMenu = application.mainMenu
+        defer { application.mainMenu = previousMenu }
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Portal", action: nil, keyEquivalent: "").submenu = NSMenu(title: "Portal")
+        let item = menu.addItem(withTitle: "File", action: nil, keyEquivalent: "")
+        item.submenu = NSMenu(title: "File")
+        application.mainMenu = menu
+        let delegate = AppDelegate()
+        (delegate as NSApplicationDelegate).applicationDidFinishLaunching?(Notification(name: NSApplication.didFinishLaunchingNotification))
+        AppDelegate.nameProjectMenu(in: menu)
+
+        // Tracking can reset only the menu-bar item, without an app-update callback.
+        item.title = "File"
+        #expect(item.title == "Project")
+        #expect(item.submenu?.title == "Project")
+        item.submenu?.title = "File"
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: item.submenu)
+        #expect(item.title == "Project")
+        #expect(item.submenu?.title == "Project")
+        #expect(menu.items.count == 2)
+        withExtendedLifetime(delegate) {}
+    }
+
     @Test @MainActor func projectMenuKeepsSwiftUIMenuSlots() {
         let menu = NSMenu()
         for title in ["Portal", "File", "Edit", "View", "Window"] {

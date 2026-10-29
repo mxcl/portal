@@ -5,6 +5,9 @@ import Testing
 @testable import PortalApp
 import PortalCore
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test("Git tree width defaults wide and survives closing and reopening the window")
 @MainActor
 func gitTreeColumnWidthIsRemembered() throws {
@@ -60,4 +63,7 @@ func gitTreeColumnWidthIsRemembered() throws {
             && abs(defaults.double(forKey: "git-tree-column-width") - 520) <= 1
     }
 }
+
+}
+#endif
 #endif

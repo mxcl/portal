@@ -4,6 +4,9 @@ import Testing
 @testable import PortalCore
 @testable import PortalEngine
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test("archiving keeps the selected project, commit, and content while switching to its backup")
 @MainActor
 func archivePreservesSelection() async throws {
@@ -159,3 +162,6 @@ func archiveChosenHosts(fails: Bool) async {
     #expect(model.placementInProgress == nil)
     #expect(fails ? model.error?.contains("Host unavailable") == true : model.error == nil)
 }
+
+}
+#endif

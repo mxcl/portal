@@ -5,6 +5,9 @@ import Testing
 @testable import PortalEngine
 import PortalGraph
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test("Staging selects the diff, loads both index sides, and stays selected when clean")
 @MainActor
 func workingChangesSelection() async throws {
@@ -342,3 +345,6 @@ func groupedStagingSelection() async throws {
     model.peerSnapshots[host.id] = snapshot(nil)
     #expect(model.stagingRows.count == 2)
 }
+
+}
+#endif

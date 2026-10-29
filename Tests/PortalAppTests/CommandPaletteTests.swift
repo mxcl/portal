@@ -8,6 +8,9 @@ import PortalEngine
 @testable import PortalCore
 @testable import PortalTerminal
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @MainActor
 @Test func paletteOpensWithCommandsInDescendingRunOrder() {
     let search = PaletteSearch()
@@ -211,4 +214,7 @@ import PortalEngine
     try await Task.sleep(for: .milliseconds(100))
     #expect(model.selectedCommitID == nil)
 }
+
+}
+#endif
 #endif

@@ -4,6 +4,9 @@ import Testing
 @testable import PortalCore
 @testable import PortalEngine
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test("checkout of an absent local project waits for refs with uninterrupted progress")
 @MainActor
 func checkoutAbsentProject() async throws {
@@ -155,3 +158,6 @@ func hostTabsWaitForLoading() {
     model.helperAvailable = false
     #expect(!model.showsProjectHostTabs)
 }
+
+}
+#endif

@@ -5,6 +5,9 @@ import Testing
 @testable import PortalEngine
 import PortalCore
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test("identical and log-only helper snapshots do not invalidate project views")
 @MainActor
 func unchangedSnapshotIsSilent() {
@@ -46,3 +49,6 @@ func backupSidebarProgress() {
     model.backupError = "Disconnected"
     #expect(model.backupSidebarStatus(for: "project") == "Backup unavailable")
 }
+
+}
+#endif

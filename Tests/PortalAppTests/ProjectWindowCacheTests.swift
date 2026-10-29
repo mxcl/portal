@@ -4,6 +4,9 @@ import Testing
 @testable import PortalEngine
 import PortalCore
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test("opening the window restores content before any asynchronous Git read")
 @MainActor
 func restoresProjectWindowImmediately() async throws {
@@ -55,3 +58,6 @@ func restoresProjectWindowImmediately() async throws {
     let uncached = AppModel(connectToHelper: false, windowCacheURL: url)
     #expect(uncached.projectSnapshot == nil)
 }
+
+}
+#endif

@@ -5,6 +5,9 @@ import Testing
 @testable import PortalEngine
 @testable import PortalCore
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test("Sidebar counts use the local GitHub identity or the first known peer without inventing zero counts")
 @MainActor
 func githubSidebarCounts() throws {
@@ -116,4 +119,7 @@ func branchDifferenceSidebar() throws {
     #expect(!model.hasBranchDifferences(for: "project"))
     #expect(!model.hasBranchDifferences(for: "unknown"))
 }
+
+}
+#endif
 #endif

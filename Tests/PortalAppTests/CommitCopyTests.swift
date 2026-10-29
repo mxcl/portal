@@ -6,6 +6,9 @@ import Testing
 import PortalCore
 import PortalGraph
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test("Copy uses the full selected SHA, yields to text, and ignores staging")
 @MainActor
 func selectedCommitCopyCommand() throws {
@@ -96,4 +99,7 @@ func commitSHALayout() {
     let button = NSHostingView(rootView: CommitSHA(sha: sha).font(.caption))
     #expect(button.fittingSize == reference.fittingSize)
 }
+
+}
+#endif
 #endif

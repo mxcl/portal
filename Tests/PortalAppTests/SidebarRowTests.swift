@@ -7,6 +7,9 @@ import PortalTerminal
 @testable import PortalEngine
 @testable import PortalApp
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test("Viewing an idle terminal clears its blue completion lamp")
 @MainActor
 func terminalCompletionLamp() {
@@ -56,4 +59,7 @@ func sidebarRowsRender() throws {
         try png.write(to: URL(fileURLWithPath: path))
     }
 }
+
+}
+#endif
 #endif

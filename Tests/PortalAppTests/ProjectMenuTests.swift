@@ -3,6 +3,9 @@ import AppKit
 import Testing
 @testable import PortalApp
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 struct ProjectMenuTests {
     @Test @MainActor func projectTitleSurvivesUpdatesWhileTracking() {
         let application = NSApplication.shared
@@ -51,4 +54,7 @@ struct ProjectMenuTests {
         }
     }
 }
+
+}
+#endif
 #endif

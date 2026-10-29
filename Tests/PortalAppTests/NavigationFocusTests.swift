@@ -5,6 +5,9 @@ import Testing
 @testable import PortalApp
 import PortalCore
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test("Overview focuses projects and Diff focuses Git history")
 @MainActor
 func navigationTransfersListFocus() throws {
@@ -36,4 +39,7 @@ func navigationTransfersListFocus() throws {
         #expect(focused, "Expected list focus for \(tab), got \(String(describing: window.firstResponder))")
     }
 }
+
+}
+#endif
 #endif

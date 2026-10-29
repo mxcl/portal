@@ -6,6 +6,9 @@ import Testing
 @testable import PortalCore
 @testable import PortalApp
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test("Back and Forward restore project, commit, and content tab")
 @MainActor
 func navigationHistoryRestoresLocation() {
@@ -134,4 +137,7 @@ func navigationToolbarPlacement() throws {
     #expect(forward.convert(forward.bounds, to: nil).maxX <= column.convert(column.bounds, to: nil).maxX)
 
 }
+
+}
+#endif
 #endif

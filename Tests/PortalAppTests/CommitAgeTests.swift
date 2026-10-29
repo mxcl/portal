@@ -2,6 +2,9 @@ import Foundation
 import Testing
 @testable import PortalApp
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test func compactCommitAgeUsesAtMostTwoUnitsWithoutSeconds() throws {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
@@ -22,3 +25,6 @@ import Testing
         #expect(compactCommitAge(from: end, to: start, calendar: calendar) == expected)
     }
 }
+
+}
+#endif

@@ -4,6 +4,9 @@ import SwiftUI
 import Testing
 @testable import PortalApp
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test("Sidebar lamps render dark idle state and distinct attention colors",
       arguments: [SidebarLED.Tone.off, .white, .blue, .amber, .red])
 @MainActor
@@ -23,4 +26,7 @@ func sidebarLEDColors(tone: SidebarLED.Tone) throws {
     case .red: #expect(color.redComponent > color.greenComponent + 0.4)
     }
 }
+
+}
+#endif
 #endif

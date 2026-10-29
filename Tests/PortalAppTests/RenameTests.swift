@@ -4,6 +4,9 @@ import Testing
 @testable import PortalCore
 @testable import PortalEngine
 
+#if os(macOS)
+extension PortalAppTestSuite {
+
 @Test("rename sheet belongs to the initiating window and survives unrelated snapshots")
 @MainActor
 func renameSheetLifetime() async throws {
@@ -90,3 +93,6 @@ func renameSheetFailure() async throws {
     #expect(model.placementInProgress == nil)
     #expect(model.error != nil)
 }
+
+}
+#endif

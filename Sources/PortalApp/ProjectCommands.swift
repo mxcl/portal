@@ -64,6 +64,13 @@ struct ProjectTerminalCommands: Commands {
     let workspace: TerminalWorkspace
 
     var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("New Terminal Tab") { TerminalApplication.openTab() }
+                .keyboardShortcut("t")
+                .disabled((model.map { $0.selectedTab != .terminal || $0.showsCommitDiff
+                    || !$0.projectTerminalSources.contains($0.selectedProjectHostSource) } ?? true)
+                    || !FileManager.default.fileExists(atPath: TerminalApplication.installedURL.path))
+        }
         TerminalCommands(workspace: workspace,
                          enabled: model.map { !$0.showsCommitDiff
                              && $0.projectTerminalSources.contains($0.selectedProjectHostSource) } ?? false,

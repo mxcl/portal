@@ -167,6 +167,14 @@ public final class TerminalWorkspace: ObservableObject {
         openWindow(directory: directory, command: command, hosts: hosts, hostID: hostID)
     }
 
+    public func openRequestedTab(hosts: [TerminalHost]) {
+        let parent = NSApp.orderedWindows.first { candidate in
+            windows.contains { $0 === candidate }
+        }
+        openWindow(directory: FileManager.default.homeDirectoryForCurrentUser, hosts: hosts,
+                   hostID: nil, tabbedWith: parent)
+    }
+
     public func newTab() {
         guard let parent = focusedWindow else { return }
         newTab(in: parent)

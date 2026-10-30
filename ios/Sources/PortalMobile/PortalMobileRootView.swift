@@ -670,8 +670,8 @@ private struct MobileBlockHeader: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                Spacer(minLength: 0)
                 state
+                Spacer(minLength: 0)
                 Button {
                     UIPasteboard.general.string = mobileBlockMarkdown(block)
                 } label: {
@@ -701,13 +701,12 @@ private struct MobileBlockHeader: View {
             ProgressView().controlSize(.small)
                 .accessibilityLabel("Command running")
         case .completed(0):
-            Image(systemName: "checkmark")
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Command succeeded")
+            EmptyView()
         case .completed(let status):
             Text("exit \(status)")
-                .font(.caption.monospaced())
+                .font(.system(size: metadataSize, design: .monospaced))
                 .foregroundStyle(.red)
+                .fixedSize()
         }
     }
 }

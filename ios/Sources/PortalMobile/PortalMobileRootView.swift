@@ -314,8 +314,12 @@ private struct MobileSessionView: View {
             } else {
                 blockTranscript
             }
-            inputBar
-            if showsTerminal { keyStrip }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                inputBar
+                if showsTerminal { keyStrip }
+            }
         }
         .background(.black)
         .navigationTitle(session.title)
@@ -331,7 +335,7 @@ private struct MobileSessionView: View {
     private var blockTranscript: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     if model.transcript.blocks.isEmpty {
                         if model.isLoadingCommands {
                             ProgressView()
@@ -348,11 +352,14 @@ private struct MobileSessionView: View {
                         }
                     }
                     ForEach(model.transcript.blocks) { block in
-                        MobileBlockView(block: block)
-                            .id(block.id)
+                        Section {
+                            MobileBlockOutput(block: block)
+                                .id(block.id)
+                        } header: {
+                            MobileBlockHeader(block: block)
+                        }
                     }
                 }
-                .padding(12)
             }
             .defaultScrollAnchor(.bottom, for: .sizeChanges)
             .background(.black)
@@ -388,8 +395,9 @@ private struct MobileSessionView: View {
                 .frame(maxWidth: .infinity)
             } else {
                 TextField("Command", text: $command)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.body.monospaced())
+                    .textFieldStyle(.plain)
+                    .font(.callout.monospaced())
+                    .frame(minHeight: 44)
                     .keyboardType(.asciiCapable)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -498,8 +506,12 @@ private struct MobileSessionView: View {
         .alert("Command history could not be cleared", isPresented: $showsClearHistoryError) {
             Button("OK") {}
         }
-        .padding(8)
-        .background(.bar)
+        .padding(.leading, 16)
+        .padding(.trailing, 4)
+        .padding(.vertical, 4)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     private var keyStrip: some View {
@@ -625,39 +637,62 @@ private struct MobileCompletionPopover: View {
     }
 }
 
-private struct MobileBlockView: View {
+private struct MobileBlockOutput: View {
     let block: PortalBlock
+    @ScaledMetric(relativeTo: .caption) private var outputSize = 12
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("❯")
-                    .foregroundStyle(.green)
-                Text(block.command)
-                    .font(.callout.monospaced().weight(.medium))
-                    .textSelection(.enabled)
-                Spacer(minLength: 8)
-                state
-            }
-            .font(.body.monospaced())
-
+        VStack(alignment: .leading, spacing: 0) {
             if !block.output.isEmpty {
                 Text(block.output)
-                    .font(.callout.monospaced())
-                    .foregroundStyle(.primary)
+                    .font(.system(size: outputSize, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
             }
-
-            if let cwd = block.cwd {
-                Text(cwd)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            Color.clear.frame(height: 10)
         }
-        .padding(12)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color(uiColor: .systemBackground))
+    }
+}
+
+private struct MobileBlockHeader: View {
+    let block: PortalBlock
+    @ScaledMetric(relativeTo: .callout) private var commandSize = 14
+    @ScaledMetric(relativeTo: .caption2) private var metadataSize = 11
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                if let cwd = block.cwd {
+                    Text(cwd)
+                        .font(.system(size: metadataSize, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 0)
+                state
+                Button {
+                    UIPasteboard.general.string = mobileBlockMarkdown(block)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .frame(width: 44, height: 44)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Copy command and output")
+            }
+            Text(block.command)
+                .font(.system(size: commandSize, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 6)
+        }
+        .padding(.horizontal, 12)
+        .background(Color(uiColor: .systemBackground))
+        .overlay(alignment: .top) { Divider() }
     }
 
     @ViewBuilder
@@ -665,8 +700,11 @@ private struct MobileBlockView: View {
         switch block.state {
         case .running:
             ProgressView().controlSize(.small)
+                .accessibilityLabel("Command running")
         case .completed(0):
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            Image(systemName: "checkmark")
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Command succeeded")
         case .completed(let status):
             Text("exit \(status)")
                 .font(.caption.monospaced())

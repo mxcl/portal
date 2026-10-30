@@ -1768,7 +1768,7 @@ private final class BlockView: NSView {
             header.trailingAnchor.constraint(equalTo: stickyHeader.trailingAnchor, constant: -12),
             header.topAnchor.constraint(equalTo: stickyHeader.topAnchor, constant: 8),
             commandLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor),
-            commandLabel.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 10),
+            commandLabel.topAnchor.constraint(equalTo: header.bottomAnchor),
             commandLabel.bottomAnchor.constraint(equalTo: stickyHeader.bottomAnchor, constant: -6),
             header.heightAnchor.constraint(equalToConstant: 28),
             metadataLeadingConstraint,
@@ -3218,7 +3218,7 @@ private final class TerminalTab: NSObject {
         inputView.drawsBackground = false
         inputView.textColor = .labelColor
         inputView.insertionPointColor = .labelColor
-        inputView.textContainerInset = NSSize(width: 12, height: 10)
+        inputView.textContainerInset = NSSize(width: 12, height: 0)
         inputView.textContainer?.lineFragmentPadding = 0
         inputView.wantsLayer = true
         inputView.layer?.cornerRadius = 0

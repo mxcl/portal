@@ -153,6 +153,8 @@ struct TerminalIntegrationTests {
 
     @Test @MainActor func commandTextKeepsPositionOnSubmission() {
         let positions = portalCommandSubmissionHeightsSelfTest(alignment: true)
+        #expect(positions[1] == 36) // Preserve the original compact command header.
+        #expect(positions[3] == 36)
         #expect(abs(positions[0] - positions[2]) < 0.5)
         #expect(abs(positions[1] - positions[3]) < 0.5)
     }

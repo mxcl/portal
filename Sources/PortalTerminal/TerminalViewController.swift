@@ -1304,7 +1304,7 @@ private final class TerminalIconButton: NSButton {
 final class StickyBlockHeaderView: NSView {
     var isSticky = false
 
-    private var windowDragRect: NSRect {
+    fileprivate var windowDragRect: NSRect {
         guard isSticky else { return .zero }
         var trafficLights = NSRect.null
         for type: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
@@ -1312,8 +1312,12 @@ final class StickyBlockHeaderView: NSView {
             trafficLights = trafficLights.union(convert(button.bounds, from: button))
         }
         guard !trafficLights.isNull else { return .zero }
-        return bounds.intersection(NSRect(x: bounds.minX, y: trafficLights.minY,
-                                          width: bounds.width, height: trafficLights.height))
+        let row = NSRect(x: bounds.minX, y: trafficLights.minY,
+                         width: bounds.width, height: trafficLights.height)
+        guard bounds.intersects(row) else { return .zero }
+        // Include the blank titlebar strip above the traffic lights.
+        return bounds.intersection(NSRect(x: bounds.minX, y: row.minY,
+                                          width: bounds.width, height: bounds.maxY - row.minY))
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -1517,17 +1521,22 @@ private final class BlockView: NSView {
             if scrollY > 0 {
                 guard metadata.minX > button.maxX,
                       abs(metadata.midY - button.midY) < 0.5 else { return false }
-                let blankPoint = NSPoint(x: (metadata.maxX + block.scrollToTopButton.convert(.zero, to: nil).x) / 2,
-                                        y: button.midY)
-                let hitPoint = document.convert(blankPoint, from: nil)
-                guard block.hitTest(hitPoint) === block.stickyHeader else { return false }
-                guard let event = NSEvent.mouseEvent(
-                    with: .leftMouseDown, location: blankPoint, modifierFlags: [], timestamp: 0,
-                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
-                ) else { return false }
-                window.didDrag = false
-                block.stickyHeader.mouseDown(with: event)
-                guard window.didDrag else { return false }
+                let headerTop = block.stickyHeader.convert(block.stickyHeader.bounds, to: nil).maxY
+                for y in [button.midY, headerTop - 1, headerTop - 3, headerTop - 5] {
+                    let blankPoint = NSPoint(
+                        x: (metadata.maxX + block.scrollToTopButton.convert(.zero, to: nil).x) / 2, y: y
+                    )
+                    let hitPoint = document.convert(blankPoint, from: nil)
+                    guard block.stickyHeader.windowDragRect.contains(block.stickyHeader.convert(blankPoint, from: nil)),
+                          block.hitTest(hitPoint) === block.stickyHeader else { return false }
+                    guard let event = NSEvent.mouseEvent(
+                        with: .leftMouseDown, location: blankPoint, modifierFlags: [], timestamp: 0,
+                        windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+                    ) else { return false }
+                    window.didDrag = false
+                    block.stickyHeader.mouseDown(with: event)
+                    guard window.didDrag else { return false }
+                }
                 let textPoint = document.convert(NSPoint(x: metadata.midX, y: metadata.midY), from: nil)
                 guard block.hitTest(textPoint) === block.metaLabel else { return false }
                 for control in [block.copyMarkdownButton, block.scrollToTopButton] {

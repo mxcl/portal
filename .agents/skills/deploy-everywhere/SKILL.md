@@ -1,11 +1,11 @@
 ---
 name: deploy-everywhere
-description: Build, sign, install, restart, and verify Portal on Max's Macs, Maliwan and pangolin, the atlas Linux SSH endpoint, and the iPhone app via TestFlight. Use when asked to deploy or install Portal everywhere from the current Portal checkout.
+description: Build, sign, install, restart, and verify Portal on Max's Macs, Maliwan and pangolin, the atlas Linux SSH endpoint, and the iPhone app on a connected device. Use when asked to deploy or install Portal everywhere from the current Portal checkout.
 ---
 
 # Deploy Everywhere
 
-Run both the Mac/Linux deployment and the iPhone TestFlight upload from the same `portal` checkout. The shell script below handles only Mac/Linux; the iPhone steps are required separately:
+Run both the Mac/Linux deployment and the direct iPhone installation from the same `portal` checkout. The shell script below handles only Mac/Linux; the iPhone steps are required separately:
 
 ```bash
 ./scripts/deploy.sh /absolute/path/to/portal
@@ -61,11 +61,40 @@ separate executables. Preserve a live legacy daemon by sharing its existing stat
 and socket directory; never stop it during routine deployment.
 
 
-## iPhone (TestFlight)
+## iPhone (direct installation)
+
+Default to building and installing on the user's paired iPhone. Use TestFlight
+only when explicitly requested. Discover physical devices with
+`xcrun devicectl list devices --json-output /tmp/portal-devices.json` and confirm
+the destination with `xcodebuild -project ios/PortalMobileApp/PortalMobileApp.xcodeproj -scheme PortalMobileApp -showdestinations`.
+Select the available paired iPhone; ask if multiple available phones make the
+target ambiguous. Do not hardcode a device ID.
+
+```bash
+mobile_build="$(mktemp -d /tmp/portal-phone-build.XXXXXX)"
+xcodebuild -project ios/PortalMobileApp/PortalMobileApp.xcodeproj \
+  -scheme PortalMobileApp -configuration Debug \
+  -destination "platform=iOS,id=$phone_udid" -derivedDataPath "$mobile_build" \
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
+```
+
+Set `phone_udid` from discovery before running the commands. After a successful
+build, install and launch without uninstalling the existing app or erasing data:
+
+```bash
+xcrun devicectl device install app --device "$phone_udid" \
+  "$mobile_build/Build/Products/Debug-iphoneos/Portal.app"
+xcrun devicectl device process launch --device "$phone_udid" dev.mxcl.portal
+```
+
+Verify installation and launch results. If the phone is locked, unavailable, or
+needs Developer Mode/trust approval, report the required device action. A
+TestFlight SDK rejection does not by itself prevent development installation.
+
+### TestFlight (when requested)
 
 Archive and upload `PortalMobileApp` using the signed-in Xcode account and
-`ios/ExportOptions.plist`. This is the default iPhone deployment route; it does
-not require a connected phone. Keep bundle ID `dev.mxcl.portal`, team
+`ios/ExportOptions.plist`. This route does not require a connected phone. Keep bundle ID `dev.mxcl.portal`, team
 `ZU76A67LGU`, and the existing marketing version. The export options let Xcode
 manage the uploaded build number.
 

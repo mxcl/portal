@@ -1,4 +1,4 @@
 interface:
   display_name: "Deploy Everywhere"
-  short_description: "Deploy Portal to both Macs, atlas, and TestFlight"
-  default_prompt: "Use $deploy-everywhere to install and verify Portal on Maliwan, pangolin, and atlas, and upload the iPhone app to TestFlight."
+  short_description: "Deploy Portal to both Macs, atlas, and iPhone"
+  default_prompt: "Use $deploy-everywhere to install and verify Portal on Maliwan, pangolin, and atlas, and install the iPhone app directly on the paired phone."

@@ -321,10 +321,9 @@ private struct MobileSessionView: View {
                 if showsTerminal { keyStrip }
             }
         }
-        .background(.black)
+        .background(Color(uiColor: .systemBackground))
         .navigationTitle(session.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.black, for: .navigationBar)
         .onDisappear { model.detach() }
     }
 
@@ -362,7 +361,7 @@ private struct MobileSessionView: View {
                 }
             }
             .defaultScrollAnchor(.bottom, for: .sizeChanges)
-            .background(.black)
+            .background(Color(uiColor: .systemBackground))
             .onChange(of: model.transcript.revision) { _, _ in
                 guard let id = model.transcript.blocks.last?.id else { return }
                 withAnimation { proxy.scrollTo(id, anchor: .bottom) }

@@ -84,6 +84,15 @@ public final class MobileRemoteModel {
     private var receiveTask: Task<Void, Never>?
     private var nextChunkID: UInt64 = 1
     private var backgroundedAt: Date?
+    private var unlockPolicy = MobileUnlockPolicy()
+    public var requiresBiometricUnlock: Bool {
+        get { unlockPolicy.isEnabled }
+        set {
+            unlockPolicy.isEnabled = newValue
+            lastAuthenticatedAt = nil
+            if !newValue { isLocked = false }
+        }
+    }
     private var lastAuthenticatedAt: Date?
     private var backgroundGraceTask: Task<Void, Never>?
     private var targetSession: RemoteCatalogSession?
@@ -323,7 +332,7 @@ public final class MobileRemoteModel {
     public func sceneDidBecomeActive() {
         backgroundGraceTask?.cancel()
         backgroundGraceTask = nil
-        if backgroundedAt.map({ Date().timeIntervalSince($0) >= 300 }) == true {
+        if unlockPolicy.shouldLock(backgroundedAt: backgroundedAt) {
             isLocked = true
             closeConnection(clearTarget: false)
         } else if connectionState == .idle,
@@ -639,10 +648,9 @@ public final class MobileRemoteModel {
     }
 
     private func authenticateIfNeeded(force: Bool = false) async throws {
-        if !force,
-           let lastAuthenticatedAt,
-           Date().timeIntervalSince(lastAuthenticatedAt) < 300,
-           !isLocked { return }
+        guard unlockPolicy.needsAuthentication(
+            force: force, lastAuthenticatedAt: lastAuthenticatedAt, isLocked: isLocked
+        ) else { return }
         let context = LAContext()
         context.localizedCancelTitle = "Cancel"
         var error: NSError?

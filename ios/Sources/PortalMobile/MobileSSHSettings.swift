@@ -3,7 +3,7 @@ import SwiftUI
 import PortalMobileCore
 
 struct MobileSSHSettings: View {
-    let model: MobileRemoteModel
+    @Bindable var model: MobileRemoteModel
     @Environment(\.dismiss) private var dismiss
     @State private var editing: SSHHost?
     @State private var publicKey = ""
@@ -13,6 +13,13 @@ struct MobileSSHSettings: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    Toggle("Require Biometric Unlock", isOn: $model.requiresBiometricUnlock)
+                } header: {
+                    Text("Security")
+                } footer: {
+                    Text("Use Face ID, Touch ID, or your device passcode to access sessions and unlock Portal after five minutes away.")
+                }
                 Section {
                     Text("Connect your iPhone and Mac to Tailscale or another private VPN. Enable Remote Login on the Mac. Portal connects directly over SSH; no subscription is required.")
                 }
@@ -45,7 +52,7 @@ struct MobileSSHSettings: View {
                 }
                 if let error { Section { Text(error).foregroundStyle(.red) } }
             }
-            .navigationTitle("SSH over VPN")
+            .navigationTitle("Settings")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .task {
                 do { publicKey = try SSHIdentity.publicKey() }

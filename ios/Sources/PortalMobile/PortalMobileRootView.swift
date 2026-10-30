@@ -298,6 +298,8 @@ private struct MobileSessionView: View {
     @State private var isHistorySearch = false
     @State private var showsClearHistoryConfirmation = false
     @State private var showsClearHistoryError = false
+    @State private var isAtTranscriptBottom = true
+    @State private var followsTranscriptOutput = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -351,20 +353,46 @@ private struct MobileSessionView: View {
                         }
                     }
                     ForEach(model.transcript.blocks) { block in
-                        Section {
-                            MobileBlockOutput(block: block)
-                                .id(block.id)
-                        } header: {
-                            MobileBlockHeader(block: block)
+                        MobileTranscriptBlock(block: block) {
+                            followsTranscriptOutput = false
+                            withAnimation {
+                                proxy.scrollTo("block-top-\(block.id)", anchor: .top)
+                            }
                         }
+                        .id("block-top-\(block.id)")
                     }
+                    Color.clear.frame(height: 1).id("transcript-bottom")
                 }
             }
-            .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            .coordinateSpace(name: "transcript")
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.visibleRect.maxY >= geometry.contentSize.height - 1
+            } action: { _, isAtBottom in
+                isAtTranscriptBottom = isAtBottom
+            }
+            .onScrollPhaseChange { _, phase in
+                if phase == .idle { followsTranscriptOutput = isAtTranscriptBottom }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if !isAtTranscriptBottom, !model.transcript.blocks.isEmpty {
+                    Button {
+                        followsTranscriptOutput = true
+                        withAnimation { proxy.scrollTo("transcript-bottom", anchor: .bottom) }
+                    } label: {
+                        Image(systemName: "arrow.down.to.line")
+                            .frame(width: 44, height: 44)
+                            .contentShape(.circle)
+                    }
+                    .accessibilityLabel("Scroll to bottom")
+                    .glassEffect(.regular.interactive(), in: Circle())
+                    .padding(12)
+                }
+            }
             .background(Color(uiColor: .systemBackground))
             .onChange(of: model.transcript.revision) { _, _ in
-                guard let id = model.transcript.blocks.last?.id else { return }
-                withAnimation { proxy.scrollTo(id, anchor: .bottom) }
+                guard followsTranscriptOutput else { return }
+                withAnimation { proxy.scrollTo("transcript-bottom", anchor: .bottom) }
             }
         }
     }
@@ -636,6 +664,27 @@ private struct MobileCompletionPopover: View {
     }
 }
 
+private struct MobileTranscriptBlock: View {
+    let block: PortalBlock
+    let scrollToTop: () -> Void
+    @State private var headerHeight: CGFloat = 0
+    @State private var isPinned = false
+
+    var body: some View {
+        Section {
+            MobileBlockOutput(block: block)
+                .onGeometryChange(for: Bool.self) { geometry in
+                    geometry.frame(in: .named("transcript")).minY < headerHeight - 1
+                } action: { isPinned = $0 }
+        } header: {
+            MobileBlockHeader(block: block, isPinned: isPinned, scrollToTop: scrollToTop)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                    headerHeight = $0
+                }
+        }
+    }
+}
+
 private struct MobileBlockOutput: View {
     let block: PortalBlock
     @ScaledMetric(relativeTo: .caption) private var outputSize = 12
@@ -657,6 +706,8 @@ private struct MobileBlockOutput: View {
 
 private struct MobileBlockHeader: View {
     let block: PortalBlock
+    let isPinned: Bool
+    let scrollToTop: () -> Void
     @ScaledMetric(relativeTo: .callout) private var commandSize = 14
     @ScaledMetric(relativeTo: .caption2) private var metadataSize = 11
 
@@ -672,6 +723,16 @@ private struct MobileBlockHeader: View {
                 }
                 state
                 Spacer(minLength: 0)
+                if isPinned {
+                    Button(action: scrollToTop) {
+                        Image(systemName: "arrow.up.to.line")
+                            .frame(width: 44, height: 44)
+                            .contentShape(.rect)
+                    }
+                        .accessibilityLabel("Scroll to top of block")
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                }
                 Button {
                     UIPasteboard.general.string = mobileBlockMarkdown(block)
                 } label: {
@@ -690,7 +751,7 @@ private struct MobileBlockHeader: View {
                 .padding(.bottom, 6)
         }
         .padding(.horizontal, 12)
-        .background(Color(uiColor: .systemBackground))
+        .background(.regularMaterial)
         .overlay(alignment: .top) { Divider() }
     }
 

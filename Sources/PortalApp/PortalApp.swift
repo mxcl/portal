@@ -258,7 +258,7 @@ final class AppModel: ObservableObject {
     private var windowCacheSave: Task<Void, Never>?
 
     private let selectedProjectKey = "selected-project-v2"
-    private let loginMigrationKey = "migrated-portal-menu-helper-login-item-v1"
+    private let loginMigrationKey = "migrated-portal-hub-login-item-v2"
     private let loginItem = SMAppService.loginItem(identifier: "dev.mxcl.portal.menu-helper")
     let remoteAccess = RemoteAccessModel()
     private var pendingHostDraft: HostDraft?
@@ -1779,11 +1779,16 @@ final class AppModel: ObservableObject {
             SMAppService.loginItem(identifier: $0)
         }
         let oldHelperEnabled = oldHelpers.contains { $0.status == .enabled || $0.status == .requiresApproval }
+        let helperEnabled = launchesAtLogin
         do {
+            // The Hub rename leaves ServiceManagement pointing at the former Portal.app bundle.
+            if helperEnabled { try loginItem.unregister() }
             for helper in oldHelpers where helper.status == .enabled || helper.status == .requiresApproval {
                 try helper.unregister()
             }
-            if (legacyEnabled || oldHelperEnabled || defaults.bool(forKey: "launch-at-login")) && !launchesAtLogin { try loginItem.register() }
+            if helperEnabled || legacyEnabled || oldHelperEnabled || defaults.bool(forKey: "launch-at-login") {
+                try loginItem.register()
+            }
             if legacyEnabled { try SMAppService.mainApp.unregister() }
             defaults.set(true, forKey: loginMigrationKey)
         } catch {

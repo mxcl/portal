@@ -1,5 +1,11 @@
 # Design
 
+## Proposals
+
+- [Portable project agents](docs/portable-agents-proposal.md): portable execution,
+  project sandboxes, per-CLI secret controls with Automic Vault, and versioned
+  skill packages. Proposed behavior, not part of the current implementation.
+
 ## App UI
 
 Portal has a conventional foreground app and an embedded menu-bar helper. The

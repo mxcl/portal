@@ -2,23 +2,52 @@
 import SwiftUI
 import PortalTerminal
 
+struct ProjectNavigation {
+    let previous: String?
+    let next: String?
+
+    init(projects: [String], selected: String?) {
+        guard let selected, let index = projects.firstIndex(of: selected) else {
+            previous = projects.last
+            next = projects.first
+            return
+        }
+        previous = index > projects.startIndex ? projects[index - 1] : nil
+        next = index + 1 < projects.endIndex ? projects[index + 1] : nil
+    }
+}
+
+extension FocusedValues {
+    @Entry var projectNavigation: ProjectNavigation?
+}
+
 struct ProjectCommands: Commands {
     @FocusedValue(\.paletteModel) private var model
+    @FocusedValue(\.projectNavigation) private var navigation
 
     var body: some Commands {
         CommandGroup(before: .newItem) {
             Button("Switch Project…") { model?.showPalette() }
                 .keyboardShortcut("p")
                 .disabled(model == nil)
+            Button("Previous Project") { model?.selectProject(navigation?.previous) }
+                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                .disabled(navigation?.previous == nil)
+            Button("Next Project") { model?.selectProject(navigation?.next) }
+                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                .disabled(navigation?.next == nil)
             Divider()
             Button("Reveal in Finder") { model?.revealSelectedProjectInFinder() }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
                 .disabled(model?.selectedLocalRepositoryURL == nil)
             Button("Open in Terminal") { model?.openSelectedProjectInTerminal() }
                 .keyboardShortcut("t")
                 .disabled(model?.selectedLocalRepositoryURL == nil)
             Button("Open in External Editor") { model?.openSelectedProjectInEditor() }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(model?.selectedLocalRepositoryURL == nil)
             Button("Open on GitHub") { model?.openSelectedProjectOnGitHub() }
+                .keyboardShortcut("g", modifiers: [.command, .option])
                 .disabled(model?.projectGitHubURL == nil)
             Divider()
             Button("Rename…") { model?.renameSelectedProject() }

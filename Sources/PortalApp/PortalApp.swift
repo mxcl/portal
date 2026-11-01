@@ -1950,6 +1950,8 @@ struct ProjectBrowserView: View {
                 ContentUnavailableView("Select a Project", systemImage: "sidebar.left")
             }
         }
+        .focusedSceneValue(\.projectNavigation, ProjectNavigation(
+            projects: projects + archived.map(\.name), selected: model.selectedProjectName))
         .environment(\.insertGitReference, model.insertGitReference)
         .navigationSplitViewStyle(.balanced)
         // Use the system Copy command so text responders take priority and Edit flashes.

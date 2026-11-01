@@ -484,13 +484,13 @@ public struct TerminalCommands: Commands {
 
     public var body: some Commands {
         CommandGroup(after: .newItem) {
-            Button("New Terminal Window", action: newWindow).keyboardShortcut("n")
-            Menu("New Terminal Session") {
-                ForEach(hosts, id: \.id) { host in
-                    Button(host.name) { newSSHWindow(host) }
-                }
-            }.disabled(hosts.isEmpty)
             if managesTabs {
+                Button("New Terminal Window", action: newWindow).keyboardShortcut("n")
+                Menu("New Terminal Session") {
+                    ForEach(hosts, id: \.id) { host in
+                        Button(host.name) { newSSHWindow(host) }
+                    }
+                }.disabled(hosts.isEmpty)
                 Button("New Tab") { workspace.newTab() }
                     .keyboardShortcut("t").disabled(!workspace.standaloneFocused)
                 Button("Reopen Closed Tab") { workspace.reopenClosedTab() }

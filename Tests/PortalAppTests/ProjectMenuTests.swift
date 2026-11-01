@@ -7,6 +7,26 @@ import Testing
 extension PortalAppTestSuite {
 
 struct ProjectMenuTests {
+    @Test func projectNavigationFollowsVisibleSidebarOrder() {
+        let projects = ["zebra", "alpha", "archived"]
+        let middle = ProjectNavigation(projects: projects, selected: "alpha")
+        #expect(middle.previous == "zebra")
+        #expect(middle.next == "archived")
+        #expect(ProjectNavigation(projects: projects, selected: "zebra").previous == nil)
+        #expect(ProjectNavigation(projects: projects, selected: "archived").next == nil)
+        for selected in [nil, "filtered-out"] as [String?] {
+            let navigation = ProjectNavigation(projects: projects, selected: selected)
+            #expect(navigation.previous == "archived")
+            #expect(navigation.next == "zebra")
+        }
+        let empty = ProjectNavigation(projects: [], selected: "alpha")
+        #expect(empty.previous == nil)
+        #expect(empty.next == nil)
+        let single = ProjectNavigation(projects: ["alpha"], selected: "alpha")
+        #expect(single.previous == nil)
+        #expect(single.next == nil)
+    }
+
     @Test @MainActor func projectTitleSurvivesUpdatesWhileTracking() {
         let application = NSApplication.shared
         let previousMenu = application.mainMenu

@@ -8,7 +8,8 @@ behavior, not functionality Portal currently implements.
 Give a project an ongoing task and continue that work from any of your computers.
 Start a migration on a MacBook, close its lid, and let another available host
 advance the same conversation. Open Portal Hub elsewhere to inspect progress,
-steer the agent, approve an operation, or review its changes.
+steer the agent, approve an operation, or review its changes. Each branch has its
+own agent, shown directly in Hub's Git tree alongside the work it produces.
 
 The project also defines the environment in which agents work: its sandbox,
 available CLIs, credential permissions, and versioned skills. Moving responsibility
@@ -31,7 +32,7 @@ must establish their continuation and recovery behavior before we depend on it.
 | Term | Meaning |
 | --- | --- |
 | Project | A stable identity connecting a user's work, approved policy, and known workspace locations. A folder name alone is insufficient. |
-| Agent | A durable conversation and task, including its instructions, checkpoints, pending operations, and pinned dependencies. |
+| Agent | A branch's durable conversation and ongoing work, including its instructions, checkpoints, pending operations, and pinned dependencies. |
 | Runner | The replaceable process that advances an agent by requesting model output and scheduling operations. |
 | Executor | A host service that enforces policy, executes operations, and retains their status and results independently of the runner. |
 | Workspace | A particular checkout or worktree on a particular host, including its uncommitted state. |
@@ -236,11 +237,43 @@ produce actionable waiting states.
 
 ## User experience
 
-Hub shows agents under their projects. A conversation can be running, waiting for
-a host, waiting for approval, paused, completed, failed, or awaiting reconciliation.
-Users can inspect the current runner and operation hosts without selecting a host
-for every message. Multiple clients can observe; their input passes through the
-same ordered agent journal.
+Hub is Git-tree centric. Show each branch's agent directly in the Git tree, attached
+to that branch's label or tip, with its status and current activity. Selecting the
+agent opens its conversation and controls in the detail pane while keeping the
+tree visible. Branch history, diffs, and agent activity share the same navigation
+context. A separate agent list must not become the primary way to navigate work.
+
+Each branch has one durable agent identity, created when the user first starts
+agent work on it. Further requests continue that branch's conversation; completed
+tasks remain in its history. Untouched branches need no running process or empty
+conversation. Child workers, if introduced, belong to the branch agent and do not
+create additional top-level entries in the tree.
+
+Show running, waiting for a host, waiting for approval, paused, completed, failed,
+and awaiting reconciliation states at the branch's agent entry. Link recorded
+operations and resulting commits so users can move between the conversation and
+the exact changes. Activity before a commit still belongs to the branch; do not
+invent commits to display it. Selecting an older commit shows historical context
+without silently retargeting the agent's workspace.
+
+Agent identity must survive a branch rename and advancing tips. Branch names and
+commit IDs alone cannot identify an agent. Bind it to a stable project-scoped
+branch identity with explicit host/workspace associations. Equal branch names on
+different hosts do not establish shared identity, especially when tips diverge.
+Show host-qualified refs and the execution workspace when needed to disambiguate.
+Runner handoff preserves this binding and never changes local refs to make them
+match another host.
+
+Creating a branch offers a new agent; carrying context from another branch is an
+explicit action. Merge or deletion retains the conversation and its commit links
+as archived history. Before retiring a branch agent with active operations, stop
+new dispatches and reconcile outstanding work. Reusing a deleted branch name must
+not silently revive its former agent or permissions. Exact identity storage and
+external rename/deletion reconciliation remain open design decisions.
+
+Users can inspect the current runner and operation hosts from the branch agent
+without selecting a host for every message. Multiple clients can observe; their
+input passes through the same ordered agent journal.
 
 Expose the effective sandbox and grants, their source revisions, installed skills,
 pending updates, and an operation audit trail. Approval UI names the project,
@@ -284,7 +317,8 @@ ownership and replication guarantees remain intact.
   justify rebuilding compaction, steering, and tool orchestration.
 - Provider continuation formats, authentication, billing, retention, and the exact
   recovery guarantees available for requests already in flight.
-- Stable project identity and enrollment of trusted hosts and approval authorities.
+- Stable project and branch identity, reconciliation of external branch lifecycle
+  changes, and enrollment of trusted hosts and approval authorities.
 - Automic Vault's existing interfaces and which project/operation controls require
   extensions, plus enforcement responsibilities shared with Portal.
 - Sandbox mechanisms, CLI adapter boundaries, credential containment, and revocation

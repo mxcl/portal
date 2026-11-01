@@ -391,6 +391,10 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var showsProjectTerminal: Bool {
+        !showsCommitDiff && projectTerminalSources.contains(selectedProjectHostSource)
+    }
+
     var showsCommitDiff: Bool { selectedCommitID != nil && selectedStaging == nil }
 
     var selectedProjectHostSource: ProjectSource {
@@ -1950,6 +1954,7 @@ struct ProjectBrowserView: View {
                 ContentUnavailableView("Select a Project", systemImage: "sidebar.left")
             }
         }
+        .focusedSceneValue(\.projectTerminalCommandsEnabled, model.showsProjectTerminal)
         .focusedSceneValue(\.projectNavigation, ProjectNavigation(
             projects: projects + archived.map(\.name), selected: model.selectedProjectName))
         .environment(\.insertGitReference, model.insertGitReference)

@@ -2,11 +2,36 @@
 import AppKit
 import Testing
 @testable import PortalApp
+@testable import PortalCore
 
 #if os(macOS)
 extension PortalAppTestSuite {
 
 struct ProjectMenuTests {
+    @Test @MainActor func terminalCommandsFollowVisibleHostPane() {
+        let model = AppModel(connectToHelper: false)
+        let host = SyncHost(machine: "Remote", peer: "example", root: "/projects")
+        model.configuration = AppConfiguration(root: "/projects", machine: "test",
+            hosts: [host], folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)])
+        model.selectedProjectName = "project"
+        model.localProjects = ["project": PeerProject(name: "project", placement: .checkedOut)]
+        model.remoteProjects = [host.id: ["project": PeerProject(name: "project", placement: .checkedOut)]]
+        for source in [ProjectSource.local, .host(host.id)] {
+            model.terminalSource = source
+            for tab in ProjectTab.allCases {
+                model.selectedTab = tab
+                #expect(model.showsProjectTerminal)
+            }
+        }
+        model.selectedCommitID = "commit"
+        #expect(!model.showsProjectTerminal)
+        model.selectedCommitID = nil
+        model.remoteProjects[host.id]?["project"] = PeerProject(name: "project", placement: .mirrored)
+        #expect(!model.showsProjectTerminal)
+        model.selectedProjectName = nil
+        #expect(!model.showsProjectTerminal)
+    }
+
     @Test func projectNavigationFollowsVisibleSidebarOrder() {
         let projects = ["zebra", "alpha", "archived"]
         let middle = ProjectNavigation(projects: projects, selected: "alpha")

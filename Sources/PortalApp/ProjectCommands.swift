@@ -19,6 +19,7 @@ struct ProjectNavigation {
 
 extension FocusedValues {
     @Entry var projectNavigation: ProjectNavigation?
+    @Entry var projectTerminalCommandsEnabled: Bool?
 }
 
 struct ProjectCommands: Commands {
@@ -90,13 +91,13 @@ struct ProjectViewCommands: Commands {
 }
 
 struct ProjectTerminalCommands: Commands {
+    @FocusedValue(\.projectTerminalCommandsEnabled) private var enabled
     @FocusedValue(\.paletteModel) private var model
     let workspace: TerminalWorkspace
 
     var body: some Commands {
         TerminalCommands(workspace: workspace,
-                         enabled: model.map { $0.selectedTab == .terminal && !$0.showsCommitDiff
-                             && $0.projectTerminalSources.contains($0.selectedProjectHostSource) } ?? false,
+                         enabled: enabled ?? false,
                          hosts: model?.terminalHosts ?? [],
                          newWindow: { TerminalApplication.open() },
                          newSSHWindow: { TerminalApplication.open(hostID: $0.id) },

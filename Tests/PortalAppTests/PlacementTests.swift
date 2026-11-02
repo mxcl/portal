@@ -164,9 +164,9 @@ func projectTerminalCheckoutEligibility() {
     #expect(model.projectCheckoutSources.isEmpty)
 }
 
-@Test("Host tabs stay hidden until project host state is loaded")
+@Test("Host tabs wait for host state and remain visible during repository refresh")
 @MainActor
-func hostTabsWaitForLoading() {
+func hostTabsSurviveRepositoryLoading() {
     let host = SyncHost(machine: "Peer", peer: "peer", root: "/projects", executable: "/unused")
     let model = AppModel(connectToHelper: false)
     model.configuration = AppConfiguration(root: "/projects", machine: "Local", hosts: [host])
@@ -179,7 +179,7 @@ func hostTabsWaitForLoading() {
     model.remoteProjects[host.id] = ["project": PeerProject(name: "project", placement: .checkedOut)]
     #expect(model.showsProjectHostTabs)
     model.isLoadingProject = true
-    #expect(!model.showsProjectHostTabs)
+    #expect(model.showsProjectHostTabs)
     model.isLoadingProject = false
     #expect(model.showsProjectHostTabs)
     model.helperAvailable = false

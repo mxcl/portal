@@ -406,7 +406,7 @@ final class AppModel: ObservableObject {
     }
 
     var showsProjectHostTabs: Bool {
-        guard helperAvailable, !isLoadingProject, let name = selectedProjectName else { return false }
+        guard helperAvailable, let name = selectedProjectName else { return false }
         return localProjects[name].map { $0.placement != .unknown } == true
             || remoteProjects.values.contains { $0[name].map { $0.placement != .unknown } == true }
             || isSelectedProjectArchived

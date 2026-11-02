@@ -1,31 +1,38 @@
-# Portable project agents
+# Branch and commit-specific agents
 
-Status: proposal. Written November 1, 2026. This document describes intended
+Status: proposal. Written November 1, 2026; revised November 2, 2026. This document describes intended
 behavior, not functionality Portal currently implements.
 
 ## Purpose
 
-Give a project an ongoing task and continue that work from any of your computers.
-Start a migration on a MacBook, close its lid, and let another available host
-advance the same conversation. Open Portal Hub elsewhere to inspect progress,
-steer the agent, approve an operation, or review its changes. Each branch has its
-own agent, shown directly in Hub's Git tree alongside the work it produces.
+Make agent work specific to branches and commits. Each branch owns a conversation;
+commits anchor checkpoints in that conversation. Select an earlier commit, choose
+**Branch with agent**, and explore another approach with the code and context
+available at that point. Show agents directly in Hub's Git tree.
 
-The project also defines the environment in which agents work: its sandbox,
-available CLIs, credential permissions, and versioned skills. Moving responsibility
-between hosts preserves those constraints.
+Remote execution belongs in the first release. A project may live on another
+machine, and its agent runs there. Open Hub on any connected client to inspect,
+steer, approve, and review that work. Closing a client detaches the UI; the host
+keeps executing. If the execution host becomes unavailable, the agent waits.
 
-This proposal combines four features:
+Cross-device runner transfer comes later. Version one binds each agent to an
+execution host and workspace, with durable state for reconnection and recovery
+on that host. It does not elect replacement hosts or migrate running work.
 
-- Durable agents whose runners can change hosts.
-- Project sandboxes with explicit filesystem, process, and network access.
-- Per-CLI, per-operation secret controls, developed with Automic Vault.
-- Versioned skill packages that projects install, pin, update, and roll back.
+| First release | Preserve in the design | Later phases |
+| --- | --- | --- |
+| Branch agents, commit checkpoints, contextual forks, local and remote execution, reconnectable UI | Stable identities, explicit workspace binding, durable operation IDs, versioned journals | Runner transfer, workspace migration, rich project sandbox policies, per-CLI Vault adapters, skill package distribution |
+
+Start with a basic, explicit execution permission boundary and recorded instruction
+versions. The fuller project sandbox, Automic Vault controls, and versioned skill
+packages below remain intended directions, not prerequisites for the first release.
+Do not build distributed ownership infrastructure merely to prepare for migration.
 
 The initial tool interface is CLI execution. MCP integration, a plugin marketplace,
 native computer use, and feature parity with ChatGPT are outside the initial scope.
-No specific model provider or API is required by this design. Provider adapters
-must establish their continuation and recovery behavior before we depend on it.
+Provider and harness selection remain open. Evaluate existing runtimes against
+commit checkpoints, contextual forks, and remote execution before choosing to own
+the model loop; future mobility alone does not justify rebuilding a harness.
 
 ## Terms and ownership
 
@@ -33,6 +40,7 @@ must establish their continuation and recovery behavior before we depend on it.
 | --- | --- |
 | Project | A stable identity connecting a user's work, approved policy, and known workspace locations. A folder name alone is insufficient. |
 | Agent | A branch's durable conversation and ongoing work, including its instructions, checkpoints, pending operations, and pinned dependencies. |
+| Conversation checkpoint | An immutable boundary in an agent journal, associated with a commit and sufficient to construct context for a new branch. |
 | Runner | The replaceable process that advances an agent by requesting model output and scheduling operations. |
 | Executor | A host service that enforces policy, executes operations, and retains their status and results independently of the runner. |
 | Workspace | A particular checkout or worktree on a particular host, including its uncommitted state. |
@@ -40,70 +48,83 @@ must establish their continuation and recovery behavior before we depend on it.
 | Grant | User-authorized access under a specific project policy. Repository content and model output cannot create grants. |
 | Skill package | Versioned instructions and supporting resources with declared dependencies and required capabilities. |
 
-The agent has no permanent execution host. At any moment, one runner owns the
-right to advance it. Executors may carry out independent operations on several
-hosts. A running build, shell, or browser session stays on its execution host;
-moving the runner does not migrate those processes.
+In the first release, each agent has one execution host and one writer for its
+journal. That host owns its runner and execution service. Multiple clients submit
+input through this authority; reconnecting a UI never starts a second runner.
+Keep journal storage outside agent-writable project files. Reject incompatible
+wire and journal versions and include a source epoch in persistent ordering state.
 
-Portal's existing persistent terminal sessions provide a precedent for separating
-execution from UI lifetime. Agent execution needs structured operations, durable
+Portal's persistent terminal sessions provide a precedent for separating execution
+from UI lifetime. Agent execution also needs structured operations, durable
 receipts, and authorization beyond terminal output replay.
 
-## Portable state and handoff
+## Commit-linked conversation history
 
-Persist the information needed to continue an agent without the previous runner:
+Store conversation history in a durable, versioned journal and associate commit
+IDs with immutable checkpoint IDs. Do not put private chat content into Git commit
+messages or implicitly publish it when pushing code. Commit associations live in
+Portal metadata; their backup, retention, and sharing need explicit rules.
 
-- User messages, instructions, model outputs, and provider continuation data.
-- Context summaries and compaction records, preserving required tool-call pairing.
-- Pending and completed operations, their IDs, and result or artifact references.
-- Approvals, policy revisions, skill and tool versions, and workspace bindings.
-- Ownership epochs, journal positions, and task status.
+A checkpoint records the conversation prefix, relevant instructions and their
+versions, context summaries, complete tool-call/result pairs, and artifact
+references needed to understand the work. Provider continuation data may supplement
+it, but must not be the only representation of branchable context. A summary made
+later must not leak later decisions into a fork from an earlier checkpoint.
 
-Store secrets separately. Redact sensitive output before it enters conversation
-history, while recognizing that redaction alone cannot guarantee secret containment.
-Conversation and artifact storage still needs authentication, access controls,
-retention rules, and deletion semantics.
+Record the checkpoint associated with an agent-created commit before advancing
+past that boundary. Discussion after the commit stays in the live branch journal
+until another checkpoint captures it. A commit may have several contextual
+associations from different agents; retain provenance rather than assuming a
+commit hash identifies one universal conversation. External commits may have no
+checkpoint. Show that absence and offer a fresh agent or explicitly selected
+available context, rather than inventing history.
+
+**Branch with agent** is an explicit user action:
+
+1. Select a commit and its associated conversation checkpoint.
+2. Create a new branch and isolated workspace from that exact commit on the chosen
+   execution host, using ordinary Git operations. Refuse to overwrite existing work.
+3. Create a new agent identity whose context refers to that immutable journal prefix.
+4. Apply current permissions and validate instruction/tool availability. Historical
+   approvals, credentials, pending operations, and ownership do not transfer.
+5. Append the new request to an independent journal and begin the alternative work.
+
+Fork only at a complete context boundary. In-flight operations and uncommitted
+files are not part of a commit checkpoint; do not copy or replay them. If historical
+instructions are unavailable or revoked, show the required substitution before
+execution instead of claiming exact reproduction.
+
+Keep links between source and derived conversations so users can compare code and
+reasoning. Merging code retains both histories and supplies the receiving agent
+with an attributed merge summary and source links; it does not concatenate journals
+or retroactively change existing checkpoints. Rebase, amend, and cherry-pick create
+new commit identities. Preserve old associations and record verified new links
+without silently treating rewritten commits as identical checkpoints.
+
+## Durable execution and reconnection
+
+Persist messages, complete model outputs, context summaries, operation IDs and
+results, approvals, instruction versions, workspace bindings, and task status.
+Store secrets separately. Redact sensitive output before it enters history, while
+recognizing that redaction alone cannot guarantee containment. Conversation and
+artifact storage needs authentication, access controls, retention, and deletion.
 
 A normal step is:
 
-1. Claim ownership and load the latest committed checkpoint.
+1. Load the latest durable state under the host's single-writer ownership.
 2. Record the intended model request, then issue it.
 3. Persist its complete response before dispatching any resulting operation.
-4. Record an operation's identity, target, preconditions, and authorization.
-5. Dispatch it to an executor, which durably accepts it before execution.
-6. Persist its outcome and advance the conversation.
+4. Record the operation ID, workspace, preconditions, and authorization.
+5. Durably accept the operation before execution; retain its outcome and output.
+6. Advance the journal and record commit associations when applicable.
 
-During a planned handoff, the runner finishes or checkpoints its current step,
-publishes that checkpoint, and releases ownership. Its successor verifies the
-checkpoint and outstanding operations before advancing. A checkpoint is committed
-only once the chosen durability authority acknowledges it; a local unsynchronized
-file does not establish that another host can recover it.
-
-During abrupt host loss, recover from the last committed checkpoint. Recover an
-in-flight model response if the provider supports that operation; otherwise retry
-from a complete checkpoint and accept possible duplicate inference cost. Partial
-streamed output is provisional and must not trigger execution.
-
-### One owner, including during partitions
-
-The first prototype should use a small authoritative coordinator for ownership
-and durable checkpoints. Its storage and deployment location remain open decisions.
-This gives runners mobility but makes the coordinator an availability dependency.
-A peer quorum could remove the single-host dependency later; eventual replication
-alone cannot provide exclusive ownership.
-
-Use an ownership epoch and increasing fencing number. Executors reject stale
-dispatches against the authority, rather than trusting a runner's assertion that
-its lease remains valid. If they cannot verify authority, they accept no new
-mutating operation. Old runners cannot publish new checkpoints after losing ownership.
-
-Already accepted work can continue under its recorded authorization. A successor
-must reconcile it before scheduling conflicting work. Lease expiry does not undo
-an external side effect or stop a process already running on a disconnected host.
-
-Keep one writer per persistent store. Reject incompatible wire and checkpoint
-versions. An authority reset must establish a new epoch and reconcile outstanding
-operations before execution resumes.
+On client disconnect, the host continues under existing authorization. On host
+failure, clients show unavailable status and wait for that host to return.
+Recovery reconciles accepted operations before issuing new work. Recover an
+in-flight model response where supported; otherwise retry from a complete
+checkpoint and accept possible duplicate inference cost. Partial streamed output
+is provisional and must not trigger execution. Durable context is useful now for
+forking and recovery; distributed ownership is not required for either.
 
 ### Outcomes and retries
 
@@ -130,10 +151,11 @@ Each mutating operation names its workspace and expected state. Serialize
 conflicting agent operations within a workspace and detect external changes;
 an agent lock cannot prevent a user or ordinary Git command from editing it.
 
-Initially, keep workspace bindings fixed while allowing runners to move. If the
-workspace host goes offline, continue independent work elsewhere and show the
-blocked dependency. Moving workspace execution later requires an explicit transfer
-of the task's files and metadata with validation, or a user-authorized new worktree.
+Initially, keep both execution-host and workspace bindings fixed. If the host goes
+offline, show the agent as waiting; do not start it elsewhere. Other branch agents
+on available hosts may continue. Moving an existing workspace later requires an
+explicit validated transfer of files and metadata. Creating a fresh branch and
+workspace from a commit checkpoint is a separate user action, not failover.
 
 The existing Git replication contract remains unchanged: per-ref atomicity and
 eventual consistency, independent local branches, tags, stash, HEAD, index, and
@@ -143,7 +165,7 @@ agent work. Agent changes occur through authorized operations in a named workspa
 Use Git plumbing for object validation and ref transactions; do not interpose on
 ordinary Git commands to coordinate agents.
 
-## Project sandboxes
+## Later: project sandboxes
 
 A project declares its requested environment in version-controlled configuration.
 The user authorizes a resolved policy outside the agent-writable workspace.
@@ -168,7 +190,7 @@ credential caches, SSH agent, or service sockets by default. An allowed executab
 may load project-controlled configuration or launch other programs, so executable
 allowlists alone are not a sandbox.
 
-## CLI permissions and Automic Vault
+## Later: CLI permissions and Automic Vault
 
 Develop an integration in which Portal requests an operation under a project
 identity and Automic Vault authorizes access to the associated secret or service.
@@ -207,7 +229,7 @@ an unrestricted terminal session. Policy revocation blocks new operations and
 credential issuance; stopping in-flight work and revoking issued credentials require
 explicit executor and service support. Show those limits to the user.
 
-## Versioned skill packages
+## Later: versioned skill packages
 
 Portal manages skills as project dependencies. A package contains instructions,
 optional scripts and resources, compatibility requirements, tool dependencies,
@@ -261,8 +283,8 @@ commit IDs alone cannot identify an agent. Bind it to a stable project-scoped
 branch identity with explicit host/workspace associations. Equal branch names on
 different hosts do not establish shared identity, especially when tips diverge.
 Show host-qualified refs and the execution workspace when needed to disambiguate.
-Runner handoff preserves this binding and never changes local refs to make them
-match another host.
+Future runner handoff must preserve this binding and never change local refs to
+make them match another host.
 
 Creating a branch offers a new agent; carrying context from another branch is an
 explicit action. Merge or deletion retains the conversation and its commit links
@@ -275,46 +297,81 @@ Users can inspect the current runner and operation hosts from the branch agent
 without selecting a host for every message. Multiple clients can observe; their
 input passes through the same ordered agent journal.
 
-Expose the effective sandbox and grants, their source revisions, installed skills,
-pending updates, and an operation audit trail. Approval UI names the project,
-operation, target, artifact where applicable, and requested access. Closing Hub
+Expose the execution host, workspace, effective permissions, instruction versions,
+and operation audit trail. As later policy and package features arrive, expose
+their grants, revisions, installed skills, and pending updates here too. Approval
+UI names the project, operation, target, artifact where applicable, and requested
+access. Closing Hub
 detaches its UI. Pausing prevents new work; cancellation also requests termination
 of active operations and reports any uncertain or irreversible effects.
 
 ## Delivery and acceptance
 
-1. **Prove continuity.** Two hosts, a single coordinator, a durable journal, one
-   provider adapter, and a small CLI executor. Hand off between recorded steps,
-   then kill a runner during execution and recover without duplicate dispatch.
-2. **Enforce one project sandbox.** Bind a workspace, isolate execution, and reject
-   hosts that cannot enforce the policy. Prove repository edits cannot grant access.
-3. **Integrate one credential-backed CLI.** Investigate Automic Vault and implement
-   staging versus production permissions. Exercise approval, revocation, and an
-   uncertain external outcome. Keep unsupported enforcement paths disabled.
-4. **Ship skill dependencies.** Install and verify packages, lock versions, review
-   updates, and preserve the selected package set through handoff and rollback.
-5. **Broaden recovery and host support.** Resolve coordinator availability, workspace
-   transfer, and additional adapters based on the first workflows.
+1. **Prove branch-specific work, including remote execution.** Run one branch agent
+   on a configured local or remote host. Render it in the Git tree, retain its
+   journal and operation receipts, enforce a basic permission boundary, and reconnect
+   the UI without restarting work. The execution host remains fixed.
+2. **Prove commit-specific forks.** Record conversation checkpoints with commits.
+   Branch from an earlier commit, inherit only its recorded context, and explore an
+   alternative. Compare the code and reasoning while preserving the original agent.
+3. **Complete the first-release lifecycle.** Handle external commits, rename,
+   merge/archive, rewritten history, same-host recovery, and uncertain operations.
+   Evaluate whether contextual forks are useful before expanding infrastructure.
+4. **Add project controls and skill packages.** Develop sandbox policy, investigate
+   Automic Vault, prove one per-CLI credential workflow, and introduce verified,
+   pinned skill updates. These can ship independently of runner transfer.
+5. **Add cross-device transfer when justified.** Establish checkpoint replication,
+   exclusive ownership across hosts, fencing, and recovery before offering takeover.
+   Treat workspace migration as a further capability with its own validation.
 
-The first demonstration should start a task on a MacBook, transfer runner ownership
-to another host, close the MacBook, and continue the same conversation with the same
-policy and skills. Its required workspace must remain reachable. A separate test
-should remove that workspace host and verify an honest waiting state.
+The first demonstration uses a project on a remote host: ask its branch agent to
+make a change and commit, continue the discussion, then select the earlier commit
+and choose **Branch with agent** to try another approach. Verify the new agent
+receives the earlier context and matching code, with no later discussion or pending
+actions. Close and reopen the client while remote work continues. Disconnect the
+execution host and verify an honest waiting state with no automatic takeover.
 
-Before shipping, cover stale owners, partitions, authority resets, duplicate
-dispatches, executor crashes around side effects, revoked grants, changed command
-configuration, concurrent workspace edits, tampered packages, unavailable pinned
-versions, and incompatible protocol versions. Add the smallest regression test
-for every non-trivial protocol or failure-recovery change. Verify existing Git
-ownership and replication guarantees remain intact.
+First-release tests cover checkpoint boundaries, missing associations, contextual
+fork isolation, absence of inherited approvals or operations, merge provenance,
+rewritten commits, remote reconnect, duplicate dispatches, same-host crash recovery,
+concurrent workspace edits, unauthorized policy changes, and incompatible versions.
+Later features add partition/fencing/reset tests, Vault revocation and containment,
+and package integrity/update tests. Add the smallest regression test for every
+non-trivial protocol or failure-recovery change. Preserve existing Git ownership
+and replication guarantees throughout.
+
+## Later: cross-device runner transfer
+
+The long-term goal remains an agent whose runner can change hosts while its
+conversation, constraints, and execution receipts remain intact. Moving a runner
+does not migrate an active shell, build, or workspace.
+
+Before implementing transfer, choose a durability and ownership authority. A small
+coordinator is one candidate; a peer quorum is another. Eventual replication alone
+cannot ensure exclusive ownership. A local unsynchronized checkpoint cannot prove
+that another host can recover it.
+
+Planned handoff publishes a durable checkpoint and releases ownership before the
+successor advances. Abrupt takeover must reconcile outstanding operations. Use
+source epochs and increasing fencing numbers, with executors rejecting stale
+owners and refusing new mutations when they cannot verify authority. Already
+accepted work may continue; lease expiry does not undo external effects. A new
+runner must not schedule conflicting work until it establishes the outcome.
+
+Authority resets, network partitions, credential reauthorization, pinned instruction
+availability, and policy equivalence need explicit recovery contracts. Retain these
+requirements as design constraints; do not implement a coordinator or election
+protocol as part of the branch-and-commit experiment.
 
 ## Open decisions
 
-- Where the first coordinator and checkpoint store run, and how they recover or
-  migrate without losing ownership history.
-- Whether an existing harness exposes sufficient portable state, or Portal should
-  own the model loop. Avoiding a permanent app-server host does not by itself
-  justify rebuilding compaction, steering, and tool orchestration.
+- Journal/checkpoint storage, commit association format, privacy and backup rules,
+  and how to construct historical context after compaction.
+- Later: transfer authority and checkpoint replication, including recovery without
+  losing ownership history.
+- Whether an existing harness supports commit-linked checkpoints and independent
+  contextual forks, or Portal must own more of the model loop. A fixed-host runtime
+  is acceptable for the first release.
 - Provider continuation formats, authentication, billing, retention, and the exact
   recovery guarantees available for requests already in flight.
 - Stable project and branch identity, reconciliation of external branch lifecycle
@@ -326,6 +383,6 @@ ownership and replication guarantees remain intact.
 - Skill package distribution, publisher trust, licensing, update policy, and the
   boundary between Portal-maintained and project-maintained content.
 
-The cost of this direction includes an agent runtime, distributed recovery,
-sandbox enforcement, and package management. Keeping CLI execution as the first
-tool interface limits integration scope; it does not eliminate those responsibilities.
+The first release tests Git-centered agent interaction and remote execution.
+Distributed recovery, richer sandbox enforcement, and package management each
+remain substantial later projects; first-release success must not depend on them.

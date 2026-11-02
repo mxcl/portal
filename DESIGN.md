@@ -2,9 +2,10 @@
 
 ## Proposals
 
-- [Portable project agents](docs/portable-agents-proposal.md): portable execution,
-  project sandboxes, per-CLI secret controls with Automic Vault, and versioned
-  skill packages. Proposed behavior, not part of the current implementation.
+- [Branch and commit-specific agents](docs/portable-agents-proposal.md): Git-tree
+  conversations, commit-linked context forks, and remote execution first; runner
+  transfer, richer project controls, and skill packages later. Proposed behavior,
+  not part of the current implementation.
 
 ## App UI
 

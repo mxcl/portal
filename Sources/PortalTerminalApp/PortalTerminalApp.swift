@@ -29,7 +29,9 @@ final class TerminalDelegate: NSObject, NSApplicationDelegate, ObservableObject 
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        newWindow(restoringWindows: !openedWindow)
+        if !workspace.activateExistingWindow() {
+            newWindow(restoringWindows: !openedWindow)
+        }
         return false
     }
 

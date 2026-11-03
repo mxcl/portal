@@ -163,6 +163,16 @@ public final class TerminalWorkspace: ObservableObject {
         }
     }
 
+    public func activateExistingWindow() -> Bool {
+        guard let window = NSApp.orderedWindows.first(where: { candidate in
+            windows.contains { $0 === candidate }
+        }) ?? windows.last else { return false }
+        let selected = window.tabGroup?.selectedWindow ?? window
+        if selected.isMiniaturized { selected.deminiaturize(nil) }
+        selected.makeKeyAndOrderFront(nil)
+        return true
+    }
+
     public func newWindow(directory: URL = FileManager.default.homeDirectoryForCurrentUser, command: String? = nil, hosts: [TerminalHost] = [], hostID: String? = nil, skipsSessionPicker: Bool = false) {
         openWindow(directory: directory, command: command, hosts: hosts, hostID: hostID, skipsSessionPicker: skipsSessionPicker)
     }

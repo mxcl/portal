@@ -275,6 +275,24 @@ struct TerminalIntegrationTests {
         #expect(!controller.isShowingSessionPicker)
     }
 
+    @Test(arguments: ["visible", "hidden", "minimized"]) @MainActor
+    func dockReopenReusesExistingWindow(state: String) async throws {
+        let application = NSApplication.shared
+        let delegate = TerminalDelegate()
+        delegate.workspace.newWindow(directory: URL(fileURLWithPath: "/tmp"))
+        defer {
+            for window in application.windows where window is StandaloneTerminalWindow { window.close() }
+        }
+        let window = try #require(application.windows.first { $0 is StandaloneTerminalWindow })
+        if state == "hidden" { window.orderOut(nil) }
+        if state == "minimized" { window.miniaturize(nil) }
+        #expect(!delegate.applicationShouldHandleReopen(application, hasVisibleWindows: window.isVisible))
+        #expect(window.isVisible)
+        #expect(!window.isMiniaturized)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(application.windows.filter { $0 is StandaloneTerminalWindow }.count == 1)
+    }
+
     @Test @MainActor func initialReopenRestoresSavedTabs() async throws {
         let application = NSApplication.shared
         let key = "standaloneTerminalWindows"

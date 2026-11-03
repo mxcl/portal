@@ -4247,7 +4247,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         return false
     }
 
-    static func outputScrollingSelfTest(startsAtBottom: Bool) async -> Bool {
+    static func outputScrollingSelfTest(startsAtBottom: Bool, smallScroll: Bool = false) async -> Bool {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let catalog = SessionCatalog(url: directory.appendingPathComponent("sessions.json"), windowID: "test")
@@ -4285,6 +4285,23 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         render(lines: 100)
         await drainScroll()
         controller.scrollToBottomNow(tab)
+        if smallScroll {
+            let clip = tab.scrollView.contentView
+            clip.setBoundsOrigin(NSPoint(x: 0, y: clip.bounds.minY - 0.5))
+            let originalY = clip.bounds.minY
+            controller.refreshRunningElapsedTime(in: tab)
+            controller.stopRunningElapsedUpdates(for: tab)
+            guard abs(clip.bounds.minY - originalY) < 0.01 else { return false }
+            for index in 0..<10 {
+                let output = String(repeating: "replacement \(index)\n", count: 100)
+                tab.commandLifecycle.apply(.output(blockID: id, plainText: output,
+                    attributedText: NSAttributedString(string: output),
+                    isAlternateScreenActive: false, isApplicationCursorModeActive: false))
+                controller.updateBlockViewNow(for: id, in: tab)
+                guard abs(clip.bounds.minY - originalY) < 0.01 else { return false }
+            }
+            return true
+        }
         if !startsAtBottom {
             tab.scrollView.contentView.scroll(to: NSPoint(x: 0, y: 100))
         }
@@ -7555,11 +7572,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             return
         }
 
-        // A timer tick can render output before the scheduled output update does.
-        // Preserve follow mode before that output changes the document height.
-        let wasAtBottom = tab.isScrolledToBottom
-        tab.blockViews[runningBlock.id]?.update(with: runningBlock, now: now)
-        if wasAtBottom { scrollToBottomNow(tab) }
+        updateBlockViewNow(for: runningBlock.id, in: tab, now: now)
 
         let refreshInterval = displayRefreshInterval(for: tab)
         let interval = BlockView.liveDurationRefreshInterval(
@@ -7853,13 +7866,19 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    private func updateBlockViewNow(for blockID: UUID, in tab: TerminalTab) {
+    private func updateBlockViewNow(for blockID: UUID, in tab: TerminalTab, now: Date = Date()) {
         tab.pendingBlockViewUpdates.remove(blockID)
         guard let block = tab.blocks.first(where: { $0.id == blockID }) else { return }
         let wasAtBottom = tab.isScrolledToBottom
+        let document = tab.scrollView.documentView
+        let previousHeight = document?.bounds.height
         ensureBlockView(for: blockID, in: tab)
-        tab.blockViews[blockID]?.update(with: block)
-        if wasAtBottom { scrollToBottomNow(tab) }
+        tab.blockViews[blockID]?.update(with: block, now: now)
+        if wasAtBottom {
+            document?.layoutSubtreeIfNeeded()
+            // Unchanged output and timer ticks must not interrupt an upward scroll.
+            if document?.bounds.height != previousHeight { scrollToBottomNow(tab) }
+        }
     }
 
     private func copy(_ value: String) {

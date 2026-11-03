@@ -11,6 +11,10 @@ struct TerminalIntegrationTests {
         #expect(await TerminalViewController.outputScrollingSelfTest(startsAtBottom: startsAtBottom))
     }
 
+    @Test @MainActor func runningRefreshDoesNotUndoSmallScroll() async {
+        #expect(await TerminalViewController.outputScrollingSelfTest(startsAtBottom: true, smallScroll: true))
+    }
+
     @Test @MainActor func repeatedCommandsKeepOutputAboveComposer() async {
         #expect(await TerminalViewController.repeatedCommandScrollingSelfTest())
     }

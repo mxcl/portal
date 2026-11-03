@@ -91,7 +91,13 @@ def main():
                 client.send(attach)
                 client.until(lambda line: line.startswith('READY '))
                 # Redirection proves a single shell kept executing while all clients detached.
-                command = "stty -echo; printf 'before-disconnect\\n'; sleep 1; printf done > survived-" + str(version) + "\n"
+                # A noisy later command must not hide earlier commands on a fresh Mac attach.
+                command = (
+                    "stty -echo; printf '\\033]133;C;Zmlyc3Q=\\007before-disconnect\\n\\033]133;D;0\\007'; "
+                    "printf '\\033]133;C;bm9pc3k=\\007'; "
+                    "i=0; while [ $i -lt 1100 ]; do printf '%0300d\\n' 0; i=$((i+1)); done; "
+                    "printf '\\033]133;D;0\\007'; sleep 1; printf done > survived-" + str(version) + "\n"
+                )
                 client.send('INPUT ' + encoded(command))
                 client.output_contains('before-disconnect')
                 client.close()
@@ -105,6 +111,14 @@ def main():
                 resumed.send(attach if version == 1 else 'JOIN2 2 mac ' + encoded('reattached') + ' ' + encoded(session))
                 resumed.until(lambda line: line.startswith('READY 0'))
                 resumed.output_contains('before-disconnect')
+                if version == 2:
+                    phone = Client(bridge, environment)
+                    clients.append(phone)
+                    phone.send('JOIN2 2 phone ' + encoded('phone') + ' ' + encoded(session))
+                    page = phone.until(lambda line: line.startswith('HISTORY_PAGE ')).split(' ')
+                    assert page[3] == '1', 'phone should retain bounded, paged history'
+                    assert b'before-disconnect' not in base64.b64decode(page[-1])
+                    phone.close()
                 resumed.send('INPUT ' + encoded("printf 'reattached-ok\\n'\n"))
                 resumed.output_contains('reattached-ok')
                 resumed.send('INPUT ' + encoded('exit\n'))

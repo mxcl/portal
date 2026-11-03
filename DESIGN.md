@@ -669,6 +669,9 @@ Runtime and per-project catalog files use `Portal/Terminal` under Application
 Support (Linux: `$XDG_STATE_HOME/portal-terminal`). Each catalog has one
 controller writer. The terminal wire protocol negotiates versions 1 and 2 and
 rejects unsupported versions independently of the Git replication protocol.
+Mac attachments receive the complete retained transcript (up to 10,000 lines),
+because the Mac renderer replaces its transcript on replay and does not load older
+pages. Phone attachments retain the bounded initial page and backward paging.
 Terminal commands are explicit user actions; importing this module does not
 change background Git ref ownership or the replication contract.
 

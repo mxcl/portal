@@ -334,7 +334,7 @@ fn select_history<'a>(
     chunks: impl Iterator<Item = &'a OutputChunk>,
     max_lines: usize,
 ) -> Vec<&'a OutputChunk> {
-    let max_bytes = if max_lines == usize::MAX {
+    let max_bytes = if max_lines >= MAX_SCROLLBACK_LINES {
         usize::MAX
     } else {
         MAX_HISTORY_PAGE_BYTES
@@ -1221,11 +1221,14 @@ fn handle_client(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<
     };
 
     let (tx, rx) = mpsc::channel::<SessionEvent>();
-    let history_lines = if request.protocol_version >= CURRENT_PROTOCOL_VERSION {
-        INITIAL_HISTORY_LINES
-    } else {
+    let history_lines = if request.protocol_version < CURRENT_PROTOCOL_VERSION {
         // v1 clients predate paging and require the complete replay in HISTORY.
         usize::MAX
+    } else if request.client_role == ClientRole::Mac {
+        // The Mac transcript replaces its contents on replay and does not page backward.
+        MAX_SCROLLBACK_LINES
+    } else {
+        INITIAL_HISTORY_LINES
     };
     let snapshot = session.attach_client(tx, history_lines);
     session.increment_attached_client_count();
@@ -1879,6 +1882,9 @@ mod tests {
             COMMAND_STARTED_MARKER.len() + 7 + 100 * 4 * 1024
         );
         assert!(!previous.has_older_history);
+        let mac = terminal.snapshot(MAX_SCROLLBACK_LINES);
+        assert_eq!(mac.history, previous.history);
+        assert!(!mac.has_older_history);
     }
 
     #[test]
@@ -1889,6 +1895,9 @@ mod tests {
 
         let current = terminal.snapshot(INITIAL_HISTORY_LINES);
         let previous = terminal.snapshot(usize::MAX);
+        let mac = terminal.snapshot(MAX_SCROLLBACK_LINES);
+        assert_eq!(mac.history, current.history);
+        assert_eq!(mac.screen, current.screen);
 
         assert!(
             !current

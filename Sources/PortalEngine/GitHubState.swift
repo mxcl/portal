@@ -66,6 +66,7 @@ public struct GitHubState: Codable, Equatable, Sendable {
 public enum GitHubAction: Codable, Sendable {
     case connect, refresh, disconnect, requestNotificationPermission, installations
     case notificationOpened(id: String)
+    case hubVisibility(Bool)
 }
 
 struct GitHubWork: Codable, Sendable {
@@ -105,10 +106,55 @@ struct GitHubRefreshSchedule {
     }
     mutating func preserveCatchUp() { catchUp = true }
     mutating func retry() -> Bool {
-        guard retries < 3 else { return false }
+        guard !requested, retries < 3 else { return false }
         retries += 1
         requested = true
         return true
+    }
+}
+/// A lost Hub process cannot leave a background live connection running indefinitely.
+@MainActor
+final class GitHubVisibilityLease {
+    private(set) var isVisible = false
+    private var expiry: Task<Void, Never>?
+    private let duration: Duration
+    private let changed: (Bool) -> Void
+
+    init(duration: Duration = .seconds(20), changed: @escaping (Bool) -> Void) {
+        self.duration = duration
+        self.changed = changed
+    }
+
+    func update(_ visible: Bool) {
+        expiry?.cancel()
+        expiry = nil
+        if isVisible != visible {
+            isVisible = visible
+            changed(visible)
+        }
+        if visible {
+            expiry = Task { [weak self, duration] in
+                do { try await Task.sleep(for: duration) } catch { return }
+                self?.update(false)
+            }
+        }
+    }
+}
+
+/// Interrupting backoff never cancels a fetch or its acknowledgment.
+@MainActor
+final class GitHubRetryWait {
+    private var task: Task<Void, Error>?
+    func interrupt() { task?.cancel() }
+    func wait(seconds: Double) async {
+        let sleeper = Task { try await Task.sleep(for: .seconds(max(1, seconds))) }
+        task = sleeper
+        await withTaskCancellationHandler {
+            _ = try? await sleeper.value
+        } onCancel: {
+            sleeper.cancel()
+        }
+        task = nil
     }
 }
 #endif

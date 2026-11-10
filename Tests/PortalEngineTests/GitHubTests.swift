@@ -46,7 +46,7 @@ func githubResponseDecoding() throws {
         #expect(restored.hasUnreadNotifications == unread)
     }
     #expect(try JSONDecoder().decode(GitHubState.self, from: JSONEncoder().encode(GitHubState())).hasUnreadNotifications == nil)
-    #expect(EngineControlProtocol.version == 13)
+    #expect(EngineControlProtocol.version == 14)
 }
 @Test("GitHub sign-in control requests require no relay configuration")
 func githubConnectAction() throws {
@@ -171,5 +171,61 @@ func githubNotificationOpenedImmediately() throws {
     legacy.removeValue(forKey: "openedNotificationIDs")
     let restored = try JSONDecoder().decode(GitHubState.self, from: JSONSerialization.data(withJSONObject: legacy))
     #expect(restored.showsUnreadNotifications)
+}
+
+@Test("Fresh GitHub work bypasses an outstanding retry")
+func githubFreshWorkBypassesRetry() {
+    var schedule = GitHubRefreshSchedule()
+    schedule.request(catchUp: false)
+    #expect(schedule.take() == false)
+    schedule.request(catchUp: true)
+    let delayed = schedule.retry()
+    #expect(!delayed)
+    #expect(schedule.take() == true)
+}
+
+@Test("A live hint interrupts inbox backoff without cancelling the drain")
+@MainActor
+func githubLiveHintInterruptsBackoff() async {
+    let wait = GitHubRetryWait()
+    let start = ContinuousClock.now
+    let interrupt = Task {
+        try? await Task.sleep(for: .milliseconds(20))
+        wait.interrupt()
+    }
+    await wait.wait(seconds: 60)
+    await interrupt.value
+    #expect(start.duration(to: .now) < .seconds(2))
+    #expect(!Task.isCancelled)
+}
+
+@Test("Hub visibility survives the helper control protocol")
+func githubHubVisibilityRoundTrip() throws {
+    for visible in [true, false] {
+        let request = EngineRequest(command: .github(.hubVisibility(visible)))
+        let decoded = try JSONDecoder().decode(EngineRequest.self, from: JSONEncoder().encode(request))
+        guard case .github(.hubVisibility(let value)) = decoded.command else {
+            Issue.record("Missing Hub visibility"); return
+        }
+        #expect(value == visible)
+    }
+}
+
+@Test("Hub visibility renews without reconnecting and expires after a lost client")
+@MainActor
+func githubVisibilityLeaseExpires() async throws {
+    var transitions: [Bool] = []
+    let lease = GitHubVisibilityLease(duration: .milliseconds(60)) { transitions.append($0) }
+    lease.update(true)
+    lease.update(true)
+    #expect(transitions == [true])
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(!lease.isVisible)
+    #expect(transitions == [true, false])
+    lease.update(true)
+    lease.update(false)
+    #expect(!lease.isVisible)
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(transitions == [true, false, true, false])
 }
 #endif

@@ -710,3 +710,165 @@ fn apns_concurrent_pushes_share_token_and_credentials_have_separate_caches() {
         tokens[0]
     );
 }
+
+#[tokio::test]
+async fn live_hints_cover_handshake_races_and_overflow() {
+    let device = Uuid::new_v4();
+    let (sender, mut receiver) = tokio::sync::broadcast::channel(2);
+    sender.send(Uuid::new_v4()).unwrap();
+    sender.send(device).unwrap();
+    assert!(next_live_work(&mut receiver, device).await);
+    for _ in 0..4 {
+        sender.send(Uuid::new_v4()).unwrap();
+    }
+    assert!(next_live_work(&mut receiver, device).await);
+    drop(sender);
+    assert!(!next_live_work(&mut receiver, device).await);
+}
+
+#[tokio::test]
+async fn live_websocket_auth_delivery_reconnect_and_revocation() {
+    use futures_util::StreamExt;
+    use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
+    let db = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::raw_sql(include_str!("../schema.sql"))
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::raw_sql(include_str!("../migration-2.sql"))
+        .execute(&db)
+        .await
+        .unwrap();
+    let device = Uuid::new_v4();
+    let other = Uuid::new_v4();
+    for id in [device, other] {
+        sqlx::query("INSERT INTO devices(id) VALUES(?)")
+            .bind(id)
+            .execute(&db)
+            .await
+            .unwrap();
+    }
+    sqlx::query("INSERT INTO tracked(device,repository,repository_id,installation_id) VALUES(?,'owner/repo',1,2)")
+        .bind(device).execute(&db).await.unwrap();
+    let state = AppState {
+        db: db.clone(),
+        http: Client::new(),
+        sync_lock: Arc::new(tokio::sync::Mutex::new(())),
+        live_work: tokio::sync::broadcast::channel(256).0,
+        config: Arc::new(Config {
+            webhook_secret: "test".into(),
+            github_client_id: String::new(),
+            github_client_secret: String::new(),
+            github_app_slug: String::new(),
+            github_app_id: String::new(),
+            github_key: EncodingKey::from_secret(b"unused"),
+            github_notifications_client_id: String::new(),
+            github_notifications_client_secret: String::new(),
+            encryption_key: [0; 32],
+            apns_team_id: String::new(),
+            apns_topic: String::new(),
+            apns_sandbox: test_apns_credentials(),
+            apns_production: test_apns_credentials(),
+        }),
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = Router::new()
+        .route("/events", get(events))
+        .route("/webhook", post(webhook))
+        .route("/disconnect", post(disconnect))
+        .with_state(state.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let request = |id: Uuid, version: &str| {
+        let mut r = format!("ws://{address}/events")
+            .into_client_request()
+            .unwrap();
+        r.headers_mut()
+            .insert("Portal-Protocol", version.parse().unwrap());
+        r.headers_mut()
+            .insert("Authorization", format!("Bearer {id}").parse().unwrap());
+        r
+    };
+    assert!(connect_async(request(Uuid::new_v4(), "1")).await.is_err());
+    assert!(connect_async(request(device, "99")).await.is_err());
+    let (mut socket, _) = connect_async(request(device, "1")).await.unwrap();
+    assert_eq!(
+        socket.next().await.unwrap().unwrap().to_text().unwrap(),
+        "ready"
+    );
+    assert_eq!(
+        socket.next().await.unwrap().unwrap().to_text().unwrap(),
+        "heartbeat"
+    );
+    state.live_work.send(other).unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), socket.next())
+            .await
+            .is_err()
+    );
+    let payload = serde_json::to_vec(
+        &json!({"ref":"refs/heads/main", "repository":{"id":1}, "installation":{"id":2}}),
+    )
+    .unwrap();
+    let mut mac = HmacSha256::new_from_slice(b"test").unwrap();
+    mac.update(&payload);
+    let signature = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
+    let response = state
+        .http
+        .post(format!("http://{address}/webhook"))
+        .header("X-Github-Event", "push")
+        .header("X-Github-Delivery", "live-test")
+        .header("X-Hub-Signature-256", signature)
+        .body(payload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let hint = tokio::time::timeout(Duration::from_secs(1), socket.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(hint.to_text().unwrap(), "work");
+    // Delivering a hint must not consume durable work, including across reconnects.
+    drop(socket);
+    let (mut socket, _) = connect_async(request(device, "1")).await.unwrap();
+    assert_eq!(
+        socket.next().await.unwrap().unwrap().to_text().unwrap(),
+        "ready"
+    );
+    assert_eq!(
+        socket.next().await.unwrap().unwrap().to_text().unwrap(),
+        "heartbeat"
+    );
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM pending WHERE device=? AND kind='fetch'")
+            .bind(device)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
+    state
+        .http
+        .post(format!("http://{address}/disconnect"))
+        .header("Portal-Protocol", "1")
+        .header("Authorization", format!("Bearer {device}"))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    state.live_work.send(device).unwrap();
+    let closed = tokio::time::timeout(Duration::from_secs(1), socket.next())
+        .await
+        .unwrap();
+    assert!(!matches!(
+        closed,
+        Some(Ok(tokio_tungstenite::tungstenite::Message::Text(_)))
+    ));
+    server.abort();
+}

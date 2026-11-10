@@ -59,6 +59,49 @@ struct PortalApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var visibilityTask: Task<Void, Never>?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        visibilityTask = Task {
+            var lastVisible = false
+            var lastReport = ContinuousClock.now
+            while !Task.isCancelled {
+                let visible = !NSApp.isHidden && NSApp.windows.contains {
+                    $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible)
+                }
+                if visible != lastVisible || (visible && lastReport.duration(to: .now) >= .seconds(10)) {
+                    do {
+                        let reply = try await EngineClient.send(.github(.hubVisibility(visible)))
+                        if reply.error == nil {
+                            lastVisible = visible
+                            lastReport = .now
+                        }
+                    } catch { /* Retry on the next visibility check when the helper is available. */ }
+                }
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        visibilityTask?.cancel()
+        var replied = false
+        let finish: @MainActor () -> Void = {
+            guard !replied else { return }
+            replied = true
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        Task {
+            _ = try? await EngineClient.send(.github(.hubVisibility(false)))
+            finish()
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            finish()
+        }
+        return .terminateLater
+    }
+
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
         let item = menu.addItem(withTitle: "New Terminal Window", action: #selector(newTerminalWindow), keyEquivalent: "")

@@ -7,7 +7,10 @@ use anyhow::{Context, Result};
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{DefaultBodyLimit, Query, State},
+    extract::{
+        DefaultBodyLimit, Query, State, WebSocketUpgrade,
+        ws::{Message, WebSocket},
+    },
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
@@ -43,6 +46,7 @@ struct AppState {
     http: Client,
     config: Arc<Config>,
     sync_lock: Arc<tokio::sync::Mutex<()>>,
+    live_work: tokio::sync::broadcast::Sender<Uuid>,
 }
 struct Config {
     webhook_secret: String,
@@ -208,6 +212,7 @@ async fn main() -> Result<()> {
         db,
         config: Arc::new(Config::from_env()?),
         sync_lock: Arc::new(tokio::sync::Mutex::new(())),
+        live_work: tokio::sync::broadcast::channel(256).0,
         http: Client::builder()
             .timeout(Duration::from_secs(20))
             .redirect(reqwest::redirect::Policy::none())
@@ -220,6 +225,7 @@ async fn main() -> Result<()> {
         .route("/connect", post(connect))
         .route("/oauth/hello", get(hello))
         .route("/sync", post(sync))
+        .route("/events", get(events))
         .route("/ack", post(ack))
         .route("/disconnect", post(disconnect))
         .layer(DefaultBodyLimit::max(1_048_576))
@@ -338,6 +344,78 @@ async fn authenticated(state: &AppState, headers: &HeaderMap) -> WebResult<Uuid>
     }
     Ok(id)
 }
+async fn events(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    upgrade: WebSocketUpgrade,
+) -> WebResult<Response> {
+    let device = authenticated(&state, &headers).await?;
+    // Subscribe before ready: the client's catch-up and this receiver cover the handshake race.
+    let work = state.live_work.subscribe();
+    Ok(upgrade
+        .max_message_size(1024)
+        .on_upgrade(move |socket| live_events(socket, state, device, work)))
+}
+
+async fn next_live_work(work: &mut tokio::sync::broadcast::Receiver<Uuid>, device: Uuid) -> bool {
+    loop {
+        match work.recv().await {
+            Ok(id) if id == device => return true,
+            Ok(_) => {}
+            // Hints can coalesce or overflow; /sync reads the durable queue.
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => return true,
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return false,
+        }
+    }
+}
+
+async fn live_events(
+    mut socket: WebSocket,
+    state: AppState,
+    device: Uuid,
+    mut work: tokio::sync::broadcast::Receiver<Uuid>,
+) {
+    if socket.send(Message::Text("ready".into())).await.is_err() {
+        return;
+    }
+    let mut heartbeat = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        let message = tokio::select! {
+            available = next_live_work(&mut work, device) => {
+                if !available { return; }
+                "work"
+            },
+            _ = heartbeat.tick() => "heartbeat",
+            incoming = socket.recv() => {
+                match incoming {
+                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => continue,
+                    _ => return,
+                }
+            }
+        };
+        // Revoking a session also revokes already-open connections.
+        if sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM devices WHERE id=$1)")
+            .bind(device)
+            .fetch_one(&state.db)
+            .await
+            .ok()
+            != Some(true)
+        {
+            return;
+        }
+        if !matches!(
+            tokio::time::timeout(
+                Duration::from_secs(10),
+                socket.send(Message::Text(message.into()))
+            )
+            .await,
+            Ok(Ok(()))
+        ) {
+            return;
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct GitHubToken {
     access_token: String,
@@ -1325,6 +1403,9 @@ async fn webhook(
         }
     }
     tx.commit().await?;
+    for device in &devices {
+        let _ = state.live_work.send(*device);
+    }
     for device in devices {
         if let Some(row) =
             sqlx::query("SELECT token,environment FROM devices WHERE id=$1 AND token IS NOT NULL")

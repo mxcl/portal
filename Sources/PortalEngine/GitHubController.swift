@@ -14,6 +14,13 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
     private var credential: Credential?
     private var deviceToken: String?
     private var task: Task<Void, Never>?
+    private let retryWait = GitHubRetryWait()
+    private var liveTask: Task<Void, Never>?
+    private var liveSocket: URLSessionWebSocketTask?
+    private lazy var visibility = GitHubVisibilityLease { [weak self] visible in
+        if visible { self?.updateLiveUpdates() }
+        else { self?.stopLiveUpdates() }
+    }
     private var clickRefreshTask: Task<Void, Never>?
     private var schedule = GitHubRefreshSchedule()
     private var observations = Set<AnyCancellable>()
@@ -104,6 +111,9 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
 
     public func shutdown() {
         task?.cancel()
+        retryWait.interrupt()
+        stopLiveUpdates()
+        visibility.update(false)
         clickRefreshTask?.cancel()
         network.cancel()
         mergeWatcher = nil
@@ -117,6 +127,64 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
     public func receivedPush() { refresh(catchUp: false) }
     public func menuOpened() { refresh(catchUp: false) }
 
+    private func stopLiveUpdates() {
+        liveTask?.cancel()
+        liveTask = nil
+        liveSocket?.cancel(with: .goingAway, reason: nil)
+        liveSocket = nil
+    }
+
+    private func updateLiveUpdates() {
+        guard visibility.isVisible, liveTask == nil, let credential else { return }
+        liveTask = Task { [weak self] in
+            var backoff = 1.0
+            while !Task.isCancelled {
+                guard let self else { return }
+                var components = URLComponents(url: credential.relay.appendingPathComponent("events"), resolvingAgainstBaseURL: false)
+                guard components?.scheme == "https" else { return }
+                components?.scheme = "wss"
+                guard let url = components?.url else { return }
+                var request = URLRequest(url: url)
+                request.setValue("1", forHTTPHeaderField: "Portal-Protocol")
+                request.setValue("Bearer \(credential.session.uuidString)", forHTTPHeaderField: "Authorization")
+                let socket = self.session.webSocketTask(with: request)
+                socket.maximumMessageSize = 1024
+                self.liveSocket = socket
+                socket.resume()
+                do {
+                    var ready = false
+                    while !Task.isCancelled {
+                        // Detect a dead connection even when the OS has not reported a disconnect.
+                        let deadline = Task {
+                            do { try await Task.sleep(for: .seconds(45)) } catch { return }
+                            socket.cancel(with: .goingAway, reason: nil)
+                        }
+                        let message: URLSessionWebSocketTask.Message
+                        do { message = try await socket.receive() }
+                        catch { deadline.cancel(); throw error }
+                        deadline.cancel()
+                        guard !Task.isCancelled else { break }
+                        guard case .string(let text) = message else { throw URLError(.badServerResponse) }
+                        if !ready {
+                            guard text == "ready" else { throw URLError(.badServerResponse) }
+                            ready = true
+                            backoff = 1
+                            self.refresh(catchUp: true)
+                        } else if text == "work" {
+                            self.refresh(catchUp: false)
+                        } else if text != "heartbeat" {
+                            throw URLError(.badServerResponse)
+                        }
+                    }
+                } catch { /* APNs remains available while the live connection retries. */ }
+                socket.cancel(with: .goingAway, reason: nil)
+                guard !Task.isCancelled else { return }
+                do { try await Task.sleep(for: .seconds(backoff)) } catch { return }
+                backoff = min(backoff * 2, 30)
+            }
+        }
+    }
+
     private var repositories: Set<String> {
         guard let model else { return [] }
         return Set((Array(model.localProjects.values) + model.remoteProjects.values.flatMap { $0.values })
@@ -124,6 +192,10 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
     }
 
     public func handle(_ action: GitHubAction) async {
+        if case .hubVisibility(let visible) = action {
+            visibility.update(visible)
+            return
+        }
         guard let model else { return }
         guard !accountActionInProgress else { return }
         switch action {
@@ -144,6 +216,7 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                 let value = Credential(relay: url, session: reply.session)
                 try Self.saveCredential(JSONEncoder().encode(value))
                 credential = value
+                updateLiveUpdates()
                 model.github.status = "Finish connecting in your browser, then Refresh."
                 model.github.connected = true // A session exists; status distinguishes authorization from readiness.
                 model.github.error = nil
@@ -162,6 +235,8 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                 }
             case .disconnect:
                 task?.cancel()
+                retryWait.interrupt()
+                stopLiveUpdates()
                 if let credential {
                     _ = try await request("disconnect", body: Data("{}".utf8), relay: credential.relay, credential: credential.session)
                 }
@@ -174,6 +249,7 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
                 mergeWatchPaths = []
                 model.github = GitHubState()
                 try? FileManager.default.removeItem(at: cacheURL)
+            case .hubVisibility: break
             case .requestNotificationPermission:
                 _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
                 NSApplication.shared.registerForRemoteNotifications()
@@ -186,6 +262,7 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
 
     private func refresh(catchUp: Bool) {
         guard ready, credential != nil else { return }
+        retryWait.interrupt()
         schedule.request(catchUp: catchUp)
         guard task == nil else { return }
         task = Task { [weak self] in await self?.drain() }
@@ -286,7 +363,7 @@ public final class GitHubController: NSObject, UNUserNotificationCenterDelegate 
             }
             guard !Task.isCancelled else { return }
             if let delay, schedule.retry() {
-                do { try await Task.sleep(for: .seconds(max(1, delay))) } catch { return }
+                await retryWait.wait(seconds: delay)
             }
         }
     }

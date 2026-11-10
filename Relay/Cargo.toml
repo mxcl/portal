@@ -7,7 +7,7 @@ rust-version = "1.94"
 [dependencies]
 anyhow = "1.0"
 aes-gcm = "0.11.1"
-axum = { version = "0.8.9", features = ["query"] }
+axum = { version = "0.8.9", features = ["query", "ws"] }
 chrono = { version = "0.4", features = ["serde"] }
 hex = "0.4"
 hmac = "0.13"
@@ -26,3 +26,7 @@ uuid = { version = "1.18", features = ["serde", "v4"] }
 [profile.release]
 strip = true
 lto = "thin"
+
+[dev-dependencies]
+tokio-tungstenite = "0.29"
+futures-util = "0.3"

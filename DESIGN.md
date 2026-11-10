@@ -571,7 +571,25 @@ The optional GitHub connection uses a separate Portal relay and the macOS menu
 helper. APNs is a wake-up hint, not an event log: the relay retains per-device,
 per-repository work until acknowledged. Each replacement work item has a fresh
 UUID, so acknowledging older work cannot erase a newer event, including after a
-relay state reset. GitHub repository work is event-driven; launch, wake, reconnect, initial
+relay state reset. While a Hub window is on screen, the helper also maintains an authenticated
+WebSocket at `/events`. Hub reports visibility at most every ten seconds while
+visible; a twenty-second lease closes the socket if Hub crashes. Hiding,
+minimizing, or fully occluding all Hub windows closes it on the next one-second
+visibility check; normal quit explicitly releases the lease. This local visibility
+check never polls GitHub.
+
+The relay subscribes before sending `ready`, then sends device-scoped `work`
+hints only after the pending-work transaction commits, before attempting APNs.
+On `ready` the helper catches up through `/sync`; work hints run the same
+sync/fetch/ack path as APNs. Hints carry no ordering state or repository data and
+never acknowledge work. Queue overflow triggers reconciliation; reconnects and
+relay restarts cannot erase pending work. Twenty-second heartbeats revalidate the
+session, a forty-five-second client deadline detects silent disconnection, and
+retries back off from one to thirty seconds. Revoked sessions stop receiving hints.
+Fresh triggers interrupt retry waits without cancelling in-flight fetches or
+acknowledgments; the relay still enforces GitHub's inbox throttle.
+
+GitHub repository work is event-driven; launch, wake, reconnect, initial
 setup and explicit Refresh trigger catch-up. Inbox-only checks also run after
 notification clicks and every minute while unread notifications remain. Local
 discovery timers must not become GitHub polling timers.

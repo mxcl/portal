@@ -5,7 +5,7 @@ import Foundation
 import PortalCore
 
 public enum EngineControlProtocol {
-    public static let version = 13
+    public static let version = 14
     public static let showPaletteNotification = Notification.Name("dev.mxcl.portal.show-palette")
     public static let changedNotification = Notification.Name("dev.mxcl.portal.engine-changed")
     public static var socketURL: URL {

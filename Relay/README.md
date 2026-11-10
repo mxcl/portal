@@ -136,6 +136,15 @@ this device's relay session before removing its Keychain credential.
   retain cached counts. Revoked repository access removes its results.
 - Sync pause defers Git fetches. Remote-only projects can show counts, but no
   remote checkout is created or modified. Other hosts fetch for themselves.
+- While a Hub window is visible, `/events` provides authenticated WebSocket wake-up
+  hints. It uses the same `Portal-Protocol: 1` and bearer session as `/sync`.
+  The first message is `ready` (subscribe before catch-up), then `work` hints and
+  `heartbeat` messages every twenty seconds. Pending work remains durable until
+  acknowledged through the existing API. Proxy WebSocket upgrades and allow
+  idle connections for longer than the heartbeat interval; Atlas's Caddy reverse
+  proxy supports this without configuration changes. Session validity is checked
+  before every hint/heartbeat. The client reconnects with bounded backoff and
+  catches up after reconnecting. Older relays continue to work via APNs.
 - APNs can be delayed or dropped. Launch/reconnect/manual catch-up recovers
   missed hints; this design does not promise instant delivery while offline.
 

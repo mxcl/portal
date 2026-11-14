@@ -1164,72 +1164,38 @@ private final class BlockOutputTextView: NSTextView {
     }
 }
 
-private final class HoverCopyMarkdownButton: NSButton {
-    private var hoverTrackingArea: NSTrackingArea?
-    private var isHovering = false {
-        didSet { updateHoverAppearance() }
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        isBordered = false
-        bezelStyle = .regularSquare
-        image = NSImage(
-            systemSymbolName: "square.on.square",
-            accessibilityDescription: "Copy Markdown"
-        )
-        imagePosition = .imageOnly
-        imageScaling = .scaleProportionallyDown
+final class HoverCopyMarkdownButton: TerminalIconButton {
+    init() {
+        super.init(symbol: "square.on.square", label: "Copy Markdown")
         symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        toolTip = "Copy Markdown"
-        wantsLayer = true
-        layer?.cornerRadius = 6
-        layer?.cornerCurve = .continuous
-        layer?.backgroundColor = NSColor.clear.cgColor
-        contentTintColor = TahoeGlassPalette.titleText
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea {
-            removeTrackingArea(hoverTrackingArea)
-        }
-        let trackingArea = NSTrackingArea(
-            rect: .zero,
-            options: [.activeInActiveApp, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-        hoverTrackingArea = trackingArea
+    func showCopied() {
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(resetCopyFeedback), object: nil)
+        image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")
+        toolTip = "Copied"
+        setAccessibilityLabel("Copied")
+        perform(#selector(resetCopyFeedback), with: nil, afterDelay: 1.5)
     }
 
-    override func cursorUpdate(with event: NSEvent) {
-        NSCursor.arrow.set()
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovering = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovering = false
-    }
-
-    private func updateHoverAppearance() {
-        layer?.backgroundColor = (isHovering
-            ? NSColor.labelColor.withAlphaComponent(0.10)
-            : NSColor.clear
-        ).cgColor
-        contentTintColor = isHovering ? .labelColor : .secondaryLabelColor
+    @objc func resetCopyFeedback() {
+        image = NSImage(systemSymbolName: "square.on.square", accessibilityDescription: "Copy Markdown")
+        toolTip = "Copy Markdown"
+        setAccessibilityLabel("Copy Markdown")
     }
 }
 
-private final class TerminalIconButton: NSButton {
+private final class TerminalIconButtonCell: NSButtonCell {
+    override var isHighlighted: Bool {
+        didSet { (controlView as? TerminalIconButton)?.updateAppearance() }
+    }
+}
+
+class TerminalIconButton: NSButton {
     private var hoverTrackingArea: NSTrackingArea?
     private var isHovering = false {
         didSet { updateAppearance() }
@@ -1237,6 +1203,8 @@ private final class TerminalIconButton: NSButton {
 
     init(symbol: String, label: String) {
         super.init(frame: .zero)
+        cell = TerminalIconButtonCell()
+        setButtonType(.momentaryPushIn)
         isBordered = false
         bezelStyle = .regularSquare
         image = NSImage(
@@ -1292,12 +1260,15 @@ private final class TerminalIconButton: NSButton {
         isHovering = false
     }
 
-    private func updateAppearance() {
-        layer?.backgroundColor = (isHovering
+    fileprivate func updateAppearance() {
+        let pressed = cell?.isHighlighted == true
+        layer?.backgroundColor = (pressed
+            ? NSColor.labelColor.withAlphaComponent(0.22)
+            : isHovering
             ? NSColor.labelColor.withAlphaComponent(0.10)
             : NSColor.clear
         ).cgColor
-        contentTintColor = isHovering ? .labelColor : .secondaryLabelColor
+        contentTintColor = pressed || isHovering ? .labelColor : .secondaryLabelColor
     }
 }
 
@@ -1380,7 +1351,7 @@ private final class BlockView: NSView {
     fileprivate let commandLabel = SelectableBlockTextField()
     private let metaLabel = SelectableBlockTextField()
     private let outputView = BlockOutputTextView(frame: .zero)
-    private let copyMarkdownButton = HoverCopyMarkdownButton(frame: .zero)
+    private let copyMarkdownButton = HoverCopyMarkdownButton()
     private let scrollToTopButton = TerminalIconButton(symbol: "arrow.up.to.line", label: "Scroll to top of block")
     private let findReticuleLayer = CALayer()
     private var outputHeightConstraint: NSLayoutConstraint?
@@ -1656,7 +1627,7 @@ private final class BlockView: NSView {
         }
     }
 
-    var onCopyMarkdown: (() -> Void)?
+    var onCopyMarkdown: (() -> Bool)?
     var onTerminalMouseEvent: ((NSEvent, NSPoint) -> Bool)? {
         didSet { outputView.onTerminalMouseEvent = onTerminalMouseEvent }
     }
@@ -1975,7 +1946,9 @@ private final class BlockView: NSView {
         scrollToTopButton.isHidden = offset <= 0
     }
 
-    @objc private func copyMarkdown() { onCopyMarkdown?() }
+    @objc private func copyMarkdown() {
+        if onCopyMarkdown?() == true { copyMarkdownButton.showCopied() }
+    }
 
     fileprivate func selectedTextForCopy(firstResponder: NSResponder) -> String? {
         if let text = firstResponder as? NSText {
@@ -7758,7 +7731,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         tab.commandSeparator.blockAbove = blockView
         blockView.update(with: block)
         blockView.onCopyMarkdown = { [weak self, weak tab] in
-            guard let self else { return }
+            guard let self else { return false }
             let latest = tab?.blocks.first(where: { $0.id == block.id }) ?? block
             let exitCode: Int32?
             if case .completed(let code) = latest.state {
@@ -7766,7 +7739,7 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
             } else {
                 exitCode = nil
             }
-            self.copy(markdownTranscript(command: latest.command, output: latest.output, exitCode: exitCode))
+            return self.copy(markdownTranscript(command: latest.command, output: latest.output, exitCode: exitCode))
         }
         blockView.onTerminalMouseEvent = { [weak self, weak tab, weak blockView] event, point in
             guard let self, let tab, let blockView else { return false }
@@ -7881,9 +7854,9 @@ final class TerminalViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
-    private func copy(_ value: String) {
+    private func copy(_ value: String) -> Bool {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(value, forType: .string)
+        return NSPasteboard.general.setString(value, forType: .string)
     }
 
     private func markdownTranscript(command: String, output: String, exitCode: Int32?) -> String {

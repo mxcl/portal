@@ -1,17 +1,33 @@
 # Portal
 
-A beautiful, tasteful, delightful terminal. macOS native AF.
+This project is two apps that complement each other but can be used
+independently.
 
-This repository contains two separate Mac apps:
+**[Portal][download]**
 
-- **[Portal][download]** is the terminal: command blocks, completions, and sessions that survive closed tabs and app relaunches.
-- **[Portal Hub][hub-download]** is an experimental project manager with Git sync and backups across your computers.
+A beautiful, tasteful, delightful terminal for people who love well made things.
 
-Download either app separately. Both require macOS 26 or newer on Apple silicon.
+Command blocks, completions, and sessions that survive closed tabs and app relaunches.
 
-## Portal · the terminal
+**[Portal Hub][hub-download]**
 
-[Download Portal for macOS][download], open the DMG, and drag **Portal.app** into Applications.
+An experimental project manager with near instance git sync (objects only, keeps
+checked out branches in sync if no conflicts), backups across all computers,
+Linux headless support and instant GitHub updates via a remote relay.
+
+It uses the Portal Terminal system so project sessions survive app restarts and
+so you can work across computers without messing around.
+
+It is experimental because the UI/UX doesn’t quite feel *there* but I use it
+as my main terminal/git-viewer/project-manager app.
+
+> [NOTE]
+> Both require macOS 26 or newer and Apple Silicon.
+
+## Portal · The Terminal
+
+[Download Portal for macOS][download], open the DMG, and drag **Portal.app**
+into Applications.
 
 https://github.com/user-attachments/assets/c9829fa6-da3b-4339-a564-af6d8da1fb35
 

@@ -24,6 +24,9 @@ as my main terminal/git-viewer/project-manager app.
 > [NOTE]
 > Both require macOS 26 or newer and Apple Silicon.
 
+&nbsp;
+
+
 ## Portal · The Terminal
 
 [Download Portal for macOS][download], open the DMG, and drag **Portal.app**
@@ -60,7 +63,12 @@ Portal combines executable names, shell builtins, command history, paths, and bu
 > [!IMPORTANT]
 > Fig generators can execute shell code. A generator for a remote session runs as your user on that host. Use completion specs you trust.
 
+&nbsp;
+
+
 ## Portal Hub · experimental project management & Git sync
+
+![Portal Hub](docs/portal-hub-screenshot.png)
 
 [Download Portal Hub][hub-download] for project browsing, commit graphs, diffs, GitHub activity, continuous Git sync, and backups across your computers.
 

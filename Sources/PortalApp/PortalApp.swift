@@ -2662,70 +2662,44 @@ private struct ProjectOverview: View {
     }
 }
 
-@MainActor
-private struct HostTabs: NSViewRepresentable {
+private struct HostTabs: View {
     @ObservedObject var model: AppModel
 
     private var sources: [ProjectSource] { model.projectTerminalSources }
-
-    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
-
-    func makeNSView(context: Context) -> NSSegmentedControl {
-        let control = NSSegmentedControl()
-        control.cell = HostTabsCell()
-        control.trackingMode = .selectOne
-        control.segmentStyle = .automatic
-        control.segmentDistribution = .fillEqually
-        control.target = context.coordinator
-        control.action = #selector(Coordinator.selectHost(_:))
-        control.setAccessibilityLabel("Host")
-        return control
-    }
-
-    func updateNSView(_ control: NSSegmentedControl, context: Context) {
-        context.coordinator.sources = sources
-        control.segmentCount = sources.count
-        for (index, source) in sources.enumerated() {
+    private var segmentWidth: CGFloat {
+        sources.map { source in
             let host = model.configuration.hosts.first { .host($0.id) == source }
-            let name = host?.name ?? model.configuration.machine
-            let hardware = host?.hardware ?? (source == .local ? .current : nil)
-            let type = hardware?.operatingSystem == "Linux" ? HostIcon.macType(for: "RackMount")
-                : hardware?.model.flatMap { HostIcon.macType(for: $0) }
-            let image = type.map { NSWorkspace.shared.icon(for: $0).copy() as! NSImage }
-                ?? NSImage(systemSymbolName: "desktopcomputer", accessibilityDescription: nil)
-            image?.size = NSSize(width: 16, height: 16)
-            control.setLabel(name, forSegment: index)
-            control.setImage(image, forSegment: index)
-            control.setImageScaling(.scaleProportionallyDown, forSegment: index)
-            control.setToolTip(name, forSegment: index)
-        }
-        control.selectedSegment = sources.firstIndex(of: model.selectedProjectHostSource) ?? -1
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSSegmentedControl, context: Context) -> CGSize? {
-        let width = (0..<nsView.segmentCount).map { index in
-            (nsView.label(forSegment: index) as NSString? ?? "").size(withAttributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]).width + 48
+            return ((host?.name ?? model.configuration.machine) as NSString)
+                .size(withAttributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]).width + 48
         }.max() ?? 100
-        return CGSize(width: width * CGFloat(nsView.segmentCount), height: nsView.intrinsicContentSize.height)
     }
 
-    @MainActor
-    final class Coordinator: NSObject {
-        let model: AppModel
-        var sources: [ProjectSource] = []
-        init(model: AppModel) { self.model = model }
-
-        @objc func selectHost(_ control: NSSegmentedControl) {
-            guard sources.indices.contains(control.selectedSegment) else { return }
-            model.selectProjectHost(sources[control.selectedSegment])
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(sources, id: \.self) { source in
+                let host = model.configuration.hosts.first { .host($0.id) == source }
+                let name = host?.name ?? model.configuration.machine
+                let selected = source == model.selectedProjectHostSource
+                Button {
+                    model.selectProjectHost(source)
+                } label: {
+                    HStack(spacing: 4) {
+                        HostIcon(hardware: host?.hardware ?? (source == .local ? .current : nil))
+                        Text(name)
+                    }
+                    .foregroundStyle(.primary)
+                    .frame(width: segmentWidth, height: 28)
+                    .background(.primary.opacity(selected ? 0.1 : 0), in: Capsule())
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help(name)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
         }
-    }
-}
-
-private final class HostTabsCell: NSSegmentedCell {
-    override func interiorBackgroundStyle(forSegment segment: Int) -> NSView.BackgroundStyle {
-        // The glass selection is neutral, so its label must follow the current appearance.
-        .normal
+        .padding(4)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Host")
     }
 }
 

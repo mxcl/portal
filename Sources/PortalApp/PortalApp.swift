@@ -2672,6 +2672,7 @@ private struct HostTabs: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSSegmentedControl {
         let control = NSSegmentedControl()
+        control.cell = HostTabsCell()
         control.trackingMode = .selectOne
         control.segmentStyle = .automatic
         control.segmentDistribution = .fillEqually
@@ -2718,6 +2719,13 @@ private struct HostTabs: NSViewRepresentable {
             guard sources.indices.contains(control.selectedSegment) else { return }
             model.selectProjectHost(sources[control.selectedSegment])
         }
+    }
+}
+
+private final class HostTabsCell: NSSegmentedCell {
+    override func interiorBackgroundStyle(forSegment segment: Int) -> NSView.BackgroundStyle {
+        // The glass selection is neutral, so its label must follow the current appearance.
+        .normal
     }
 }
 

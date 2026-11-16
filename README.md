@@ -21,7 +21,7 @@ so you can work across computers without messing around.
 It is experimental because the UI/UX doesn’t quite feel *there* but I use it
 as my main terminal/git-viewer/project-manager app.
 
-> [NOTE]
+> [!NOTE]
 > Both require macOS 26 or newer and Apple Silicon.
 
 &nbsp;

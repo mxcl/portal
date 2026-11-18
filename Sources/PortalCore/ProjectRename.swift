@@ -86,11 +86,13 @@ public enum ProjectRename {
         public let id: UUID
         public let old: String
         public let new: String
+        public var projectID: String?
         public var previousRenames: [UUID]?
         public var moved = false
         public var complete = false
-        public init(id: UUID = UUID(), old: String, new: String, previousRenames: [UUID] = []) {
+        public init(id: UUID = UUID(), old: String, new: String, projectID: String? = nil, previousRenames: [UUID] = []) {
             self.id = id
+            self.projectID = projectID
             self.old = old.precomposedStringWithCanonicalMapping
             self.new = new.precomposedStringWithCanonicalMapping
             self.previousRenames = previousRenames
@@ -98,6 +100,7 @@ public enum ProjectRename {
     }
 
     public static func validate(_ record: Record) throws {
+        if let id = record.projectID { try Validator.projectID(id) }
         try Validator.project(record.old); try Validator.project(record.new)
         guard !record.new.hasPrefix("."), !record.old.contains("\u{1f}"), !record.new.contains("\u{1f}"),
               record.old.localizedCaseInsensitiveCompare(record.new) != .orderedSame else {
@@ -134,7 +137,7 @@ public enum ProjectRename {
 
     public static func isRetiredOrSuspended(_ name: String, records: [Record]) -> Bool {
         guard let latest = records.last(where: { $0.old == name || $0.new == name }) else { return false }
-        return !latest.complete || latest.old == name
+        return !latest.complete
     }
 
     /// Backup callers perform their metadata write while this exclusive lock is held.
@@ -145,8 +148,8 @@ public enum ProjectRename {
         let access = try ProjectAccess(root: root, exclusive: true, waitForIdle: 10)
         defer { withExtendedLifetime(access) {} }
         var records = access.records
-        let source = root.appendingPathComponent(record.old + (bare ? ".git" : ""))
-        let target = root.appendingPathComponent(record.new + (bare ? ".git" : ""))
+        let source = root.appendingPathComponent((bare ? record.projectID ?? record.old : record.old) + (bare ? ".git" : ""))
+        let target = bare && record.projectID != nil ? source : root.appendingPathComponent(record.new + (bare ? ".git" : ""))
         switch step {
         case .preflight, .prepare:
             guard FileManager.default.isWritableFile(atPath: root.path) else {
@@ -158,22 +161,27 @@ public enum ProjectRename {
             let destination = records.last(where: { $0.old == record.new || $0.new == record.new })
             guard !records.contains(where: { $0.id == record.id }),
                   !isRetiredOrSuspended(record.old, records: records),
-                  destination?.new != record.new, !exists(target) else {
+                  destination?.new != record.new, (source == target || !exists(target)) else {
                 throw SyncError.invalidConfiguration("Rename conflicts with an existing name or unfinished rename in \(root.path).")
             }
-            if exists(source) { try validateRepository(source, bare: bare) }
+            if exists(source) {
+                try validateRepository(source, bare: bare)
+                if let id = record.projectID, try Repository(name: record.old, url: source).projectID() != id {
+                    throw SyncError.invalidConfiguration("Rename project identity differs")
+                }
+            }
             if step == .preflight { return }
-            records.append(Record(id: record.id, old: record.old, new: record.new,
+            records.append(Record(id: record.id, old: record.old, new: record.new, projectID: record.projectID,
                                   previousRenames: record.previousRenames ?? []))
         case .move, .finish, .suspend:
             guard let i = records.firstIndex(where: { $0.id == record.id && $0.old == record.old && $0.new == record.new }) else {
                 throw SyncError.invalidConfiguration("Rename was not prepared in \(root.path).")
             }
             if step == .move {
-                guard !records[i].moved, !exists(target) else {
+                guard !records[i].moved, (source == target || !exists(target)) else {
                     throw SyncError.invalidConfiguration("Rename has already moved or the destination exists: \(target.path)")
                 }
-                if exists(source) {
+                if exists(source) && source != target {
                     try validateRepository(source, bare: bare)
                     guard portal_rename_exclusive(source.path, target.path) == 0 else {
                         throw SyncError.invalidConfiguration("Cannot rename \(source.path): \(String(cString: strerror(errno)))")

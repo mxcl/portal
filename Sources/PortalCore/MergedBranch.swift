@@ -35,6 +35,7 @@ public struct MergedBranch: Codable, Equatable, Sendable {
 public struct MergedBranchBackup: Codable, Equatable, Sendable {
     public let merge: MergedBranch
     public let machine: String
+    public var projectID: String? = nil
     public let project: String
     /// NUL-delimited config output preserves repeated keys and embedded newlines.
     public let branchConfiguration: String
@@ -96,7 +97,7 @@ extension Repository {
             value.append(character)
         }
         let config = try Git.run(["-C", url.path, "config", "--local", "--null", "--get-regexp", "^branch\\.\(literal)\\."], successStatuses: [0, 1])
-        return MergedBranchBackup(merge: merge, machine: machine, project: name,
+        return MergedBranchBackup(merge: merge, machine: machine, projectID: try projectID(), project: name,
                                   branchConfiguration: String(decoding: config, as: UTF8.self))
     }
 
@@ -104,7 +105,7 @@ extension Repository {
     public func deleteMergedBranch(_ backup: MergedBranchBackup, receipt: MergedBranchBackup) throws -> MergedBranchEligibility {
         let access = try ProjectAccess(root: url.deletingLastPathComponent(), names: [name])
         defer { withExtendedLifetime(access) {} }
-        guard receipt == backup, backup.project == name else {
+        guard receipt == backup, backup.project == name, try backup.projectID == projectID() else {
             throw SyncError.invalidProtocol("Merged branch backup receipt does not match")
         }
         let eligibility = try mergedBranchEligibility(backup.merge)
@@ -125,7 +126,9 @@ extension BackupIndex {
         try Validator.machine(backup.machine)
         try Validator.project(backup.project)
         guard Git.checkRef(backup.ref) else { throw SyncError.invalidProtocol("Invalid merged backup ref") }
-        let url = root.appendingPathComponent(backup.project + ".git")
+        guard let id = backup.projectID else { throw SyncError.invalidProtocol("Missing merged branch project UUID") }
+        try Validator.projectID(id)
+        let url = BackupIndex.backupURL(id, in: root)
         guard try Git.text(["-C", url.path, "rev-parse", "--is-bare-repository"]) == "true",
               try Git.text(["-C", url.path, "rev-parse", "--is-shallow-repository"]) == "false" else {
             throw SyncError.invalidConfiguration("Merged branch backup requires a complete bare repository")

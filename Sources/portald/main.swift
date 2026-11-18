@@ -127,8 +127,8 @@ do {
         let inspection = PeerInspection(version: SyncProtocol.version,
                                         machine: value("--machine", in: arguments) ?? Configuration.defaultMachine,
                                         repositories: repositories.map(\.name),
-                                        projects: repositories.map {
-                                            PeerProject(name: $0.name, placement: $0.placement,
+                                        projects: try repositories.map {
+                                            PeerProject(name: $0.name, placement: $0.placement, projectID: try $0.projectID(),
                                                         defaultBranch: $0.defaultBranch, githubRepositories: $0.githubRepositories,
                                                         workingChanges: try? $0.workingChanges(), branchTips: try? $0.branchTips())
                                         }, hardware: .current, namingRevision: revision)
@@ -178,9 +178,10 @@ do {
             throw SyncError.invalidConfiguration("Invalid project placement")
         }
         let repository = try Repository.setPlacement(name: name, in: root, to: placement,
-                                                      branch: value("--branch", in: arguments))
+                                                      branch: value("--branch", in: arguments), projectID: value("--project-id", in: arguments))
         let result = PeerProject(name: name,
                                  placement: placement == .notPresent ? .notPresent : repository.placement,
+                                 projectID: placement == .notPresent ? nil : try repository.projectID(),
                                  defaultBranch: placement == .notPresent ? nil : repository.defaultBranch,
                                  githubRepositories: placement == .notPresent ? nil : repository.githubRepositories,
                                  workingChanges: placement == .notPresent ? nil : (try? repository.workingChanges()),

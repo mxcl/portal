@@ -15,6 +15,8 @@ struct WireMessage: Codable {
     var machine: String?
     var epoch: String?
     var namingRevision: [UUID]?
+    var identities: [String: String]?
+    var projectID: String?
     var repositories: [String]?
     var repository: String?
     var known: [String]?
@@ -38,13 +40,13 @@ struct WireMessage: Codable {
         return (machine, epoch)
     }
 
-    static func catalog(_ names: [String]) -> WireMessage { WireMessage(type: "catalog", repositories: names) }
-    static func inventory(_ repository: String, known: [String]) -> WireMessage {
-        WireMessage(type: "inventory", repository: repository, known: known)
+    static func catalog(_ names: [String], identities: [String: String] = [:]) -> WireMessage { WireMessage(type: "catalog", identities: identities, repositories: names) }
+    static func inventory(_ repository: String, known: [String], projectID: String? = nil) -> WireMessage {
+        WireMessage(type: "inventory", projectID: projectID, repository: repository, known: known)
     }
     static func update(_ update: RefUpdate) -> WireMessage { WireMessage(type: "update", update: update) }
     static func ack(_ update: RefUpdate) -> WireMessage {
-        WireMessage(type: "ack", repository: update.repository, update: update, oid: update.oid)
+        WireMessage(type: "ack", projectID: update.projectID, repository: update.repository, update: update, oid: update.oid)
     }
     static func error(_ message: String) -> WireMessage { WireMessage(type: "error", message: message) }
 }

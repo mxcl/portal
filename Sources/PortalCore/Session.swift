@@ -23,6 +23,7 @@ public final class SyncSession {
     private var needsFullSync = Set<String>()
     private var repositories: [String: Repository] = [:]
     private var configuredRemotes = Set<String>()
+    private var peerRepositoryNames: [String: String] = [:]
     private var pendingBackupUpdates: [String: Int] = [:]
     private var stopped = false
 
@@ -53,6 +54,7 @@ public final class SyncSession {
         connection = FramedConnection(input: input, output: output)
         state = try StateStore(url: stateURL)
         try state.applyRenames(access.records)
+        try state.migrateIdentitiesFromManifest()
         self.backupProgress = backupProgress
         self.isInitiator = isInitiator
         self.receiveOnly = receiveOnly
@@ -67,7 +69,7 @@ public final class SyncSession {
         let watcher = receiveOnly ? nil : try Watcher(root: root, repositories: [])
         if !receiveOnly { try refreshCatalog() }
         try connection.send(.hello(machine, epoch: state.sourceEpoch, namingRevision: ProjectRename.revision(renameRecords)))
-        try connection.send(.catalog(Array(repositories.keys).sorted()))
+        try sendCatalog()
 
         let receiver = DispatchGroup()
         receiver.enter()
@@ -96,21 +98,22 @@ public final class SyncSession {
                     lock.lock(); let oldNames = Set(repositories.keys); lock.unlock()
                     try refreshCatalog()
                     lock.lock(); let names = Set(repositories.keys); lock.unlock()
-                    if names != oldNames { try connection.send(.catalog(Array(names).sorted())) }
+                    if names != oldNames { try sendCatalog() }
                 }
                 lock.lock(); let current = repositories.values.sorted { $0.name < $1.name }; lock.unlock()
                 if catalogScanNeeded {
                     try watcher.add(current)
                     for repository in current {
-                        changed[repository.name] = try sendUpdates(
+                        changed[try repository.projectID()] = try sendUpdates(
                             for: repository, full: false
                         )
                     }
                 }
                 for repository in current {
-                    lock.lock(); let full = needsFullSync.remove(repository.name) != nil; lock.unlock()
+                    let id = try repository.projectID()
+                    lock.lock(); let full = needsFullSync.remove(id) != nil; lock.unlock()
                     if full {
-                        _ = try sendUpdates(for: repository, full: true, excluding: changed[repository.name] ?? [])
+                        _ = try sendUpdates(for: repository, full: true, excluding: changed[id] ?? [])
                     }
                 }
             } catch {
@@ -148,15 +151,22 @@ public final class SyncSession {
                 for name in names {
                     try requireIncluded(name)
                 }
-                try catalogObserver?(peer, names)
+                guard let incoming = message.identities, Set(incoming.keys) == Set(names) else {
+                    throw SyncError.invalidProtocol("Catalog identities are missing")
+                }
+                for id in incoming.values { try Validator.projectID(id) }
+                try catalogObserver?(peer, names.map { incoming[$0]! })
                 for name in names {
-                    lock.lock(); let isNew = repositories[name] == nil; lock.unlock()
-                    let repository = try Repository.ensure(name: name, in: root, bare: receiveOnly)
-                    repositoryObserver?(name)
+                    let id = incoming[name]!
+                    lock.lock(); let isNew = repositories[id] == nil; lock.unlock()
+                    let repository = try Repository.ensure(name: name, in: root, bare: receiveOnly, projectID: id)
+                    try state.migrateIdentity(name: name, id: id)
+                    lock.lock(); peerRepositoryNames[id] = name; lock.unlock()
+                    repositoryObserver?(id)
                     try configureRemote(for: repository)
-                    lock.lock(); repositories[name] = repository; lock.unlock()
-                    sendControl(.inventory(name, known: try repository.knownOIDs()))
-                    if isNew && !receiveOnly { sendControl(.catalog([name])) }
+                    lock.lock(); repositories[id] = repository; lock.unlock()
+                    sendControl(.inventory(name, known: try repository.knownOIDs(), projectID: id))
+                    if isNew && !receiveOnly { try sendCatalog() }
                 }
             case "inventory":
                 _ = try currentPeer()
@@ -166,7 +176,12 @@ public final class SyncSession {
                 try Validator.project(name)
                 try requireIncluded(name)
                 for oid in known { try Validator.oid(oid) }
-                lock.lock(); peerKnown[name] = Set(known); needsFullSync.insert(name); lock.unlock()
+                guard let id = message.projectID else { throw SyncError.invalidProtocol("Missing inventory project UUID") }
+                lock.lock(); let expected = repositories[id]; lock.unlock()
+                guard expected != nil else {
+                    throw SyncError.invalidProtocol("Inventory project identity differs")
+                }
+                lock.lock(); peerKnown[id] = Set(known); needsFullSync.insert(id); lock.unlock()
             case "update":
                 guard let update = message.update else { throw SyncError.invalidProtocol("UPDATE is incomplete") }
                 let pack = update.oid == nil ? nil : try connection.receivePack()
@@ -174,18 +189,23 @@ public final class SyncSession {
             case "ack":
                 _ = try currentPeer()
                 if let name = message.repository {
+                    guard let id = message.projectID else { throw SyncError.invalidProtocol("Missing acknowledgement project UUID") }
+                    lock.lock(); let expected = repositories[id]; lock.unlock()
+                    guard expected != nil else {
+                        throw SyncError.invalidProtocol("Acknowledgement project identity differs")
+                    }
                     try Validator.project(name)
                     if let oid = message.oid { try Validator.oid(oid) }
                     lock.lock()
-                    if let pending = pendingBackupUpdates[name], pending > 0 {
-                        pendingBackupUpdates[name] = pending - 1
+                    if let pending = pendingBackupUpdates[id], pending > 0 {
+                        pendingBackupUpdates[id] = pending - 1
                         if pending == 1 { backupProgress?(BackupProgress(project: name, phase: .current)) }
                     }
                     lock.unlock()
                 }
                 if let name = message.repository, let oid = message.oid {
                     try Validator.project(name); try Validator.oid(oid)
-                    lock.lock(); peerKnown[name, default: []].insert(oid); lock.unlock()
+                    lock.lock(); peerKnown[message.projectID!, default: []].insert(oid); lock.unlock()
                     logger("replication progress: acknowledged \(name)")
                 }
             case "error": logger("peer error: \(message.message ?? "unknown")")
@@ -199,13 +219,17 @@ public final class SyncSession {
         try requireIncluded(update.repository)
         try Validator.sourceRef(update.sourceRef)
         let (peer, epoch) = try currentPeer()
+        guard let id = update.projectID else { throw SyncError.invalidProtocol("Missing update project UUID") }
+        lock.lock(); let repository = repositories[id]; lock.unlock()
+        guard let repository, try repository.projectID() == id else {
+            throw SyncError.invalidProtocol("Update does not match the catalog project identity")
+        }
         let accepted = state.acceptedGeneration(
-            peer: peer, epoch: epoch, repository: update.repository, ref: update.sourceRef
+            peer: peer, epoch: epoch, repository: id, ref: update.sourceRef
         )
         if update.generation < accepted || update.generation == 0 {
             sendControl(.ack(update)); return
         }
-        let repository = try Repository.ensure(name: update.repository, in: root, bare: receiveOnly)
         try configureRemote(for: repository)
         if update.generation == accepted {
             let writer = try PeerRefWriter(repository: repository, peer: peer)
@@ -213,7 +237,7 @@ public final class SyncSession {
                 guard let pack else { throw SyncError.invalidProtocol("Object update has no pack") }
                 try repository.install(pack: pack, target: oid)
                 try writer.restoreMissing(sourceRef: update.sourceRef, oid: oid)
-                repositoryObserver?(update.repository)
+                repositoryObserver?(id)
                 logger("restored missing peer ref \(update.repository)/\(update.sourceRef)")
                 sendControl(.ack(update)); return
             }
@@ -237,10 +261,10 @@ public final class SyncSession {
             sourceRef: update.sourceRef, oid: update.oid,
             syncCheckout: syncCheckouts && update.cleanCheckout == true
         )
-        repositoryObserver?(update.repository)
+        repositoryObserver?(id)
         try writer.pruneExpired()
         try state.accept(generation: update.generation, peer: peer, epoch: epoch,
-                         repository: update.repository, ref: update.sourceRef)
+                         repository: id, ref: update.sourceRef)
         sendControl(.ack(update))
         logger(Self.transferLog(sourceRef: update.sourceRef, machine: machine,
                                 peer: peer, isInitiator: isInitiator))
@@ -259,22 +283,24 @@ public final class SyncSession {
                              excluding excluded: Set<String> = []) throws -> Set<String> {
         let access = try ProjectAccess(root: root, names: [repository.name], expected: renameRecords)
         defer { withExtendedLifetime(access) {} }
-        lock.lock(); let initialKnown = peerKnown[repository.name]; lock.unlock()
+        let id = try repository.projectID()
+        lock.lock(); let initialKnown = peerKnown[id]; lock.unlock()
         guard var known = initialKnown else { return [] }
-        let stored = try state.updates(machine: machine, repository: repository.name,
+        try state.migrateIdentity(name: repository.name, id: id)
+        let stored = try state.updates(machine: machine, repository: id,
                                         refs: repository.sourceRefs(), full: full)
             .filter { !excluded.contains($0.sourceRef) }
         if let backupProgress {
             lock.lock()
-            pendingBackupUpdates[repository.name, default: 0] += stored.count
+            pendingBackupUpdates[id, default: 0] += stored.count
             backupProgress(BackupProgress(project: repository.name,
-                phase: pendingBackupUpdates[repository.name] == 0 ? .current : .transferring))
+                phase: pendingBackupUpdates[id] == 0 ? .current : .transferring))
             lock.unlock()
         }
         guard !stored.isEmpty else { return [] }
         let cleanCheckout = syncCheckouts ? repository.cleanCheckoutRef() : nil
         let updates = stored.map {
-                RefUpdate(repository: $0.repository, sourceRef: $0.sourceRef,
+                RefUpdate(repository: repository.name, projectID: id, sourceRef: $0.sourceRef,
                           generation: $0.generation, oid: $0.oid,
                           cleanCheckout: $0.sourceRef == cleanCheckout ? true : nil)
             }
@@ -291,7 +317,15 @@ public final class SyncSession {
         defer { withExtendedLifetime(access) {} }
         let found = try Repository.discover(in: root, including: includedRepositories)
         for repository in found { try configureRemote(for: repository) }
-        lock.lock(); repositories = Dictionary(uniqueKeysWithValues: found.map { ($0.name, $0) }); lock.unlock()
+        let byID = try Dictionary(grouping: found, by: { try $0.projectID() })
+        guard byID.values.allSatisfy({ $0.count == 1 }) else { throw SyncError.invalidConfiguration("Duplicate project UUID in this root") }
+        lock.lock(); repositories = byID.mapValues { $0[0] }; lock.unlock()
+    }
+
+    private func sendCatalog() throws {
+        lock.lock(); let current = repositories; lock.unlock()
+        let ids = Dictionary(uniqueKeysWithValues: current.map { ($0.value.name, $0.key) })
+        try connection.send(.catalog(ids.keys.sorted(), identities: ids))
     }
 
     private func configureRemotes() throws {
@@ -301,14 +335,16 @@ public final class SyncSession {
 
     private func configureRemote(for repository: Repository) throws {
         guard let peerRepositoryLocation else { return }
+        let id = try repository.projectID()
         lock.lock()
-        let shouldConfigure = peerMachine != nil && configuredRemotes.insert(repository.name).inserted
+        let peerName = peerRepositoryNames[id]
+        let shouldConfigure = peerMachine != nil && peerName != nil && configuredRemotes.insert(id).inserted
         lock.unlock()
         guard shouldConfigure else { return }
         do {
-            try repository.configureRemote(peerRepositoryLocation)
+            try repository.configureRemote(peerRepositoryLocation, repositoryName: peerName)
         } catch {
-            lock.lock(); configuredRemotes.remove(repository.name); lock.unlock()
+            lock.lock(); configuredRemotes.remove(id); lock.unlock()
             throw error
         }
     }

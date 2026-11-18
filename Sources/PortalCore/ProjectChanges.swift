@@ -3,7 +3,7 @@ import PortalWatch
 
 /// Complete read-only state, so a slow consumer may safely retain only the newest message.
 public struct ProjectChange: Codable, Sendable {
-    public static let currentVersion = 4
+    public static let currentVersion = 5
     public let version: Int
     public let projects: [String: ObservedProject]
     public let failure: String?
@@ -50,10 +50,11 @@ struct ProjectChangeScanner {
         fingerprints = fingerprints.filter { names.contains($0.key) }
         for repository in repositories {
             guard affected == nil || affected!.contains(repository.name) || projects[repository.name] == nil else { continue }
+            _ = try repository.projectID()
             let fingerprint = try repository.observationFingerprint()
             guard fingerprints[repository.name] != fingerprint else { continue }
             let snapshot = try repository.snapshot(limit: 0)
-            let project = PeerProject(name: repository.name, placement: repository.placement,
+            let project = PeerProject(name: repository.name, placement: repository.placement, projectID: try repository.projectID(),
                 defaultBranch: repository.defaultBranch, githubRepositories: repository.githubRepositories,
                 workingChanges: snapshot.workingChanges, branchTips: snapshot.branchTips)
             projects[repository.name] = ObservedProject(project: project, snapshot: snapshot,

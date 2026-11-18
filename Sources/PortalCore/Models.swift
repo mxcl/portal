@@ -4,7 +4,7 @@ import SystemConfiguration
 #endif
 
 public enum SyncProtocol {
-    public static let version = 8
+    public static let version = 9
 }
 
 public struct Configuration: Codable, Equatable, Sendable {
@@ -151,7 +151,8 @@ public enum ProjectPlacement: String, Codable, Equatable, Sendable {
 }
 
 public struct PeerProject: Codable, Equatable, Identifiable, Sendable {
-    public var id: String { name }
+    public var id: String { projectID ?? name }
+    public var projectID: String? = nil
     public let name: String
     public let placement: ProjectPlacement
     public let defaultBranch: String?
@@ -159,9 +160,10 @@ public struct PeerProject: Codable, Equatable, Identifiable, Sendable {
     public let workingChanges: RepositoryWorkingChanges?
     public let branchTips: RepositoryBranchTips?
 
-    public init(name: String, placement: ProjectPlacement, defaultBranch: String? = nil, githubRepositories: [String]? = nil,
+    public init(name: String, placement: ProjectPlacement, projectID: String? = nil, defaultBranch: String? = nil, githubRepositories: [String]? = nil,
                 workingChanges: RepositoryWorkingChanges? = nil, branchTips: RepositoryBranchTips? = nil) {
         self.name = name
+        self.projectID = projectID
         self.placement = placement
         self.defaultBranch = defaultBranch
         self.githubRepositories = githubRepositories
@@ -445,15 +447,17 @@ enum Validator {
 }
 
 public struct RefUpdate: Codable, Equatable {
+    public let projectID: String?
     public let repository: String
     public let sourceRef: String
     public let generation: UInt64
     public let oid: String?
     public let cleanCheckout: Bool?
 
-    public init(repository: String, sourceRef: String, generation: UInt64, oid: String?,
+    public init(repository: String, projectID: String? = nil, sourceRef: String, generation: UInt64, oid: String?,
                 cleanCheckout: Bool? = nil) {
         self.repository = repository
+        self.projectID = projectID
         self.sourceRef = sourceRef
         self.generation = generation
         self.oid = oid

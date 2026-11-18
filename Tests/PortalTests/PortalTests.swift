@@ -124,8 +124,12 @@ private final class Fixture {
 
     deinit { try? FileManager.default.removeItem(at: root) }
 
+    var projectID: String { get throws { try Repository(name: "project", url: a.appendingPathComponent("project")).projectID() } }
+    var backupURL: URL { get throws { b.appendingPathComponent(try projectID + ".git") } }
+
     func cloneToB() throws {
         _ = try git(["clone", "-q", a.appendingPathComponent("project").path, b.appendingPathComponent("project").path])
+        _ = try Repository(name: "project", url: b.appendingPathComponent("project")).projectID(adopting: projectID)
     }
 }
 
@@ -459,7 +463,7 @@ func createsBareBackupProject() throws {
     let fixture = try Fixture()
     try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
                      stateURL: fixture.state, bareDestination: true)
-    let destination = fixture.b.appendingPathComponent("project.git")
+    let destination = (try fixture.backupURL)
     #expect(try git(["-C", destination.path, "rev-parse", "--is-bare-repository"]) == "true")
     #expect(try git(["-C", destination.path, "rev-parse", "refs/remotes/a/main"])
             == git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"]))
@@ -607,7 +611,8 @@ func selectedDiscovery() throws {
         let event = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any]
         return event?["event"] as? String == "start" ? event?["argv"] as? [String] : nil
     }
-    #expect(commands.count == 1)
+    #expect(commands.filter { $0.contains("--git-dir") }.count == 1)
+    #expect(commands.allSatisfy { $0.contains(where: { $0.hasSuffix("/project") }) })
     #expect(commands.first?.contains(where: { $0.hasSuffix("/project") }) == true)
 }
 
@@ -697,15 +702,15 @@ func backupArchiveClassification() throws {
     let index = try BackupIndex(url: indexURL)
 
     #expect(try index.items(in: fixture.b).first?.status == .unknown)
-    try index.replaceCatalog(machine: "A", repositories: ["project"])
+    try index.replaceCatalog(machine: "A", repositories: [try fixture.projectID])
     #expect(try index.items(in: fixture.b).first?.status == .mirrored)
 
     try index.replaceCatalog(machine: "A", repositories: [])
     #expect(try index.items(in: fixture.b).first?.status == .archived)
-    try index.archive("project", in: fixture.b)
+    try index.archive(try fixture.projectID, in: fixture.b)
     #expect(try index.items(in: fixture.b).first?.status == .archived)
 
-    try index.replaceCatalog(machine: "A", repositories: ["project"])
+    try index.replaceCatalog(machine: "A", repositories: [try fixture.projectID])
     #expect(try index.items(in: fixture.b).first?.status == .mirrored)
     #expect(try BackupIndex(url: indexURL).items(in: fixture.b).first?.status == .mirrored)
 }
@@ -717,22 +722,22 @@ func deleteArchivedBackup() throws {
                      stateURL: fixture.state, bareDestination: true)
     let indexURL = fixture.root.appendingPathComponent("backup-index.json")
     let index = try BackupIndex(url: indexURL)
-    #expect(throws: (any Error).self) { try index.delete("project", in: fixture.b) }
+    #expect(throws: (any Error).self) { try index.delete(try fixture.projectID, in: fixture.b) }
     try index.replaceCatalog(machine: "A", repositories: [])
     #expect(try index.items(in: fixture.b).first?.status == .archived)
     // A checkout can appear after the UI showed an archived backup.
-    try index.replaceCatalog(machine: "A", repositories: ["project"])
-    #expect(throws: (any Error).self) { try index.delete("project", in: fixture.b) }
-    #expect(FileManager.default.fileExists(atPath: fixture.b.appendingPathComponent("project.git").path))
+    try index.replaceCatalog(machine: "A", repositories: [try fixture.projectID])
+    #expect(throws: (any Error).self) { try index.delete(try fixture.projectID, in: fixture.b) }
+    #expect(FileManager.default.fileExists(atPath: (try fixture.backupURL).path))
     try index.replaceCatalog(machine: "A", repositories: [])
     #expect(throws: (any Error).self) { try index.delete("../project", in: fixture.b) }
-    let backup = fixture.b.appendingPathComponent("project.git").path
+    let backup = (try fixture.backupURL).path
     let tip = try git(["-C", backup, "rev-parse", "refs/remotes/a/main"])
     _ = try git(["-C", backup, "update-ref", "refs/remotes/unknown/main", tip])
-    #expect(throws: (any Error).self) { try index.delete("project", in: fixture.b) }
+    #expect(throws: (any Error).self) { try index.delete(try fixture.projectID, in: fixture.b) }
     _ = try git(["-C", backup, "update-ref", "-d", "refs/remotes/unknown/main"])
 
-    try index.delete("project", in: fixture.b)
+    try index.delete(try fixture.projectID, in: fixture.b)
     #expect(try index.items(in: fixture.b).isEmpty)
     #expect(try BackupIndex(url: indexURL).items(in: fixture.b).isEmpty)
     #expect(FileManager.default.fileExists(atPath: fixture.a.appendingPathComponent("project/.git").path))
@@ -749,7 +754,7 @@ func unarchiveOntoThisHost() throws {
     _ = try git(["-C", source.path, "commit", "-qm", "readme"])
     try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
                      stateURL: fixture.state, bareDestination: true)
-    let backup = fixture.b.appendingPathComponent("project.git")
+    let backup = (try fixture.backupURL)
     let tip = try git(["-C", backup.path, "rev-parse", "refs/remotes/a/main"])
     _ = try git(["-C", backup.path, "update-ref", "refs/heads/backup-only", tip])
     _ = try git(["-C", backup.path, "update-ref", "refs/remotes/b/peer", tip])
@@ -760,11 +765,11 @@ func unarchiveOntoThisHost() throws {
     let item = try #require(index.items(in: fixture.b).first)
     let snapshot = try #require(item.snapshots.first { $0.machine == "A" })
 
-    let content = try BackupIndex.content(item.name, snapshotID: snapshot.id, from: fixture.b)
-    let found = try BackupIndex.search(item.name, snapshotID: snapshot.id, query: "main", from: fixture.b).checked()
+    let content = try BackupIndex.content(item.id, snapshotID: snapshot.id, from: fixture.b)
+    let found = try BackupIndex.search(item.id, snapshotID: snapshot.id, query: "main", from: fixture.b).checked()
     #expect(found.contains { $0.reference?.fullName == "refs/heads/main" && $0.commit.oid == tip })
-    #expect(try BackupIndex.search(item.name, snapshotID: snapshot.id, query: "backup-only", from: fixture.b).checked().isEmpty)
-    #expect(try BackupIndex.search(item.name, snapshotID: snapshot.id, query: String(tip.prefix(7)), from: fixture.b)
+    #expect(try BackupIndex.search(item.id, snapshotID: snapshot.id, query: "backup-only", from: fixture.b).checked().isEmpty)
+    #expect(try BackupIndex.search(item.id, snapshotID: snapshot.id, query: String(tip.prefix(7)), from: fixture.b)
         .checked().contains { $0.commit.oid == tip })
     #expect(content.snapshot.head == "main")
     #expect(content.snapshot.branches == ["feature", "main"])
@@ -773,16 +778,16 @@ func unarchiveOntoThisHost() throws {
     #expect(content.snapshot.references.contains { $0.fullName == "refs/remotes/b/peer" })
     #expect(!content.snapshot.references.contains { $0.fullName == "refs/heads/backup-only" })
     #expect(content.readme?.markdown == "# Archived Project\n")
-    #expect(try BackupIndex.diff(item.name, snapshotID: snapshot.id,
+    #expect(try BackupIndex.diff(item.id, snapshotID: snapshot.id,
                                  oid: content.snapshot.commits[0].oid, from: fixture.b).contains("README.md"))
     #expect(throws: (any Error).self) {
-        try BackupIndex.content(item.name, snapshotID: "missing", from: fixture.b)
+        try BackupIndex.content(item.id, snapshotID: "missing", from: fixture.b)
     }
     #expect(throws: (any Error).self) {
-        try BackupIndex.diff(item.name, snapshotID: snapshot.id, oid: "HEAD", from: fixture.b)
+        try BackupIndex.diff(item.id, snapshotID: snapshot.id, oid: "HEAD", from: fixture.b)
     }
 
-    try BackupIndex.restore(item.name, snapshotID: snapshot.id, from: fixture.b, to: restoreRoot)
+    try BackupIndex.restore(item.id, snapshotID: snapshot.id, from: fixture.b, to: restoreRoot)
 
     let restored = restoreRoot.appendingPathComponent("project")
     #expect(try git(["-C", restored.path, "rev-parse", "main"])
@@ -793,7 +798,7 @@ func unarchiveOntoThisHost() throws {
             == git(["-C", source.path, "rev-parse", "v1"]))
     #expect(try String(contentsOf: restored.appendingPathComponent("file.txt"), encoding: .utf8) == "one\n")
     #expect(throws: (any Error).self) {
-        try BackupIndex.restore(item.name, snapshotID: snapshot.id, from: fixture.b, to: restoreRoot)
+        try BackupIndex.restore(item.id, snapshotID: snapshot.id, from: fixture.b, to: restoreRoot)
     }
 }
 
@@ -802,7 +807,7 @@ func archivedBareBranchesRemainRestorable() throws {
     let fixture = try Fixture()
     try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
                      stateURL: fixture.state, bareDestination: true)
-    let repository = fixture.b.appendingPathComponent("project.git")
+    let repository = (try fixture.backupURL)
     let tip = try git(["-C", repository.path, "rev-parse", "refs/remotes/a/main"])
     _ = try git(["-C", repository.path, "update-ref", "refs/heads/main", tip])
     _ = try git(["-C", repository.path, "update-ref", "refs/tags/v1", tip])
@@ -811,12 +816,12 @@ func archivedBareBranchesRemainRestorable() throws {
 
     let index = try BackupIndex(url: fixture.root.appendingPathComponent("backup-index.json"))
     try index.replaceCatalog(machine: "A", repositories: [])
-    try index.archive("project", in: fixture.b)
+    try index.archive(try fixture.projectID, in: fixture.b)
     let item = try #require(index.items(in: fixture.b).first)
     #expect(item.status == .archived)
     let snapshot = try #require(item.snapshots.first { $0.machine == "Stored backup" })
     #expect(snapshot.branches == ["main"])
-    let content = try BackupIndex.content(item.name, snapshotID: snapshot.id, from: fixture.b)
+    let content = try BackupIndex.content(item.id, snapshotID: snapshot.id, from: fixture.b)
     #expect(content.snapshot.head == "main")
     #expect(content.snapshot.branches == ["main"])
     #expect(content.snapshot.references.contains { $0.fullName == "refs/tags/v1" })
@@ -824,7 +829,7 @@ func archivedBareBranchesRemainRestorable() throws {
     try FileManager.default.createDirectory(at: restoreRoot, withIntermediateDirectories: true)
     let bundle = fixture.root.appendingPathComponent("stored.bundle")
 
-    try BackupIndex.exportBundle(item.name, snapshotID: snapshot.id,
+    try BackupIndex.exportBundle(item.id, snapshotID: snapshot.id,
                                  from: fixture.b, to: bundle)
     try BackupIndex.restore(item.name, snapshot: snapshot, from: bundle, to: restoreRoot)
 
@@ -940,53 +945,53 @@ func backupControl() throws {
     #expect(throws: (any Error).self) {
         try request(BackupControlRequest(version: 0, action: .list))
     }
-    _ = try request(BackupControlRequest(action: .archive, repository: candidate.name))
+    _ = try request(BackupControlRequest(action: .archive, repository: candidate.id))
     #expect(try request(BackupControlRequest(action: .list)).items?.first?.status == .archived)
 
     let bundle = fixture.root.appendingPathComponent("export.bundle")
     let snapshot = try #require(candidate.snapshots.first)
-    let searchData = try requestPayload(BackupControlRequest(action: .search, repository: candidate.name,
+    let searchData = try requestPayload(BackupControlRequest(action: .search, repository: candidate.id,
         snapshotID: snapshot.id, query: "main", searchVersion: RepositorySearchReply.currentVersion))
     #expect(try JSONDecoder().decode(RepositorySearchReply.self, from: searchData).checked()
         .contains { $0.reference?.fullName == "refs/heads/main" })
     #expect(throws: (any Error).self) {
-        try requestPayload(BackupControlRequest(action: .search, repository: candidate.name,
+        try requestPayload(BackupControlRequest(action: .search, repository: candidate.id,
             snapshotID: snapshot.id, query: "main", searchVersion: 99))
     }
 
     let contentData = try requestPayload(BackupControlRequest(
-        action: .content, repository: candidate.name, snapshotID: snapshot.id
+        action: .content, repository: candidate.id, snapshotID: snapshot.id
     ))
     #expect(contentData.count > 1_048_576)
     let content = try JSONDecoder().decode(RepositoryContent.self, from: contentData)
     #expect(content.readme?.markdown == largeReadme)
     let commit = try #require(content.snapshot.commits.first)
     let diff = try requestPayload(BackupControlRequest(
-        action: .diff, repository: candidate.name, snapshotID: snapshot.id, oid: commit.oid
+        action: .diff, repository: candidate.id, snapshotID: snapshot.id, oid: commit.oid
     ))
     #expect(diff.count > 1_048_576)
-    _ = try request(BackupControlRequest(action: .export, repository: candidate.name,
+    _ = try request(BackupControlRequest(action: .export, repository: candidate.id,
                                          snapshotID: snapshot.id), exportTo: bundle)
     let restored = fixture.root.appendingPathComponent("restored")
     try FileManager.default.createDirectory(at: restored, withIntermediateDirectories: true)
     try BackupIndex.restore(candidate.name, snapshot: snapshot, from: bundle, to: restored)
     #expect(try git(["-C", restored.appendingPathComponent("project").path, "rev-parse", "main"])
             == git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"]))
-    _ = try request(BackupControlRequest(action: .catalog, machine: "A", repositories: ["project"]))
+    _ = try request(BackupControlRequest(action: .catalog, machine: "A", repositories: [try fixture.projectID]))
     #expect(try request(BackupControlRequest(action: .list)).items?.first?.status == .mirrored)
     let added = fixture.b.appendingPathComponent("z-added.git")
     _ = try git(["init", "-q", "--bare", added.path])
     #expect(try request(BackupControlRequest(action: .list)).items?.count == 1)
     #expect(try request(BackupControlRequest(action: .list, refresh: true)).items?.count == 2)
     #expect(throws: (any Error).self) {
-        try request(BackupControlRequest(action: .delete, repository: candidate.name))
+        try request(BackupControlRequest(action: .delete, repository: candidate.id))
     }
     _ = try request(BackupControlRequest(action: .catalog, machine: "A", repositories: []))
     #expect(throws: (any Error).self) {
-        try request(BackupControlRequest(version: 6, action: .delete, repository: candidate.name))
+        try request(BackupControlRequest(version: 6, action: .delete, repository: candidate.id))
     }
     #expect(throws: (any Error).self) { try request(BackupControlRequest(action: .delete)) }
-    _ = try request(BackupControlRequest(action: .delete, repository: candidate.name))
+    _ = try request(BackupControlRequest(action: .delete, repository: candidate.id))
     #expect(try request(BackupControlRequest(action: .list)).items?.map(\.name) == ["z-added"])
 
 }
@@ -1338,9 +1343,10 @@ func framedSessionSelection() throws {
 @Test("receive-only backup never publishes its refs to the source")
 func framedSessionReceiveOnly() throws {
     let fixture = try Fixture()
-    let backupRepository = fixture.b.appendingPathComponent("project.git")
+    let backupRepository = (try fixture.backupURL)
     _ = try git(["clone", "-q", "--bare", fixture.a.appendingPathComponent("project").path,
                  backupRepository.path])
+    _ = try Repository(name: "project", url: backupRepository).projectID(adopting: fixture.projectID)
     _ = try git(["-C", backupRepository.path, "update-ref", "refs/heads/backup-only",
                  git(["-C", fixture.a.appendingPathComponent("project").path, "rev-parse", "main"])])
 
@@ -1389,7 +1395,7 @@ func framedSessionReceiveOnly() throws {
     }
     #expect(try index.items(in: fixture.b).first?.snapshots.contains(where: { $0.id == "a" }) == true)
     catalogLock.lock(); let catalog = receivedCatalog; catalogLock.unlock()
-    #expect(catalog == ["project"])
+    #expect(catalog == [try fixture.projectID])
     #expect((try? git(["-C", fixture.a.appendingPathComponent("project").path,
                       "rev-parse", "--verify", "refs/remotes/b/main"])) == nil)
 
@@ -1491,7 +1497,7 @@ func initialSnapshotReusesSentObjects() throws {
     Thread.sleep(forTimeInterval: 0.1)
     try Data().write(to: fixture.a.appendingPathComponent("wake"))
 
-    let destination = fixture.b.appendingPathComponent("project.git")
+    let destination = (try fixture.backupURL)
     let expected = try git(["-C", repository.path, "rev-parse", "refs/tags/v12"])
     let deadline = Date().addingTimeInterval(10)
     var received: String?
@@ -1570,22 +1576,23 @@ func backupInventoryCache() throws {
     let now = Date()
     try OneShot.sync(sourceRoot: fixture.a, destinationRoot: fixture.b, machine: "A",
                      stateURL: fixture.state, bareDestination: true)
-    let project = fixture.b.appendingPathComponent("project.git")
+    let project = (try fixture.backupURL)
     let other = fixture.b.appendingPathComponent("other.git")
     _ = try git(["clone", "-q", "--bare", project.path, other.path])
     let initial = try index.items(in: fixture.b, now: now)
     #expect(initial.count == 2)
     // If any reader rescans, the removed repository disappears from its result.
-    try FileManager.default.removeItem(at: other)
+    let otherID = try #require(initial.first { $0.name == "other" }).id
+    try FileManager.default.removeItem(at: fixture.b.appendingPathComponent(otherID + ".git"))
     DispatchQueue.concurrentPerform(iterations: 12) { _ in
         #expect((try? index.items(in: fixture.b, now: now)) == initial)
     }
     _ = try git(["-C", project.path, "update-ref", "refs/remotes/a/new", "refs/remotes/a/main"])
-    index.invalidate("project", in: fixture.b)
+    index.invalidate(try fixture.projectID, in: fixture.b)
     let updated = try index.items(in: fixture.b, now: now)
     #expect(updated.map(\.name) == ["other", "project"])
     #expect(updated.last?.snapshots.first?.branches == ["main", "new"])
-    try index.replaceCatalog(machine: "A", repositories: ["project"])
+    try index.replaceCatalog(machine: "A", repositories: [try fixture.projectID])
     #expect(try index.items(in: fixture.b, now: now).last?.status == .mirrored)
     #expect(try index.items(in: fixture.b, now: now.addingTimeInterval(3599)).count == 2)
     #expect(try index.items(in: fixture.b, now: now.addingTimeInterval(3600)).count == 1)
@@ -1644,7 +1651,7 @@ func remoteArchiveRestore() throws {
     let item = try #require(index.items(in: fixture.b).first)
     let snapshot = try #require(item.snapshots.first)
     let bundle = fixture.root.appendingPathComponent("snapshot.bundle")
-    try BackupIndex.exportBundle(item.name, snapshotID: snapshot.id, from: fixture.b, to: bundle)
+    try BackupIndex.exportBundle(item.id, snapshotID: snapshot.id, from: fixture.b, to: bundle)
     let bytes = try Data(contentsOf: bundle)
     let destination = fixture.root.appendingPathComponent("pangolin")
     try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)

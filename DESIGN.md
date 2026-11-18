@@ -282,7 +282,7 @@ than Remote Login. No network listener or additional credential is introduced.
 The endpoint accepts catalogs, objects, and ref snapshots but never advertises
 repositories or publishes its own refs back. Its ordering state has one writer
 inside the receiving helper and can run beside ordinary bidirectional connections.
-It stores each backup as a bare `<name>.git` repository directly beneath the
+It stores each backup as a bare `<project UUID>.git` repository directly beneath the
 selected parent folder; backup storage never creates a checkout-shaped wrapper.
 The receiving app persists the latest complete repository catalog from each
 backup source. A stored repository absent from every known catalog can be
@@ -297,7 +297,7 @@ or missing enrollment shows a confirmation modal with Cancel
 as the default action. Cancellation,
 lockout, and authentication failure leave the backup intact. Backup-control v7
 adds `delete` (engine-control v7 adds `deleteBackup`). The destination validates
-the project name and freshly reads its snapshots, then checks complete absent
+the project UUID and freshly reads its snapshots, then checks complete absent
 host catalogs under the catalog lock before deleting the bare repository and
 invalidating its inventory entry. Active mirrors/checkouts and unknown sources
 are rejected. This uses the latest reported host catalogs, not a distributed
@@ -424,8 +424,46 @@ indefinitely.
 
 ## Repository and ref state
 
-Paths are not sent as identity. Within a paired parent, the validated child
-name identifies a project. Project → Rename… explicitly coordinates a name change
+Paths and names are not identity. Each project has an immutable canonical UUID in
+its common Git configuration (`portal.projectID`). New repositories receive random
+UUIDs; Portal-created mirrors and restores inherit the source UUID. Local worktrees
+share the common configuration. Catalogs and updates carry UUIDs, and ref ordering
+keys use UUIDs together with the source epoch. A same-name, different-UUID checkout
+is a conflict, never an implicit link. Existing copies with the same UUID can have
+different local folder names.
+
+Backups use `<UUID>.git`, with `portal.projectName` preserving their display name.
+Inventory, archive/delete, history reads and permanent merge-retention receipts
+identify the project by UUID. Snapshot selections include the project UUID as well
+as the source machine. Archived rows show a short UUID and keep UUID-based selection
+when a new project reuses the name. Restore As chooses a free destination folder
+without changing the restored identity; existing folders are never overwritten.
+
+Ordinary Git clones do not copy local configuration. Linking an independently
+cloned repository is an explicit user operation: after verifying it is the intended
+project, set `git config --local portal.projectID <existing UUID>` while Portal is
+stopped. Independently initialized projects must retain different UUIDs even when
+their names, origins or initial templates match.
+
+For the coordinated v1 migration, stop all sync/Hub processes and prepare one
+reviewed name-to-UUID manifest from the existing catalogs and shared Git histories.
+`scripts/migrate-project-identities.py` validates and assigns IDs to existing working
+repositories, and installs `project-identities-v1.json` in each state directory.
+The receiving Hub owns backup migration at startup, before opening its receiver:
+it writes identity/name metadata, performs same-parent no-replace directory moves,
+and migrates catalog keys under the existing index owner. The manifest and per-repo
+metadata make an interrupted move resumable. The index records completion so a new
+legacy-shaped backup cannot inherit the UUID of an earlier same-name project.
+State-file owners migrate all manifest entries, including archived projects, while
+preserving epochs and generations. Conflicting copies fail rather than overwrite.
+Keep the manifest for state stores first opened after the upgrade.
+
+Sync v9, project-watch v5, backup-control v10, engine-control v15, remote restore v2
+and rename command v3 reject incompatible clients. No local refs, HEAD, index or
+working files are changed by identity migration; per-ref atomicity and eventual
+snapshot consistency are unchanged.
+
+Project → Rename… explicitly coordinates a name change
 across the configured roots and backup destination. It uses the existing native
 alert and engine command flow; the selected project follows the new name on success.
 
@@ -446,8 +484,8 @@ This deliberately suspends discovery/sync for the root until recovery, rather th
 adding per-project scheduling. Ordinary user Git commands, external editors and
 terminal sessions are not coordinated; close them before renaming.
 
-After all roots are prepared, the backup directory and its catalog metadata move
-first, followed by the working repositories. Each directory move is an atomic,
+After all roots are prepared, backup display metadata changes first, followed by
+the working repositories. The UUID backup directory stays put. Each working-directory move is an atomic,
 same-filesystem, no-replace rename. Missing copies remain missing. Symlinked
 repositories, linked worktrees, case-only renames and hidden destination names
 are rejected. A vacated name may be reused only when every configured root and
@@ -456,7 +494,7 @@ unchanged. Each host's branches, tags, stash, HEAD, index and working files rema
 its own. Permanent merged-branch backup objects retain their historical metadata.
 
 Only after every move is acknowledged does the coordinator release the new name.
-The old name stays retired until an explicit later rename reuses it. Session
+A completed rename frees the old name for a new UUID. Session
 guards reject messages/scans after the root's rename record changes. Sync hello,
 inspection, project-watch updates and backup control requests carry the ordered
 completed operation IDs; differing histories fail before accepting project state.
@@ -464,8 +502,7 @@ One-shot sync requires the same history on both roots. Configurations persist
 applied operation IDs and migrate only newly completed renames, so a reused name
 is not redirected by an earlier operation. Ref ordering keys migrate through
 the existing state-file owner, retaining epochs and generations, once per
-operation ID. Sync protocol v8, project-watch v4, backup-control v9 and rename
-command v2 reject older clients. Engine-control v13 carries rename progress and
+operation ID. The identity protocol versions listed above reject older clients. Engine control carries rename progress and
 operation-ID-scoped cancellation. Cancellation is
 accepted only before the first prepare: its decision and the transition to
 preparation share a lock. Once preparation begins, the coordinator completes or
@@ -477,7 +514,7 @@ On failure, stop immediately, attempt to suspend every contacted root, and repor
 renamed, unchanged, or unknown outcomes plus any unconfirmed suspension. There is
 no automatic retry or rollback. Records survive process restart. If the final
 release partially succeeds and a host becomes unreachable, suspension there
-cannot be guaranteed; the old name remains retired there nonetheless.
+cannot be guaranteed; UUID checks still prevent a different project from receiving its refs.
 
 Manual recovery: inspect both directories and `.portal-renames.json` on every
 host (including the backup root), finish the intended directory/configuration

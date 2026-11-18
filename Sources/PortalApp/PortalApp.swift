@@ -374,9 +374,19 @@ final class AppModel: ObservableObject {
     var isConfigured: Bool { !configuration.root.isEmpty }
 
     var projectNames: [String] {
-        let archived = Set(archivedProjects.map(\.name))
+        let archived = Set(archivedProjects.filter { backupItem(for: $0.name)?.id == $0.id }.map(\.name))
         return configuration.folders.map(\.name).filter { !archived.contains($0) }
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    func backupItem(for selection: String?) -> BackupItem? {
+        guard let selection else { return nil }
+        if let item = backupItems.first(where: { $0.id == selection }) { return item }
+        let ids = Set(([localProjects[selection]] + remoteProjects.values.map { $0[selection] }).compactMap { $0?.projectID })
+        if ids.count == 1, let id = ids.first { return backupItems.first { $0.id == id } }
+        guard ids.isEmpty else { return nil }
+        let matches = backupItems.filter { $0.name == selection }
+        return matches.count == 1 ? matches.first : nil
     }
 
     var archivedProjects: [BackupItem] {
@@ -402,7 +412,7 @@ final class AppModel: ObservableObject {
         if let error = backupError ?? helperError {
             return ("Backup status unavailable", "exclamationmark.triangle", error)
         }
-        guard let item = backupItems.first(where: { $0.name == project }), !item.snapshots.isEmpty else {
+        guard let item = backupItem(for: project), !item.snapshots.isEmpty else {
             return ("No backup found", "externaldrive", "No stored snapshot is currently listed for this project.")
         }
         return ("Backup available", "externaldrive.badge.checkmark",
@@ -413,7 +423,7 @@ final class AppModel: ObservableObject {
         let isBackupDestination = configuration.backupDestination != nil
             ? hostID == nil : hostID != nil && hostID == configuration.backup?.hostID
         let backedUp = isBackupDestination && backupError == nil && helperError == nil
-            && backupItems.contains { $0.name == project && !$0.snapshots.isEmpty }
+            && backupItem(for: project)?.snapshots.isEmpty == false
         if placement == .notPresent { return backedUp ? "Backed up" : "" }
         return placement.title + (backedUp ? " & backed up" : "")
     }
@@ -549,7 +559,7 @@ final class AppModel: ObservableObject {
     }
 
     var isSelectedProjectArchived: Bool {
-        archivedProjects.contains { $0.name == selectedProjectName }
+        archivedProjects.contains { $0.id == selectedProjectName }
     }
 
     var toolbarTabs: [ProjectTab] {
@@ -609,8 +619,8 @@ final class AppModel: ObservableObject {
         case .host(let id):
             return configuration.hosts.first { $0.id == id }?.name
         case .backup(let id):
-            return backupItems.first { $0.name == selectedProjectName }?
-                .snapshots.first { $0.id == id }?.machine
+            return backupItem(for: selectedProjectName)?
+                .snapshots.first { $0.selectionID == id }?.machine
         case nil:
             return nil
         }
@@ -623,8 +633,8 @@ final class AppModel: ObservableObject {
         case .host(let id):
             return configuration.hosts.first(where: { $0.id == id })?.name ?? "Unavailable Host"
         case .backup(let id):
-            let snapshot = backupItems.first(where: { $0.name == selectedProjectName })?
-                .snapshots.first(where: { $0.id == id })
+            let snapshot = backupItem(for: selectedProjectName)?
+                .snapshots.first(where: { $0.selectionID == id })
             return "Backup — \(snapshot?.machine ?? id)"
         }
     }
@@ -716,6 +726,7 @@ final class AppModel: ObservableObject {
             configuration.folders.first(where: { $0.name == name })?.availableLocally
         }
         let oldSource = projectSource
+        let oldBackupID = backupItem(for: selectedProjectName)?.id
         let sourceConfigurationChanged = configuration.root != snapshot.configuration.root
             || configuration.hosts != snapshot.configuration.hosts
             || configuration.backup != snapshot.configuration.backup
@@ -745,11 +756,17 @@ final class AppModel: ObservableObject {
         if localProjects != snapshot.localProjects { localProjects = snapshot.localProjects }
         if remoteProjects != snapshot.remoteProjects { remoteProjects = snapshot.remoteProjects }
 
-        let availableNames = Set(configuration.folders.map(\.name)).union(backupItems.map(\.name))
+        if let selectedProjectName,
+           let item = oldBackupID.flatMap({ id in backupItems.first { $0.id == id } }) ?? backupItem(for: selectedProjectName),
+           item.status == .archived {
+            self.selectedProjectName = item.id
+            UserDefaults.standard.set(item.id, forKey: selectedProjectKey)
+        }
+        let availableNames = Set(configuration.folders.map(\.name)).union(backupItems.map(\.id))
         if selectedProjectName == nil || !availableNames.contains(selectedProjectName!) {
             let saved = UserDefaults.standard.string(forKey: selectedProjectKey)
             let selection = saved.flatMap { availableNames.contains($0) ? $0 : nil }
-                ?? projectNames.first ?? archivedProjects.first?.name
+                ?? projectNames.first ?? archivedProjects.first?.id
             selectProject(selection)
         } else if let name = selectedProjectName {
             let newLocal = configuration.folders.first(where: { $0.name == name })?.availableLocally
@@ -1308,7 +1325,7 @@ final class AppModel: ObservableObject {
                     alert.addButton(withTitle: "Delete Backup")
                     guard alert.runModal() == .alertSecondButtonReturn else { return }
                 }
-                let reply = try await sendCommand(.deleteBackup(item.name))
+                let reply = try await sendCommand(.deleteBackup(item.id))
                 if let snapshot = reply.snapshot { apply(snapshot) }
                 error = reply.error
             } catch let failure as LAError where failure.code == .userCancel || failure.code == .appCancel || failure.code == .systemCancel {
@@ -1319,11 +1336,24 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func unarchiveBackup(_ item: BackupItem, snapshot: BackupSnapshot) {
+    func unarchiveBackup(_ item: BackupItem, snapshot: BackupSnapshot, choosingName: Bool = false) {
         guard deletingBackup == nil, restoringBackup == nil, placementInProgress == nil else { return }
         let hostID: UUID?
         if case .host(let id) = selectedProjectHostSource { hostID = id } else { hostID = nil }
-        perform(.restoreBackup(item, snapshot, hostID: hostID))
+        var destination = item
+        if choosingName {
+            let alert = NSAlert()
+            alert.messageText = "Restore \(item.name)"
+            alert.informativeText = "Choose a folder name on the destination computer. Existing folders will not be replaced."
+            let field = NSTextField(string: item.name)
+            field.frame = NSRect(x: 0, y: 0, width: 320, height: 24)
+            alert.accessoryView = field
+            alert.addButton(withTitle: "Restore")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            destination.name = field.stringValue
+        }
+        perform(.restoreBackup(destination, snapshot, hostID: hostID))
     }
 
     func refreshLocal() { perform(.refresh) }
@@ -1338,7 +1368,7 @@ final class AppModel: ObservableObject {
         let tips = RepositoryBranchTips(local: Dictionary(uniqueKeysWithValues: snapshot.references
             .filter { $0.fullName.hasPrefix("refs/heads/") }.map { ($0.name, $0.oid) }),
             github: snapshot.branchTips?.github ?? inventory.branchTips?.github ?? [:])
-        return PeerProject(name: name, placement: inventory.placement, defaultBranch: inventory.defaultBranch,
+        return PeerProject(name: name, placement: inventory.placement, projectID: inventory.projectID, defaultBranch: inventory.defaultBranch,
                            githubRepositories: inventory.githubRepositories,
                            workingChanges: snapshot.workingChanges ?? inventory.workingChanges,
                            branchTips: tips)
@@ -1524,7 +1554,7 @@ final class AppModel: ObservableObject {
     }
 
     var paletteProjects: [String] {
-        Set(configuration.folders.map(\.name) + backupItems.map(\.name)).sorted()
+        Set(configuration.folders.map(\.name) + backupItems.map(\.id)).sorted()
     }
 
     var paletteCommands: [ProjectTerminalCommand] {
@@ -1563,8 +1593,8 @@ final class AppModel: ObservableObject {
             for (index, host) in configuration.hosts.enumerated() where folder?.availableHosts.contains(host.id) == true {
                 targets.append(PaletteTarget(project: name, source: .host(host.id), label: host.name, priority: index + 1))
             }
-            for (index, snapshot) in (backupItems.first { $0.name == name }?.snapshots ?? []).enumerated() {
-                targets.append(PaletteTarget(project: name, source: .backup(snapshot.id),
+            for (index, snapshot) in (backupItem(for: name)?.snapshots ?? []).enumerated() {
+                targets.append(PaletteTarget(project: name, source: .backup(snapshot.selectionID),
                     label: "Backup — " + snapshot.machine, priority: configuration.hosts.count + index + 1))
             }
             return targets
@@ -1701,13 +1731,16 @@ final class AppModel: ObservableObject {
             }
             return try Runner.projectSearch(target.project, query: query, configuration: remoteConfiguration(host, in: configuration))
         case .backup(let id):
+            let parts = id.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { throw SyncError.invalidProtocol("Missing backup project identity") }
+            let project = parts[0], id = parts[1]
             if let root = try configuration.validatedBackupDestination() {
-                return try BackupIndex.search(target.project, snapshotID: id, query: query, from: root).checked()
+                return try BackupIndex.search(project, snapshotID: id, query: query, from: root).checked()
             }
             guard let host = try configuration.backupHost() else {
                 throw SyncError.invalidConfiguration("Backup is unavailable")
             }
-            return try Runner.backupSearch(target.project, snapshotID: id, query: query,
+            return try Runner.backupSearch(project, snapshotID: id, query: query,
                 configuration: remoteConfiguration(host, in: configuration, receiveOnly: true))
         }
     }
@@ -1717,8 +1750,8 @@ final class AppModel: ObservableObject {
         let live = configuration.folders.first(where: { $0.name == name }).map { folder in
             configuration.hosts.filter { folder.availableHosts.contains($0.id) }.map { ProjectSource.host($0.id) }
         } ?? []
-        let backups = backupItems.first(where: { $0.name == name })?.snapshots.map {
-            ProjectSource.backup($0.id)
+        let backups = backupItem(for: name)?.snapshots.map {
+            ProjectSource.backup($0.selectionID)
         } ?? []
         return live + backups
     }
@@ -1734,7 +1767,10 @@ final class AppModel: ObservableObject {
                 throw SyncError.invalidConfiguration("The selected host is no longer configured.")
             }
             return try Runner.projectContent(name, showAuxiliaryHistory: showAuxiliaryHistory, configuration: remoteConfiguration(host, in: configuration))
-        case .backup(let snapshotID):
+        case .backup(let selectionID):
+            let parts = selectionID.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { throw SyncError.invalidProtocol("Missing backup project identity") }
+            let name = parts[0], snapshotID = parts[1]
             if let root = try configuration.validatedBackupDestination() {
                 return try BackupIndex.content(name, snapshotID: snapshotID, from: root)
             }
@@ -1761,7 +1797,10 @@ final class AppModel: ObservableObject {
             }
             return try Runner.projectDiff(name, oid: CommitGraphGenerator.isStaging(oid) ? nil : oid, staged: staged,
                                           configuration: remoteConfiguration(host, in: configuration))
-        case .backup(let snapshotID):
+        case .backup(let selectionID):
+            let parts = selectionID.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { throw SyncError.invalidProtocol("Missing backup project identity") }
+            let name = parts[0], snapshotID = parts[1]
             if let root = try configuration.validatedBackupDestination() {
                 return try BackupIndex.diff(name, snapshotID: snapshotID, oid: oid, from: root)
             }
@@ -1895,11 +1934,11 @@ struct ProjectBrowserView: View {
                 if !archived.isEmpty {
                     Section("Archived") {
                         ForEach(archived) { item in
-                            Text(item.name)
+                            Text("\(item.name) · \(item.id.prefix(8))")
                                 .font(.system(size: 11, design: .monospaced))
                                 .lineLimit(1)
                                 .listRowSeparator(.hidden)
-                                .tag(item.name)
+                                .tag(item.id)
                         }
                     }
                 }
@@ -1913,8 +1952,8 @@ struct ProjectBrowserView: View {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         ForEach(model.archivedProjects) { item in
-                            Button(item.name) {
-                                model.selectProject(item.name)
+                            Button("\(item.name) · \(item.id.prefix(8))") {
+                                model.selectProject(item.id)
                                 model.selectedTab = .info
                             }
                         }
@@ -2331,7 +2370,7 @@ private struct ProjectHistoryView: View {
                                        description: Text("Bring this project to a configured host to render its Git tree and README."))
             }
         }
-        .navigationTitle(model.selectedProjectName ?? "Git Tree")
+        .navigationTitle(model.backupItem(for: model.selectedProjectName)?.name ?? model.selectedProjectName ?? "Git Tree")
         .onChange(of: model.selectedProjectName, initial: true) { _, _ in
             if model.selectedTab == .diff { isFocused = true }
         }
@@ -2635,7 +2674,7 @@ private struct ProjectOverview: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                if let archived = model.archivedProjects.first(where: { $0.name == name }) {
+                if let archived = model.archivedProjects.first(where: { $0.id == name }) {
                     ArchivedProjectControls(item: archived, model: model)
                 }
                 Divider()
@@ -2658,7 +2697,7 @@ private struct ProjectOverview: View {
             }
             .padding(20)
         }
-        .navigationTitle(name)
+        .navigationTitle(model.backupItem(for: name)?.name ?? name)
     }
 }
 
@@ -2725,7 +2764,7 @@ private struct HostControls: View {
                 } else if hostID == nil, let directory = model.selectedLocalRepositoryURL {
                     model.terminals.view(project: project, directory: directory, hosts: model.terminalHosts)
                 }
-            } else if let archived = model.archivedProjects.first(where: { $0.name == project }) {
+            } else if let archived = model.archivedProjects.first(where: { $0.id == project }) {
                 ArchivedProjectControls(item: archived, model: model)
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2742,7 +2781,7 @@ private struct HostControls: View {
             ?? model.configuration.machine
         let status = model.placementStatus(for: project, on: hostID, placement: placement)
         return VStack(spacing: 12) {
-            Text(name).font(.title2)
+            Text(model.backupItem(for: name)?.name ?? name).font(.title2)
             Text(status.isEmpty ? placement.title : status).foregroundStyle(.secondary)
             if model.placementInProgress == (hostID?.uuidString ?? "local") {
                 ProgressView().accessibilityLabel("Updating \(name)")
@@ -2953,6 +2992,12 @@ private struct ArchivedProjectControls: View {
                 }
                 .disabled(model.deletingBackup != nil || model.restoringBackup != nil || model.placementInProgress != nil)
             }
+            Menu("Restore As…") {
+                ForEach(item.snapshots) { snapshot in
+                    Button("From \(snapshot.machine)") { model.unarchiveBackup(item, snapshot: snapshot, choosingName: true) }
+                }
+            }
+            .disabled(model.deletingBackup != nil || model.restoringBackup != nil || model.placementInProgress != nil)
             Button("Delete Backup…", role: .destructive) { model.deleteBackup(item) }
                 .disabled(model.deletingBackup != nil || model.restoringBackup != nil)
                 .help("Permanently delete this project’s stored repository and all backup snapshots.")

@@ -83,9 +83,10 @@ func projectRenamePreservesWork() throws {
     try ProjectRename.perform(.finish, record: record, in: root)
     #expect(try Repository.discover(in: root).map(\.name) == ["after"])
     #expect(try String(contentsOf: root.appendingPathComponent("after/file"), encoding: .utf8) == "unsaved to Git")
-    #expect(throws: SyncError.self) { _ = try Repository.ensure(name: "before", in: root) }
+    let replacement = try Repository.ensure(name: "before", in: root)
+    #expect(try replacement.projectID() != Repository(name: "after", url: root.appendingPathComponent("after")).projectID())
     #expect(throws: SyncError.self) { _ = try ProjectAccess(root: root, expected: original) }
-    #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("before").path))
+    #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("before").path))
 }
 
 @Test("a peer without preflight support cannot leave earlier roots suspended")
@@ -129,12 +130,13 @@ func projectRenameRefusesBusyAndCollisions() throws {
 func projectRenameBackupFirst() throws {
     let backup = try renameRoot(), local = try renameRoot(), remote = try renameRoot()
     defer { for root in [backup, local, remote] { try? FileManager.default.removeItem(at: root) } }
-    _ = try Repository.ensure(name: "before", in: backup, bare: true)
-    _ = try Repository.ensure(name: "before", in: local)
-    _ = try Repository.ensure(name: "before", in: remote)
+    let id = UUID().uuidString.lowercased()
+    _ = try Repository.ensure(name: "before", in: backup, bare: true, projectID: id)
+    _ = try Repository.ensure(name: "before", in: local, projectID: id)
+    _ = try Repository.ensure(name: "before", in: remote, projectID: id)
     let index = try BackupIndex(url: backup.appendingPathComponent("index.json"))
-    try index.replaceCatalog(machine: "mac", repositories: ["before"])
-    let record = ProjectRename.Record(old: "before", new: "after")
+    try index.replaceCatalog(machine: "mac", repositories: [id])
+    let record = ProjectRename.Record(old: "before", new: "after", projectID: id)
     var moves: [String] = []
     let targets: [ProjectRename.Target] = [
         .init(name: "backup") { step in
@@ -152,7 +154,7 @@ func projectRenameBackupFirst() throws {
     ]
     #expect(throws: SyncError.self) { try ProjectRename.coordinate(targets) }
     #expect(moves == ["backup", "local"])
-    #expect(FileManager.default.fileExists(atPath: backup.appendingPathComponent("after.git").path))
+    #expect(FileManager.default.fileExists(atPath: backup.appendingPathComponent(id + ".git").path))
     #expect(FileManager.default.fileExists(atPath: local.appendingPathComponent("after/.git").path))
     #expect(FileManager.default.fileExists(atPath: remote.appendingPathComponent("before/.git").path))
     let items = try index.items(in: backup, refresh: true)
@@ -245,7 +247,8 @@ func projectRenameThenSync() throws {
     let stateURL = root.appendingPathComponent("state.json")
     _ = try OneShot.sync(sourceRoot: source, destinationRoot: backup, machine: "mac", stateURL: stateURL,
                          full: true, bareDestination: true)
-    let record = ProjectRename.Record(old: "before", new: "after")
+    let id = try repository.projectID()
+    let record = ProjectRename.Record(old: "before", new: "after", projectID: id)
     try ProjectRename.coordinate([
         .init(name: "backup") { try ProjectRename.perform($0, record: record, in: backup, bare: true) },
         .init(name: "source") { try ProjectRename.perform($0, record: record, in: source) }
@@ -253,7 +256,7 @@ func projectRenameThenSync() throws {
     _ = try Git.run(["-C", source.appendingPathComponent("after").path, "branch", "-D", "topic"])
     _ = try OneShot.sync(sourceRoot: source, destinationRoot: backup, machine: "mac", stateURL: stateURL,
                          bareDestination: true)
-    let target = backup.appendingPathComponent("after.git")
+    let target = backup.appendingPathComponent(id + ".git")
     #expect(!Git.succeeds(["-C", target.path, "show-ref", "--verify", "refs/remotes/mac/topic"]))
     #expect(try !Git.text(["-C", target.path, "for-each-ref", "refs/sync/mac/expired/"]).isEmpty)
     #expect(!FileManager.default.fileExists(atPath: backup.appendingPathComponent("before.git").path))
@@ -305,24 +308,26 @@ func projectRenameReusesVacatedName() throws {
     let source = try renameRoot(), backup = try renameRoot(), stateRoot = try renameRoot()
     defer { for root in [source, backup, stateRoot] { try? FileManager.default.removeItem(at: root) } }
     var tips: [String: String] = [:]
+    var ids: [String: String] = [:]
     for name in ["portal", "git-sync"] {
         let repository = try Repository.ensure(name: name, in: source)
         _ = try Git.run(["-C", repository.url.path, "-c", "user.name=Test", "-c", "user.email=test@example.com",
                          "commit", "--allow-empty", "-qm", name])
+        ids[name] = try repository.projectID()
         tips[name] = try Git.text(["-C", repository.url.path, "rev-parse", "HEAD"])
     }
     let stateURL = stateRoot.appendingPathComponent("state.json")
     _ = try OneShot.sync(sourceRoot: source, destinationRoot: backup, machine: "mac", stateURL: stateURL,
                          full: true, bareDestination: true)
     let index = try BackupIndex(url: stateRoot.appendingPathComponent("index.json"))
-    try index.replaceCatalog(machine: "mac", repositories: ["portal", "git-sync"])
+    try index.replaceCatalog(machine: "mac", repositories: Array(ids.values))
     let host = UUID()
     var app = AppConfiguration(root: source.path, machine: "mac")
     app.folders = [SyncFolder(name: "portal", isLocal: true), SyncFolder(name: "git-sync", hosts: [host])]
     var connection = Configuration(root: source.path, machine: "mac", peer: "peer", remoteRoot: backup.path,
                                    repositories: ["git-sync"])
-    let first = ProjectRename.Record(old: "portal", new: "portal-tty")
-    let second = ProjectRename.Record(old: "git-sync", new: "portal", previousRenames: [first.id])
+    let first = ProjectRename.Record(old: "portal", new: "portal-tty", projectID: ids["portal"])
+    let second = ProjectRename.Record(old: "git-sync", new: "portal", projectID: ids["git-sync"], previousRenames: [first.id])
     for record in [first, second] {
         try ProjectRename.coordinate([
             .init(name: "backup") { try index.rename(record, step: $0, in: backup) },
@@ -342,7 +347,7 @@ func projectRenameReusesVacatedName() throws {
     #expect(app.folders.first(where: { $0.name == "portal-tty" })?.hosts.isEmpty == true)
     #expect(Set(try Repository.discover(in: source).map(\.name)) == ["portal", "portal-tty"])
     for (name, old) in [("portal", "git-sync"), ("portal-tty", "portal")] {
-        let refs = try Git.text(["-C", backup.appendingPathComponent(name + ".git").path,
+        let refs = try Git.text(["-C", backup.appendingPathComponent(ids[old]! + ".git").path,
                                  "for-each-ref", "--format=%(objectname)", "refs/remotes/mac/"])
         #expect(refs == tips[old])
     }

@@ -7,7 +7,7 @@ private struct MergeFixture {
     var source: URL { root.appendingPathComponent("source") }
     var destination: URL { root.appendingPathComponent("backup") }
     var local: URL { source.appendingPathComponent("project") }
-    var bare: URL { destination.appendingPathComponent("project.git") }
+    var bare: URL { destination.appendingPathComponent((try! repository.projectID()) + ".git") }
     var repository: Repository { Repository(name: "project", url: local) }
 
     init() throws {

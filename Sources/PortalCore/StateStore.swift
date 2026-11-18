@@ -21,7 +21,7 @@ private final class StateFileLock {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let lockURL = stateURL.appendingPathExtension("lock")
-        descriptor = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
+        descriptor = open(lockURL.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else {
             throw SyncError.invalidConfiguration("Could not open state lock: \(lockURL.path)")
         }
@@ -86,6 +86,40 @@ public final class StateStore {
             document.renames = (document.renames ?? []).union([record.id])
             try save()
         }
+    }
+
+    public func migrateIdentitiesFromManifest() throws {
+        let manifest = url.deletingLastPathComponent().appendingPathComponent("project-identities-v1.json")
+        guard FileManager.default.fileExists(atPath: manifest.path) else { return }
+        let identities = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: manifest))
+        for (name, id) in identities { try migrateIdentity(name: name, id: id) }
+    }
+
+    public func migrateIdentity(name: String, id: String) throws {
+        try Validator.projectID(id)
+        lock.lock(); defer { lock.unlock() }
+        var changed = false
+        for key in Array(document.source.keys) {
+            var parts = key.components(separatedBy: "\u{1f}")
+            if parts.count == 3 && parts[1] == name {
+                parts[1] = id
+                let target = parts.joined(separator: "\u{1f}")
+                guard document.source[target] == nil else { throw SyncError.invalidConfiguration("Conflicting identity ordering state") }
+                document.source[target] = document.source.removeValue(forKey: key)
+                changed = true
+            }
+        }
+        for key in Array(document.inbound.keys) {
+            var parts = key.components(separatedBy: "\u{1f}")
+            if parts.count == 4 && parts[2] == name {
+                parts[2] = id
+                let target = parts.joined(separator: "\u{1f}")
+                guard document.inbound[target] == nil else { throw SyncError.invalidConfiguration("Conflicting identity ordering state") }
+                document.inbound[target] = document.inbound.removeValue(forKey: key)
+                changed = true
+            }
+        }
+        if changed { try save() }
     }
 
     public func updates(machine: String, repository: String, refs: [String: String], full: Bool) throws -> [RefUpdate] {

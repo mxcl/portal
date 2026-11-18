@@ -26,7 +26,7 @@ def frame(process, timeout=5):
     size, = struct.unpack('!I', read(4))
     assert 0 < size <= 1048576
     change = json.loads(read(size))
-    assert change['version'] == 3
+    assert change['version'] == 5
     return change['projects']
 
 def quiet(process):
@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory() as directory:
         'commit', '-q', '--allow-empty', '-m', 'initial')
     git('-C', source, 'worktree', 'add', '-q', '-b', 'linked', root / 'linked')
     (root / 'linked' / '.gitignore').write_text('build/\n')
-    args = [executable, 'watch-projects', '--root', str(root), '--watch-version', '3']
+    args = [executable, 'watch-projects', '--root', str(root), '--watch-version', '5']
     for attempt in range(2):
         process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
@@ -80,11 +80,11 @@ with tempfile.TemporaryDirectory() as directory:
                 process.kill()
                 raise AssertionError('watcher survived client disconnect')
     missing = subprocess.Popen([executable, 'watch-projects', '--root', str(root / 'absent'),
-                                '--watch-version', '3'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+                                '--watch-version', '5'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     try:
         size, = struct.unpack('!I', missing.stdout.read(4))
         failure = json.loads(missing.stdout.read(size))
-        assert failure['version'] == 3 and failure['failure'], 'remote failure was not framed'
+        assert failure['version'] == 5 and failure['failure'], 'remote failure was not framed'
         assert missing.wait(timeout=5) != 0
     finally:
         missing.stdin.close()

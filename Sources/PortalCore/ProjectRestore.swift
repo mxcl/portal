@@ -2,7 +2,7 @@ import Foundation
 
 /// Explicit, versioned restore into a new checkout; never used by background replication.
 public struct ProjectRestoreRequest: Codable, Sendable {
-    public static let currentVersion = 1
+    public static let currentVersion = 2
     public var version = currentVersion
     public let name: String
     public let snapshot: BackupSnapshot
@@ -20,6 +20,8 @@ public struct ProjectRestoreRequest: Codable, Sendable {
             throw SyncError.invalidProtocol("Unsupported or invalid project restore request")
         }
         try Validator.project(request.name)
+        guard let id = request.snapshot.projectID else { throw SyncError.invalidProtocol("Missing restore project UUID") }
+        try Validator.projectID(id)
         let temporary = root.appendingPathComponent(".portal-restore-\(UUID())", isDirectory: true)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false,
                                                 attributes: [.posixPermissions: 0o700])
@@ -34,7 +36,7 @@ public struct ProjectRestoreRequest: Codable, Sendable {
         try output.close()
         try BackupIndex.restore(request.name, snapshot: request.snapshot, from: bundle, to: root)
         let repository = Repository(name: request.name, url: root.appendingPathComponent(request.name))
-        return PeerProject(name: request.name, placement: repository.placement,
+        return PeerProject(name: request.name, placement: repository.placement, projectID: try repository.projectID(),
                            defaultBranch: repository.defaultBranch, githubRepositories: repository.githubRepositories,
                            workingChanges: try? repository.workingChanges(), branchTips: try? repository.branchTips())
     }

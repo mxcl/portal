@@ -185,30 +185,46 @@ public struct Repository: Equatable {
             at: root, includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         )
-        return children.compactMap { child in
+        return try children.compactMap { child in
             let name = child.lastPathComponent.precomposedStringWithCanonicalMapping
             guard !ProjectRename.isRetiredOrSuspended(name, records: access.records),
                   names?.contains(name) ?? true,
                   (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
                   Git.succeeds(["-C", child.path, "rev-parse", "--git-dir"]),
                   (try? Validator.project(name)) != nil else { return nil }
-            return Repository(name: name, url: child)
+            let repository = Repository(name: name, url: child)
+            _ = try repository.projectID()
+            return repository
         }.sorted { $0.name < $1.name }
     }
 
-    public static func ensure(name: String, in root: URL, bare: Bool = false) throws -> Repository {
+    public static func ensure(name: String, in root: URL, bare: Bool = false, projectID: String? = nil) throws -> Repository {
         let name = name.precomposedStringWithCanonicalMapping
         try Validator.project(name)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let access = try ProjectAccess(root: root, names: [name])
         defer { withExtendedLifetime(access) {} }
-        let url = root.appendingPathComponent(name + (bare ? ".git" : ""), isDirectory: true)
-        if !Git.succeeds(["-C", url.path, "rev-parse", "--git-dir"]) {
+        if let projectID { try Validator.projectID(projectID) }
+        if !bare, let projectID {
+            if let existing = try discover(in: root).first(where: { try $0.projectID() == projectID }) { return existing }
+        }
+        let url = root.appendingPathComponent((bare ? projectID ?? name : name) + (bare ? ".git" : ""), isDirectory: true)
+        let existed = Git.succeeds(["-C", url.path, "rev-parse", "--git-dir"])
+        if !existed {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             _ = try Git.run(["init", "--quiet"] + (bare ? ["--bare"] : []) + [url.path])
             if !bare { _ = try Git.run(["-C", url.path, "config", "--local", "portal.mirrored", "true"]) }
         }
-        return Repository(name: name, url: url)
+        let repository = Repository(name: name, url: url)
+        if let projectID {
+            if existed {
+                guard try repository.projectID() == projectID else {
+                    throw SyncError.invalidConfiguration("Different projects share the name \(name)")
+                }
+            } else { _ = try repository.projectID(adopting: projectID) }
+            if bare && !existed { _ = try Git.run(["-C", url.path, "config", "--local", "portal.projectName", name]) }
+        }
+        return repository
     }
 
     private var isMarkedMirror: Bool {
@@ -218,8 +234,8 @@ public struct Repository: Equatable {
     }
 
     public var commonDirectory: URL? {
-        guard let path = try? Git.text(["-C", url.path, "rev-parse", "--git-common-dir"]) else { return nil }
-        return URL(fileURLWithPath: path, relativeTo: url).standardizedFileURL
+        guard let path = try? Git.text(["-C", url.path, "rev-parse", "--path-format=absolute", "--git-common-dir"]) else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
     }
 
     public func shortStatus() throws -> String {
@@ -288,7 +304,7 @@ public struct Repository: Equatable {
     }
 
     public static func setPlacement(name: String, in root: URL, to requested: ProjectPlacement,
-                                    branch: String? = nil) throws -> Repository {
+                                    branch: String? = nil, projectID: String? = nil) throws -> Repository {
         let access = try ProjectAccess(root: root, names: [name])
         defer { withExtendedLifetime(access) {} }
         try Validator.project(name)
@@ -299,13 +315,16 @@ public struct Repository: Equatable {
         let repositoryURL = root.appendingPathComponent(name, isDirectory: true)
         let exists = Git.succeeds(["-C", repositoryURL.path, "rev-parse", "--git-dir"])
 
+        if exists, let projectID, try Repository(name: name, url: repositoryURL).projectID() != projectID {
+            throw SyncError.invalidConfiguration("Placement project identity differs")
+        }
         switch requested {
         case .mirrored:
-            let repository = exists ? Repository(name: name, url: repositoryURL) : try ensure(name: name, in: root)
+            let repository = exists ? Repository(name: name, url: repositoryURL) : try ensure(name: name, in: root, projectID: projectID)
             if repository.placement == .checkedOut { try repository.removeCheckout() }
             return Repository(name: name, url: repositoryURL)
         case .checkedOut:
-            let repository = exists ? Repository(name: name, url: repositoryURL) : try ensure(name: name, in: root)
+            let repository = exists ? Repository(name: name, url: repositoryURL) : try ensure(name: name, in: root, projectID: projectID)
             if repository.placement != .checkedOut { try repository.createCheckout(branch: branch) }
             return repository
         case .notPresent:
@@ -536,12 +555,12 @@ public struct Repository: Equatable {
         return String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline).map(String.init)
     }
 
-    public func configureRemote(_ peer: PeerRepositoryLocation) throws {
+    public func configureRemote(_ peer: PeerRepositoryLocation, repositoryName: String? = nil) throws {
         try peer.validate()
         let remote = peer.remoteName
         let key = "remote.\(remote)"
         _ = try Git.run(["-C", url.path, "config", "--local", "--replace-all",
-                         "\(key).url", peer.url(for: name)])
+                         "\(key).url", peer.url(for: repositoryName ?? name)])
         _ = try Git.run(["-C", url.path, "config", "--local", "--replace-all",
                          "\(key).fetch", "+refs/heads/*:refs/remotes/\(Validator.remote(peer.machine))/*"])
         _ = try Git.run(["-C", url.path, "config", "--local", "--add",

@@ -5,7 +5,7 @@ import Foundation
 import PortalCore
 
 public enum EngineControlProtocol {
-    public static let version = 14
+    public static let version = 15
     public static let showPaletteNotification = Notification.Name("dev.mxcl.portal.show-palette")
     public static let changedNotification = Notification.Name("dev.mxcl.portal.engine-changed")
     public static var socketURL: URL {
@@ -282,7 +282,7 @@ public final class EngineModel: ObservableObject {
                 placementInProgress = "backup-delete"
                 defer { placementInProgress = nil }
                 try await Task.detached(priority: .userInitiated) {
-                    guard try !Repository.discover(in: projectsRoot).contains(where: { $0.name == name }) else {
+                    guard try !Repository.discover(in: projectsRoot).contains(where: { try $0.projectID() == name }) else {
                         throw EngineControlError.message("This project still has a local checkout or mirror.")
                     }
                     if let root, let index { try index.delete(name, in: root) }
@@ -347,7 +347,7 @@ public final class EngineModel: ObservableObject {
             throw EngineControlError.message("Wait for the current project operation to finish.")
         }
         let root = expandedRoot
-        let record = ProjectRename.Record(id: request.id, old: request.old, new: request.new,
+        let record = ProjectRename.Record(id: request.id, old: request.old, new: request.new, projectID: localProjects[request.old]?.projectID ?? remoteProjects.values.compactMap { $0[request.old]?.projectID }.first,
             previousRenames: try ProjectRename.revision(ProjectRename.records(in: root)))
         try ProjectRename.validate(record)
         let backupRoot = try configuration.validatedBackupDestination()
@@ -414,12 +414,17 @@ public final class EngineModel: ObservableObject {
 
     public func setPlacement(_ placement: ProjectPlacement, project: String, hostID: UUID?, branch: String? = nil) {
         guard placementInProgress == nil else { return }
+        let projectID = hostID.flatMap { remoteProjects[$0]?[project]?.projectID }
+            ?? localProjects[project]?.projectID ?? remoteProjects.values.compactMap { $0[project]?.projectID }.first
         if placement == .notPresent {
             let otherPlacements = ([nil] + configuration.hosts.map { Optional($0.id) })
-                .filter { $0 != hostID }.map { self.placement(of: project, on: $0) }
+                .filter { id in
+                    guard id != hostID, let projectID else { return false }
+                    return (id.flatMap { remoteProjects[$0]?[project]?.projectID } ?? (id == nil ? localProjects[project]?.projectID : nil)) == projectID
+                }.map { self.placement(of: project, on: $0) }
             let hasOtherCopy = otherPlacements.contains(.checkedOut) || otherPlacements.contains(.mirrored)
             let hasBackup = backupError == nil
-                && backupItems.first(where: { $0.name == project })?.snapshots.isEmpty == false
+                && backupItems.first(where: { $0.projectID == projectID && projectID != nil })?.snapshots.isEmpty == false
             guard hasOtherCopy || hasBackup else {
                 error = "A current backup is required before removing the last host copy."
                 return
@@ -440,11 +445,11 @@ public final class EngineModel: ObservableObject {
                 let result = try await Task.detached(priority: .userInitiated) {
                     if let connection {
                         return try Runner.setPeerPlacement(placement, repository: project,
-                                                           branch: branch, configuration: connection)
+                                                           branch: branch, projectID: projectID, configuration: connection)
                     }
                     let repository = try Repository.setPlacement(name: project, in: root, to: placement,
-                                                                  branch: branch)
-                    return PeerProject(name: project, placement: placement == .notPresent ? .notPresent : repository.placement,
+                                                                  branch: branch, projectID: projectID)
+                    return PeerProject(name: project, placement: placement == .notPresent ? .notPresent : repository.placement, projectID: projectID,
                                        defaultBranch: placement == .notPresent ? nil : repository.defaultBranch,
                                        githubRepositories: placement == .notPresent ? nil : repository.githubRepositories,
                                        workingChanges: placement == .notPresent ? nil : (try? repository.workingChanges()),
@@ -462,10 +467,10 @@ public final class EngineModel: ObservableObject {
                         let sourceMachine: String
                         if let connection {
                             let inspection = try Runner.inspectPeer(connection)
-                            names = inspection.repositories
+                            names = inspection.projects?.compactMap(\.projectID) ?? []
                             sourceMachine = inspection.machine
                         } else {
-                            names = try Repository.discover(in: root).map(\.name)
+                            names = try Repository.discover(in: root).map { try $0.projectID() }
                             sourceMachine = machine
                         }
                         if let index { try index.replaceCatalog(machine: sourceMachine, repositories: names) }
@@ -497,6 +502,10 @@ public final class EngineModel: ObservableObject {
     }
 
     public func restoreBackup(_ item: BackupItem, snapshot: BackupSnapshot, hostID: UUID? = nil) {
+        guard item.projectID != nil, item.projectID == snapshot.projectID else {
+            error = "The backup identity changed; refresh before restoring."
+            return
+        }
         guard placementInProgress == nil, restoringBackup == nil else { return }
         do {
             let host = hostID.flatMap { id in configuration.hosts.first { $0.id == id } }
@@ -521,7 +530,7 @@ public final class EngineModel: ObservableObject {
             status = "Bringing \(item.name) to \(destinationName)"
             Task {
                 do {
-                    let (names, restored) = try await Task.detached(priority: .userInitiated) {
+                    let (_, restored) = try await Task.detached(priority: .userInitiated) {
                         var restored: PeerProject?
                         if let connection {
                             let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("portal-restore-\(UUID())")
@@ -530,21 +539,21 @@ public final class EngineModel: ObservableObject {
                             defer { try? FileManager.default.removeItem(at: temporary) }
                             let bundle = temporary.appendingPathComponent("snapshot.bundle")
                             if let backupRoot {
-                                try BackupIndex.exportBundle(item.name, snapshotID: snapshot.id, from: backupRoot, to: bundle)
+                                try BackupIndex.exportBundle(item.id, snapshotID: snapshot.id, from: backupRoot, to: bundle)
                             } else if let remote {
-                                try Runner.exportBackup(item.name, snapshot: snapshot, configuration: remote, to: bundle)
+                                try Runner.exportBackup(item.id, snapshot: snapshot, configuration: remote, to: bundle)
                             }
                             restored = try Runner.restorePeerBackup(item.name, snapshot: snapshot, bundle: bundle,
                                                                     configuration: connection)
                         } else if let backupRoot {
-                            try BackupIndex.restore(item.name, snapshotID: snapshot.id,
-                                                    from: backupRoot, to: projectsRoot)
+                            try BackupIndex.restore(item.id, snapshotID: snapshot.id,
+                                                    from: backupRoot, to: projectsRoot, destinationName: item.name)
                         } else if let remote {
                             try Runner.restoreBackup(item.name, snapshot: snapshot,
                                                      configuration: remote, to: projectsRoot)
                         }
-                        let names = try connection.map { try Runner.inspectPeer($0).repositories }
-                            ?? Repository.discover(in: projectsRoot).map(\.name)
+                        let names = try connection.map { try Runner.inspectPeer($0).projects?.compactMap(\.projectID) ?? [] }
+                            ?? Repository.discover(in: projectsRoot).map { try $0.projectID() }
                         if let index { try index.replaceCatalog(machine: machine, repositories: names) }
                         else if let remote {
                             try Runner.replaceBackupCatalog(machine: machine, repositories: names,
@@ -553,7 +562,7 @@ public final class EngineModel: ObservableObject {
                         return (names, restored)
                     }.value
                     if let restored { updatePlacement(restored, hostID: hostID) }
-                    else { try configuration.discoverLocal(names) }
+                    else { try configuration.discoverLocal(Repository.discover(in: projectsRoot).map(\.name)) }
                     try save()
                     restartIfRunning()
                     restoringBackup = nil
@@ -753,6 +762,7 @@ public final class EngineModel: ObservableObject {
                let destinationConfiguration = configuration.backupDestination {
                 try Runner.prepareBackup(at: destination)
                 let index = try backupIndex(for: destinationConfiguration.id)
+                _ = try index.items(in: destination)
                 let catalogChanged = { [weak self] in
                     _ = Task { @MainActor [weak self] in self?.refreshBackupItems() }
                 }
@@ -975,8 +985,8 @@ public final class EngineModel: ObservableObject {
         let root = expandedRoot
         let (projects, statuses) = try await Task.detached(priority: priority) {
             let repositories = try Repository.discover(in: root)
-            let projects = repositories.map {
-                PeerProject(name: $0.name, placement: $0.placement, defaultBranch: $0.defaultBranch, githubRepositories: $0.githubRepositories,
+            let projects = try repositories.map {
+                PeerProject(name: $0.name, placement: $0.placement, projectID: try $0.projectID(), defaultBranch: $0.defaultBranch, githubRepositories: $0.githubRepositories,
                             workingChanges: try? $0.workingChanges(), branchTips: try? $0.branchTips())
             }
             let statuses = Dictionary(uniqueKeysWithValues: repositories.map {

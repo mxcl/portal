@@ -13,6 +13,7 @@ func missingAcceptedPeerRef() throws {
     _ = try Git.run(["-C", source.path, "-c", "user.name=Test", "-c", "user.email=test@example.com",
                      "commit", "-qm", "initial", "--allow-empty"])
     let repository = Repository(name: "project", url: source)
+    let id = try repository.projectID()
     let oid = try Git.text(["-C", source.path, "rev-parse", "HEAD"])
     let epoch = UUID().uuidString
     let stateURL = root.appendingPathComponent("state.json")
@@ -34,13 +35,18 @@ func missingAcceptedPeerRef() throws {
     _ = try connection.receiveMessage() // HELLO
     _ = try connection.receiveMessage() // CATALOG
     try connection.send(.hello("A", epoch: epoch))
-    try connection.send(update: RefUpdate(repository: "project", sourceRef: "refs/heads/main", generation: 1,
+    try connection.send(.catalog(["project"], identities: ["project": id]))
+    _ = try connection.receiveMessage() // INVENTORY
+    try connection.send(update: RefUpdate(repository: "project", projectID: id, sourceRef: "refs/heads/main", generation: 1,
                                          oid: oid, cleanCheckout: true), pack: repository.pack(oid: oid, excluding: []))
-    let received = destination.appendingPathComponent("project.git")
+    let received = destination.appendingPathComponent(id + ".git")
     // ACK is sent only after the ref is restored. A wall-clock polling deadline
     // can expire while the receiver waits for a worker during parallel tests.
     let acknowledgement = try connection.receiveMessage()
     #expect(acknowledgement.type == "ack")
+    let persisted = try JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as! [String: Any]
+    let inbound = persisted["inbound"] as! [String: UInt64]
+    #expect(inbound.keys.allSatisfy { $0.contains(id) })
     let actual = try Git.text(["-C", received.path, "rev-parse", "--verify", "refs/remotes/a/main"])
     #expect(actual == oid)
     #expect(try Repository(name: "project", url: received).sourceRefs().isEmpty)

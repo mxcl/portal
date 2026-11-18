@@ -1,4 +1,5 @@
 import Foundation
+import PortalWatch
 
 public enum BackupStatus: String, Codable, Sendable {
     case mirrored
@@ -11,13 +12,17 @@ public struct BackupSnapshot: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let machine: String
     public let branches: [String]
+    public var projectID: String? = nil
+    public var projectName: String? = nil
+    public var selectionID: String { projectID.map { $0 + ":" + id } ?? id }
 
     fileprivate let syncMachines: [String]
 }
 
 public struct BackupItem: Codable, Equatable, Identifiable, Sendable {
-    public var id: String { name }
-    public let name: String
+    public var id: String { projectID ?? name }
+    public var projectID: String? = nil
+    public var name: String
     public let status: BackupStatus
     public let mirroredBy: [String]
     public let snapshots: [BackupSnapshot]
@@ -34,10 +39,12 @@ public final class BackupIndex: @unchecked Sendable {
     private struct Document: Codable {
         var catalogs: [String: Catalog] = [:]
         var archived: Set<String> = []
+        var identityVersion: Int?
     }
 
     private struct RepositoryInfo {
         let name: String
+        let id: String
         let url: URL
         let snapshots: [BackupSnapshot]
     }
@@ -70,7 +77,7 @@ public final class BackupIndex: @unchecked Sendable {
         try Validator.machine(machine)
         let names = try Set(repositories.map {
             let name = $0.precomposedStringWithCanonicalMapping
-            try Validator.project(name)
+            try Validator.projectID(name)
             return name
         })
         lock.lock(); defer { lock.unlock() }
@@ -86,15 +93,16 @@ public final class BackupIndex: @unchecked Sendable {
             throw SyncError.invalidConfiguration("Backup destination is unavailable: \(root.path)")
         }
         if refresh || inventoryRoot != root || now.timeIntervalSince(scannedAt ?? .distantPast) >= 3600 {
+            try migrateIdentities(in: root)
             let repositories = try Self.repositories(in: root)
-            inventory = Dictionary(uniqueKeysWithValues: repositories.map { ($0.name, $0) })
+            inventory = Dictionary(uniqueKeysWithValues: repositories.map { ($0.id, $0) })
             inventoryRoot = root
             scannedAt = now
             dirtyRepositories.removeAll()
         } else {
             for name in dirtyRepositories.sorted() {
-                try Validator.project(name)
-                inventory[name] = try Self.repository(at: root.appendingPathComponent(name + ".git"))
+                try Validator.projectID(name)
+                inventory[name] = try Self.repository(at: Self.backupURL(name, in: root))
                 dirtyRepositories.remove(name)
             }
         }
@@ -102,12 +110,15 @@ public final class BackupIndex: @unchecked Sendable {
         lock.lock(); let document = document; lock.unlock()
         return repositories.map { repository in
             let snapshots = repository.snapshots.map { snapshot in
-                BackupSnapshot(id: snapshot.id,
+                var result = BackupSnapshot(id: snapshot.id,
                                machine: document.catalogs[snapshot.id]?.machine ?? snapshot.machine,
                                branches: snapshot.branches, syncMachines: snapshot.syncMachines)
+                result.projectID = repository.id
+                result.projectName = repository.name
+                return result
             }
             let mirroredBy = document.catalogs.values
-                .filter { $0.repositories.contains(repository.name) }
+                .filter { $0.repositories.contains(repository.id) }
                 .map(\.machine).sorted()
             let knownSources = Set(document.catalogs.keys)
             let snapshotSources = Set(snapshots.map(\.id)).subtracting([Self.storedSnapshotID])
@@ -119,8 +130,9 @@ public final class BackupIndex: @unchecked Sendable {
             } else {
                 status = .archived
             }
-            return BackupItem(name: repository.name, status: status, mirroredBy: mirroredBy,
-                              snapshots: snapshots)
+            var item = BackupItem(name: repository.name, status: status, mirroredBy: mirroredBy, snapshots: snapshots)
+            item.projectID = repository.id
+            return item
         }
     }
 
@@ -128,20 +140,20 @@ public final class BackupIndex: @unchecked Sendable {
         try ProjectRename.perform(step, record: record, in: root, bare: true) {
             self.inventoryLock.lock(); defer { self.inventoryLock.unlock() }
             self.lock.lock(); defer { self.lock.unlock() }
-            for key in self.document.catalogs.keys {
-                if self.document.catalogs[key]!.repositories.remove(record.old) != nil {
-                    self.document.catalogs[key]!.repositories.insert(record.new)
+            if let id = record.projectID {
+                let url = Self.backupURL(id, in: root)
+                if FileManager.default.fileExists(atPath: url.path) {
+                    _ = try Git.run(["-C", url.path, "config", "--local", "portal.projectName", record.new])
                 }
             }
-            if self.document.archived.remove(record.old) != nil { self.document.archived.insert(record.new) }
             try self.save()
             self.scannedAt = nil
         }
     }
 
     public func archive(_ name: String, in root: URL) throws {
-        try Validator.project(name)
-        guard try items(in: root).first(where: { $0.name == name })?.status == .archived else {
+        try Validator.projectID(name)
+        guard try items(in: root).first(where: { $0.id == name })?.status == .archived else {
             throw SyncError.invalidConfiguration("Only backups confirmed absent from every known host are archived.")
         }
         lock.lock(); defer { lock.unlock() }
@@ -156,10 +168,10 @@ public final class BackupIndex: @unchecked Sendable {
     public func delete(_ name: String, in root: URL) throws {
         let access = try ProjectAccess(root: root, names: [name])
         defer { withExtendedLifetime(access) {} }
-        try Validator.project(name)
+        try Validator.projectID(name)
         inventoryLock.lock(); defer { inventoryLock.unlock() }
         lock.lock(); defer { lock.unlock() }
-        let target = root.appendingPathComponent(name + ".git")
+        let target = Self.backupURL(name, in: root)
         guard let repository = try Self.repository(at: target),
               try Git.text(["-C", target.path, "rev-parse", "--is-bare-repository"]) == "true",
               !(try target.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink ?? false),
@@ -177,18 +189,23 @@ public final class BackupIndex: @unchecked Sendable {
     }
 
     public static func restore(_ name: String, snapshotID: String,
-                               from backupRoot: URL, to projectsRoot: URL) throws {
-        try Validator.project(name)
-        guard let repository = try repository(at: backupRoot.appendingPathComponent(name + ".git")),
+                               from backupRoot: URL, to projectsRoot: URL, destinationName: String? = nil) throws {
+        try Validator.projectID(name)
+        guard let repository = try repository(at: Self.backupURL(name, in: backupRoot)),
               let snapshot = repository.snapshots.first(where: { $0.id == snapshotID }) else {
             throw SyncError.invalidConfiguration("The selected backup snapshot is no longer available.")
         }
-        try restoreSource(name, snapshot: snapshot, from: repository.url, to: projectsRoot)
+        var selected = snapshot
+        selected.projectID = repository.id
+        selected.projectName = repository.name
+        try restoreSource(destinationName ?? repository.name, snapshot: selected, from: repository.url, to: projectsRoot)
     }
 
     public static func restore(_ name: String, snapshot: BackupSnapshot,
                                from bundle: URL, to projectsRoot: URL) throws {
         try Validator.project(name)
+        guard let id = snapshot.projectID else { throw SyncError.invalidProtocol("Missing restore project UUID") }
+        try Validator.projectID(id)
         if snapshot.id != storedSnapshotID {
             try Validator.machine(snapshot.id)
             guard Git.checkRef("refs/remotes/\(snapshot.id)/branch") else {
@@ -207,8 +224,8 @@ public final class BackupIndex: @unchecked Sendable {
 
     public static func exportBundle(_ name: String, snapshotID: String,
                                     from backupRoot: URL, to bundle: URL) throws {
-        try Validator.project(name)
-        guard let repository = try repository(at: backupRoot.appendingPathComponent(name + ".git")),
+        try Validator.projectID(name)
+        guard let repository = try repository(at: Self.backupURL(name, in: backupRoot)),
               repository.snapshots.contains(where: { $0.id == snapshotID }) else {
             throw SyncError.invalidConfiguration("The selected backup snapshot is no longer available.")
         }
@@ -298,8 +315,8 @@ public final class BackupIndex: @unchecked Sendable {
 
     private static func snapshotRepository(_ name: String, snapshotID: String, in root: URL) throws
         -> (Repository, BackupSnapshot) {
-        try Validator.project(name)
-        guard let info = try repository(at: root.appendingPathComponent(name + ".git")),
+        try Validator.projectID(name)
+        guard let info = try repository(at: Self.backupURL(name, in: root)),
               let snapshot = info.snapshots.first(where: { $0.id == snapshotID }) else {
             throw SyncError.invalidConfiguration("The selected backup snapshot is no longer available.")
         }
@@ -308,6 +325,7 @@ public final class BackupIndex: @unchecked Sendable {
 
     private static func restoreSource(_ name: String, snapshot: BackupSnapshot,
                                      from source: URL, to projectsRoot: URL) throws {
+        try Validator.project(name)
         let access = try ProjectAccess(root: projectsRoot, names: [name])
         defer { withExtendedLifetime(access) {} }
         let manager = FileManager.default
@@ -346,10 +364,65 @@ public final class BackupIndex: @unchecked Sendable {
                 _ = try Git.run(["-C", temporary.path, "symbolic-ref", "HEAD", "refs/heads/\(branch)"])
                 _ = try Git.run(["-C", temporary.path, "reset", "--quiet", "--hard", branch])
             }
+            if let id = snapshot.projectID { _ = try Repository(name: name, url: temporary).projectID(adopting: id) }
             try manager.moveItem(at: temporary, to: target)
         } catch {
             try? manager.removeItem(at: temporary)
             throw error
+        }
+    }
+
+    public static func backupURL(_ id: String, in root: URL) -> URL {
+        root.appendingPathComponent(id + ".git")
+    }
+
+    private func migrateIdentities(in root: URL) throws {
+        // The inventory owner alone migrates catalog metadata; moves are resumable.
+        let manifestURL = url.deletingLastPathComponent().appendingPathComponent("project-identities-v1.json")
+        lock.lock(); let needsMigration = document.identityVersion == nil; lock.unlock()
+        let manifest = needsMigration && FileManager.default.fileExists(atPath: manifestURL.path)
+            ? try JSONDecoder().decode([String: String].self, from: Data(contentsOf: manifestURL)) : [:]
+        for (name, id) in manifest {
+            try Validator.project(name); try Validator.projectID(id)
+            let legacy = root.appendingPathComponent(name + ".git")
+            if FileManager.default.fileExists(atPath: legacy.path) {
+                guard (try legacy.resourceValues(forKeys: [.isSymbolicLinkKey])).isSymbolicLink != true,
+                      try Git.text(["-C", legacy.path, "rev-parse", "--is-bare-repository"]) == "true" else {
+                    throw SyncError.invalidConfiguration("Unsafe legacy backup: \(legacy.path)")
+                }
+                _ = try Repository(name: name, url: legacy).projectID(adopting: id)
+            }
+        }
+        let repositories = try Self.repositories(in: root)
+        for repository in repositories {
+            let target = Self.backupURL(repository.id, in: root)
+            if repository.url.standardizedFileURL.path != target.standardizedFileURL.path {
+                _ = try Git.run(["-C", repository.url.path, "config", "--local", "portal.projectName", repository.name])
+                guard !FileManager.default.fileExists(atPath: target.path) else {
+                    throw SyncError.invalidConfiguration("Both legacy and UUID backups exist for \(repository.name)")
+                }
+                guard portal_rename_exclusive(repository.url.path, target.path) == 0 else {
+                    throw SyncError.invalidConfiguration("Cannot move backup to \(target.path); restart to resume migration")
+                }
+            }
+        }
+        lock.lock(); defer { lock.unlock() }
+        if document.identityVersion == nil {
+            let grouped = Dictionary(grouping: repositories, by: \.name)
+            func identity(_ name: String) throws -> String {
+                if UUID(uuidString: name) != nil { return name }
+                if let id = manifest[name] { return id }
+                guard let matches = grouped[name], matches.count == 1 else {
+                    throw SyncError.invalidConfiguration("Cannot migrate backup catalog identity for \(name)")
+                }
+                return matches[0].id
+            }
+            for key in document.catalogs.keys {
+                document.catalogs[key]!.repositories = try Set(document.catalogs[key]!.repositories.map(identity))
+            }
+            document.archived = try Set(document.archived.map(identity))
+            document.identityVersion = 1
+            try save()
         }
     }
 
@@ -363,10 +436,18 @@ public final class BackupIndex: @unchecked Sendable {
         let filename = url.lastPathComponent.precomposedStringWithCanonicalMapping
         guard filename.hasSuffix(".git"), filename.count > 4,
               (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+              (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
               Git.succeeds(["-C", url.path, "rev-parse", "--is-bare-repository"]) else { return nil }
-        let name = String(filename.dropLast(4))
+        let key = String(filename.dropLast(4))
+        let repository = Repository(name: key, url: url)
+        let id = try repository.projectID()
+        if UUID(uuidString: key) != nil, key != id {
+            throw SyncError.invalidConfiguration("Backup directory and project UUID differ: \(url.path)")
+        }
+        let storedName = try Git.text(["-C", url.path, "config", "--local", "--get", "portal.projectName"], allowFailure: true)
+        let name = storedName.isEmpty ? key : storedName
         guard (try? Validator.project(name)) != nil else { return nil }
-        return RepositoryInfo(name: name, url: url, snapshots: try snapshots(in: url))
+        return RepositoryInfo(name: name, id: id, url: url, snapshots: try snapshots(in: url))
     }
 
     private static func snapshots(in repository: URL) throws -> [BackupSnapshot] {

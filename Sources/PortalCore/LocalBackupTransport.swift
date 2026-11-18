@@ -16,7 +16,7 @@ public enum LocalBackupTransport {
 }
 
 public enum BackupControlProtocol {
-    public static let version = 9
+    public static let version = 10
 }
 
 public enum BackupControlAction: String, Codable, Sendable {
@@ -159,7 +159,7 @@ public enum BackupControlService {
             }
             switch request.action {
             case .rename:
-                guard let record = request.rename, let step = request.renameStep else {
+                guard let record = request.rename, record.projectID != nil, let step = request.renameStep else {
                     throw SyncError.invalidProtocol("Rename request is incomplete")
                 }
                 try index.rename(record, step: step, in: root)
@@ -171,7 +171,7 @@ public enum BackupControlService {
                     throw SyncError.invalidProtocol("Merged branch backup request is incomplete")
                 }
                 let receipt = try BackupIndex.retainMergedBranch(backup, in: root)
-                index.invalidate(backup.project, in: root)
+                index.invalidate(backup.projectID ?? backup.project, in: root)
                 onChange()
                 try BackupControlConnection.send(BackupControlResponse(mergedBranch: receipt), to: connection)
 

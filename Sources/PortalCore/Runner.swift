@@ -31,7 +31,7 @@ public enum Runner {
                                      configuration: Configuration) throws {
         let data = try JSONEncoder().encode(record)
         _ = try runRemote(configuration, arguments: ["rename-project", "--root", configuration.remoteRoot,
-            "--rename-version", "2", "--step", step.rawValue, "--record", data.base64EncodedString()],
+            "--rename-version", "3", "--step", step.rawValue, "--record", data.base64EncodedString()],
             failure: "Rename failed or its outcome is unknown on \(configuration.peer)")
     }
 
@@ -42,7 +42,7 @@ public enum Runner {
     }
 
     public static func setPeerPlacement(_ placement: ProjectPlacement, repository: String,
-                                        branch: String? = nil, configuration: Configuration) throws -> PeerProject {
+                                        branch: String? = nil, projectID: String? = nil, configuration: Configuration) throws -> PeerProject {
         try configuration.validate()
         try Validator.project(repository)
         guard placement != .unknown else {
@@ -51,6 +51,7 @@ public enum Runner {
         var arguments = ["project-state", "--root", configuration.remoteRoot,
                          "--repository", repository, "--placement", placement.rawValue]
         if let branch { arguments += ["--branch", branch] }
+        if let projectID { try Validator.projectID(projectID); arguments += ["--project-id", projectID] }
         let data = try runRemote(configuration, arguments: arguments,
                                  failure: "Could not change \(repository) on the peer")
         return try JSONDecoder().decode(PeerProject.self, from: data)
@@ -303,7 +304,7 @@ public enum Runner {
         try Validator.project(name)
         let bundle = projectsRoot.appendingPathComponent(".portal-unarchive-\(UUID()).bundle")
         defer { try? FileManager.default.removeItem(at: bundle) }
-        try exportBackup(name, snapshot: snapshot, configuration: configuration, to: bundle)
+        try exportBackup(snapshot.projectID ?? name, snapshot: snapshot, configuration: configuration, to: bundle)
         try BackupIndex.restore(name, snapshot: snapshot, from: bundle, to: projectsRoot)
     }
 
@@ -516,13 +517,16 @@ public enum OneShot {
         }
         let state = try StateStore(url: stateURL)
         try state.applyRenames(sourceAccess.records)
+        try state.migrateIdentitiesFromManifest()
         let sources = try Repository.discover(in: sourceRoot)
         for source in sources {
+            let id = try source.projectID()
+            try state.migrateIdentity(name: source.name, id: id)
             let destination = try Repository.ensure(name: source.name, in: destinationRoot,
-                                                    bare: bareDestination)
-            defer { repositoryObserver?(source.name) }
+                                                    bare: bareDestination, projectID: id)
+            defer { repositoryObserver?(id) }
             var known = Set(try destination.knownOIDs())
-            let updates = try state.updates(machine: machine, repository: source.name,
+            let updates = try state.updates(machine: machine, repository: id,
                                             refs: source.sourceRefs(), full: full)
             if !updates.isEmpty { backupProgress?(BackupProgress(project: source.name, phase: .transferring)) }
             let cleanCheckout = syncCheckouts && !updates.isEmpty ? source.cleanCheckoutRef() : nil
@@ -541,6 +545,6 @@ public enum OneShot {
             }
             backupProgress?(BackupProgress(project: source.name, phase: .current))
         }
-        return sources.map(\.name)
+        return try sources.map { try $0.projectID() }
     }
 }

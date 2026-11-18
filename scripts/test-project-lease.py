@@ -17,13 +17,13 @@ with tempfile.TemporaryDirectory() as directory:
         for name in ('stale', 'live'):
             root = Path(directory) / name
             root.mkdir()
-            p = subprocess.Popen([executable, 'watch-projects', '--root', str(root), '--watch-version', '3'],
+            p = subprocess.Popen([executable, 'watch-projects', '--root', str(root), '--watch-version', '5'],
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             processes.append(p)
             assert select.select([p.stdout], [], [], 10)[0], 'missing initial snapshot'
             size, = struct.unpack('!I', p.stdout.read(4))
             message = json.loads(p.stdout.read(size))
-            assert message == {'version': 3, 'projects': {}}, message
+            assert message == {'version': 5, 'projects': {}, 'namingRevision': []}, message
             p.stdin.write(b'\0'); p.stdin.flush()
         stale, live = processes
         started = last_renewal = time.monotonic()

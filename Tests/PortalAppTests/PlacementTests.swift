@@ -31,7 +31,8 @@ func checkoutAbsentProject() async throws {
         case .setPlacement(let placement, let name, let hostID, let branch):
             #expect(hostID == nil)
             if !receivedMirror { #expect(placement == .mirrored) }
-            _ = try Repository.setPlacement(name: name, in: destination, to: placement, branch: branch)
+            _ = try Repository.setPlacement(name: name, in: destination, to: placement, branch: branch,
+                projectID: Repository(name: "project", url: project).projectID())
             receivedMirror = true
         case .snapshot:
             // An unrelated helper snapshot must not dismiss progress while objects are still arriving.

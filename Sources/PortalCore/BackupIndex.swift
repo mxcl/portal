@@ -437,7 +437,7 @@ public final class BackupIndex: @unchecked Sendable {
         guard filename.hasSuffix(".git"), filename.count > 4,
               (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
               (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
-              Git.succeeds(["-C", url.path, "rev-parse", "--is-bare-repository"]) else { return nil }
+              (try? Git.text(["-C", url.path, "rev-parse", "--is-bare-repository"])) == "true" else { return nil }
         let key = String(filename.dropLast(4))
         let repository = Repository(name: key, url: url)
         let id = try repository.projectID()

@@ -70,7 +70,8 @@ func archiveRefreshesInventory() async throws {
                      stateURL: root.appendingPathComponent("state.json"), bareDestination: true)
     let destination = BackupDestinationConfiguration(root: backup.path)
     let indexURL = support.appendingPathComponent("backup-index-\(destination.id.uuidString).json")
-    try BackupIndex(url: indexURL).replaceCatalog(machine: "test", repositories: ["project"])
+    let projectID = try Repository(name: "project", url: project).projectID()
+    try BackupIndex(url: indexURL).replaceCatalog(machine: "test", repositories: [projectID])
     let model = EngineModel(executableURL: URL(fileURLWithPath: "/usr/bin/false"),
                             configuration: AppConfiguration(root: source.path, machine: "test",
                                 folders: [SyncFolder(name: "project", isLocal: true, availableLocally: true)],
@@ -80,6 +81,8 @@ func archiveRefreshesInventory() async throws {
     var deadline = Date().addingTimeInterval(5)
     while model.backupItems.isEmpty && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
     try #require(model.backupItems.first?.status == .mirrored)
+    await model.refreshProjectStatuses()
+    #expect(model.snapshot().localProjects["project"]?.projectID == projectID)
     // Retry after the folder was removed, but before its absence reached the backup.
     try FileManager.default.removeItem(at: project)
     model.setPlacement(.notPresent, project: "project", hostID: nil)
@@ -106,12 +109,12 @@ func archiveRefreshesInventory() async throws {
     while model.backupError != nil && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
     #expect(model.backupError == nil)
     #expect(model.backupItems.first?.status == .archived)
-    let deletion = await model.handle(.deleteBackup("project"))
+    let deletion = await model.handle(.deleteBackup(projectID))
     #expect(deletion.error == nil)
     #expect(deletion.snapshot?.backupItems.isEmpty == true)
     #expect(model.placementInProgress == nil)
     #expect(!model.configuration.folders.contains { $0.name == "project" })
-    #expect(!FileManager.default.fileExists(atPath: backup.appendingPathComponent("project.git").path))
+    #expect(!FileManager.default.fileExists(atPath: backup.appendingPathComponent(projectID + ".git").path))
 }
 
 @Test("placement failures remain visible after restarting local sync")

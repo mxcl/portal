@@ -279,6 +279,7 @@ public final class EngineModel: ObservableObject {
                 guard restoringBackup == nil, placementInProgress == nil else {
                     throw EngineControlError.message("Wait for the current project operation to finish.")
                 }
+                let deletedName = backupItems.first { $0.id == name }?.name
                 placementInProgress = "backup-delete"
                 defer { placementInProgress = nil }
                 try await Task.detached(priority: .userInitiated) {
@@ -289,7 +290,7 @@ public final class EngineModel: ObservableObject {
                     else if let remote { try Runner.deleteBackup(name, configuration: remote) }
                     else { throw EngineControlError.message("The backup destination is unavailable.") }
                 }.value
-                configuration.folders.removeAll { $0.name == name }
+                configuration.folders.removeAll { $0.name == deletedName && !$0.availableLocally && $0.availableHosts.isEmpty }
                 try save()
                 await refreshBackupItems()?.value
                 appendLog("Deleted backup for \(name)")
@@ -964,10 +965,10 @@ public final class EngineModel: ObservableObject {
     private func refreshLocalNow() {
         guard !configuration.root.isEmpty else { return }
         let root = URL(fileURLWithPath: NSString(string: configuration.root).expandingTildeInPath)
-        if let names = try? Repository.discover(in: root).map(\.name) {
-            try? configuration.discoverLocal(names)
-            localProjects = Dictionary(uniqueKeysWithValues: names.map {
-                ($0, PeerProject(name: $0, placement: .unknown))
+        if let repositories = try? Repository.discover(in: root) {
+            try? configuration.discoverLocal(repositories.map(\.name))
+            localProjects = Dictionary(uniqueKeysWithValues: repositories.map {
+                ($0.name, PeerProject(name: $0.name, placement: .unknown, projectID: try? $0.projectID()))
             })
         }
     }

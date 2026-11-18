@@ -70,7 +70,7 @@ func archivePreservesSelection() async throws {
     model.helperError = "Helper unavailable"
     #expect(model.backupStatus(for: "project").title == "Backup status unavailable")
     model.helperError = nil
-    #expect(model.selectedProjectName == "project")
+    #expect(model.selectedProjectName == model.archivedProjects.first?.id)
     #expect(model.selectedCommitID == oid)
     #expect(model.projectReadme?.markdown == "# Project\n")
     #expect(model.selectedCommitDiff == diff)

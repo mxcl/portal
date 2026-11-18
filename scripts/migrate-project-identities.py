@@ -19,6 +19,7 @@ def apply(root, support, manifest):
         if str(uuid.UUID(identity)) != identity:
             raise ValueError(f"Invalid canonical UUID: {identity}")
     assignments = []
+    common_identities = {}
     for repository in sorted(root.iterdir()):
         if repository.name.startswith(".") or repository.is_symlink() or not repository.is_dir():
             continue
@@ -27,6 +28,12 @@ def apply(root, support, manifest):
         if git("rev-parse", "--git-dir").returncode:
             continue
         identity = identities[repository.name]  # Refuse projects absent from the reviewed inventory.
+        common = git("rev-parse", "--path-format=absolute", "--git-common-dir")
+        if common.returncode:
+            raise RuntimeError(common.stderr)
+        previous = common_identities.setdefault(common.stdout.strip(), identity)
+        if previous != identity:
+            raise ValueError(f"Worktrees have conflicting manifest identities: {repository}")
         current = git("config", "--local", "--get", "portal.projectID")
         if current.returncode not in (0, 1) or current.stderr:
             raise RuntimeError(current.stderr)

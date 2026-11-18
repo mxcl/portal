@@ -31,4 +31,13 @@ with tempfile.TemporaryDirectory() as directory:
     else:
         raise AssertionError("Conflicting UUID was accepted")
     assert subprocess.check_output(["git", "-C", str(repository), "config", "--local", "portal.projectID"], text=True).strip() == identity
+    subprocess.run(["git", "-C", str(repository), "-c", "user.name=Test", "-c", "user.email=test@example.org", "commit", "-q", "--allow-empty", "-m", "initial"], check=True)
+    subprocess.run(["git", "-C", str(repository), "worktree", "add", "-q", str(root / "alias")], check=True)
+    manifest.write_text(json.dumps({"experiment": identity, "alias": str(uuid.uuid4())}))
+    try:
+        migration.apply(root, support, manifest)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Conflicting worktree UUIDs were accepted")
 print("PASS: repeatable migration preserves existing identity and rejects conflicting manifests")

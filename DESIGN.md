@@ -470,7 +470,9 @@ alert and engine command flow; the selected project follows the new name on succ
 
 Rename requires reachable, compatible configured hosts. A read-only preflight on
 every destination checks root write access, name conflicts and repository layout
-before any root is suspended. Older peers reject the unknown preflight step before
+before any root is suspended. Preflight is the only remote readiness check; rename
+does not scan backup contents or inspect every peer a second time. A preflight
+failure restarts previously enabled sync without suspending any root. Older peers reject the unknown preflight step before
 any journal is written. Preparation repeats these checks; failures or races after
 preflight still require the recovery procedure below. Each root then records
 both names in `.portal-renames.json`, while holding an advisory lock on the root
@@ -487,7 +489,9 @@ terminal sessions are not coordinated; close them before renaming.
 
 After all roots are prepared, backup display metadata changes first, followed by
 the working repositories. The UUID backup directory stays put. Each working-directory move is an atomic,
-same-filesystem, no-replace rename. Missing copies remain missing. Symlinked
+same-filesystem, no-replace rename. The source UUID is checked again immediately
+before moving, and each step must match the prepared operation’s UUID. Historical
+names do not reserve a vacant destination. Missing copies remain missing. Symlinked
 repositories, linked worktrees, case-only renames and hidden destination names
 are rejected. A vacated name may be reused only when every configured root and
 the backup acknowledges the same ordered rename history. GitHub repository names and origins are

@@ -161,7 +161,7 @@ do {
         let result = try ProjectRestoreRequest.receive(from: .standardInput, to: root)
         print(String(decoding: try JSONEncoder().encode(result), as: UTF8.self))
     case "rename-project":
-        guard try required("--rename-version", in: arguments) == "2",
+        guard try required("--rename-version", in: arguments) == String(ProjectRename.protocolVersion),
               let step = ProjectRename.Step(rawValue: try required("--step", in: arguments)),
               let data = Data(base64Encoded: try required("--record", in: arguments)) else {
             throw SyncError.invalidProtocol("Unsupported rename request")

@@ -246,3 +246,25 @@ func daemonBackupProgress() throws {
     incompatible.version = 0
     #expect(throws: SyncError.self) { try incompatible.checked() }
 }
+
+@Test("rename preflight collision leaves sync enabled and journals untouched")
+@MainActor
+func renamePreflightDoesNotPauseSync() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    _ = try Repository.ensure(name: "before", in: root)
+    _ = try Repository.ensure(name: "after", in: root)
+    let model = EngineModel(executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+        configuration: AppConfiguration(root: root.path, machine: "test"),
+        support: root.appendingPathComponent("support"))
+    await model.refreshProjectStatuses()
+    model.resume()
+    defer { model.pause() }
+    let wasRunning = model.isRunning
+    let reply = await model.handle(.renameProject(.init(old: "before", new: "after")))
+    #expect(reply.error?.contains("preflight failed") == true)
+    #expect(!model.isPaused)
+    #expect(model.isRunning == wasRunning)
+    #expect(try ProjectRename.records(in: root).isEmpty)
+}

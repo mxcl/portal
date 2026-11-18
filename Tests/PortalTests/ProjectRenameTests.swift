@@ -430,3 +430,45 @@ func projectRenameWaitsForBusyRoot() throws {
     try ProjectRename.perform(.preflight, record: record, in: root)
     #expect(try ProjectRename.records(in: root).isEmpty)
 }
+
+@Test("UUID rename can reuse an archived project's display name")
+func projectRenameReusesArchivedLabel() throws {
+    let root = try renameRoot(), backup = try renameRoot(), archived = try renameRoot()
+    defer { for directory in [root, backup, archived] { try? FileManager.default.removeItem(at: directory) } }
+    let original = try Repository.ensure(name: "first", in: root)
+    let id = try original.projectID()
+    _ = try Repository.ensure(name: "first", in: backup, bare: true, projectID: id)
+    let index = try BackupIndex(url: archived.appendingPathComponent("index.json"))
+    func rename(_ record: ProjectRename.Record) throws {
+        try ProjectRename.coordinate([
+            .init(name: "backup") { try index.rename(record, step: $0, in: backup) },
+            .init(name: "local") { try ProjectRename.perform($0, record: record, in: root) }
+        ])
+    }
+    let first = ProjectRename.Record(old: "first", new: "reused", projectID: id)
+    try rename(first)
+    try FileManager.default.moveItem(at: root.appendingPathComponent("reused"), to: archived.appendingPathComponent("original"))
+    let replacement = try Repository.ensure(name: "new-project", in: root)
+    let replacementID = try replacement.projectID()
+    _ = try Repository.ensure(name: "new-project", in: backup, bare: true, projectID: replacementID)
+    try rename(.init(old: "new-project", new: "reused", projectID: replacementID, previousRenames: [first.id]))
+    #expect(try Repository(name: "reused", url: root.appendingPathComponent("reused")).projectID() == replacementID)
+    let items = try index.items(in: backup)
+    #expect(items.map(\.name) == ["reused", "reused"])
+    #expect(Set(items.map(\.projectID)) == Set([id, replacementID]))
+}
+
+@Test("UUID is rechecked at move after preparation")
+func projectRenameRejectsReplacedSource() throws {
+    let root = try renameRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = try Repository.ensure(name: "before", in: root)
+    let record = ProjectRename.Record(old: "before", new: "after", projectID: try repository.projectID())
+    try ProjectRename.perform(.prepare, record: record, in: root)
+    try FileManager.default.moveItem(at: repository.url, to: root.appendingPathComponent("original"))
+    _ = try Git.run(["init", "-q", root.appendingPathComponent("before").path])
+    _ = try Repository(name: "before", url: repository.url).projectID()
+    #expect(throws: SyncError.self) { try ProjectRename.perform(.move, record: record, in: root) }
+    #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("after").path))
+    #expect(try ProjectRename.records(in: root).first?.moved == false)
+}

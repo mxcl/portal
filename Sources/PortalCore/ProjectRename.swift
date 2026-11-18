@@ -48,6 +48,7 @@ public final class ProjectAccess {
 }
 
 public enum ProjectRename {
+    public static let protocolVersion = 3
     public enum Step: String, Codable, Sendable { case preflight, prepare, move, finish, suspend }
     public enum Progress: String, Codable, Sendable { case checking, cancelling, renaming }
 
@@ -158,10 +159,9 @@ public enum ProjectRename {
             guard try revision(records) == (record.previousRenames ?? []) else {
                 throw SyncError.invalidConfiguration("Project naming history differs in \(root.path). Every host must acknowledge the earlier renames first.")
             }
-            let destination = records.last(where: { $0.old == record.new || $0.new == record.new })
             guard !records.contains(where: { $0.id == record.id }),
                   !isRetiredOrSuspended(record.old, records: records),
-                  destination?.new != record.new, (source == target || !exists(target)) else {
+                  !isRetiredOrSuspended(record.new, records: records), (source == target || !exists(target)) else {
                 throw SyncError.invalidConfiguration("Rename conflicts with an existing name or unfinished rename in \(root.path).")
             }
             if exists(source) {
@@ -174,15 +174,20 @@ public enum ProjectRename {
             records.append(Record(id: record.id, old: record.old, new: record.new, projectID: record.projectID,
                                   previousRenames: record.previousRenames ?? []))
         case .move, .finish, .suspend:
-            guard let i = records.firstIndex(where: { $0.id == record.id && $0.old == record.old && $0.new == record.new }) else {
+            guard let i = records.firstIndex(where: { $0.id == record.id && $0.old == record.old && $0.new == record.new && $0.projectID == record.projectID }) else {
                 throw SyncError.invalidConfiguration("Rename was not prepared in \(root.path).")
             }
             if step == .move {
                 guard !records[i].moved, (source == target || !exists(target)) else {
                     throw SyncError.invalidConfiguration("Rename has already moved or the destination exists: \(target.path)")
                 }
-                if exists(source) && source != target {
+                if exists(source) {
                     try validateRepository(source, bare: bare)
+                    if let id = record.projectID, try Repository(name: record.old, url: source).projectID() != id {
+                        throw SyncError.invalidConfiguration("Rename project identity differs")
+                    }
+                }
+                if exists(source) && source != target {
                     guard portal_rename_exclusive(source.path, target.path) == 0 else {
                         throw SyncError.invalidConfiguration("Cannot rename \(source.path): \(String(cString: strerror(errno)))")
                     }

@@ -370,12 +370,6 @@ public final class EngineModel: ObservableObject {
         stopProcesses()
         do {
             try await Task.detached(priority: .userInitiated) {
-                for connection in connections {
-                    try operation.checkCancellation()
-                    _ = try Runner.inspectPeer(connection)
-                }
-                try operation.checkCancellation()
-                if let backup { _ = try Runner.backupItems(backup) }
                 var targets: [ProjectRename.Target] = []
                 if let backupRoot {
                     guard let index else { throw EngineControlError.message("Backup index is unavailable.") }
@@ -405,6 +399,12 @@ public final class EngineModel: ObservableObject {
             if !isPaused { try launchAll() }
             throw CancellationError()
         } catch {
+            if operation.progress == .checking {
+                if !isPaused { try launchAll() }
+                self.error = String(describing: error)
+                appendLog("Rename preflight stopped: \(error)")
+                throw error
+            }
             isPaused = true
             status = "Rename needs attention"
             self.error = String(describing: error)

@@ -31,7 +31,7 @@ public enum Runner {
                                      configuration: Configuration) throws {
         let data = try JSONEncoder().encode(record)
         _ = try runRemote(configuration, arguments: ["rename-project", "--root", configuration.remoteRoot,
-            "--rename-version", "3", "--step", step.rawValue, "--record", data.base64EncodedString()],
+            "--rename-version", String(ProjectRename.protocolVersion), "--step", step.rawValue, "--record", data.base64EncodedString()],
             failure: "Rename failed or its outcome is unknown on \(configuration.peer)")
     }
 

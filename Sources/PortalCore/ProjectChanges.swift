@@ -50,8 +50,9 @@ struct ProjectChangeScanner {
         fingerprints = fingerprints.filter { names.contains($0.key) }
         for repository in repositories {
             guard affected == nil || affected!.contains(repository.name) || projects[repository.name] == nil else { continue }
-            _ = try repository.projectID()
-            let fingerprint = try repository.observationFingerprint()
+            let identity = try repository.projectID()
+            var fingerprint = try repository.observationFingerprint()
+            fingerprint.append(Data(identity.utf8))
             guard fingerprints[repository.name] != fingerprint else { continue }
             let snapshot = try repository.snapshot(limit: 0)
             let project = PeerProject(name: repository.name, placement: repository.placement, projectID: try repository.projectID(),

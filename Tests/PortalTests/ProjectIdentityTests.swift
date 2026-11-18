@@ -108,3 +108,19 @@ func renamedRestoreIdentity() throws {
     #expect(try restored.projectID() == id)
     #expect(try Git.text(["-C", restored.url.path, "rev-parse", "refs/remotes/a/" + source.defaultBranch!]) == Git.text(["-C", source.url.path, "rev-parse", "HEAD"]))
 }
+
+@Test("Separately named linked worktrees retain independent project identities")
+func linkedWorktreeIdentities() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let original = root.appendingPathComponent("original"), linked = root.appendingPathComponent("linked")
+    _ = try Git.run(["init", "-q", original.path])
+    _ = try Git.run(["-C", original.path, "-c", "user.name=Test", "-c", "user.email=test@example.org", "commit", "--allow-empty", "-m", "initial"])
+    _ = try Git.run(["-C", original.path, "worktree", "add", "-b", "linked", linked.path])
+    let a = Repository(name: "original", url: original), b = Repository(name: "linked", url: linked)
+    let first = try a.projectID(), second = try b.projectID()
+    #expect(a.commonDirectory == b.commonDirectory)
+    #expect(first != second)
+    #expect(try a.projectID() == first)
+    #expect(try b.projectID() == second)
+}

@@ -425,9 +425,10 @@ indefinitely.
 ## Repository and ref state
 
 Paths and names are not identity. Each project has an immutable canonical UUID in
-its common Git configuration (`portal.projectID`). New repositories receive random
-UUIDs; Portal-created mirrors and restores inherit the source UUID. Local worktrees
-share the common configuration. Catalogs and updates carry UUIDs, and ref ordering
+its Git directory (`portal-project-id`). New repositories receive random
+UUIDs; Portal-created mirrors and restores inherit the source UUID. Separately named
+linked worktrees have their own Git directories and identities, preserving their
+independent Portal catalog entries and backups. Catalogs and updates carry UUIDs, and ref ordering
 keys use UUIDs together with the source epoch. A same-name, different-UUID checkout
 is a conflict, never an implicit link. Existing copies with the same UUID can have
 different local folder names.
@@ -439,10 +440,10 @@ as the source machine. Archived rows show a short UUID and keep UUID-based selec
 when a new project reuses the name. Restore As chooses a free destination folder
 without changing the restored identity; existing folders are never overwritten.
 
-Ordinary Git clones do not copy local configuration. Linking an independently
+Ordinary Git clones do not copy this local metadata. Linking an independently
 cloned repository is an explicit user operation: after verifying it is the intended
-project, set `git config --local portal.projectID <existing UUID>` while Portal is
-stopped. Independently initialized projects must retain different UUIDs even when
+project, write its existing UUID to `$(git rev-parse --absolute-git-dir)/portal-project-id`
+while Portal is stopped. Independently initialized projects must retain different UUIDs even when
 their names, origins or initial templates match.
 
 For the coordinated v1 migration, stop all sync/Hub processes and prepare one

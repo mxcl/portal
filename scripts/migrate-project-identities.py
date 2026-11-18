@@ -19,7 +19,7 @@ def apply(root, support, manifest):
         if str(uuid.UUID(identity)) != identity:
             raise ValueError(f"Invalid canonical UUID: {identity}")
     assignments = []
-    common_identities = {}
+    git_identities = {}
     for repository in sorted(root.iterdir()):
         if repository.name.startswith(".") or repository.is_symlink() or not repository.is_dir():
             continue
@@ -28,18 +28,16 @@ def apply(root, support, manifest):
         if git("rev-parse", "--git-dir").returncode:
             continue
         identity = identities[repository.name]  # Refuse projects absent from the reviewed inventory.
-        common = git("rev-parse", "--path-format=absolute", "--git-common-dir")
-        if common.returncode:
-            raise RuntimeError(common.stderr)
-        previous = common_identities.setdefault(common.stdout.strip(), identity)
+        git_directory = git("rev-parse", "--path-format=absolute", "--git-dir")
+        if git_directory.returncode:
+            raise RuntimeError(git_directory.stderr)
+        identity_path = pathlib.Path(git_directory.stdout.strip()) / "portal-project-id"
+        previous = git_identities.setdefault(identity_path, identity)
         if previous != identity:
-            raise ValueError(f"Worktrees have conflicting manifest identities: {repository}")
-        current = git("config", "--local", "--get", "portal.projectID")
-        if current.returncode not in (0, 1) or current.stderr:
-            raise RuntimeError(current.stderr)
-        if current.stdout.strip() not in ("", identity):
+            raise ValueError(f"Duplicate Git directory has conflicting identities: {repository}")
+        if identity_path.exists() and identity_path.read_text().strip() != identity:
             raise ValueError(f"Conflicting identity: {repository}")
-        assignments.append((repository, identity))
+        assignments.append((identity_path, identity))
     support.mkdir(parents=True, exist_ok=True)
     destination = support / "project-identities-v1.json"
     encoded = json.dumps(identities, indent=2, sort_keys=True) + "\n"
@@ -49,8 +47,12 @@ def apply(root, support, manifest):
     temporary.write_text(encoded)
     temporary.chmod(0o600)
     temporary.replace(destination)
-    for repository, identity in assignments:
-        subprocess.run(["git", "-C", str(repository), "config", "--local", "portal.projectID", identity], check=True)
+    for identity_path, identity in assignments:
+        if identity_path.exists():
+            continue
+        temporary = identity_path.with_suffix(".pending")
+        temporary.write_text(identity + "\n")
+        temporary.replace(identity_path)
     print(f"Assigned and verified {len(assignments)} projects; startup manifest contains {len(identities)} identities.")
 
 

@@ -149,9 +149,12 @@ func archiveChosenHosts(fails: Bool) async {
         #expect(project == "project")
         received.append(hostID)
         await Task.yield()
-        return EngineReply(error: fails ? "Host unavailable" : nil)
+        return EngineReply(error: fails ? "The checkout must be on a branch and completely clean." : nil)
     }
     model.configuration.hosts = hosts
+    model.configuration.backup = BackupConfiguration(hostID: hosts[1].id)
+    model.isRunning = true
+    model.backupTransferring["other-project"] = true
     for host in hosts {
         model.remoteProjects[host.id] = ["project": PeerProject(name: "project", placement: .checkedOut)]
     }
@@ -160,7 +163,8 @@ func archiveChosenHosts(fails: Bool) async {
     await model.archive("project", on: [hosts[0].id, hosts[2].id])
     #expect(received == (fails ? [hosts[0].id] : [hosts[0].id, hosts[2].id]))
     #expect(model.placementInProgress == nil)
-    #expect(fails ? model.error?.contains("Host unavailable") == true : model.error == nil)
+    #expect(fails ? model.error?.contains("completely clean") == true : model.error == nil)
+    #expect(model.backupSidebarStatus(for: "other-project") == "Transferring backup objects…")
 }
 
 }

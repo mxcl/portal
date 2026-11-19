@@ -394,9 +394,14 @@ final class AppModel: ObservableObject {
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
+    var backupUnavailable: Bool {
+        (configuration.backup != nil || configuration.backupDestination != nil)
+            && (backupError != nil || helperError != nil)
+    }
+
     func backupSidebarStatus(for project: String) -> String {
         guard configuration.backup != nil || configuration.backupDestination != nil else { return "Backup not configured" }
-        if backupError != nil || helperError != nil || error != nil { return "Backup unavailable" }
+        if backupUnavailable { return "Backup unavailable" }
         if isPaused { return "Backup paused" }
         guard isRunning else { return "Backup stopped" }
         guard let transferring = backupTransferring[project] else {
@@ -2271,7 +2276,7 @@ struct ProjectRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 0) {
-                SidebarLED(tone: backupFailed ? .red : backupTransferring ? .white : .off,
+                SidebarLED(tone: model.backupUnavailable ? .red : backupTransferring ? .white : .off,
                            label: model.backupSidebarStatus(for: name), transferring: backupTransferring)
                 SidebarLED(tone: model.hasGitHubBranchDifferences(for: name) ? .amber
                            : model.hasBranchDifferences(for: name) ? .white : .off,
@@ -2288,13 +2293,8 @@ struct ProjectRow: View {
         .accessibilityLabel(projectSummary + " — " + terminalLabel)
     }
 
-    private var backupFailed: Bool {
-        model.configuration.backup != nil || model.configuration.backupDestination != nil
-            ? model.backupError != nil || model.helperError != nil || model.error != nil : false
-    }
-
     private var backupTransferring: Bool {
-        !backupFailed && !model.isPaused && model.isRunning && model.backupTransferring[name] == true
+        !model.backupUnavailable && !model.isPaused && model.isRunning && model.backupTransferring[name] == true
     }
 
     private var terminalTone: SidebarLED.Tone {

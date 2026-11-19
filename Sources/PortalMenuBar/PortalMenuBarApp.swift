@@ -290,7 +290,7 @@ private struct StatusMenu: View {
         }
         .disabled(!runtime.model.isConfigured)
         Divider()
-        Button("Open Portal") {
+        Button("Open Portal Hub") {
             MenuBarRuntime.openMainApplication()
         }
         .keyboardShortcut(runtime.model.globalShortcutEnabled

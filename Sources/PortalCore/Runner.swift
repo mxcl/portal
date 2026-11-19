@@ -214,7 +214,7 @@ public enum Runner {
                 + "expand Portal, and enable access to the destination "
                 + "(Removable Volumes for an external drive, or Network Volumes for a network drive). "
                 + "If that option is unavailable, allow Portal in Privacy & Security > Full Disk Access. "
-                + "Then quit and reopen Portal."
+                + "Then quit and reopen Portal Hub."
             #endif
             message += " Also check that your account has read and write permission for this folder."
             throw SyncError.invalidConfiguration(message)

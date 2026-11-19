@@ -3049,7 +3049,7 @@ struct SettingsView: View {
                     }
                 }
                 Section("Keyboard Shortcut") {
-                    Toggle("Open Portal with ⌘⌥`", isOn: Binding(
+                    Toggle("Open Portal Hub with ⌘⌥`", isOn: Binding(
                         get: { model.globalShortcutEnabled }, set: model.setGlobalShortcutEnabled
                     ))
                     Text("Available from any app while the menu bar helper is running.")

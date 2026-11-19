@@ -1419,7 +1419,9 @@ private final class BlockView: NSView {
         for inset: CGFloat in [0, 38] {
             scrollView.contentInsets.top = inset
             for scrollY: CGFloat in [0, 100, 580, 700, 0] {
+                block.needsLayout = true
                 scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollY - inset))
+                guard block.needsLayout else { return false }
                 block.layoutSubtreeIfNeeded()
                 let headerFrame = document.convert(block.stickyHeader.bounds, from: block.stickyHeader)
                 let expectedY = min(scrollY, 600 - headerFrame.height)
@@ -1903,8 +1905,8 @@ private final class BlockView: NSView {
     @objc private func scrollBoundsChanged(_ notification: Notification) {
         guard let clipView = notification.object as? NSClipView,
               clipView === enclosingScrollView?.contentView else { return }
+        // AppKit can apply these constraint changes together in its next layout pass.
         updateStickyHeader()
-        layoutSubtreeIfNeeded()
     }
 
     private func updateStickyHeader() {

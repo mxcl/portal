@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import Combine
+import Darwin
 import ServiceManagement
 import SwiftUI
 import PortalEngine
@@ -9,6 +10,19 @@ import PortalEngine
 @MainActor
 struct PortalMenuBarApp {
     static func main() {
+        let lockURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Portal/menu-helper.lock")
+        let lock: Int32
+        do {
+            guard let descriptor = try acquireMenuHelperLock(at: lockURL) else { return }
+            lock = descriptor
+        } catch {
+            NSLog("Could not acquire the Portal menu helper lock: %@", error.localizedDescription)
+            return
+        }
+        // Leave the file in place so every launch locks the same inode.
+        defer { close(lock) }
+
         let application = NSApplication.shared
         let delegate = MenuAppDelegate()
         application.delegate = delegate
